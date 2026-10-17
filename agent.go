@@ -492,13 +492,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 	}()
 	go func() {
 		ls, nxt, lerr := ag.listSessions(ctx, "")
-		win.Update(func() {
-			if lerr == nil {
-				a.sessions = ls
-				a.nextCursor = nxt
-			}
-			a.sessionsLoaded = true
-		})
+		win.Update(func() { a.settleBoot(ls, nxt, lerr) })
 	}()
 
 	// sid is a conversation created here, reused until the UI learns of

@@ -150,9 +150,7 @@ func (a *app) sessionRow(c *ui.Context, p palette, s agentSession) {
 	b := a.row(c, p, label, s.id == a.selectedSession)
 	b.PaddingStart(8)
 	b.OnClick(func() {
-		a.selected = label
-		a.selectedSession = s.id
-		a.freshTranscript()
+		a.adoptSession(s)
 		select {
 		case a.jobs <- agentJob{kind: "open", sid: s.id}:
 		default:

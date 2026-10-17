@@ -739,6 +739,83 @@ func TestOlderChatsRow(t *testing.T) {
 	}
 }
 
+// TestBootSettle pins how the boot lands: the list is in, the newest
+// conversation is adopted for real, and no session leaves a clean
+// transcript where the mock used to sit.
+func TestBootSettle(t *testing.T) {
+	a := newApp()
+	if len(a.blocks) == 0 {
+		t.Fatal("the boot starts on mock content")
+	}
+	a.settleBoot([]agentSession{{id: "ses_a", title: "Grep wiring"}}, "", nil)
+	if !a.sessionsLoaded || a.selectedSession != "ses_a" ||
+		a.selected != "Grep wiring" || len(a.blocks) != 0 {
+		t.Fatalf("boot settle: loaded %v session %q label %q blocks %d",
+			a.sessionsLoaded, a.selectedSession, a.selected, len(a.blocks))
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "open" || job.sid != "ses_a" {
+			t.Fatalf("boot job %+v", job)
+		}
+	default:
+		t.Fatal("the boot did not queue the adoption")
+	}
+
+	// A startup without a server lands empty, not on the mock.
+	a2 := newApp()
+	a2.settleBoot(nil, "", fmt.Errorf("not connected"))
+	if len(a2.blocks) != 0 || !a2.sessionsLoaded {
+		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.blocks), a2.sessionsLoaded)
+	}
+
+	// An empty store reads the same: nothing mock survives the boot.
+	a3 := newApp()
+	a3.settleBoot(nil, "", nil)
+	if len(a3.blocks) != 0 || a3.selectedSession != "" {
+		t.Fatalf("empty boot: session %q, %d blocks", a3.selectedSession, len(a3.blocks))
+	}
+}
+
+// TestFirstSendClean keeps the demo transcript out of a conversation the
+// user starts from a fresh view: the first words append to nothing else.
+func TestFirstSendClean(t *testing.T) {
+	a := newApp()
+	a.draft = "hello"
+	a.send()
+	select {
+	case job := <-a.jobs:
+		if job.kind != "prompt" || job.sid != "" {
+			t.Fatalf("first-send job %+v", job)
+		}
+	default:
+		t.Fatal("the first send did not queue a job")
+	}
+	if len(a.blocks) != 1 || a.blocks[0].kind != "user" || a.blocks[0].text != "hello" {
+		t.Fatalf("first send blocks %+v", a.blocks)
+	}
+}
+
+// TestStartNewChat resets the view and the addressee, and creates no
+// session on its own: one comes into being with the first words.
+func TestStartNewChat(t *testing.T) {
+	a := newApp()
+	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.selectedSession = "ses_a"
+	a.selected = "Grep wiring"
+	a.blocks = []block{{kind: "text", text: "leftover"}}
+	a.startNewChat()
+	if a.selectedSession != "" || a.selected != "" || len(a.blocks) != 0 {
+		t.Fatalf("after new chat: session %q label %q blocks %d",
+			a.selectedSession, a.selected, len(a.blocks))
+	}
+	select {
+	case job := <-a.jobs:
+		t.Fatalf("new chat created something eagerly: %+v", job)
+	default:
+	}
+}
+
 // TestLiveAgent exercises the whole pipe against a real opencode: spawn,
 // readiness, auth, one prompt, the streamed answer, then the sidebar list
 // and restore of what was stored. Opt in by hand:

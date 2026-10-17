@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -156,14 +157,17 @@ func main() {
 		go a.connect(win, a.jobs)
 
 		// WADA_CAPTURE=/path/out.png writes a PNG of the window and quits:
-		// a way to see the interface without clicking through it.
+		// a way to see the interface without clicking through it. The wait
+		// lets the boot settle onto the newest conversation first.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
-				win.Update(func() {
-					if png, err := win.CapturePage(); err == nil {
-						os.WriteFile(out, png, 0o644)
-					}
-					mygo.App.Exit(0)
+				time.AfterFunc(3*time.Second, func() {
+					win.Update(func() {
+						if png, err := win.CapturePage(); err == nil {
+							os.WriteFile(out, png, 0o644)
+						}
+						mygo.App.Exit(0)
+					})
 				})
 			})
 		}
@@ -178,6 +182,11 @@ func main() {
 func (a *app) send() {
 	if strings.TrimSpace(a.draft) == "" {
 		return
+	}
+	// A turn starting on nothing real opens the conversation: its first
+	// words must not land under whatever the mock left on display.
+	if a.selectedSession == "" {
+		a.freshTranscript()
 	}
 	a.blocks = append(a.blocks, block{kind: "user", text: a.draft})
 	text := strings.TrimSpace(a.draft)
@@ -304,16 +313,45 @@ func (a *app) deleteConfirmed() {
 	}
 }
 
-// startNewChat empties the transcript and asks the runner for a fresh
-// conversation once the server is up.
+// adoptSession settles the view onto one conversation: what a Recents
+// click does, and what the boot does with the newest conversation.
+func (a *app) adoptSession(s agentSession) {
+	label := s.title
+	if label == "" {
+		label = "New chat"
+	}
+	a.selected = label
+	a.selectedSession = s.id
+	a.freshTranscript()
+}
+
+// settleBoot finishes the boot: the conversation list lands and the view
+// settles onto the newest conversation, as its click would have; with
+// none, the transcript starts clean instead of showing the mock.
+func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
+	if lerr == nil {
+		a.sessions = ls
+		a.nextCursor = next
+	}
+	if lerr == nil && len(ls) > 0 {
+		a.adoptSession(ls[0])
+		select {
+		case a.jobs <- agentJob{kind: "open", sid: ls[0].id}:
+		default:
+		}
+	} else {
+		a.freshTranscript()
+	}
+	a.sessionsLoaded = true
+}
+
+// startNewChat clears the view; the conversation itself comes into being
+// with the first words, so a new chat is not one until it is spoken in.
 func (a *app) startNewChat() {
 	a.selected = ""
+	a.selectedSession = ""
 	a.draft = ""
 	a.freshTranscript()
-	select {
-	case a.jobs <- agentJob{kind: "new"}:
-	default:
-	}
 }
 
 // freshTranscript empties the transcript for another conversation,

@@ -1,0 +1,6 @@
+{
+  "name": "wada_desktop_go",
+  "identifier": "com.example.wadadesktopgo",
+  "version": "0.1.0",
+  "out": "build"
+}

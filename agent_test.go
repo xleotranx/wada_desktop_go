@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -101,6 +102,33 @@ func TestAgentRoundTrip(t *testing.T) {
 		}
 	default:
 		t.Fatal("the prompt body never reached the server")
+	}
+}
+
+// TestAgentRefusesOversizedBody keeps a response over the read cap out of
+// the JSON decoder, which would otherwise report a body cut in half as a
+// syntax error.
+func TestAgentRefusesOversizedBody(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/session/big/message", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"type":"user","payload":{"text":"`))
+		w.Write(bytes.Repeat([]byte("x"), 4096))
+		w.Write([]byte(`"}}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ag := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client(), bodyCap: 1024}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := ag.sessionMessages(ctx, "big"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("an oversized body read as %v", err)
+	}
+	// Under the cap the same endpoint reads fine.
+	ag.bodyCap = 8192
+	msgs, err := ag.sessionMessages(ctx, "big")
+	if err != nil || len(msgs) != 1 || len(msgs[0].Payload.Text) != 4096 {
+		t.Fatalf("a body within the cap failed: %d messages, %v", len(msgs), err)
 	}
 }
 

@@ -31,7 +31,12 @@ type agent struct {
 	cmd     *exec.Cmd // the process the app started; nil for a dialed server
 	addr    string    // where it listens, for Settings to show
 	version string    // what its /info named
+	bodyCap int64     // how much of one response to keep; 0 for defaultBodyCap
 }
+
+// defaultBodyCap is how much of one API response the client keeps: a stored
+// conversation with images in it is megabytes, but not endless.
+const defaultBodyCap int64 = 32 << 20
 
 // agentEvent is one line of the opencode event stream, decoded to its
 // envelope; the payload sits in Data and its shape depends on Type.
@@ -146,8 +151,15 @@ func freePort() (int, error) {
 }
 
 // call is one API round trip. opencode answers errors as tagged JSON bodies
-// like {"_tag":…,"message":…}, which this turns into Go errors.
+// like {"_tag":…,"message":…}, which this turns into Go errors. A response
+// is read up to bodyCap, or defaultBodyCap when the client carries none: a
+// stored conversation with images in it is megabytes, but not endless, and
+// a body cut short is refused rather than handed to the JSON decoder.
 func (a *agent) call(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
+	limit := a.bodyCap
+	if limit <= 0 {
+		limit = defaultBodyCap
+	}
 	var buf bytes.Buffer
 	if body != nil {
 		json.NewEncoder(&buf).Encode(body)
@@ -165,7 +177,13 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 		return nil, err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("%s %s: the response is larger than %d MiB", method, path, limit>>20)
+	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, fmt.Errorf("the key was refused (401)")
 	}

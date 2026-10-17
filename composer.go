@@ -30,12 +30,12 @@ func (a *app) composer(c *ui.Context, p palette) {
 				})
 
 			ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(2, 0, 0, 0).Children(func() {
-				a.composeIconButton(c, p, "Attach", icPlus)
+				attach := a.composeIconButton(c, p, "Attach", icPlus)
+				attach.OnClick(a.openAttachDialog)
 				a.fullAccessButton(c, p)
 				a.folderChip(c, p)
 				ui.Spacer(c)
 				a.modelButton(c, p)
-				a.composeIconButton(c, p, "Dictate", icMic)
 				a.voiceButton(c, p)
 			})
 		})
@@ -92,13 +92,45 @@ func (a *app) folderModal(c *ui.Context, p palette) {
 }
 
 // composeIconButton is a small icon button of the composer's bottom row.
-func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui.SVG) {
+func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui.SVG) ui.Element {
 	b := ui.ButtonBase(c).Label(label).Size(30, 28).Radius(9).Center().Tooltip(label)
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
 	b.Children(func() {
 		ui.Icon(c, icon).FontSize(17).TextColor(p.text)
+	})
+	return b
+}
+
+// attachModal quotes a workspace file into the draft, so the agent reads
+// the text the user asked about along with the message.
+func (a *app) attachModal(c *ui.Context, p palette) {
+	ui.Modal(c, &a.attachOpen, func() {
+		ui.Box(c).Width(400).Radius(14).Padding(16, 18).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
+			Children(func() {
+				ui.Column(c).Gap(10).Children(func() {
+					ui.Text(c, "Quote a file").FontSize(14).FontWeight(600)
+					ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
+					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
+						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
+						ui.TextInput(c, &a.attachDraft).FontSize(13).Placeholder("src/main.go")
+					})
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+						cancel.OnClick(func() { a.attachOpen = false })
+						cancel.Children(func() {
+							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+						})
+						quote := ui.PrimaryButton(c, "Quote")
+						quote.OnClick(a.attachFile)
+					})
+					if a.attachNote != "" {
+						ui.Text(c, a.attachNote).FontSize(12).TextColor(p.danger).SingleLine()
+					}
+				})
+			})
 	})
 }
 

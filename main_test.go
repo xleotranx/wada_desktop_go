@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -146,6 +149,53 @@ func TestHeaderWiring(t *testing.T) {
 	tt = ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Notifications") || tt.HasText("approvals waiting") {
 		t.Fatalf("badge stuck: %v", tt.Texts())
+	}
+}
+
+// TestAttachDialog drives the composer's attach flow: the + opens the
+// dialog, typing a path quotes the file and the drawer closes.
+func TestAttachDialog(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "notes.md"), []byte("# hello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a := newApp()
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.selectedSession = "ses_z"
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	if err := tt.Click("Attach"); err != nil {
+		t.Fatalf("the + did not open the dialog: %v", err)
+	}
+	if !a.attachOpen {
+		t.Fatal("the dialog did not open")
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Quote a file") {
+		t.Fatalf("dialog missing: %v", tt.Texts())
+	}
+	a.attachDraft = "notes.md"
+	tt = ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Quote"); err != nil {
+		t.Fatal(err)
+	}
+	if a.attachOpen {
+		t.Fatal("the dialog stayed open")
+	}
+	mark := "(file: " + filepath.Join(tmp, "notes.md") + ")"
+	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "# hello") {
+		t.Fatalf("draft %q", a.draft)
+	}
+	// The cancelled drawer leaves the draft to itself.
+	a.attachOpen = true
+	a.attachDraft = ""
+	tt = ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if a.attachOpen || strings.Count(a.draft, mark) != 1 {
+		t.Fatalf("cancel fail: open %v draft %q", a.attachOpen, a.draft)
 	}
 }
 

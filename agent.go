@@ -792,6 +792,67 @@ func expandPath(path string) (string, error) {
 	return abs, nil
 }
 
+// expandFile resolves a file path the user typed, through ~ to the
+// absolute file, cut at the size the draft can quote.
+func expandFile(path string) (string, []byte, error) {
+	path = strings.TrimSpace(path)
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", nil, err
+		}
+		path = home + strings.TrimPrefix(path, "~")
+	}
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", nil, err
+	}
+	st, serr := os.Stat(abs)
+	if serr != nil {
+		return "", nil, fmt.Errorf("that file is not there")
+	}
+	if st.IsDir() {
+		return "", nil, fmt.Errorf("that is a folder, not a file")
+	}
+	if st.Size() > 256*1024 {
+		return "", nil, fmt.Errorf("that file is too large to quote")
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", nil, err
+	}
+	return abs, data, nil
+}
+
+// codeLang is the tag a file's fence carries, from its ending.
+func codeLang(path string) string {
+	dot := strings.LastIndex(path, ".")
+	if dot < 0 {
+		return ""
+	}
+	switch strings.TrimPrefix(path[dot:], ".") {
+	case "go":
+		return "go"
+	case "json":
+		return "json"
+	case "ts", "tsx":
+		return "ts"
+	case "js", "mjs", "cjs":
+		return "js"
+	case "sh", "zsh", "bash":
+		return "sh"
+	case "py":
+		return "py"
+	case "md":
+		return "md"
+	case "rs":
+		return "rs"
+	case "toml", "yaml", "yml":
+		return "yaml"
+	}
+	return ""
+}
+
 // dirBase is a directory's name for showing, its last segment.
 func dirBase(dir string) string {
 	if dir == "" {

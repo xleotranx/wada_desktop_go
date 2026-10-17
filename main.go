@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,6 +46,11 @@ type app struct {
 	dirOpen  bool
 	dirDraft string
 	dirNote  string
+
+	// The file-attach dialog, quoting a workspace file into the draft.
+	attachOpen  bool
+	attachDraft string
+	attachNote  string
 
 	// The rename and delete dialogs of the Recents list, and where the
 	// older conversations pick up once the first page is through.
@@ -132,6 +138,7 @@ func (a *app) view(c *ui.Context) {
 		a.contentPane(c, p, headerH)
 	})
 	a.folderModal(c, p)
+	a.attachModal(c, p)
 	a.sessionDialogs(c, p)
 }
 
@@ -263,6 +270,51 @@ func (a *app) startChatIn(path string) {
 	case a.jobs <- agentJob{kind: "new", dir: clean}:
 	default:
 	}
+}
+
+// openAttachDialog readies the file-attach dialog for the chat's folder.
+func (a *app) openAttachDialog() {
+	a.attachDraft = ""
+	a.attachNote = ""
+	a.attachOpen = true
+}
+
+// attachFile quotes a workspace file into the draft, as a fenced block
+// the agent reads with the message; typing it again does not repeat it.
+func (a *app) attachFile() {
+	rel := strings.TrimSpace(a.attachDraft)
+	if rel == "" {
+		a.attachNote = "Name a file first."
+		return
+	}
+	pth := rel
+	if !strings.HasPrefix(rel, "~") && !filepath.IsAbs(rel) {
+		pth = filepath.Join(a.chatDir(), rel)
+	}
+	abs, data, err := expandFile(pth)
+	if err != nil {
+		a.attachNote = err.Error()
+		return
+	}
+	mark := "(file: " + abs + ")"
+	if strings.Contains(a.draft, mark) {
+		a.attachNote = "That file is already in the draft."
+		return
+	}
+	a.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
+	a.attachOpen = false
+	a.attachDraft = ""
+	a.attachNote = ""
+}
+
+// selectedRow is the Recents row the transcript currently looks at.
+func (a *app) selectedRow() (agentSession, bool) {
+	for _, s := range a.sessions {
+		if s.id == a.selectedSession {
+			return s, true
+		}
+	}
+	return agentSession{}, false
 }
 
 // requestRename opens the rename dialog for one conversation.

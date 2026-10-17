@@ -44,6 +44,7 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 	if title == "" {
 		title = "New chat"
 	}
+	dir := a.chatDir()
 	icon := icFileDoc
 	if title == "New chat" {
 		icon = icPen
@@ -53,14 +54,17 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 		name := ui.ButtonBase(c).Label(title).Height(32).Radius(9).Padding(0, 10).
 			Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip("Switch chat").
 			Menu(func(m *ui.Menu) {
-				m.Item("Rename…")
-				m.Item("Share")
+				if m.Item("Rename…").Chosen() {
+					if s, ok := a.selectedRow(); ok {
+						a.requestRename(s)
+					}
+				}
 				m.Separator()
-				m.Item("Move to project…")
-				m.Item("Pin")
-				m.Separator()
-				m.Item("Archive")
-				m.Item("Delete")
+				if m.Item("Delete").Chosen() {
+					if s, ok := a.selectedRow(); ok {
+						a.confirmDelete(s)
+					}
+				}
 			})
 		if name.Hovered() {
 			name.Background(p.hover)
@@ -69,8 +73,8 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 			ui.Row(c).AlignItems(ui.Center).Gap(0).Children(func() {
 				ui.Icon(c, icon).FontSize(15).TextColor(p.muted)
 				ui.Text(c, title).MarginStart(8).FontSize(13).FontWeight(500).SingleLine()
-				// where the chat works, small beside its name
-				if dir := a.chatDir(); dir != "" {
+				// The chip shows where the chat works while it works there.
+				if dir != "" {
 					ui.Text(c, dirBase(dir)).MarginStart(8).FontSize(12).TextColor(p.muted).SingleLine()
 				}
 			})
@@ -79,9 +83,27 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 		ui.Spacer(c)
 
 		ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
-			a.navButton(c, p, "Chat options", icEllipsis, nil, p.muted)
-			a.navButton(c, p, "Chat tasks", icTasks, nil, p.muted)
-			a.navButton(c, p, "Layout", icLayout, nil, p.muted)
+			options := ui.ButtonBase(c).Label("Chat options").Size(30, 30).Radius(8).Center().
+				Cursor(ui.CursorPointer).Tooltip("Chat options").
+				Menu(func(m *ui.Menu) {
+					if m.Item("Rename…").Chosen() {
+						if s, ok := a.selectedRow(); ok {
+							a.requestRename(s)
+						}
+					}
+					m.Separator()
+					if m.Item("Delete").Chosen() {
+						if s, ok := a.selectedRow(); ok {
+							a.confirmDelete(s)
+						}
+					}
+				})
+			if options.Hovered() {
+				options.Background(p.hover)
+			}
+			options.Children(func() {
+				ui.Icon(c, icEllipsis).FontSize(17).TextColor(p.muted)
+			})
 			ui.Box(c).Width(1).Height(18).MarginX(6).Background(p.hairline)
 			a.navButton(c, p, "New chat", icPlus, a.startNewChat, ui.Hex("#3572e3"))
 		})

@@ -1027,6 +1027,54 @@ func TestModelPicker(t *testing.T) {
 // and restore of what was stored. Opt in by hand:
 //
 //	WADA_LIVE_AGENT=1 go test -run TestLiveAgent ./...
+//
+// TestAttachFile quotes workspace files into the draft: relative paths
+// ride the chat's folder, marks de-duplicate and misses stay in the
+// dialog.
+func TestAttachFile(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "sample.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a := newApp()
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.selectedSession = "ses_z"
+
+	// A missing file keeps the dialog open with a note.
+	a.attachOpen = true
+	a.attachDraft = "nothere.go"
+	a.attachFile()
+	if !a.attachOpen || a.attachNote == "" {
+		t.Fatalf("missing file %+v", a)
+	}
+
+	// A real file lands fenced in the draft, the dialog closed.
+	a.attachDraft = "sample.go"
+	a.attachFile()
+	if a.attachOpen || a.attachNote != "" {
+		t.Fatalf("attach state %+v", a)
+	}
+	mark := "(file: " + filepath.Join(tmp, "sample.go") + ")"
+	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "```go") ||
+		!strings.Contains(a.draft, "package main") {
+		t.Fatalf("draft %q", a.draft)
+	}
+
+	// Asking again does not repeat it; a folder refuses politely.
+	a.attachOpen = true
+	a.attachDraft = "sample.go"
+	a.attachFile()
+	if !strings.Contains(a.attachNote, "already") {
+		t.Fatalf("note %q", a.attachNote)
+	}
+	a.attachDraft, a.draft, a.attachNote = ".", "", ""
+	a.attachFile()
+	if !strings.Contains(a.attachNote, "not a file") {
+		t.Fatalf("folder note %q", a.attachNote)
+	}
+}
+
 func TestLiveAgent(t *testing.T) {
 	if os.Getenv("WADA_LIVE_AGENT") == "" {
 		t.Skip("set WADA_LIVE_AGENT=1 to run against a real opencode server")

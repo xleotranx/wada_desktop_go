@@ -67,6 +67,10 @@ func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 			more.Background(p.hover)
 		}
 		more.Children(func() { ui.Icon(c, icEllipsis).FontSize(17).TextColor(p.muted) })
+		c.Key("browser:hide-pane")
+		a.navButton(c, p, "Hide tools and browser", icPanel, func() {
+			a.browserCollapsed = true
+		}, p.muted)
 	})
 }
 

@@ -29,7 +29,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 					return false
 				})
 
-			ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(2, 0, 0, 0).Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Padding(2, 4, 0, 0).Children(func() {
 				attach := a.composeIconButton(c, p, "Attach", icPlus)
 				attach.OnClick(a.openAttachDialog)
 				a.fullAccessButton(c, p)
@@ -164,18 +164,21 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 	ref := a.sessionModelOf(a.selectedSession)
 	name, variants := a.modelLabel(ref)
 	b := ui.ButtonBase(c).Label("Model " + name).Height(28).Radius(999).PaddingX(8).
+		MinWidth(80).Shrink(1).
 		Cursor(ui.CursorPointer).Tooltip("Choose a model")
 	b.OnClick(func() {
 		a.modelFilter = ""
 		a.pickerOpen = true
 	})
 	b.Children(func() {
-		ui.Icon(c, icLoad).FontSize(13).TextColor(p.muted)
-		ui.Text(c, name).MarginStart(5).FontSize(13).TextColor(p.text).SingleLine()
+		ui.Icon(c, icLoad).FontSize(13).TextColor(p.muted).Shrink(0)
+		ui.Text(c, name).MarginStart(5).FontSize(13).TextColor(p.text).
+			SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		if ref.variant != "" {
-			ui.Text(c, ref.variant).MarginStart(4).FontSize(13).TextColor(p.muted).SingleLine()
+			ui.Text(c, ref.variant).MarginStart(4).FontSize(13).TextColor(p.muted).
+				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		}
-		ui.Icon(c, icChevUD).FontSize(12).MarginStart(5).TextColor(p.muted)
+		ui.Icon(c, icChevUD).FontSize(12).MarginStart(5).TextColor(p.muted).Shrink(0)
 	})
 	a.modelPicker(c, p, b, ref, variants)
 }
@@ -277,7 +280,7 @@ func (a *app) voiceButton(c *ui.Context, p palette) {
 	case strings.TrimSpace(a.draft) != "":
 		bg, icon, label = ui.Hex("#3572e3"), icSend, "Send message"
 	}
-	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().
+	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().Shrink(0).
 		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)
 	b.OnClick(func() {
 		switch {

@@ -10,11 +10,31 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+const navRailWidth float32 = 52
+
+func titlebarInset(barLeft float32) float32 {
+	inset := barLeft - navRailWidth + 8
+	if inset < 12 {
+		return 12
+	}
+	return inset
+}
+
 // navRail is the slim primary navigation beside the workspace sidebar.
 func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
-	ui.Column(c).Width(52).FillHeight().Background(p.sidebarBg).Children(func() {
+	ui.Column(c).Width(navRailWidth).FillHeight().Background(p.railBg).Children(func() {
 		ui.Row(c).Height(headerH).DragWindow()
 		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(5).Padding(6, 7).Children(func() {
+			if a.sidebarCollapsed {
+				c.Key("rail:show-sidebar")
+				show := ui.ButtonBase(c).Label("Show sidebar").Size(36, 36).Radius(10).Center().
+					Cursor(ui.CursorPointer).Tooltip("Show sidebar")
+				if show.Hovered() {
+					show.Background(p.hover)
+				}
+				show.OnClick(func() { a.sidebarCollapsed = false })
+				show.Children(func() { ui.Icon(c, icPanel).FontSize(18).TextColor(p.muted) })
+			}
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openFolderDialog)
 			a.railButton(c, p, "history", "History", icHistory, func() {
@@ -22,6 +42,7 @@ func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
 				a.focusSearch = true
 			})
 			a.railButton(c, p, "agents", "Agents", icAgent, func() { a.openTool("Side chat") })
+			c.Key("rail:more")
 			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(10).Center().
 				Cursor(ui.CursorPointer).Tooltip("More navigation")
 			if more.Hovered() {
@@ -39,7 +60,11 @@ func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
 					a.openFolderDialog()
 				}
 				m.Separator()
-				if m.Item("Toggle sidebar").Chosen() {
+				label := "Hide sidebar"
+				if a.sidebarCollapsed {
+					label = "Show sidebar"
+				}
+				if m.Item(label).Chosen() {
 					a.sidebarCollapsed = !a.sidebarCollapsed
 				}
 			})
@@ -56,6 +81,7 @@ func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
 }
 
 func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.SVG, on func()) {
+	c.Key("rail:" + key)
 	b := ui.ButtonBase(c).Label(label).Size(36, 36).Radius(10).Center().
 		Cursor(ui.CursorPointer).Tooltip(label)
 	if b.Hovered() {
@@ -77,9 +103,9 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 }
 
 // sidebarPane holds the workspace switcher, pinned chats, projects and recents.
-func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
+func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 	ui.Column(c).Width(a.sidebarW).Background(p.sidebarBg).Children(func() {
-		a.headerRow(c, p, headerH)
+		a.headerRow(c, p, headerH, titlebarInset(barLeft))
 
 		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
 			a.newChatRow(c, p)
@@ -106,7 +132,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 				if !a.projectsExpanded && visible > 5 {
 					visible = 5
 				}
-				ui.Column(c).Grow(1).FillWidth().Justify(ui.SpaceBetween).Children(func() {
+				ui.Column(c).FillWidth().Gap(2).Children(func() {
 					for _, dir := range projects[:visible] {
 						a.projectRow(c, p, dir)
 					}
@@ -122,8 +148,8 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 }
 
 // headerRow is the Codex switcher, approval bell and chats search.
-func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
-	ui.Row(c).FillWidth().Height(headerH).DragWindow().Padding(0, 12).AlignItems(ui.Center).Children(func() {
+func (a *app) headerRow(c *ui.Context, p palette, headerH, leftInset float32) {
+	ui.Row(c).FillWidth().Height(headerH).DragWindow().Padding(0, 12, 0, leftInset).AlignItems(ui.Center).Children(func() {
 		title := ui.ButtonBase(c).Label("Codex").Height(34).Radius(9).Padding(0, 9).
 			Justify(ui.Start).Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
 			if m.Item("New chat").Chosen() {
@@ -153,6 +179,10 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 			a.searchOpen = true
 			a.focusSearch = true
 		}, p.text)
+		c.Key("sidebar:hide")
+		a.navButton(c, p, "Hide sidebar", icPanel, func() {
+			a.sidebarCollapsed = true
+		}, p.muted)
 	})
 }
 
@@ -362,6 +392,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 }
 
 func (a *app) moreProjectsRow(c *ui.Context, p palette, remaining int) {
+	c.Key("projects:more")
 	label := fmt.Sprintf("Show %d more projects", remaining)
 	if a.projectsExpanded {
 		label = "Show fewer projects"

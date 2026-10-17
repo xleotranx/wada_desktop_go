@@ -6,17 +6,17 @@ import "github.com/egoist/mygo/ui"
 // the desktop asks for. Widgets that need nothing special keep the theme's
 // own colors.
 type palette struct {
-	bg, sidebarBg, hover, selected, hairline        ui.Color
-	text, muted, faint                              ui.Color
-	orange                                          ui.Color
-	composerBg, composerBorder, composerBorderFocus ui.Color
-	bubble                                          ui.Color
-	detailBg                                        ui.Color
-	danger, dangerText                              ui.Color
-	link                                            ui.Color
-	thumbLine                                       ui.Color
-	voiceBg                                         ui.Color
-	greenBadge                                      ui.Color
+	bg, sidebarBg, railBg, hover, selected, hairline ui.Color
+	text, muted, faint                               ui.Color
+	orange                                           ui.Color
+	composerBg, composerBorder, composerBorderFocus  ui.Color
+	bubble                                           ui.Color
+	detailBg                                         ui.Color
+	danger, dangerText                               ui.Color
+	link                                             ui.Color
+	thumbLine                                        ui.Color
+	voiceBg                                          ui.Color
+	greenBadge                                       ui.Color
 }
 
 func paletteFor(c *ui.Context) palette {
@@ -24,6 +24,7 @@ func paletteFor(c *ui.Context) palette {
 		return palette{
 			bg:                  ui.Hex("#212121"),
 			sidebarBg:           ui.Hex("#171717"),
+			railBg:              ui.Hex("#1b1b1b"),
 			hover:               ui.RGBA(255, 255, 255, 0.06),
 			selected:            ui.RGBA(255, 255, 255, 0.09),
 			hairline:            ui.RGBA(255, 255, 255, 0.09),
@@ -47,6 +48,7 @@ func paletteFor(c *ui.Context) palette {
 	return palette{
 		bg:                  ui.Hex("#ffffff"),
 		sidebarBg:           ui.Hex("#f9f9f9"),
+		railBg:              ui.Hex("#eef0ef"),
 		hover:               ui.RGBA(0, 0, 0, 0.048),
 		selected:            ui.RGBA(0, 0, 0, 0.082),
 		hairline:            ui.RGBA(0, 0, 0, 0.09),

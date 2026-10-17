@@ -34,6 +34,7 @@ type app struct {
 	// Navigation and pinned chats belong to the Codex sidebar, while the
 	// browser history and active tool belong to the native right pane.
 	sidebarCollapsed bool
+	browserCollapsed bool
 	selectedRail     string
 	projectsExpanded bool
 	pinned           map[string]bool
@@ -176,12 +177,18 @@ func (a *app) view(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		a.navRail(c, p, headerH)
 		if !a.sidebarCollapsed {
-			a.sidebarPane(c, p, headerH)
+			a.sidebarPane(c, p, headerH, bar.Left)
 			ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 		}
-		a.contentPane(c, p, headerH)
-		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-		a.browserPane(c, p, headerH)
+		contentInset := float32(12)
+		if a.sidebarCollapsed {
+			contentInset = titlebarInset(bar.Left)
+		}
+		a.contentPane(c, p, headerH, contentInset)
+		if !a.browserCollapsed {
+			ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+			a.browserPane(c, p, headerH)
+		}
 	})
 	a.folderModal(c, p)
 	a.attachModal(c, p)
@@ -199,11 +206,10 @@ func main() {
 			MinHeight: 700,
 			// The window draws its own title bar under the traffic lights.
 			TitleBarStyle: mygo.TitleBarHidden,
-			// Center the traffic lights in the header: the close button
-			// is 14 DIP tall, so Y = header/2 - 7 puts the lights on the
-			// same center line the top rows use (TitleBar().Height is
-			// button height + 2*Y).
-			TrafficLightPosition: &mygo.Point{X: 14, Y: 25},
+			// Keep the title strip compact and center its controls on the
+			// 50 DIP header (the close button is 14 DIP tall, with 18 DIP
+			// of room above and below).
+			TrafficLightPosition: &mygo.Point{X: 14, Y: 18},
 			StateKey:             "main",
 			Content:              ui.View(a.view),
 		})

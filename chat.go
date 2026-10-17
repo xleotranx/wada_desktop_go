@@ -32,10 +32,10 @@ func (a *app) prepareMarkdown(p palette) {
 }
 
 // contentPane draws the conversation title, transcript and composer.
-func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
+func (a *app) contentPane(c *ui.Context, p palette, headerH, leftInset float32) {
 	a.prepareMarkdown(p)
 	ui.Column(c).Grow(1).Background(p.bg).Children(func() {
-		a.titleBar(c, p, headerH)
+		a.titleBar(c, p, headerH, leftInset)
 		ui.Divider(c)
 
 		// The transcript with a fade at its foot, so the newest words slip
@@ -120,7 +120,7 @@ func (a *app) blockIdentity(i int) any {
 }
 
 // titleBar shows the chat's name between the window's controls.
-func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
+func (a *app) titleBar(c *ui.Context, p palette, headerH, leftInset float32) {
 	title := a.selected
 	if title == "" {
 		title = "New chat"
@@ -130,7 +130,7 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 		icon = icPen
 	}
 
-	ui.Row(c).Height(headerH).DragWindow().Padding(0, 12).Children(func() {
+	ui.Row(c).Height(headerH).DragWindow().Padding(0, 12, 0, leftInset).Children(func() {
 		name := ui.ButtonBase(c).Label(title).Height(32).Radius(9).Padding(0, 10).
 			Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip("Switch chat").
 			Menu(func(m *ui.Menu) {
@@ -159,6 +159,13 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 		ui.Spacer(c)
 
 		ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
+			if a.browserCollapsed {
+				c.Key("chat:show-browser")
+				a.navButton(c, p, "Show tools and browser", icLayout, func() {
+					a.browserCollapsed = false
+				}, p.muted)
+			}
+			c.Key("chat:options")
 			options := ui.ButtonBase(c).Label("Chat options").Size(30, 30).Radius(8).Center().
 				Cursor(ui.CursorPointer).Tooltip("Chat options").
 				Menu(func(m *ui.Menu) {

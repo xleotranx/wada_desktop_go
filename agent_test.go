@@ -575,25 +575,18 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
-// TestFolderDialog drives the folder chip and dialog: the chip shows
-// where the chat works, the dialog prepares a fresh draft in a typed folder
-// and turns away from folders that are not there.
-func TestFolderDialog(t *testing.T) {
+// TestStartChatInFolder prepares a draft in a folder: a path that is not
+// there only notes itself, and a real folder joins the sidebar as a
+// project without creating an empty server chat.
+func TestStartChatInFolder(t *testing.T) {
 	a := newApp()
-	tt := ui.NewTester(a.view, 1400, 920)
-	a.openFolderDialog()
-	tt.Frame()
-	if !tt.HasText("Start a chat in a folder") {
-		t.Fatalf("dialog not drawn: %v", tt.Texts())
+	a.startChatIn("/does/not/exist/wada")
+	if a.draftProject != "" || len(a.projects) != 0 {
+		t.Fatalf("missing folder landed a draft: %q, %v", a.draftProject, a.projects)
 	}
-
-	// A folder that is not there leaves a note and queues nothing.
-	a.dirDraft = "/does/not/exist/wada"
-	if err := tt.Click("Start chat here"); err != nil {
-		t.Fatal(err)
-	}
-	if a.dirNote != "that folder does not exist" {
-		t.Fatalf("note %q", a.dirNote)
+	if len(a.blocks) != 1 || a.blocks[0].kind != "note" ||
+		!strings.Contains(a.blocks[0].text, "that folder does not exist") {
+		t.Fatalf("missing folder left no note: %v", a.blocks)
 	}
 	select {
 	case job := <-a.jobs:
@@ -601,12 +594,8 @@ func TestFolderDialog(t *testing.T) {
 	default:
 	}
 
-	// A real folder prepares the draft without creating an empty server chat.
 	scratch := t.TempDir()
-	a.dirDraft = scratch
-	if err := tt.Click("Start chat here"); err != nil {
-		t.Fatal(err)
-	}
+	a.startChatIn(scratch)
 	want, err := filepath.EvalSymlinks(scratch)
 	if err != nil {
 		t.Fatal(err)
@@ -614,13 +603,16 @@ func TestFolderDialog(t *testing.T) {
 	if a.chatDir() != want || a.selectedSession != "" {
 		t.Fatalf("draft directory %q, want %q", a.chatDir(), want)
 	}
+	if len(a.projects) != 1 || a.projects[0] != want {
+		t.Fatalf("folders after starting: %v", a.projects)
+	}
+	if len(a.blocks) != 0 {
+		t.Fatalf("starting a chat left the old note: %v", a.blocks)
+	}
 	select {
 	case job := <-a.jobs:
 		t.Fatalf("created an empty chat: %+v", job)
 	default:
-	}
-	if a.dirOpen {
-		t.Fatal("the dialog stays open after starting")
 	}
 }
 

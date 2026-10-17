@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	if tt.HasText(label) {
 		t.Fatal("quick action visible before hover")
 	}
-	box, ok := tt.Find("Open project " + dirBase(dir))
+	box, ok := tt.Find("Hide chats in " + dirBase(dir))
 	if !ok {
 		t.Fatal("project row missing")
 	}
@@ -90,18 +91,187 @@ func TestProjectPickerFiltersAndAddsFolder(t *testing.T) {
 	if tt.HasText("Use project alpha") || !tt.HasText("Use project beta") {
 		t.Fatal("project filter did not narrow the list")
 	}
+	picked := t.TempDir()
+	a.pickFolder = func(done func(path string)) { done(picked) }
 	if err := tt.Click("New project…"); err != nil {
 		t.Fatal(err)
 	}
-	a.dirDraft = t.TempDir()
-	if err := tt.Click("Add project"); err != nil {
+	want, err := filepath.EvalSymlinks(picked)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if a.draftProject == "" || a.draft != "keep my draft" || a.dirOpen {
-		t.Fatal("adding a project did not preserve and configure the draft")
+	if a.draftProject != want || a.draft != "keep my draft" {
+		t.Fatalf("adding a project did not preserve and configure the draft, %q %q", a.draftProject, a.draft)
 	}
-	if a.chatDir() != a.projects[len(a.projects)-1] {
-		t.Fatal("new project was not selected")
+	if a.projectPickerOpen {
+		t.Fatal("the project picker stayed open")
+	}
+	if got := a.projects[len(a.projects)-1]; got != want {
+		t.Fatalf("new project landed as %q, want %q", got, want)
+	}
+}
+
+// TestProjectChatsNestUnderFolder keeps every chat that works in a
+// project's folder nested under it, openable, and folded away with the
+// folder.
+func TestProjectChatsNestUnderFolder(t *testing.T) {
+	a := newApp()
+	picked := t.TempDir()
+	a.addProject(picked)
+	dir := canonDir(picked)
+	other := canonDir(t.TempDir())
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{
+		{id: "ses_here", title: "Folder wiring", dir: dir},
+		{id: "ses_loose", title: "Loose wiring", dir: other},
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Folder wiring") {
+		t.Fatalf("project chat not nested under its folder: %v", tt.Texts())
+	}
+	if tt.HasText("Loose wiring") {
+		t.Fatalf("a chat outside every project showed in the sidebar: %v", tt.Texts())
+	}
+
+	// Choosing a nested chat opens it like any other row.
+	if err := tt.Click("Folder wiring"); err != nil {
+		t.Fatal(err)
+	}
+	if a.selectedSession != "ses_here" {
+		t.Fatalf("nested chat did not open: %q", a.selectedSession)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "open" || job.sid != "ses_here" {
+			t.Fatalf("nested chat job %+v", job)
+		}
+	default:
+		t.Fatal("opening a nested chat did not queue a job")
+	}
+
+	// The folder row folds its chats away and brings them back.
+	if err := tt.Click("Hide chats in " + dirBase(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if tt.HasText("Folder wiring") {
+		t.Fatalf("collapsed folder still lists its chats: %v", tt.Texts())
+	}
+	if err := tt.Click("Show chats in " + dirBase(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("Folder wiring") {
+		t.Fatalf("expanded folder lost its chats: %v", tt.Texts())
+	}
+}
+
+// TestProjectChatsPreviewAndShowMore keeps a busy folder to a few rows
+// until the rest is asked for.
+func TestProjectChatsPreviewAndShowMore(t *testing.T) {
+	a := newApp()
+	picked := t.TempDir()
+	a.addProject(picked)
+	dir := canonDir(picked)
+	a.sessionsLoaded = true
+	for i := range 7 {
+		a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i),
+			title: fmt.Sprintf("Chat %d", i), dir: dir})
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Chat 0") || tt.HasText("Chat 6") {
+		t.Fatalf("preview is not the first few chats: %v", tt.Texts())
+	}
+	if err := tt.Click("Show 2 more chats"); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("Chat 6") {
+		t.Fatalf("more chats did not show: %v", tt.Texts())
+	}
+	if err := tt.Click("Show fewer chats"); err != nil {
+		t.Fatal(err)
+	}
+	if tt.HasText("Chat 6") {
+		t.Fatal("fewer chats did not fold back")
+	}
+}
+
+// TestPinnedChatAlsoNests prints a pinned chat under Pinned and under its
+// folder without the two rows sharing state.
+func TestPinnedChatAlsoNests(t *testing.T) {
+	a := newApp()
+	picked := t.TempDir()
+	a.addProject(picked)
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_pin", title: "Pinned wiring", dir: canonDir(picked)}}
+	a.togglePin(a.sessions[0])
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Pinned wiring") {
+		t.Fatalf("pinned chat missing: %v", tt.Texts())
+	}
+
+	// Folding the folder takes the nested row away; the pinned one stays.
+	if err := tt.Click("Hide chats in " + dirBase(picked)); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("Pinned wiring") {
+		t.Fatalf("folding the folder took the pinned row too: %v", tt.Texts())
+	}
+
+	// Unpinning leaves the chat only under its folder, still folded away.
+	if err := tt.Click("Conversation options, Pinned wiring"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Unpin from Pinned"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("Pinned wiring") {
+		t.Fatalf("unpinned chat still shows with its folder folded: %v", tt.Texts())
+	}
+	if err := tt.Click("Show chats in " + dirBase(picked)); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("Pinned wiring") {
+		t.Fatalf("the chat left the folder with the pin: %v", tt.Texts())
+	}
+}
+
+// TestProjectRowKeepsItsColumns keeps folder names in one column,
+// whether or not a folder shows the chevron of its chats.
+func TestProjectRowKeepsItsColumns(t *testing.T) {
+	a := newApp()
+	empty := t.TempDir()
+	busy := t.TempDir()
+	a.addProject(empty)
+	a.addProject(busy)
+	a.sessions = []agentSession{{id: "ses_b", title: "Busy wiring", dir: canonDir(busy)}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	emptyRow, ok := tt.Find(dirBase(empty))
+	if !ok {
+		t.Fatalf("empty project row missing: %v", tt.Texts())
+	}
+	busyRow, ok := tt.Find(dirBase(busy))
+	if !ok {
+		t.Fatalf("busy project row missing: %v", tt.Texts())
+	}
+	if emptyRow.X != busyRow.X {
+		t.Fatalf("folder names at x %v and %v", emptyRow.X, busyRow.X)
+	}
+}
+
+func TestProjectChatsMatchFolder(t *testing.T) {
+	a := newApp()
+	a.sessions = []agentSession{
+		{id: "a", dir: "/work/app/."},
+		{id: "b", dir: "/work/app"},
+		{id: "c", dir: "/work/other"},
+		{id: "d"},
+	}
+	chats := a.projectChats("/work/app")
+	if len(chats) != 2 || chats[0].id != "a" || chats[1].id != "b" {
+		t.Fatalf("folder chats: %+v", chats)
+	}
+	if len(a.projectChats("/nowhere")) != 0 || len(a.projectChats("")) != 0 {
+		t.Fatal("folder matching is too loose")
 	}
 }
 

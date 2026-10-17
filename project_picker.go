@@ -59,8 +59,8 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 			ui.Divider(c)
 			ui.Button(c, "New project…").OnClick(func() {
 				a.projectPickerOpen = false
-				a.openProjectDialog()
 				a.selectAddedProject = true
+				a.openProjectDialog()
 			})
 			ui.Button(c, "Don't work in a project").OnClick(func() { a.selectDraftProject("") })
 		})
@@ -71,5 +71,7 @@ func (a *app) selectDraftProject(dir string) {
 	a.draftProject = dir
 	a.draftVersion++
 	a.projectPickerOpen = false
+	// The chat that grows from this draft belongs in view.
+	delete(a.projectCollapsed, dir)
 	a.freshTranscript()
 }

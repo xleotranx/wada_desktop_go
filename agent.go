@@ -359,7 +359,7 @@ func (a *agent) listSessions(ctx context.Context, cursor string, search string) 
 	}
 	all := []agentSession{}
 	for _, s := range out.Data {
-		row := agentSession{id: s.ID, title: s.Title, dir: s.Location.Directory, updated: s.Time.Updated,
+		row := agentSession{id: s.ID, title: s.Title, dir: canonDir(s.Location.Directory), updated: s.Time.Updated,
 			model: agentModelRef{providerID: s.Model.ProviderID, id: s.Model.ID, variant: s.Model.Variant}}
 		if row.updated == 0 {
 			row.updated = s.Time.Created
@@ -717,9 +717,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 			}
 			sid = nid
 			sidDraft = draft
-			home := dir
+			home := canonDir(dir)
 			if home == "" {
-				home = workdir()
+				home = canonDir(workdir())
 			}
 			win.Update(func() {
 				if a.draftVersion == draft && a.selectedSession == "" {
@@ -891,6 +891,20 @@ func expandPath(path string) (string, error) {
 		return "", fmt.Errorf("that folder does not exist")
 	}
 	return filepath.EvalSymlinks(abs)
+}
+
+// canonDir is one folder path as the app matches it: cleaned, with
+// symlinks resolved where the folder still exists. Sessions and projects
+// both pass through it, so a chat lines up with its folder however the
+// path was spelled.
+func canonDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
+	}
+	return filepath.Clean(dir)
 }
 
 // expandFile resolves a file path the user typed, through ~ to the

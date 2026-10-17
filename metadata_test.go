@@ -170,13 +170,13 @@ func TestSidebarSaveFailureIsVisibleAndStaleResultsIgnored(t *testing.T) {
 func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	a := newApp()
 	a.projects = nil
-	a.openProjectDialog()
-	a.dirDraft = t.TempDir()
+	picked := t.TempDir()
+	a.pickFolder = func(done func(path string)) { done(picked) }
 	tt := ui.NewTester(a.view, 1400, 920)
-	if err := tt.Click("Add project"); err != nil {
+	if err := tt.Click("Add Projects"); err != nil {
 		t.Fatal(err)
 	}
-	if a.dirOpen || len(a.projects) != 1 {
+	if len(a.projects) != 1 {
 		t.Fatal("project was not added")
 	}
 	select {
@@ -185,6 +185,10 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	default:
 	}
 	project := a.projects[0]
+	if want, err := filepath.EvalSymlinks(picked); err != nil || project != want {
+		t.Fatalf("project %q, want %q (%v)", project, want, err)
+	}
+	tt.Frame()
 	if err := tt.Click("Project options, " + dirBase(project)); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +216,21 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	a.dropSession("a")
 	if a.pinned["a"] {
 		t.Fatal("deleted session kept its pin")
+	}
+}
+
+// TestAddProjectCancelKeepsSidebar: a folder chooser the user dismisses
+// changes nothing.
+func TestAddProjectCancelKeepsSidebar(t *testing.T) {
+	a := newApp()
+	a.projects = nil
+	a.pickFolder = func(func(path string)) {}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Add Projects"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.projects) != 0 {
+		t.Fatalf("cancel added a project: %v", a.projects)
 	}
 }
 

@@ -44,37 +44,6 @@ func (a *app) composer(c *ui.Context, p palette) {
 	})
 }
 
-// folderModal is the dialog for starting a chat in a chosen directory.
-func (a *app) folderModal(c *ui.Context, p palette) {
-	dialog(c, p, &a.dirOpen, 360, func() {
-		title, description, action := "Start a chat in a folder", "The agent reads and changes files in this folder.", "Start chat here"
-		if a.dirAddOnly {
-			title, description, action = "Add project folder", "Save a folder in the sidebar. Your files stay where they are.", "Add project"
-		}
-		ui.Text(c, title).FontSize(14).FontWeight(600)
-		ui.Text(c, description).FontSize(12.5).TextColor(p.muted)
-		textField(c, p, &a.dirDraft, "")
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.dirOpen = false })
-			cancel.Children(func() {
-				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-			})
-			start := ui.PrimaryButton(c, action)
-			start.OnClick(func() {
-				if a.dirAddOnly {
-					a.addFolder(a.dirDraft)
-				} else {
-					a.startChatIn(a.dirDraft)
-				}
-			})
-		})
-		if a.dirNote != "" {
-			ui.Text(c, a.dirNote).FontSize(12).TextColor(p.orange).SingleLine()
-		}
-	})
-}
-
 // dialog is the frame every dialog shares: the palette's card centered
 // over a dimmed window. It builds on DialogBase rather than Modal: the
 // theme's modal panel would sit behind the card as a second layer.

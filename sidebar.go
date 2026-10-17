@@ -312,7 +312,7 @@ func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func())
 		ui.Spacer(c)
 		if add != nil {
 			b := ui.ButtonBase(c).Label("Add "+title).Size(22, 22).Radius(6).Center().
-				Tooltip("Add a project")
+				Tooltip("Add a project folder")
 			if b.Hovered() {
 				b.Background(p.hover)
 			}
@@ -344,10 +344,7 @@ func (a *app) projectDirectories() []string {
 }
 
 func (a *app) addProject(dir string) {
-	dir = filepath.Clean(dir)
-	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = resolved
-	}
+	dir = canonDir(dir)
 	for _, project := range a.projects {
 		if filepath.Clean(project) == dir {
 			delete(a.unavailableProjects, dir)
@@ -360,15 +357,14 @@ func (a *app) addProject(dir string) {
 }
 
 func (a *app) removeProject(dir string) {
-	dir = filepath.Clean(dir)
-	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = resolved
-	}
+	dir = canonDir(dir)
 	for i, project := range a.projects {
 		if project == dir {
 			a.projects = append(a.projects[:i], a.projects[i+1:]...)
 			delete(a.projectPins, dir)
 			delete(a.unavailableProjects, dir)
+			delete(a.projectCollapsed, dir)
+			delete(a.projectChatsShown, dir)
 			a.saveSidebar()
 			return
 		}
@@ -387,20 +383,38 @@ func (a *app) toggleProjectPin(dir string) {
 	a.saveSidebar()
 }
 
+// projectChatPreview is how many of a folder's chats show before the
+// "Show more chats" row.
+const projectChatPreview = 5
+
+// projectRow is one folder of the Projects list, with its chats nested
+// under it while it is open: clicking the row folds them away or back,
+// and the hover + starts a fresh chat there.
 func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	name := dirBase(dir)
+	chats := a.projectChats(dir)
+	open := !a.projectCollapsed[dir]
+	label := "Show chats in " + name
+	if open {
+		label = "Hide chats in " + name
+	}
 	c.Key("project:" + dir)
-	b := a.row(c, p, "Open project "+name, false)
+	b := a.row(c, p, label, false)
 	b.Height(30).Tooltip(dir)
 	hovered := b.Hovered()
-	b.OnClick(func() {
-		a.openFolderDialog()
-		a.dirDraft = dir
-		a.startChatIn(dir)
-	})
+	b.OnClick(func() { a.toggleProjectOpen(dir) })
 	b.Children(func() {
-		ui.Icon(c, icFolder).FontSize(14).TextColor(p.muted)
-		ui.Text(c, name).MarginStart(9).FontSize(13.5).Grow(1).SingleLine()
+		if len(chats) > 0 {
+			chev := icChevRight
+			if open {
+				chev = icChevDown
+			}
+			ui.Icon(c, chev).FontSize(12).TextColor(p.faint)
+		} else {
+			ui.Box(c).Width(12).Height(12)
+		}
+		ui.Icon(c, icFolder).FontSize(14).MarginStart(5).TextColor(p.muted)
+		ui.Text(c, name).MarginStart(7).FontSize(13.5).Grow(1).SingleLine()
 		if a.unavailableProjects[dir] {
 			ui.Text(c, "Unavailable").FontSize(11).TextColor(p.muted)
 		}
@@ -419,6 +433,10 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		c.Key("projectmenu:" + dir)
 		options := ui.ButtonBase(c).Label("Project options, "+name).Size(22, 22).Radius(6).Center()
 		options.Menu(func(m *ui.Menu) {
+			if m.Item("New chat").Chosen() {
+				a.startChatIn(dir)
+			}
+			m.Separator()
 			label := "Pin project"
 			if a.projectPins[dir] {
 				label = "Unpin project"
@@ -431,6 +449,66 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 			}
 		})
 		options.Children(func() { ui.Icon(c, icEllipsis).FontSize(13).TextColor(p.muted) })
+	})
+
+	if !open || len(chats) == 0 {
+		return
+	}
+	visible := len(chats)
+	if !a.projectChatsShown[dir] && visible > projectChatPreview {
+		visible = projectChatPreview
+	}
+	ui.Column(c).FillWidth().Gap(1).Children(func() {
+		for _, s := range chats[:visible] {
+			a.projectChatRow(c, p, s)
+		}
+		if len(chats) > projectChatPreview {
+			a.moreProjectChatsRow(c, p, dir, len(chats)-projectChatPreview)
+		}
+	})
+}
+
+// projectChats lists the conversations working in one project's folder,
+// newest first, the way the tree nests them.
+func (a *app) projectChats(dir string) []agentSession {
+	var chats []agentSession
+	for _, s := range a.sessions {
+		if sameDir(s.dir, dir) {
+			chats = append(chats, s)
+		}
+	}
+	return chats
+}
+
+// sameDir reports whether two paths name one folder.
+func sameDir(one, two string) bool {
+	return one != "" && two != "" && filepath.Clean(one) == filepath.Clean(two)
+}
+
+func (a *app) toggleProjectOpen(dir string) {
+	if a.projectCollapsed == nil {
+		a.projectCollapsed = map[string]bool{}
+	}
+	a.projectCollapsed[dir] = !a.projectCollapsed[dir]
+}
+
+// moreProjectChatsRow folds the rest of a folder's chats in or out.
+func (a *app) moreProjectChatsRow(c *ui.Context, p palette, dir string, remaining int) {
+	c.Key("projectchats:more:" + dir)
+	label := fmt.Sprintf("Show %d more chats", remaining)
+	if a.projectChatsShown[dir] {
+		label = "Show fewer chats"
+	}
+	b := a.row(c, p, label, false)
+	b.Height(26).PaddingStart(30)
+	b.OnClick(func() {
+		if a.projectChatsShown == nil {
+			a.projectChatsShown = map[string]bool{}
+		}
+		a.projectChatsShown[dir] = !a.projectChatsShown[dir]
+	})
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12.5).TextColor(p.muted).SingleLine()
 	})
 }
 
@@ -481,17 +559,28 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 	})
 }
 
-// sessionRow is one real conversation: choosing it swaps the transcript
-// while the runner brings the stored one back, and the kebab at its end
-// renames or deletes it.
+// sessionRow is one real conversation among the pinned rows: choosing it
+// swaps the transcript while the runner brings the stored one back, and
+// the kebab at its end renames, pins or deletes it.
 func (a *app) sessionRow(c *ui.Context, p palette, s agentSession) {
+	a.chatRow(c, p, s, "session:", 8)
+}
+
+// projectChatRow nests one conversation under its project folder.
+func (a *app) projectChatRow(c *ui.Context, p palette, s agentSession) {
+	a.chatRow(c, p, s, "projectchat:"+s.dir+":", 30)
+}
+
+// chatRow draws one conversation row in either place, indented by the
+// tree it sits in.
+func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, indent float32) {
 	label := s.title
 	if label == "" {
 		label = "New chat"
 	}
-	c.Key("session:" + s.id)
+	c.Key(key + s.id)
 	b := a.row(c, p, label, s.id == a.selectedSession)
-	b.PaddingStart(8)
+	b.PaddingStart(indent)
 	b.OnClick(func() {
 		a.adoptSession(s)
 		select {
@@ -508,7 +597,7 @@ func (a *app) sessionRow(c *ui.Context, p palette, s agentSession) {
 		if s.id == a.busySession {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
-		c.Key("sessmenu:" + s.id)
+		c.Key(key + "menu:" + s.id)
 		kebab := ui.ButtonBase(c).Label("Conversation options, "+label).Size(22, 22).
 			Radius(6).Center().Tooltip("Rename or delete this chat")
 		kebab.Menu(func(m *ui.Menu) {

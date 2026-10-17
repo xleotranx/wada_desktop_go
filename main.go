@@ -26,12 +26,15 @@ type block struct {
 
 // app is the state the window shows.
 type app struct {
-	selected            string
-	sidebarW            float32
-	home                string
-	projects            []string
-	projectPins         map[string]bool
-	pinOrder            []string
+	selected    string
+	sidebarW    float32
+	home        string
+	projects    []string
+	projectPins map[string]bool
+	pinOrder    []string
+	// win is the window the view draws in; the folder chooser lands its
+	// answer through it, as the agent pipe does.
+	win                 *mygo.Window
 	metadata            *metadataWriter
 	metadataVersion     uint64
 	metadataSaving      bool
@@ -44,13 +47,17 @@ type app struct {
 	browserCollapsed bool
 	selectedRail     string
 	projectsExpanded bool
-	pinned           map[string]bool
-	searchOpen       bool
-	browserAddress   string
-	browserPage      string
-	browserTool      string
-	browserHistory   []string
-	browserHistoryAt int
+	// The project tree: folders fold their chats away, and a folder with
+	// many chats previews a few before showing the rest.
+	projectCollapsed  map[string]bool
+	projectChatsShown map[string]bool
+	pinned            map[string]bool
+	searchOpen        bool
+	browserAddress    string
+	browserPage       string
+	browserTool       string
+	browserHistory    []string
+	browserHistoryAt  int
 
 	policyDir, policyLevel string
 	policyDirs             chan string
@@ -83,12 +90,11 @@ type app struct {
 	busySession     string // the conversation whose turn is running
 	pending         map[string]*agentPerm
 
-	// The folder dialog for starting a chat in another directory.
-	dirOpen            bool
-	dirAddOnly         bool
+	// The folder chooser behind "Add folder" and "New project…": the
+	// system's own panel, stood in for in tests. selectAddedProject hands
+	// a picked folder to the draft the composer asked for.
+	pickFolder         func(done func(path string))
 	selectAddedProject bool
-	dirDraft           string
-	dirNote            string
 
 	// The file-attach dialog, quoting a workspace file into the draft.
 	attachOpen  bool
@@ -141,6 +147,8 @@ func newApp() *app {
 		browserCollapsed:    true,
 		pinned:              map[string]bool{},
 		projectPins:         map[string]bool{},
+		projectCollapsed:    map[string]bool{},
+		projectChatsShown:   map[string]bool{},
 		unavailableProjects: map[string]bool{},
 		browserHistoryAt:    -1,
 		expanded:            map[string]bool{},
@@ -157,6 +165,7 @@ func newApp() *app {
 		policyDirs:   make(chan string, 1),
 		policyWrites: make(chan policyChange, 16),
 	}
+	a.pickFolder = a.pickFolderDialog
 	return a
 }
 
@@ -215,7 +224,6 @@ func (a *app) view(c *ui.Context) {
 			})
 		})
 	})
-	a.folderModal(c, p)
 	a.attachModal(c, p)
 	a.sessionDialogs(c, p)
 }
@@ -278,6 +286,7 @@ func main() {
 			StateKey:             "main",
 			Content:              ui.View(a.view),
 		})
+		a.win = win
 		if db != nil {
 			a.metadata = startMetadataWriter(db, func(version uint64, err error) {
 				if err != nil {
@@ -375,51 +384,77 @@ func (a *app) chatDir() string {
 	return ""
 }
 
-// openFolderDialog readies the folder dialog with the directory the next
-// chat would sensibly reuse.
-func (a *app) openFolderDialog() {
-	a.dirAddOnly = false
-	a.dirDraft = a.chatDir()
-	if a.dirDraft == "" {
-		a.dirDraft = workdir()
-	}
-	a.dirNote = ""
-	a.dirOpen = true
+// pickFolderDialog is the real folder chooser: the system's own panel,
+// opened off the UI thread as the dialogs document, its answer landing on
+// it through the window, which redraws the sidebar.
+func (a *app) pickFolderDialog(done func(path string)) {
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:                     a.win,
+			Title:                      "Choose a folder",
+			Message:                    "The folder becomes a project in the sidebar.",
+			ButtonLabel:                "Add folder",
+			Directory:                  true,
+			CreateDirectories:          true,
+			TreatPackagesAsDirectories: true,
+		})
+		land := func() {
+			if err != nil {
+				a.streamLine("The folder chooser did not open: " + err.Error())
+				return
+			}
+			if len(paths) > 0 {
+				done(paths[0])
+			}
+		}
+		if a.win == nil { // headless, as tests run the view
+			mygo.RunOnMain(land)
+			return
+		}
+		a.win.Update(land)
+	}()
 }
 
+// openProjectDialog asks the system for a folder and saves it in the
+// sidebar; a draft that asked for a new project starts working there.
 func (a *app) openProjectDialog() {
-	a.openFolderDialog()
-	a.dirAddOnly = true
+	wantsDraft := a.selectAddedProject
 	a.selectAddedProject = false
+	a.pickFolder(func(path string) {
+		clean, err := a.addFolder(path)
+		if err != nil {
+			a.streamLine("The folder was not added: " + err.Error())
+			return
+		}
+		if wantsDraft {
+			a.selectDraftProject(clean)
+		}
+	})
 }
 
-func (a *app) addFolder(path string) {
+// addFolder saves a chosen folder in the sidebar and reports the path it
+// landed at, cleaned.
+func (a *app) addFolder(path string) (string, error) {
 	clean, err := expandPath(path)
 	if err != nil {
-		a.dirNote = err.Error()
-		return
+		return "", err
 	}
 	a.addProject(clean)
-	if a.selectAddedProject {
-		a.selectDraftProject(clean)
-		a.selectAddedProject = false
-	}
-	a.dirOpen = false
+	return clean, nil
 }
 
-// startChatIn prepares a draft; the first message creates its server chat.
+// startChatIn prepares a draft in a folder; the first message creates its
+// server chat there, and the folder joins the sidebar, open for it.
 func (a *app) startChatIn(path string) {
-	clean, err := expandPath(path)
+	clean, err := a.addFolder(path)
 	if err != nil {
-		a.dirNote = err.Error()
-		a.dirOpen = true
+		a.streamLine("That folder cannot start a chat: " + err.Error())
 		return
 	}
 	a.startNewChat()
 	a.draftProject = clean
 	a.projectPickerOpen = false
-	a.dirOpen = false
-	a.addProject(clean)
+	delete(a.projectCollapsed, clean)
 }
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.

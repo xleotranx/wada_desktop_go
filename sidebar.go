@@ -12,29 +12,15 @@ import (
 
 const navRailWidth float32 = 52
 
-func titlebarInset(barLeft float32) float32 {
-	inset := barLeft - navRailWidth + 8
-	if inset < 12 {
-		return 12
+// navRail is the slim primary navigation beside the workspace sidebar: a
+// column of icons on the window's material.
+func (a *app) navRail(c *ui.Context, p palette) {
+	rail := ui.Column(c).Width(navRailWidth).FillHeight()
+	if !c.Vibrancy() {
+		rail.Background(p.railBg)
 	}
-	return inset
-}
-
-// navRail is the slim primary navigation beside the workspace sidebar.
-func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
-	ui.Column(c).Width(navRailWidth).FillHeight().Background(p.railBg).Children(func() {
-		ui.Row(c).Height(headerH).DragWindow()
-		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(5).Padding(6, 7).Children(func() {
-			if a.sidebarCollapsed {
-				c.Key("rail:show-sidebar")
-				show := ui.ButtonBase(c).Label("Show sidebar").Size(36, 36).Radius(10).Center().
-					Cursor(ui.CursorPointer).Tooltip("Show sidebar")
-				if show.Hovered() {
-					show.Background(p.hover)
-				}
-				show.OnClick(func() { a.sidebarCollapsed = false })
-				show.Children(func() { ui.Icon(c, icPanel).FontSize(18).TextColor(p.muted) })
-			}
+	rail.Children(func() {
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(5).Padding(10, 7).Children(func() {
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
 			a.railButton(c, p, "history", "History", icHistory, func() {
@@ -103,9 +89,9 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 }
 
 // sidebarPane holds the workspace switcher, pinned chats and projects.
-func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
+func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).Width(a.sidebarW).Background(p.sidebarBg).Children(func() {
-		a.headerRow(c, p, headerH, titlebarInset(barLeft))
+		a.headerRow(c, p, headerH)
 
 		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
 			if a.metadataError != "" {
@@ -161,8 +147,8 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 }
 
 // headerRow is the Codex switcher, approval bell and chats search.
-func (a *app) headerRow(c *ui.Context, p palette, headerH, leftInset float32) {
-	ui.Row(c).FillWidth().Height(headerH).DragWindow().Padding(0, 12, 0, leftInset).AlignItems(ui.Center).Children(func() {
+func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
+	ui.Row(c).FillWidth().Height(headerH).DragWindow().Padding(0, 12).AlignItems(ui.Center).Children(func() {
 		title := ui.ButtonBase(c).Label("Codex").Height(34).Radius(9).Padding(0, 9).
 			Justify(ui.Start).Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
 			if m.Item("New chat").Chosen() {
@@ -188,14 +174,10 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH, leftInset float32) {
 		ui.Spacer(c)
 
 		a.bellButton(c, p)
-		a.navButton(c, p, "Search chats", icSearch, func() {
+		a.navButton(c, p, "Search", icSearch, func() {
 			a.searchOpen = true
 			a.focusSearch = true
 		}, p.text)
-		c.Key("sidebar:hide")
-		a.navButton(c, p, "Hide sidebar", icPanel, func() {
-			a.sidebarCollapsed = true
-		}, p.muted)
 	})
 }
 

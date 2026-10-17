@@ -24,8 +24,19 @@ func TestView(t *testing.T) {
 	}
 	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
 		!tt.HasText("Pinned") || !tt.HasText("Projects") || tt.HasText("Recents") ||
-		!tt.HasText("Tools") || !tt.HasText("Suggested") {
+		!tt.HasText("Tools") {
 		t.Fatalf("bare interface missing: %v", tt.Texts())
+	}
+	// The tools and browser pane waits for the rail's tools button: a
+	// fresh window is conversation only, and the button brings it back.
+	if tt.HasText("Suggested") {
+		t.Fatalf("the right pane started open: %v", tt.Texts())
+	}
+	if err := tt.Click("Tools"); err != nil {
+		t.Fatalf("opening the right pane: %v", err)
+	}
+	if !tt.HasText("Suggested") {
+		t.Fatalf("the right pane did not open: %v", tt.Texts())
 	}
 	for _, gone := range []string{"Homework",
 		"Compare OpenCode dev bot options", "Nightly digest job"} {
@@ -189,6 +200,7 @@ func TestTranscriptLoader(t *testing.T) {
 // not AlignItems'.
 func TestSidebarSearchCentered(t *testing.T) {
 	a := newApp()
+	a.searchOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	row, ok := tt.Find("New chat")
@@ -199,9 +211,9 @@ func TestSidebarSearchCentered(t *testing.T) {
 	if !ok {
 		t.Fatalf("the search field is missing: %v", tt.Texts())
 	}
-	// The search card follows the New chat row across the list's two 2px
-	// gaps and the 6px spacer; the field centers on the card's midline.
-	cardTop := row.Y + row.H + 2 + 6 + 2
+	// The search card follows the New chat row across the list's 2px
+	// gap; the field centers on the card's midline.
+	cardTop := row.Y + row.H + 2
 	if got, want := in.Y+in.H/2, cardTop+15; got < want-1 || got > want+1 {
 		t.Fatalf("the search field centers on %v, want the card midline %v", got, want)
 	}
@@ -216,7 +228,7 @@ func TestSidebarSearch(t *testing.T) {
 	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	if err := tt.Click("Search chats"); err != nil {
+	if err := tt.Click("Search"); err != nil {
 		t.Fatalf("focusing the search field: %v", err)
 	}
 	tt.Type("wire")
@@ -289,6 +301,7 @@ func TestHeaderWiring(t *testing.T) {
 
 	// The search chip aims the field: the ask stands until a frame gives
 	// the field the keyboard, then it is gone, one ask at a time.
+	a.searchOpen = true
 	a.focusSearch = true
 	tt.Frame()
 	if a.focusSearch {

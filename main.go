@@ -138,6 +138,7 @@ func newApp() *app {
 		sidebarW:            320,
 		home:                home,
 		selectedRail:        "home",
+		browserCollapsed:    true,
 		pinned:              map[string]bool{},
 		projectPins:         map[string]bool{},
 		unavailableProjects: map[string]bool{},
@@ -176,37 +177,75 @@ func (a *app) reviseSearch() {
 	a.searches <- searchRequest{text: a.searchText, version: a.searchVersion}
 }
 
-// view lays the Codex rail, workspace sidebar, conversation and tools pane
-// out under one aligned title strip.
+// view lays the title bar, navigation rail, workspace sidebar, conversation
+// and tools pane out over the window's material, which shows where nothing
+// is painted.
 func (a *app) view(c *ui.Context) {
 	p := paletteFor(c)
 	bar := c.TitleBar()
 	// The window controls are centered in a strip of bar.Height, so the
-	// app switcher, chat title and tools toolbar share their center line.
+	// top bar and tools toolbar share their center line.
 	headerH := bar.Height
 	if headerH < 48 {
 		headerH = 48
 	}
+	// The title bar and rail stand on the window's material, as macOS 26
+	// draws them: the desktop shows through, frosted.
+	if c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
+	}
 
-	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
-		a.navRail(c, p, headerH)
-		if !a.sidebarCollapsed {
-			a.sidebarPane(c, p, headerH, bar.Left)
-			ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-		}
-		contentInset := float32(12)
-		if a.sidebarCollapsed {
-			contentInset = titlebarInset(bar.Left)
-		}
-		a.contentPane(c, p, headerH, contentInset)
-		if !a.browserCollapsed {
-			ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-			a.browserPane(c, p, headerH)
-		}
+	ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		a.topBar(c, p, headerH, bar.Left)
+		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
+			a.navRail(c, p)
+			// The sidebar and conversation ride on one card whose top
+			// corners follow the window's, so the material frames them.
+			ui.Row(c).Grow(1).AlignItems(ui.Stretch).
+				Background(p.bg).Radius(cardRadius, cardRadius, 0, 0).Clip().Children(func() {
+				if !a.sidebarCollapsed {
+					a.sidebarPane(c, p, headerH)
+					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+				}
+				a.contentPane(c, p)
+				if !a.browserCollapsed {
+					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+					a.browserPane(c, p, headerH)
+				}
+			})
+		})
 	})
 	a.folderModal(c, p)
 	a.attachModal(c, p)
 	a.sessionDialogs(c, p)
+}
+
+// cardRadius rounds the card's top corners, a little tighter than the
+// window's own.
+const cardRadius float32 = 12
+
+// topBar is the full-width title strip: the window's controls, the
+// browser's history and the sidebar toggle on the material, and a new
+// chat at its end, as macOS 26 draws them.
+func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
+	ui.Row(c).FillWidth().Height(headerH).DragWindow().AlignItems(ui.Center).
+		Padding(0, 12, 0, barLeft+8).Gap(2).Children(func() {
+		a.browserIconButton(c, p, "Back", icBack, a.browserBack, a.browserHistoryAt <= 0)
+		a.browserIconButton(c, p, "Forward", icForward, a.browserForward,
+			a.browserHistoryAt < 0 || a.browserHistoryAt >= len(a.browserHistory)-1)
+
+		label := "Hide sidebar"
+		if a.sidebarCollapsed {
+			label = "Show sidebar"
+		}
+		a.navButton(c, p, label, icPanel, func() {
+			a.sidebarCollapsed = !a.sidebarCollapsed
+		}, p.text)
+
+		ui.Spacer(c)
+
+		a.navButton(c, p, "Start new chat", icNewChat, a.startNewChat, p.text)
+	})
 }
 
 func main() {
@@ -228,8 +267,10 @@ func main() {
 			Height:    1000,
 			MinWidth:  1120,
 			MinHeight: 700,
-			// The window draws its own title bar under the traffic lights.
+			// The title bar and rail stand on the window's material, as
+			// macOS 26 draws them, and the desktop shows through it.
 			TitleBarStyle: mygo.TitleBarHidden,
+			Vibrancy:      mygo.VibrancyTitlebar,
 			// Keep the title strip compact and center its controls on the
 			// 50 DIP header (the close button is 14 DIP tall, with 18 DIP
 			// of room above and below).

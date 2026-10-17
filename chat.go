@@ -32,14 +32,11 @@ func (a *app) prepareMarkdown(p palette) {
 }
 
 // contentPane draws the conversation title, transcript and composer.
-func (a *app) contentPane(c *ui.Context, p palette, headerH, leftInset float32) {
+func (a *app) contentPane(c *ui.Context, p palette) {
 	a.prepareMarkdown(p)
 	ui.Column(c).Grow(1).Background(p.bg).Children(func() {
-		a.titleBar(c, p, headerH, leftInset)
-		ui.Divider(c)
-
-		// The transcript with a fade at its foot, so the newest words slip
-		// under the composer as they stream in.
+		// The transcript fills the card: the conversation's name lives in
+		// the sidebar, as macOS 26 draws it.
 		area := ui.Box(c).Grow(1)
 		area.Children(func() {
 			if a.selectedSession == "" {
@@ -121,78 +118,6 @@ func (a *app) blockIdentity(i int) any {
 		a.blocks[i].id = a.nextBlockID
 	}
 	return a.blocks[i].id
-}
-
-// titleBar shows the chat's name between the window's controls.
-func (a *app) titleBar(c *ui.Context, p palette, headerH, leftInset float32) {
-	title := a.selected
-	if title == "" {
-		title = "New chat"
-	}
-	icon := icFolder
-	if title == "New chat" {
-		icon = icPen
-	}
-
-	ui.Row(c).Height(headerH).DragWindow().Padding(0, 12, 0, leftInset).Children(func() {
-		name := ui.ButtonBase(c).Label(title).Height(32).Radius(9).Padding(0, 10).
-			Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip("Switch chat").
-			Menu(func(m *ui.Menu) {
-				if m.Item("Rename…").Chosen() {
-					if s, ok := a.selectedRow(); ok {
-						a.requestRename(s)
-					}
-				}
-				m.Separator()
-				if m.Item("Delete").Chosen() {
-					if s, ok := a.selectedRow(); ok {
-						a.confirmDelete(s)
-					}
-				}
-			})
-		if name.Hovered() {
-			name.Background(p.hover)
-		}
-		name.Children(func() {
-			ui.Row(c).AlignItems(ui.Center).Gap(0).Children(func() {
-				ui.Icon(c, icon).FontSize(15).TextColor(p.muted)
-				ui.Text(c, title).MarginStart(8).FontSize(13).FontWeight(500).SingleLine()
-			})
-		})
-
-		ui.Spacer(c)
-
-		ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
-			if a.browserCollapsed {
-				c.Key("chat:show-browser")
-				a.navButton(c, p, "Show tools and browser", icLayout, func() {
-					a.browserCollapsed = false
-				}, p.muted)
-			}
-			c.Key("chat:options")
-			options := ui.ButtonBase(c).Label("Chat options").Size(30, 30).Radius(8).Center().
-				Cursor(ui.CursorPointer).Tooltip("Chat options").
-				Menu(func(m *ui.Menu) {
-					if m.Item("Rename…").Chosen() {
-						if s, ok := a.selectedRow(); ok {
-							a.requestRename(s)
-						}
-					}
-					m.Separator()
-					if m.Item("Delete").Chosen() {
-						if s, ok := a.selectedRow(); ok {
-							a.confirmDelete(s)
-						}
-					}
-				})
-			if options.Hovered() {
-				options.Background(p.hover)
-			}
-			options.Children(func() {
-				ui.Icon(c, icEllipsis).FontSize(17).TextColor(p.muted)
-			})
-		})
-	})
 }
 
 // blockRow draws one block of the transcript: a paragraph, what the user

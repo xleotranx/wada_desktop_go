@@ -683,7 +683,7 @@ func TestSessionDialogs(t *testing.T) {
 	// closes; an unedited save queues nothing.
 	a.requestRename(a.sessions[0])
 	tt.Frame()
-	if !tt.HasText("Rename this chat") || !tt.HasText("Grep wiring") {
+	if !tt.HasText("Rename this chat") || a.renameDraft != "Grep wiring" {
 		t.Fatalf("rename dialog not drawn: %v", tt.Texts())
 	}
 	if err := tt.Click("Save"); err != nil {

@@ -29,9 +29,6 @@ func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 
 func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 	ui.Row(c).Height(headerH).FillWidth().AlignItems(ui.Center).Gap(3).Padding(0, 8).Children(func() {
-		a.browserIconButton(c, p, "Back", icBack, a.browserBack, a.browserHistoryAt <= 0)
-		a.browserIconButton(c, p, "Forward", icForward, a.browserForward,
-			a.browserHistoryAt < 0 || a.browserHistoryAt >= len(a.browserHistory)-1)
 		a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.browserPage == "")
 
 		address := ui.Box(c).Grow(1).Height(32).Radius(999).Padding(0, 10).
@@ -67,10 +64,6 @@ func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 			more.Background(p.hover)
 		}
 		more.Children(func() { ui.Icon(c, icEllipsis).FontSize(17).TextColor(p.muted) })
-		c.Key("browser:hide-pane")
-		a.navButton(c, p, "Hide tools and browser", icPanel, func() {
-			a.browserCollapsed = true
-		}, p.muted)
 	})
 }
 
@@ -83,7 +76,8 @@ func (a *app) browserIconButton(c *ui.Context, p palette, label string, icon *ui
 	b.OnClick(on)
 	tint := p.text
 	if disabled {
-		tint = p.faint
+		// On the window's material the faint tone washes out.
+		tint = p.muted
 	}
 	b.Children(func() { ui.Icon(c, icon).FontSize(15).TextColor(tint) })
 }
@@ -245,6 +239,8 @@ func (a *app) toolDescription() string {
 }
 
 func (a *app) openTool(name string) {
+	// Opening a tool is asking to see it, so the pane comes back.
+	a.browserCollapsed = false
 	if name == "" {
 		a.browserTool = ""
 		a.browserPage = ""

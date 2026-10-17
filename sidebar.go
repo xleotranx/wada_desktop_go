@@ -102,7 +102,7 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 	})
 }
 
-// sidebarPane holds the workspace switcher, pinned chats, projects and recents.
+// sidebarPane holds the workspace switcher, pinned chats and projects.
 func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 	ui.Column(c).Width(a.sidebarW).Background(p.sidebarBg).Children(func() {
 		a.headerRow(c, p, headerH, titlebarInset(barLeft))
@@ -152,7 +152,9 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 					}
 				})
 			}
-			a.recentsHeading(c, p)
+			if a.searchText != "" {
+				a.searchResultsPane(c, p)
+			}
 		})
 
 	})
@@ -465,43 +467,22 @@ func (a *app) moreProjectsRow(c *ui.Context, p palette, remaining int) {
 	})
 }
 
-// recentsHeading titles the list of real conversations; while the runner
-// is still reading them a spinner stands in. A search query takes the
-// list over with what the store matched.
-func (a *app) recentsHeading(c *ui.Context, p palette) {
-	looking := a.searchText != ""
+// searchResultsPane shows matching conversations only while a query is active.
+func (a *app) searchResultsPane(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().Height(24).Margin(8, 0, 0, 0).Padding(0, 8).Children(func() {
-		label := "Recents"
-		if looking {
-			label = "Results"
-		}
-		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
+		ui.Text(c, "Results").FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
 		ui.Spacer(c)
-		if !a.sessionsLoaded && !looking {
-			ui.Spinner(c).Size(11, 11).Label("Loading recents")
-		} else if a.searchLoading {
+		if a.searchLoading {
 			ui.Spinner(c).Size(11, 11).Label("Searching chats")
 		}
 	})
-	rows := a.sessions
-	if looking {
-		rows = a.searchResults
-	} else {
-		recent := make([]agentSession, 0, len(rows))
-		for _, s := range rows {
-			if !a.pinned[s.id] {
-				recent = append(recent, s)
-			}
-		}
-		rows = recent
-	}
-	more := !looking && a.sessionsLoaded && a.nextCursor != ""
-	empty := looking && len(rows) == 0 && !a.searchLoading
+	rows := a.searchResults
+	empty := len(rows) == 0 && !a.searchLoading
 	count := len(rows)
-	if more || empty {
+	if empty {
 		count++
 	}
-	ui.List(c, &a.recents, count).Grow(1).FillWidth().Gap(2).
+	ui.List(c, &a.resultsList, count).Grow(1).FillWidth().Gap(2).
 		ItemKey(func(i int) any {
 			if i == len(rows) {
 				return "footer"
@@ -510,8 +491,6 @@ func (a *app) recentsHeading(c *ui.Context, p palette) {
 		}).Rows(func(row ui.ListRow) {
 		if row.Index < len(rows) {
 			a.sessionRow(row.Context, p, rows[row.Index])
-		} else if more {
-			a.olderRow(row.Context, p)
 		} else {
 			ui.Row(row.Context).Padding(4, 8).Children(func() {
 				ui.Text(row.Context, "No chats match.").FontSize(13).TextColor(p.muted)
@@ -589,30 +568,7 @@ func (a *app) togglePin(s agentSession) {
 	a.saveSidebar()
 }
 
-// olderRow asks the runner for the next page of conversations.
-func (a *app) olderRow(c *ui.Context, p palette) {
-	b := a.row(c, p, "Show older chats", false)
-	b.Height(28)
-	b.OnClick(func() {
-		if a.moreLoading || a.nextCursor == "" {
-			return
-		}
-		a.moreLoading = true
-		select {
-		case a.jobs <- agentJob{kind: "more", cursor: a.nextCursor}:
-		default:
-			a.moreLoading = false
-		}
-	})
-	b.Children(func() {
-		ui.Text(c, "Show older chats").FontSize(13).TextColor(p.muted).MarginStart(24)
-		if a.moreLoading {
-			ui.Spinner(c).Size(11, 11).Label("Loading chats")
-		}
-	})
-}
-
-// sessionDialogs carries the two dialogs the Recents rows open.
+// sessionDialogs carries the dialogs opened by conversation rows.
 func (a *app) sessionDialogs(c *ui.Context, p palette) {
 	title := a.confirmWhat
 	if title == "" {

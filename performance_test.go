@@ -106,11 +106,14 @@ func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 	for i := range 2000 {
 		a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
 	}
+	a.searchOpen = true
+	a.searchText = "Chat"
+	a.searchResults = a.sessions
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Chat 0") || tt.HasText("Chat 1999") {
 		t.Fatal("sidebar did not limit construction to visible rows")
 	}
-	a.recents.ScrollToEnd()
+	a.resultsList.ScrollToEnd()
 	tt.Frame()
 	if err := tt.Click("Chat 1999"); err != nil {
 		t.Fatal(err)

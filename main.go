@@ -66,7 +66,7 @@ type app struct {
 	projectFilter     string
 
 	feed        ui.ListState
-	recents     ui.ListState
+	resultsList ui.ListState
 	blocks      []block
 	nextBlockID uint64
 
@@ -75,7 +75,7 @@ type app struct {
 	md      markdown.Options
 	mdTheme markdown.Theme
 
-	// Real conversations from the agent: what the Recents list shows and
+	// Real conversations from the agent: what pinned rows and search results show and
 	// what the composer talks to.
 	sessions        []agentSession
 	sessionsLoaded  bool
@@ -95,7 +95,7 @@ type app struct {
 	attachDraft string
 	attachNote  string
 
-	// The rename and delete dialogs of the Recents list, and where the
+	// The rename and delete dialogs of conversation rows, and where the
 	// older conversations pick up once the first page is through.
 	renameOpen  bool
 	renameSid   string
@@ -416,7 +416,7 @@ func (a *app) attachFile() {
 	a.attachNote = ""
 }
 
-// selectedRow is the Recents row the transcript currently looks at.
+// selectedRow is the conversation row the transcript currently looks at.
 func (a *app) selectedRow() (agentSession, bool) {
 	for _, s := range a.sessions {
 		if s.id == a.selectedSession {
@@ -541,7 +541,7 @@ func (a *app) deleteConfirmed() {
 	}
 }
 
-// adoptSession settles the view onto one conversation: what a Recents
+// adoptSession settles the view onto one conversation: what a conversation
 // click does, and what the boot does with the newest conversation.
 func (a *app) adoptSession(s agentSession) {
 	label := s.title

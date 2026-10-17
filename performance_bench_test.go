@@ -42,6 +42,9 @@ func BenchmarkSidebar(b *testing.B) {
 			for i := range n {
 				a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Conversation %d", i)})
 			}
+			a.searchOpen = true
+			a.searchText = "Conversation"
+			a.searchResults = a.sessions
 			tt := ui.NewTester(a.view, 1400, 920)
 			tt.Frame()
 			b.ReportAllocs()

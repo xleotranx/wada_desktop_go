@@ -23,7 +23,7 @@ func TestView(t *testing.T) {
 		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.blocks))
 	}
 	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
-		!tt.HasText("Pinned") || !tt.HasText("Projects") || !tt.HasText("Recents") ||
+		!tt.HasText("Pinned") || !tt.HasText("Projects") || tt.HasText("Recents") ||
 		!tt.HasText("Tools") || !tt.HasText("Suggested") {
 		t.Fatalf("bare interface missing: %v", tt.Texts())
 	}
@@ -209,7 +209,7 @@ func TestSidebarSearchCentered(t *testing.T) {
 
 // TestSidebarSearch drives the search field: typing queues a store
 // lookup, the results take the list over, choosing one opens the chat
-// and a blank field hands back to the ordinary list.
+// and a blank field hands back to projects and pinned chats.
 func TestSidebarSearch(t *testing.T) {
 	a := newApp()
 	a.sessionsLoaded = true
@@ -261,13 +261,13 @@ func TestSidebarSearch(t *testing.T) {
 		t.Fatal("opening a result did not queue a job")
 	}
 
-	// Clearing the field hands the list back at once.
+	// Clearing the field hides results without showing recent chats.
 	a.searchText = ""
 	a.searchResults = nil
 	a.reviseSearch()
 	tt.Frame()
-	if !tt.HasText("Grep wiring") || tt.HasText("Results") {
-		t.Fatalf("clearing did not restore the list: %v", tt.Texts())
+	if tt.HasText("Grep wiring") || tt.HasText("Results") || !tt.HasText("Projects") {
+		t.Fatalf("clearing did not restore projects: %v", tt.Texts())
 	}
 	select {
 	case <-a.jobs:

@@ -308,13 +308,12 @@ func TestRestoreBlocks(t *testing.T) {
 	}
 }
 
-// TestSidebarRecents lists the real conversations under Recents and opens
-// one with a click.
-func TestSidebarRecents(t *testing.T) {
+// Only pinned chats appear in the sidebar until the user searches.
+func TestSidebarPinnedWithoutRecents(t *testing.T) {
 	a := newApp()
 	tt := ui.NewTester(a.view, 1400, 920)
-	if !tt.HasText("Loading recents") {
-		t.Fatalf("recents spinner missing: %v", tt.Texts())
+	if tt.HasText("Recents") || tt.HasText("Loading recents") {
+		t.Fatalf("recents still visible: %v", tt.Texts())
 	}
 
 	// Once the runner filled the list, real rows appear; an untitled
@@ -322,8 +321,13 @@ func TestSidebarRecents(t *testing.T) {
 	a.sessions = []agentSession{{id: "ses_z"}, {id: "ses_a", title: "Grep wiring", updated: 2}}
 	a.sessionsLoaded = true
 	tt.Frame()
-	if !tt.HasText("Grep wiring") || !tt.HasText("New chat") {
-		t.Fatalf("recents not listed: %v", tt.Texts())
+	if tt.HasText("Grep wiring") {
+		t.Fatal("unpinned chat shown outside search")
+	}
+	a.togglePin(a.sessions[1])
+	tt.Frame()
+	if !tt.HasText("Grep wiring") {
+		t.Fatalf("pinned chat not listed: %v", tt.Texts())
 	}
 	if err := tt.Click("Grep wiring"); err != nil {
 		t.Fatal(err)
@@ -738,9 +742,8 @@ func TestSessionDialogs(t *testing.T) {
 	}
 }
 
-// TestOlderChatsRow offers the next page of conversations when the list
-// has one and queues it from the click.
-func TestOlderChatsRow(t *testing.T) {
+// Removing Recents also removes its pagination action.
+func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 	a := newApp()
 	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.sessionsLoaded = true
@@ -751,19 +754,8 @@ func TestOlderChatsRow(t *testing.T) {
 
 	a.nextCursor = "cur2"
 	tt.Frame()
-	if !tt.HasText("Show older chats") {
-		t.Fatalf("older-chats row missing: %v", tt.Texts())
-	}
-	if err := tt.Click("Show older chats"); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case job := <-a.jobs:
-		if job.kind != "more" || job.cursor != "cur2" {
-			t.Fatalf("more job %+v", job)
-		}
-	default:
-		t.Fatal("the older-chats row did not queue a job")
+	if tt.HasText("Show older chats") {
+		t.Fatal("recents pagination still visible")
 	}
 }
 

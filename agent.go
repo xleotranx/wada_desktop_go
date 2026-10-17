@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -629,11 +630,11 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 			}
 		})
 
-		// The stream feeds straight into Update; helpers fill the sidebar
+		// The stream publishes bounded batches; helpers fill the sidebar
 		// from the stored conversations while the loop runs.
 		done := make(chan error, 1)
 		go func() {
-			done <- ag.events(attemptCtx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
+			done <- agentUpdates(attemptCtx, ag.events, win.Update, a.apply)
 		}()
 		go func() {
 			ls, nxt, lerr := ag.listSessions(ctx, "", "")
@@ -837,7 +838,7 @@ func (a *app) finishCutTurns() {
 // worth showing in place.
 func (a *app) streamLine(text string) {
 	a.blocks = append(a.blocks, block{kind: "note", text: text})
-	a.feed.Y = 1e9
+	a.feed.ScrollToEnd()
 }
 
 // workdir is the app's own directory, the one the agent falls back to
@@ -1095,7 +1096,9 @@ func (a *app) apply(ev agentEvent) {
 		key := d.MessageID + ":" + strconv.Itoa(d.Ordinal)
 		if idx, ok := a.live[key]; ok {
 			delete(a.live, key)
-			a.blocks[idx] = block{kind: "text", text: d.Text}
+			a.blocks[idx].kind = "text"
+			a.blocks[idx].text = d.Text
+			a.blocks[idx].stream = nil
 		}
 	case "session.tool.input.started":
 		var d evToolData
@@ -1220,7 +1223,17 @@ func (a *app) dropPerm(requestID string) {
 	delete(a.pending, requestID)
 	for i, b := range a.blocks {
 		if b.key == "permission:"+requestID {
-			a.blocks = append(a.blocks[:i], a.blocks[i+1:]...)
+			a.blocks = slices.Delete(a.blocks, i, i+1)
+			for key, idx := range a.live {
+				if idx > i {
+					a.live[key] = idx - 1
+				}
+			}
+			for key, idx := range a.toolBlocks {
+				if idx > i {
+					a.toolBlocks[key] = idx - 1
+				}
+			}
 			break
 		}
 	}

@@ -321,7 +321,7 @@ func TestSidebarRecents(t *testing.T) {
 	// conversation reads as a new chat row.
 	a.sessions = []agentSession{{id: "ses_z"}, {id: "ses_a", title: "Grep wiring", updated: 2}}
 	a.sessionsLoaded = true
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Grep wiring") || !tt.HasText("New chat") {
 		t.Fatalf("recents not listed: %v", tt.Texts())
 	}
@@ -471,7 +471,7 @@ func TestStopAndAnswerButtons(t *testing.T) {
 	a.blocks = []block{{kind: "permission", key: "permission:per_5", req: a.pending["per_5"]}}
 	a.selectedSession = "ses_seed"
 	a.selected = "Approval turn"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Approval needed — run a shell command") ||
 		!tt.HasText("$ rm -rf /tmp/scratch") ||
 		!tt.HasText("Always would remember rm *") {
@@ -587,7 +587,7 @@ func TestFolderDialog(t *testing.T) {
 	if !a.dirOpen {
 		t.Fatal("the chip did not open the dialog")
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Start a chat in a folder") {
 		t.Fatalf("dialog not drawn: %v", tt.Texts())
 	}
@@ -683,7 +683,7 @@ func TestSessionDialogs(t *testing.T) {
 	// Rename: the dialog pre-fills the title; saving queues the job and
 	// closes; an unedited save queues nothing.
 	a.requestRename(a.sessions[0])
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Rename this chat") || !tt.HasText("Grep wiring") {
 		t.Fatalf("rename dialog not drawn: %v", tt.Texts())
 	}
@@ -700,7 +700,7 @@ func TestSessionDialogs(t *testing.T) {
 	}
 	a.renameDraft = "Sharper wiring"
 	a.renameOpen = true
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +716,7 @@ func TestSessionDialogs(t *testing.T) {
 	// Delete: a stock title conflict stands in; the dialog says what
 	// disappears and the pill queues it.
 	a.confirmDelete(a.sessions[0])
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Delete “Grep wiring”?") {
 		t.Fatalf("confirm dialog not drawn: %v", tt.Texts())
 	}
@@ -755,7 +755,7 @@ func TestOlderChatsRow(t *testing.T) {
 	}
 
 	a.nextCursor = "cur2"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Show older chats") {
 		t.Fatalf("older-chats row missing: %v", tt.Texts())
 	}
@@ -961,7 +961,7 @@ func TestModelPicker(t *testing.T) {
 	if !a.pickerOpen {
 		t.Fatal("the picker did not open")
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("MiniMax-M3") || !tt.HasText("opencode-go") {
 		t.Fatalf("catalog not listed: %v", tt.Texts())
 	}
@@ -991,7 +991,7 @@ func TestModelPicker(t *testing.T) {
 
 	// The filter narrows the rows to what matches.
 	a.modelFilter = "beam"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if tt.HasText("MiniMax-M3") || !tt.HasText("Beam Free") {
 		t.Fatalf("filter left noise: %v", tt.Texts())
 	}
@@ -1011,7 +1011,7 @@ func TestModelPicker(t *testing.T) {
 	// The effort chips of the chat's model switch the variant.
 	a.pickerOpen = true
 	a.modelFilter = ""
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if err := tt.Click("Reasoning high"); err != nil {
 		t.Fatalf("chips missing: %v", err)
 	}
@@ -1050,7 +1050,7 @@ func TestModelPickerScrolls(t *testing.T) {
 	if !a.pickerOpen {
 		t.Fatal("the picker did not open")
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 
 	// Every row that paints stays in the panel, above the model button it
 	// hangs off: field, chips and the rounded box bound the drawn list,
@@ -1105,7 +1105,7 @@ func TestModelPickerScrolls(t *testing.T) {
 	// A filter that nothing matches says so inside the panel.
 	a.pickerOpen = true
 	a.modelFilter = "no such model"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("No models in the catalog match.") {
 		t.Fatalf("empty note missing: %v", tt.Texts())
 	}
@@ -1261,7 +1261,7 @@ func TestPermissionPill(t *testing.T) {
 	}
 	a.setAsk(false)
 	settle()
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Full access") || tt.HasText("Asks first") {
 		t.Fatalf("pill stuck on ask: %v", tt.Texts())
 	}
@@ -1297,7 +1297,7 @@ func TestNewChatLiveRenders(t *testing.T) {
 	if a.selected != "Check runner" {
 		t.Fatalf("the open chat did not take its rename: %q", a.selected)
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("run the checks") {
 		t.Fatal("the rename cleared the transcript")
 	}

@@ -21,7 +21,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, bar ui.TitleBar, headerH flo
 			toggle.MarginStart(10)
 		})
 
-		ui.Scroll(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
+		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
 			a.headerRow(c, p)
 			a.newChatRow(c, p)
 			ui.Box(c).Height(6)
@@ -200,23 +200,33 @@ func (a *app) recentsHeading(c *ui.Context, p palette) {
 			ui.Spinner(c).Size(11, 11).Label("Searching chats")
 		}
 	})
+	rows := a.sessions
 	if looking {
-		if len(a.searchResults) == 0 && !a.searchLoading {
-			ui.Row(c).Padding(4, 8).Children(func() {
-				ui.Text(c, "No chats match.").FontSize(13).TextColor(p.muted)
+		rows = a.searchResults
+	}
+	more := !looking && a.sessionsLoaded && a.nextCursor != ""
+	empty := looking && len(rows) == 0 && !a.searchLoading
+	count := len(rows)
+	if more || empty {
+		count++
+	}
+	ui.List(c, &a.recents, count).Grow(1).FillWidth().Gap(2).
+		ItemKey(func(i int) any {
+			if i == len(rows) {
+				return "footer"
+			}
+			return "session:" + rows[i].id
+		}).Rows(func(row ui.ListRow) {
+		if row.Index < len(rows) {
+			a.sessionRow(row.Context, p, rows[row.Index])
+		} else if more {
+			a.olderRow(row.Context, p)
+		} else {
+			ui.Row(row.Context).Padding(4, 8).Children(func() {
+				ui.Text(row.Context, "No chats match.").FontSize(13).TextColor(p.muted)
 			})
 		}
-		for _, s := range a.searchResults {
-			a.sessionRow(c, p, s)
-		}
-		return
-	}
-	for i := range a.sessions {
-		a.sessionRow(c, p, a.sessions[i])
-	}
-	if a.sessionsLoaded && a.nextCursor != "" {
-		a.olderRow(c, p)
-	}
+	})
 }
 
 // sessionRow is one real conversation: choosing it swaps the transcript

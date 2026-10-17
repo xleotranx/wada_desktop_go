@@ -48,38 +48,36 @@ func TestStreamFollowsFeed(t *testing.T) {
 		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("line %d", i)})
 	}
 
-	// The first frame lays the content out; the reader is at its foot.
+	// A conversation opens at its foot, then follows newly appended rows.
 	tt := ui.NewTester(a.view, 1400, 920)
-	if a.feed.MaxY <= 0 {
-		t.Fatalf("the transcript does not scroll: max %v", a.feed.MaxY)
+	if !a.feed.AtEnd() {
+		t.Fatal("the transcript did not open at its end")
 	}
-	a.feed.Y = a.feed.MaxY
-	grown := a.feed.MaxY
 	for i := range 40 {
 		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("more %d", i)})
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
-	if a.feed.MaxY <= grown {
-		t.Fatalf("the new lines did not grow the content: %v -> %v", grown, a.feed.MaxY)
-	}
 	tt.Frame()                  // the grown content starts the glide
 	tt.Advance(2 * time.Second) // which lands at the new foot
-	if a.feed.Y < a.feed.MaxY-0.5 {
-		t.Fatalf("the feed did not follow the stream: at %v of %v", a.feed.Y, a.feed.MaxY)
+	if !a.feed.AtEnd() || !tt.HasText("more 39") {
+		t.Fatal("the feed did not follow the stream")
 	}
 
 	// A reader who scrolled up keeps their place while the answer grows.
-	a.feed.Y = 0
+	tt.Scroll(1000, 300, 0, -10000)
+	first, _ := a.feed.Visible()
+	if a.feed.AtEnd() || first != 0 {
+		t.Fatalf("scrolling up did not leave the foot: first %d", first)
+	}
 	for i := range 40 {
 		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("tail %d", i)})
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	tt.Advance(2 * time.Second)
-	if a.feed.Y != 0 {
-		t.Fatalf("the feed dragged the reader to the foot: %v", a.feed.Y)
+	if now, _ := a.feed.Visible(); now != first || a.feed.AtEnd() {
+		t.Fatalf("the feed dragged the reader from row %d to %d", first, now)
 	}
-	if !tt.HasText("tail 39") {
-		t.Fatalf("the tail did not render: %v", tt.Texts())
+	if tt.HasText("tail 39") {
+		t.Fatal("a row outside the viewport was built")
 	}
 }
 
@@ -91,9 +89,10 @@ func TestStreamMarkers(t *testing.T) {
 	a := newApp()
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
+	tt := ui.NewTester(a.view, 1400, 920)
 	show := func(text string) *ui.Tester {
 		a.blocks = []block{{kind: "stream", text: text}}
-		tt := ui.NewTester(a.view, 1400, 920)
+		tt.Frame()
 		tt.Advance(time.Second) // the words pace in
 		return tt
 	}
@@ -158,13 +157,13 @@ func TestTranscriptLoader(t *testing.T) {
 	// Words landing take the loader's place, and an empty stream row --
 	// the next paragraph starting -- brings it back.
 	a.blocks = []block{{kind: "stream", text: "half an answer"}}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	tt.Advance(time.Second) // the words pace in
 	if tt.HasText("Working…") || !tt.HasText("half an answer") {
 		t.Fatalf("wordy stream: %v", tt.Texts())
 	}
 	a.blocks = append(a.blocks, block{kind: "stream", key: "stream:msg:1"})
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Working…") {
 		t.Fatalf("a silent stream row drops the loader: %v", tt.Texts())
 	}
@@ -172,7 +171,7 @@ func TestTranscriptLoader(t *testing.T) {
 	// An approval waiting leaves the decisions to the user, not the agent.
 	a.blocks = nil
 	a.pending["per_1"] = &agentPerm{id: "per_1", session: "ses_z"}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if tt.HasText("Working…") {
 		t.Fatalf("the loader runs while waiting on the user: %v", tt.Texts())
 	}
@@ -180,7 +179,7 @@ func TestTranscriptLoader(t *testing.T) {
 	// Another chat's turn does not show here.
 	a.pending = map[string]*agentPerm{}
 	a.selectedSession = "ses_other"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if tt.HasText("Working…") {
 		t.Fatalf("another chat's turn showed its loader: %v", tt.Texts())
 	}
@@ -238,13 +237,13 @@ func TestSidebarSearch(t *testing.T) {
 	}
 
 	// The results take the list over while the query stands.
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Results") || !tt.HasText("Searching chats") {
 		t.Fatalf("search state not shown: %v", tt.Texts())
 	}
 	a.searchLoading = false
 	a.searchResults = []agentSession{{id: "ses_b", title: "Wiring the wings"}}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Wiring the wings") || tt.HasText("Grep wiring") {
 		t.Fatalf("results not shown in place of the list: %v", tt.Texts())
 	}
@@ -267,7 +266,7 @@ func TestSidebarSearch(t *testing.T) {
 	a.searchText = ""
 	a.searchResults = nil
 	a.reviseSearch()
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Grep wiring") || tt.HasText("Results") {
 		t.Fatalf("clearing did not restore the list: %v", tt.Texts())
 	}
@@ -292,7 +291,7 @@ func TestHeaderWiring(t *testing.T) {
 	// The search chip aims the field: the ask stands until a frame gives
 	// the field the keyboard, then it is gone, one ask at a time.
 	a.focusSearch = true
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if a.focusSearch {
 		t.Fatal("the field did not take the focus")
 	}
@@ -301,7 +300,7 @@ func TestHeaderWiring(t *testing.T) {
 	a.sessionsLoaded = true
 	a.sessions = []agentSession{{id: "ses_z", title: "Wired turn"}}
 	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell"}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("1") || !tt.HasText("Notifications, 1 approvals waiting") {
 		t.Fatalf("bell badge missing: %v", tt.Texts())
 	}
@@ -322,7 +321,7 @@ func TestHeaderWiring(t *testing.T) {
 
 	// The quiet bell, nothing pending, shows no badge.
 	a.pending = map[string]*agentPerm{}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Notifications") || tt.HasText("approvals waiting") {
 		t.Fatalf("badge stuck: %v", tt.Texts())
 	}
@@ -347,12 +346,12 @@ func TestAttachDialog(t *testing.T) {
 	if !a.attachOpen {
 		t.Fatal("the dialog did not open")
 	}
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if !tt.HasText("Quote a file") {
 		t.Fatalf("dialog missing: %v", tt.Texts())
 	}
 	a.attachDraft = "notes.md"
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if err := tt.Click("Quote"); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +365,7 @@ func TestAttachDialog(t *testing.T) {
 	// The cancelled drawer leaves the draft to itself.
 	a.attachOpen = true
 	a.attachDraft = ""
-	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
 	if err := tt.Click("Cancel"); err != nil {
 		t.Fatal(err)
 	}

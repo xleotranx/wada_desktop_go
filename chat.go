@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -44,23 +43,26 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 		// under the composer as they stream in.
 		area := ui.Box(c).Grow(1)
 		area.Children(func() {
-			a.trackFeed()
-			ui.Scroll(c).Fill().TrackScroll(&a.feed).Selectable().
-				Padding(26, 24, 18, 24).Gap(13).Children(func() {
-				if a.selectedSession == "" {
-					ui.Column(c).Fill().Center().Gap(8).Children(func() {
-						ui.Text(c, "What should we work on?").FontSize(26).FontWeight(600).TextColor(p.text)
-						ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
-					})
-					return
-				}
-				for i := range a.blocks {
-					a.blockRow(c, p, a.blocks[i])
-				}
+			if a.selectedSession == "" {
+				ui.Column(c).Fill().Center().Gap(8).Children(func() {
+					ui.Text(c, "What should we work on?").FontSize(26).FontWeight(600).TextColor(p.text)
+					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
+				})
+			} else {
+				count := len(a.blocks)
 				if a.turnWorking() {
-					a.blockRow(c, p, block{kind: "working", text: "Working…"})
+					count++
 				}
-			})
+				ui.List(c.Key(a.selectedSession), &a.feed, count).Fill().Selectable().
+					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
+					Rows(func(row ui.ListRow) {
+						if row.Index == len(a.blocks) {
+							a.blockRow(row.Context, p, block{kind: "working", text: "Working…"})
+						} else {
+							a.blockRow(row.Context, p, a.blocks[row.Index])
+						}
+					})
+			}
 			ui.Box(c).Absolute().Start(0).End(0).Bottom(0).Height(26).
 				Gradient(p.bg.Alpha(0), p.bg, 180)
 		})
@@ -104,21 +106,18 @@ func (a *app) turnWorking() bool {
 	return true
 }
 
-// trackFeed keeps a streaming answer in view: while the reader sits at
-// the foot, the transcript glides after the growing answer; scrolled up,
-// it stays where they put it. The glide is a spring, so it chases the
-// moving end instead of stepping line by line, and the latch holds
-// through it, when the offset trails the end on the way. Growth is not
-// scrolling away: the foot of the check is the furthest the content
-// reached before this frame, not where it just grew to.
-func (a *app) trackFeed() {
-	if !a.feed.Scrolling() {
-		a.stickFeed = a.feed.Y >= a.feedFoot-1
+// blockIdentity follows a row when approvals disappear or a stream
+// settles. IDs are assigned lazily, so opening history visits only what
+// the virtual list needs.
+func (a *app) blockIdentity(i int) any {
+	if i == len(a.blocks) {
+		return "working"
 	}
-	a.feedFoot = a.feed.MaxY
-	if a.stickFeed && a.turnRunning() && a.feed.Y < a.feed.MaxY {
-		a.feed.ScrollTo(0, math.MaxFloat32, ui.Smooth)
+	if a.blocks[i].id == 0 {
+		a.nextBlockID++
+		a.blocks[i].id = a.nextBlockID
 	}
+	return a.blocks[i].id
 }
 
 // titleBar shows the chat's name between the window's controls.

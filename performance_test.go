@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,111 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/egoist/mygo/ui"
 )
+
+func TestAgentUpdatesBatchAndFilter(t *testing.T) {
+	for _, n := range []int{0, 80} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			posted, applied := 0, 0
+			ended := errors.New("stream ended")
+			err := agentUpdates(context.Background(), func(ctx context.Context, emit func(agentEvent)) error {
+				for range 100 {
+					emit(agentEvent{Type: "session.tool.input.delta"})
+				}
+				for i := range n {
+					emit(agentEvent{Type: "session.text.delta", Data: []byte(fmt.Sprint(i))})
+				}
+				return ended
+			}, func(fn func()) { posted++; fn() }, func(ev agentEvent) {
+				if string(ev.Data) != fmt.Sprint(applied) {
+					t.Fatalf("event %d: %s", applied, ev.Data)
+				}
+				applied++
+			})
+			if err != ended || applied != n || (n == 0 && posted != 0) || (n > 0 && posted >= n) {
+				t.Fatalf("err %v, %d events, %d updates", err, applied, posted)
+			}
+		})
+	}
+}
+
+func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
+	a := newApp()
+	a.sessionsLoaded = true
+	a.selectedSession = "large"
+	for i := range 1000 {
+		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Answer 999") {
+		t.Fatal("a loaded conversation did not open at its end")
+	}
+	if tt.HasText("Answer 0") {
+		t.Fatal("an offscreen message was still built")
+	}
+}
+
+func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
+	a := newApp()
+	a.sessionsLoaded = true
+	for i := range 2000 {
+		a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Chat 0") || tt.HasText("Chat 1999") {
+		t.Fatal("sidebar did not limit construction to visible rows")
+	}
+	a.recents.ScrollToEnd()
+	tt.Frame()
+	if err := tt.Click("Chat 1999"); err != nil {
+		t.Fatal(err)
+	}
+	if a.selectedSession != "1999" {
+		t.Fatal("the scrolled row opened the wrong conversation")
+	}
+}
+
+func TestActivitySurvivesVirtualScrolling(t *testing.T) {
+	a := newApp()
+	a.sessionsLoaded = true
+	a.selectedSession = "large"
+	for i := range 1000 {
+		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
+	}
+	a.blocks = append(a.blocks, block{kind: "activity", text: "Ran command", key: "activity:tail", icon: icTerminal,
+		detail: commandDetail("$ echo retained", "retained")})
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Ran command"); err != nil {
+		t.Fatal(err)
+	}
+	a.feed.ScrollTo(0, ui.Start)
+	tt.Frame()
+	// A focused row may stay built for keyboard identity, but it must
+	// be clipped while outside the viewport.
+	if r, ok := tt.Find("Ran command"); ok && r.W > 0 && r.H > 0 {
+		t.Fatalf("the tool row was not clipped: %+v", r)
+	}
+	a.feed.ScrollToEnd()
+	tt.Frame()
+	if !tt.HasText("$ echo retained") {
+		t.Fatal("tool expansion was lost while its row was outside the viewport")
+	}
+}
+
+func TestApprovalRemovalPreservesLiveRows(t *testing.T) {
+	a := newApp()
+	a.apply(agentEvent{Type: "permission.asked", Data: []byte(`{"id":"ask","sessionID":"s","action":"shell"}`)})
+	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"assistantMessageID":"m","ordinal":0}`)})
+	id := a.blockIdentity(1)
+	a.dropPerm("ask")
+	a.apply(agentEvent{Type: "session.text.delta", Data: []byte(`{"assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
+	a.apply(agentEvent{Type: "session.text.ended", Data: []byte(`{"assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
+	if a.blockIdentity(0) != id || a.blocks[0].text != "kept" || a.blocks[0].kind != "text" {
+		t.Fatal("removing an approval changed the live row's identity or content")
+	}
+}
 
 func TestPolicyRefreshesOutsideEdits(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

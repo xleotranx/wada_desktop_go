@@ -14,6 +14,7 @@ import (
 
 // block is one paragraph, bubble or activity line of the transcript.
 type block struct {
+	id     uint64
 	kind   string // "text", "user", "stream", "note", "working", "activity" or "permission"
 	text   string
 	icon   *ui.SVG
@@ -38,13 +39,10 @@ type app struct {
 
 	draft string
 
-	feed ui.ScrollState
-	// stickFeed holds the transcript to its foot while the open chat's
-	// turn streams, until the reader scrolls up from it; feedFoot is the
-	// foot itself, as of the frame before.
-	stickFeed bool
-	feedFoot  float32
-	blocks    []block
+	feed        ui.ListState
+	recents     ui.ListState
+	blocks      []block
+	nextBlockID uint64
 
 	// md draws the transcript's markdown, one set of options shared by
 	// every message, tuned to the palette each frame.
@@ -112,6 +110,7 @@ func newApp() *app {
 		home:     workdir(),
 		expanded: map[string]bool{},
 		blocks:   []block{},
+		feed:     ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
 
 		jobs:         make(chan agentJob, 16),
 		live:         map[string]int{},
@@ -225,8 +224,7 @@ func (a *app) send() {
 	a.blocks = append(a.blocks, block{kind: "user", text: a.draft})
 	text := strings.TrimSpace(a.draft)
 	a.draft = ""
-	// math.MaxFloat32 scrolls the tracked container to its end.
-	a.feed.Y = 1e9
+	a.feed.ScrollToEnd()
 	// Hand the turn to the agent runner; where none runs, the transcript
 	// keeps acting as the design mock it is.
 	a.agentSend(text)
@@ -507,5 +505,5 @@ func (a *app) freshTranscript() {
 	a.toolBlocks = map[string]int{}
 	a.pending = map[string]*agentPerm{}
 	a.busySession = ""
-	a.feed.Y = 1e9
+	a.feed = ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth}
 }

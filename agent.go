@@ -549,7 +549,7 @@ func (a *agent) events(ctx context.Context, h func(agentEvent)) error {
 // to open, a brand-new chat to create, a running turn to stop, an
 // approval to answer or a list change to make.
 type agentJob struct {
-	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model", "search" or "more"
+	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model" or "more"
 	sid      string // the session to act on; empty for a new one
 	dir      string // where a new chat should work; empty for the app's
 	text     string // the user's words or a new title, for "prompt" and "rename"
@@ -611,12 +611,22 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 			continue
 		}
 		last = ag
+		attemptCtx, cancelAttempt := context.WithCancel(ctx)
+		go searchChats(attemptCtx, a.searches, func(ctx context.Context, query string) ([]agentSession, error) {
+			rows, _, err := ag.listSessions(ctx, "", query)
+			return rows, err
+		}, win.Update, a.acceptSearch)
+		win.Update(func() {
+			if a.searchText != "" {
+				a.reviseSearch()
+			}
+		})
 
 		// The stream feeds straight into Update; helpers fill the sidebar
 		// from the stored conversations while the loop runs.
 		done := make(chan error, 1)
 		go func() {
-			done <- ag.events(ctx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
+			done <- ag.events(attemptCtx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
 		}()
 		go func() {
 			ls, nxt, lerr := ag.listSessions(ctx, "", "")
@@ -695,6 +705,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 		alive := true
 		for alive {
 			select {
+			case <-ctx.Done():
+				cancelAttempt()
+				return
 			case <-done:
 				alive = false
 			case job := <-jobs:
@@ -759,22 +772,6 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 						}
 						a.moreLoading = false
 					})
-				case "search":
-					rows, _, serr := ag.listSessions(ctx, "", job.text)
-					win.Update(func() {
-						// The field may have moved on; stale results go
-						// nowhere.
-						if a.searchText == job.text {
-							a.searchLoading = false
-							if serr == nil {
-								a.searchResults = rows
-							} else {
-								why := serr.Error()
-								a.searchResults = nil
-								a.streamLine("The search did not run: " + why)
-							}
-						}
-					})
 				case "model":
 					who := job.sid
 					if who == "" {
@@ -804,6 +801,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 				}
 			}
 		}
+		cancelAttempt()
 		// The window is gone, or the stream died with the app quitting.
 		if ctx.Err() != nil {
 			return

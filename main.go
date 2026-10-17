@@ -80,6 +80,8 @@ type app struct {
 	searchText    string
 	searchResults []agentSession
 	searchLoading bool
+	searchVersion uint64
+	searches      chan searchRequest
 	// focusSearch hands the field the keyboard once, from the header's
 	// search shape.
 	focusSearch bool
@@ -111,6 +113,7 @@ func newApp() *app {
 		toolCmds:   map[string]string{},
 		toolBlocks: map[string]int{},
 		pending:    map[string]*agentPerm{},
+		searches:   make(chan searchRequest, 1),
 	}
 	return a
 }
@@ -119,16 +122,17 @@ func newApp() *app {
 // in the store, and an empty one drops back to the ordinary list at
 // once.
 func (a *app) reviseSearch() {
-	if a.searchText == "" {
+	a.searchVersion++
+	a.searchLoading = a.searchText != ""
+	if !a.searchLoading {
 		a.searchResults = nil
-		a.searchLoading = false
-		return
 	}
+	// Only the newest query matters. Searches never fill the control queue.
 	select {
-	case a.jobs <- agentJob{kind: "search", text: a.searchText}:
-		a.searchLoading = true
+	case <-a.searches:
 	default:
 	}
+	a.searches <- searchRequest{text: a.searchText, version: a.searchVersion}
 }
 
 // view lays the window out: a sidebar, a hairline beside it and the

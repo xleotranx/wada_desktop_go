@@ -226,8 +226,8 @@ func TestSidebarSearch(t *testing.T) {
 		t.Fatalf("search text %q after typing", a.searchText)
 	}
 	select {
-	case job := <-a.jobs:
-		if job.kind != "search" || job.text != "wire" {
+	case job := <-a.searches:
+		if job.text != "wire" {
 			t.Fatalf("search job %+v", job)
 		}
 	default:

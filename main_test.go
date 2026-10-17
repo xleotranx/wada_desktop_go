@@ -108,6 +108,7 @@ func TestSidebarSearch(t *testing.T) {
 // the field the way the product menu does.
 func TestHeaderWiring(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.selectedSession = "ses_z"
 	a.blocks = []block{{kind: "text", text: "half a thought"}}
@@ -201,6 +202,7 @@ func TestAttachDialog(t *testing.T) {
 
 func TestActivityExpands(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.blocks = []block{
 		{kind: "activity", text: "Ran command", icon: icTerminal, key: "activity:call_1",

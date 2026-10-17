@@ -181,6 +181,7 @@ func TestApplyTurn(t *testing.T) {
 
 	// The whole turn rendered: the agent's words and the expanded detail
 	// of what its tool printed.
+	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.expanded["activity:call_1"] = true
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -298,6 +299,7 @@ func TestRestoreBlocks(t *testing.T) {
 	// The tool row expands like a live one does.
 	a2 := newApp()
 	a2.blocks = blocks
+	a2.selectedSession = "ses_seed"
 	a2.selected = "Wiring check"
 	a2.expanded["activity:call_9"] = true
 	tt := ui.NewTester(a2.view, 1400, 920)
@@ -467,6 +469,7 @@ func TestStopAndAnswerButtons(t *testing.T) {
 	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell",
 		resources: []string{"rm -rf /tmp/scratch"}, save: []string{"rm *"}}
 	a.blocks = []block{{kind: "permission", key: "permission:per_5", req: a.pending["per_5"]}}
+	a.selectedSession = "ses_seed"
 	a.selected = "Approval turn"
 	tt = ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Approval needed — run a shell command") ||
@@ -1160,6 +1163,43 @@ func TestPermissionPill(t *testing.T) {
 	a.setAsk(true)
 	if level, _ := permissionLevel(tmp); level != "ask" {
 		t.Fatalf("the pill did not write the rule back: %q", level)
+	}
+}
+
+// TestNewChatLiveRenders settles the complaint the old gate hid: words
+// streaming into a fresh chat draw at once, though the server has not
+// named it yet -- a new chat reads as an open one the moment it exists,
+// and its auto-title lands into the open bar instead of waiting for a
+// click.
+func TestNewChatLiveRenders(t *testing.T) {
+	a := newApp()
+	// The state right after the runner opened a fresh conversation: a
+	// real session id, no title yet.
+	a.selectedSession = "ses_fresh"
+	a.selected = "New chat"
+	a.blocks = []block{{kind: "user", text: "run the checks"},
+		{kind: "stream", text: "On it — this is half of an answer"}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("run the checks") || !tt.HasText("On it — this is half of an answer") {
+		t.Fatalf("the fresh chat drew nothing: %v", tt.Texts())
+	}
+
+	// The auto-title folds onto the conversation on show.
+	a.apply(agentEvent{Type: "session.renamed",
+		Data: []byte(`{"sessionID":"ses_fresh","title":"Check runner"}`)})
+	if a.selected != "Check runner" {
+		t.Fatalf("the open chat did not take its rename: %q", a.selected)
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("run the checks") {
+		t.Fatal("the rename cleared the transcript")
+	}
+
+	// A session the user is not looking at renames silently.
+	a.apply(agentEvent{Type: "session.renamed",
+		Data: []byte(`{"sessionID":"ses_fresh2","title":"Other"}`)})
+	if a.selected != "Check runner" {
+		t.Fatalf("another chat's rename stole the bar: %q", a.selected)
 	}
 }
 

@@ -681,6 +681,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 			}
 			win.Update(func() {
 				a.selectedSession = sid
+				a.selected = "New chat"
 				// The untitled row stands at the top; its title fills in
 				// over the stream once words run.
 				a.sessions = append([]agentSession{{id: sid, dir: home, model: ref}}, a.sessions...)
@@ -1180,6 +1181,10 @@ func (a *app) apply(ev agentEvent) {
 			if a.sessions[i].id == d.SessionID {
 				a.sessions[i].title = d.Title
 			}
+		}
+		// The conversation on show takes its new name at once.
+		if d.SessionID == a.selectedSession {
+			a.selected = d.Title
 		}
 	}
 }

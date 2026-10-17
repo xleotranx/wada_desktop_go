@@ -102,6 +102,7 @@ func TestMdSpans(t *testing.T) {
 // in order and the stream preview stays plain.
 func TestMarkdownView(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "ses_seed"
 	a.selected = "Turned out"
 	a.blocks = []block{
 		{kind: "text", text: "## Welcome\n\nRun `go test` and **be happy**:\n\n```sh\ncd .\nls\n```\n\n- bullets first\n\n7. then numbers"},

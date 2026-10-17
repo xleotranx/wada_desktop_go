@@ -19,7 +19,7 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 		area.Children(func() {
 			ui.Scroll(c).Fill().TrackScroll(&a.feed).Selectable().
 				Padding(26, 24, 18, 24).Gap(13).Children(func() {
-				if a.selected == "" {
+				if a.selectedSession == "" {
 					ui.Column(c).Fill().Center().Gap(8).Children(func() {
 						ui.Text(c, "What should we work on?").FontSize(26).FontWeight(600).TextColor(p.text)
 						ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)

@@ -1,3 +1,5 @@
 /build/
 /.mygo/
 mygo_windows_*.syso
+/wada-desktop-go
+.DS_Store

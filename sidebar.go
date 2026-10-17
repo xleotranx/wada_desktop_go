@@ -94,11 +94,7 @@ func (a *app) iconChip(c *ui.Context, p palette, label string, icon *ui.SVG, on 
 func (a *app) newChatRow(c *ui.Context, p palette) {
 	b := a.row(c, p, "New chat", false)
 	b.Height(34)
-	b.OnClick(func() {
-		a.selected = ""
-		a.draft = ""
-		a.blocks = memoTranscript()
-	})
+	b.OnClick(a.startNewChat)
 	b.Children(func() {
 		ui.Icon(c, icPen).FontSize(16).TextColor(p.text)
 		ui.Text(c, "New chat").MarginStart(10).FontSize(14).FontWeight(500).SingleLine()
@@ -124,14 +120,151 @@ func (a *app) sectionOpen(key string) bool {
 	return !a.expanded["title:"+key]
 }
 
-// recentsHeading shows the title that opens the recents page, with the
-// spinner standing for the chats still loading.
+// recentsHeading titles the list of real conversations; while the runner
+// is still reading them a spinner stands in.
 func (a *app) recentsHeading(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().Height(24).Margin(8, 0, 0, 0).Padding(0, 8).Children(func() {
 		ui.Text(c, "Recents").FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
-		ui.Icon(c, icChevRight).FontSize(11).MarginStart(4).TextColor(p.muted)
 		ui.Spacer(c)
-		ui.Spinner(c).Size(11, 11).Label("Loading recents")
+		if !a.sessionsLoaded {
+			ui.Spinner(c).Size(11, 11).Label("Loading recents")
+		}
+	})
+	for i := range a.sessions {
+		a.sessionRow(c, p, a.sessions[i])
+	}
+	if a.sessionsLoaded && a.nextCursor != "" {
+		a.olderRow(c, p)
+	}
+}
+
+// sessionRow is one real conversation: choosing it swaps the transcript
+// while the runner brings the stored one back, and the kebab at its end
+// renames or deletes it.
+func (a *app) sessionRow(c *ui.Context, p palette, s agentSession) {
+	label := s.title
+	if label == "" {
+		label = "New chat"
+	}
+	c.Key("session:" + s.id)
+	b := a.row(c, p, label, s.id == a.selectedSession)
+	b.PaddingStart(8)
+	b.OnClick(func() {
+		a.selected = label
+		a.selectedSession = s.id
+		a.freshTranscript()
+		select {
+		case a.jobs <- agentJob{kind: "open", sid: s.id}:
+		default:
+		}
+	})
+	tint := p.faint
+	if b.Hovered() {
+		tint = p.muted
+	}
+	b.Children(func() {
+		a.textRow(c, p, label)
+		if s.id == a.busySession {
+			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
+		}
+		c.Key("sessmenu:" + s.id)
+		kebab := ui.ButtonBase(c).Label("Conversation options, "+label).Size(22, 22).
+			Radius(6).Center().Tooltip("Rename or delete this chat")
+		kebab.Menu(func(m *ui.Menu) {
+			if m.Item("Rename…").Chosen() {
+				a.requestRename(s)
+			}
+			if m.Item("Delete").Chosen() {
+				a.confirmDelete(s)
+			}
+		})
+		if kebab.Hovered() {
+			kebab.Background(p.hover)
+		}
+		kebab.Children(func() {
+			ui.Icon(c, icEllipsis).FontSize(13).TextColor(tint)
+		})
+	})
+}
+
+// olderRow asks the runner for the next page of conversations.
+func (a *app) olderRow(c *ui.Context, p palette) {
+	b := a.row(c, p, "Show older chats", false)
+	b.Height(28)
+	b.OnClick(func() {
+		if a.moreLoading || a.nextCursor == "" {
+			return
+		}
+		a.moreLoading = true
+		select {
+		case a.jobs <- agentJob{kind: "more", cursor: a.nextCursor}:
+		default:
+			a.moreLoading = false
+		}
+	})
+	b.Children(func() {
+		ui.Text(c, "Show older chats").FontSize(13).TextColor(p.muted).MarginStart(24)
+		if a.moreLoading {
+			ui.Spinner(c).Size(11, 11).Label("Loading chats")
+		}
+	})
+}
+
+// sessionDialogs carries the two dialogs the Recents rows open.
+func (a *app) sessionDialogs(c *ui.Context, p palette) {
+	title := a.confirmWhat
+	if title == "" {
+		title = "New chat"
+	}
+	ui.Modal(c, &a.confirmOpen, func() {
+		ui.Box(c).Width(340).Radius(14).Padding(16, 18).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
+			Children(func() {
+				ui.Column(c).Gap(10).Children(func() {
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+						ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
+						ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
+					})
+					ui.Text(c, "The conversation and what it did are gone for good.").
+						FontSize(12.5).TextColor(p.muted)
+					ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+						cancel.OnClick(func() { a.confirmOpen = false })
+						cancel.Children(func() {
+							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+						})
+						del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
+							Background(p.orange)
+						del.OnClick(a.deleteConfirmed)
+						del.Children(func() {
+							ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(ui.Hex("#ffffff"))
+						})
+					})
+				})
+			})
+	})
+
+	ui.Modal(c, &a.renameOpen, func() {
+		ui.Box(c).Width(340).Radius(14).Padding(16, 18).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
+			Children(func() {
+				ui.Column(c).Gap(10).Children(func() {
+					ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
+					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
+						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
+						ui.TextInput(c, &a.renameDraft).FontSize(13)
+					})
+					ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+						cancel.OnClick(func() { a.renameOpen = false })
+						cancel.Children(func() {
+							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+						})
+						save := ui.PrimaryButton(c, "Save")
+						save.OnClick(a.saveRename)
+					})
+				})
+			})
 	})
 }
 

@@ -31,12 +31,62 @@ func (a *app) composer(c *ui.Context, p palette) {
 			ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(2, 0, 0, 0).Children(func() {
 				a.composeIconButton(c, p, "Attach", icPlus)
 				a.fullAccessButton(c, p)
+				a.folderChip(c, p)
 				ui.Spacer(c)
 				a.modelButton(c, p)
 				a.composeIconButton(c, p, "Dictate", icMic)
 				a.voiceButton(c, p)
 			})
 		})
+	})
+}
+
+// folderChip shows where the chat works; clicking it starts a new chat
+// in another folder.
+func (a *app) folderChip(c *ui.Context, p palette) {
+	dir := a.chatDir()
+	if dir == "" {
+		dir = workdir()
+	}
+	b := ui.ButtonBase(c).Label("Workspace folder, " + dirBase(dir)).Height(28).Radius(999).
+		PaddingX(10).Cursor(ui.CursorPointer).Tooltip("This chat works in " + dir + ". Start a new chat somewhere else?")
+	if b.Hovered() {
+		b.Background(p.hover)
+	}
+	b.OnClick(a.openFolderDialog)
+	b.Children(func() {
+		ui.Icon(c, icFolder).FontSize(13).TextColor(p.muted)
+		ui.Text(c, dirBase(dir)).MarginStart(5).FontSize(13).TextColor(p.text).SingleLine()
+	})
+}
+
+// folderModal is the dialog for starting a chat in a chosen directory.
+func (a *app) folderModal(c *ui.Context, p palette) {
+	ui.Modal(c, &a.dirOpen, func() {
+		ui.Box(c).Width(360).Radius(14).Padding(16, 18).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
+			Children(func() {
+				ui.Column(c).Gap(10).Children(func() {
+					ui.Text(c, "Start a chat in a folder").FontSize(14).FontWeight(600)
+					ui.Text(c, "The agent reads and changes files in this folder.").FontSize(12.5).TextColor(p.muted)
+					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
+						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
+						ui.TextInput(c, &a.dirDraft).FontSize(13)
+					})
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+						cancel.OnClick(func() { a.dirOpen = false })
+						cancel.Children(func() {
+							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+						})
+						start := ui.PrimaryButton(c, "Start chat here")
+						start.OnClick(func() { a.startChatIn(a.dirDraft) })
+					})
+					if a.dirNote != "" {
+						ui.Text(c, a.dirNote).FontSize(12).TextColor(p.orange).SingleLine()
+					}
+				})
+			})
 	})
 }
 
@@ -85,17 +135,23 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 }
 
 // voiceButton stands at the composer's right: the dark voice-session
-// circle while the draft is empty, and the blue send button once the
-// user has typed something.
+// circle while the draft is empty, the blue send button once the user has
+// typed something, and a stop square while the agent's turn runs.
 func (a *app) voiceButton(c *ui.Context, p palette) {
 	bg, icon, label := p.voiceBg, icWaves, "Voice session"
-	if strings.TrimSpace(a.draft) != "" {
+	switch {
+	case a.busySession != "":
+		bg, icon, label = ui.Hex("#3572e3"), icStop, "Stop the agent"
+	case strings.TrimSpace(a.draft) != "":
 		bg, icon, label = ui.Hex("#3572e3"), icSend, "Send message"
 	}
 	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().
 		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)
 	b.OnClick(func() {
-		if strings.TrimSpace(a.draft) != "" {
+		switch {
+		case a.busySession != "":
+			a.stopTurn()
+		case strings.TrimSpace(a.draft) != "":
 			a.send()
 		}
 	})

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -67,6 +69,10 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 			ui.Row(c).AlignItems(ui.Center).Gap(0).Children(func() {
 				ui.Icon(c, icon).FontSize(15).TextColor(p.muted)
 				ui.Text(c, title).MarginStart(8).FontSize(13).FontWeight(500).SingleLine()
+				// where the chat works, small beside its name
+				if dir := a.chatDir(); dir != "" {
+					ui.Text(c, dirBase(dir)).MarginStart(8).FontSize(12).TextColor(p.muted).SingleLine()
+				}
 			})
 		})
 
@@ -77,7 +83,7 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 			a.navButton(c, p, "Chat tasks", icTasks, nil, p.muted)
 			a.navButton(c, p, "Layout", icLayout, nil, p.muted)
 			ui.Box(c).Width(1).Height(18).MarginX(6).Background(p.hairline)
-			a.navButton(c, p, "New chat", icPlus, nil, ui.Hex("#3572e3"))
+			a.navButton(c, p, "New chat", icPlus, a.startNewChat, ui.Hex("#3572e3"))
 		})
 	})
 }
@@ -96,6 +102,8 @@ func (a *app) blockRow(c *ui.Context, p palette, b block) {
 			})
 		case "activity":
 			a.activityRow(c, p, b)
+		case "permission":
+			a.permissionRow(c, p, b)
 		default: // "text", "stream"
 			t := ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.text)
 			if b.kind == "stream" {
@@ -126,6 +134,74 @@ func (a *app) activityRow(c *ui.Context, p palette, b block) {
 	if open && b.detail != nil {
 		ui.Row(c).FillWidth().Children(func() { b.detail(c, p) })
 	}
+}
+
+// permissionRow is one approval the agent raised mid-turn: what it wants
+// to do, with the three decisions the server takes. It stays until the
+// runner's reply lands, then the card leaves the transcript.
+func (a *app) permissionRow(c *ui.Context, p palette, b block) {
+	r := b.req
+	if r == nil {
+		return
+	}
+	ui.Box(c).FillWidth().Radius(10).Padding(10, 12).Margin(4, 0, 0, 0).
+		Background(p.detailBg).Border(1, p.hairline).Children(func() {
+		ui.Column(c).Gap(8).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Icon(c, icShield).FontSize(15).TextColor(p.orange)
+				ui.Text(c, "Approval needed — "+permAsk(r.action)).
+					FontSize(13).FontWeight(500).SingleLine()
+			})
+			for _, res := range r.resources {
+				ui.Box(c).FillWidth().Radius(8).Padding(5, 10).
+					Background(p.bg).Border(1, p.hairline).Children(func() {
+					ui.Text(c, "$ "+res).Font("monospace").FontSize(12).LineHeight(1.5).
+						TextColor(p.text).SingleLine()
+				})
+			}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				a.permButton(c, p, true, ui.Hex("#3572e3"), ui.Hex("#ffffff"),
+					"Allow once", "Let it happen this turn.", func() { a.answerPerm(r, "once") })
+				a.permButton(c, p, false, p.hover, p.text,
+					"Always", "Keep allowing this pattern.", func() { a.answerPerm(r, "always") })
+				a.permButton(c, p, false, p.hover, p.text,
+					"Deny", "Refuse and let the agent carry on.", func() { a.answerPerm(r, "reject") })
+			})
+			if len(r.save) > 0 {
+				ui.Text(c, "Always would remember "+strings.Join(r.save, ", ")+".").
+					FontSize(12).TextColor(p.muted).SingleLine()
+			}
+		})
+	})
+}
+
+// permButton is one small pill of the approval card's decision row; a
+// solid button keeps its tint, the rest pick it up while hovered.
+func (a *app) permButton(c *ui.Context, p palette, solid bool, bg, tint ui.Color, label, tip string, on func()) {
+	b := ui.ButtonBase(c).Label(label).Height(26).Radius(999).PaddingX(12).
+		Cursor(ui.CursorPointer).Tooltip(tip)
+	if solid {
+		b.Background(bg)
+	} else if b.Hovered() {
+		b.Background(p.hover)
+	}
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12.5).FontWeight(500).TextColor(tint).SingleLine()
+	})
+	b.OnClick(on)
+}
+
+// permAsk words what a permission action would do, as the card's header.
+func permAsk(action string) string {
+	switch action {
+	case "bash", "shell":
+		return "run a shell command"
+	case "edit":
+		return "edit files in the workspace"
+	case "webfetch":
+		return "fetch from the web"
+	}
+	return "use " + action
 }
 
 // memoTranscript is the chat the interface starts on.

@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,14 +20,17 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// agent drives a headless opencode server: the app spawns `opencode serve`,
-// speaks its /api HTTP surface and streams its /api/event SSE feed into the
-// transcript, so the real agent answers where the demo copy used to.
+// agent drives a headless opencode server: the app spawns `opencode serve`
+// for the local one or dials a server it was pointed at, speaks its /api
+// HTTP surface and streams its /api/event SSE feed into the transcript, so
+// the real agent answers where the demo copy used to.
 type agent struct {
-	base string // like http://127.0.0.1:4096/api
-	pw   string // the server password this app chose for serve
-	http *http.Client
-	cmd  *exec.Cmd
+	base    string // like http://127.0.0.1:4096/api
+	pw      string // the key this app connects with
+	http    *http.Client
+	cmd     *exec.Cmd // the process the app started; nil for a dialed server
+	addr    string    // where it listens, for Settings to show
+	version string    // what its /info named
 }
 
 // agentEvent is one line of the opencode event stream, decoded to its
@@ -40,10 +41,31 @@ type agentEvent struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// startAgent spawns opencode serve rooted at dir, waits for its API to
-// answer and hands back a client. The server dies with this process
+// startAgentFor brings one configured server up: it spawns opencode serve
+// for a connection the app manages, and dials any other, waiting for its
+// API to answer either way.
+func startAgentFor(ctx context.Context, cfg serverConn, dir string) (*agent, error) {
+	if cfg.managed {
+		return startLocalAgent(ctx, cfg, dir)
+	}
+	base, err := apiBase(cfg.url)
+	if err != nil {
+		return nil, err
+	}
+	a := &agent{base: base, pw: cfg.password, http: httpClient(),
+		addr: strings.TrimSuffix(base, "/api")}
+	version, err := a.waitReady(ctx, 8*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	a.version = version
+	return a, nil
+}
+
+// startLocalAgent spawns opencode serve on a free port with the app's key
+// (generated when settings hold none). The server dies with this process
 // (Pdeathsig), so dev rebuilds don't leave orphans behind.
-func startAgent(ctx context.Context, dir string) (*agent, error) {
+func startLocalAgent(ctx context.Context, cfg serverConn, dir string) (*agent, error) {
 	exe, err := exec.LookPath("opencode")
 	if err != nil {
 		return nil, fmt.Errorf("opencode not found in PATH: %w", err)
@@ -52,9 +74,10 @@ func startAgent(ctx context.Context, dir string) (*agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := make([]byte, 32)
-	rand.Read(key)
-	pw := base64.RawURLEncoding.EncodeToString(key)
+	pw := cfg.password
+	if pw == "" {
+		pw = serverKey()
+	}
 
 	cmd := exec.CommandContext(ctx, exe, "serve",
 		"--hostname", "127.0.0.1", "--port", strconv.Itoa(port))
@@ -69,34 +92,47 @@ func startAgent(ctx context.Context, dir string) (*agent, error) {
 
 	a := &agent{
 		base: "http://127.0.0.1:" + strconv.Itoa(port) + "/api",
+		addr: "http://127.0.0.1:" + strconv.Itoa(port),
 		pw:   pw,
-		http: &http.Client{},
+		http: httpClient(),
 		cmd:  cmd,
 	}
-	if err := a.waitReady(ctx, 20*time.Second); err != nil {
+	version, err := a.waitReady(ctx, 20*time.Second)
+	if err != nil {
 		cmd.Process.Kill()
 		return nil, err
 	}
+	a.version = version
 	return a, nil
+}
+
+// stop ends the server the app started; a server it was only pointed at
+// keeps running.
+func (a *agent) stop() {
+	if a.cmd != nil && a.cmd.Process != nil {
+		a.cmd.Process.Kill()
+	}
 }
 
 // waitReady polls /api/info until the server names its version, the
 // deadline passes or the app walks away.
-func (a *agent) waitReady(ctx context.Context, within time.Duration) error {
+func (a *agent) waitReady(ctx context.Context, within time.Duration) (string, error) {
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
 		default:
 		}
 		raw, err := a.call(ctx, "GET", "/info", nil)
-		if err == nil && strings.Contains(string(raw), "version") {
-			return nil
+		if err == nil {
+			if v := infoVersion(raw); v != "" {
+				return v, nil
+			}
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return fmt.Errorf("opencode serve did not come up in %s", within)
+	return "", fmt.Errorf("the server did not come up in %s", within)
 }
 
 // freePort finds a port for serve by reserving and releasing one.
@@ -130,6 +166,9 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("the key was refused (401)")
+	}
 	if resp.StatusCode >= 300 {
 		var tagged struct {
 			Tag     string `json:"_tag"`
@@ -195,13 +234,6 @@ func sessionModel() (string, string) {
 		}
 	}
 	return "opencode-go", "longcat-2.5-preview-free"
-}
-
-// pickModel names one conversation's model; without it, the server runs
-// the config default, which in this app is not free.
-func (a *agent) pickModel(ctx context.Context, sessionID string) error {
-	prov, name := sessionModel()
-	return a.setModel(ctx, sessionID, prov, name, "")
 }
 
 // setModel points one conversation at a model of the catalog, with its
@@ -467,34 +499,37 @@ const (
 	jobDelete agentJobKind = "delete" // delete a conversation
 	jobModel  agentJobKind = "model"  // switch the conversation's model
 	jobMore   agentJobKind = "more"   // load the next page of the list
+	jobServer agentJobKind = "server" // dial the server the settings chose
 )
 
 // agentJob is one request for the runner: a prompt to send, a conversation
 // to open, a brand-new chat to create, a running turn to stop, an
-// approval to answer or a list change to make.
+// approval to answer, a list change to make or the server to dial.
 type agentJob struct {
 	kind     agentJobKind // what to do; one of the job* constants
 	sid      string       // the session to act on; empty for a new one
 	dir      string       // where a new chat should work; empty for the app's
 	text     string       // the user's words or a new title, for jobPrompt and jobRename
 	cursor   string       // the next page of conversations, for jobMore
-	provider string       // the model's provider, for jobModel
-	model    string       // the model id, for jobModel
+	provider string       // the model's provider, for jobModel and jobPrompt
+	model    string       // the model id, for jobModel and jobPrompt
 	variant  string       // its reasoning effort, when it has one
 	request  string       // the permission request being answered
 	decision string       // "once", "always" or "reject"
 	draft    uint64       // identifies a blank draft until its server session arrives
+	server   serverConn   // the connection to dial, for jobServer
+	pins     []string     // the chats pinned on that server, to load past its first page
 }
 
-// connect runs the pipe for one app lifetime: spawn the server, subscribe
-// to its events and then take jobs and stream events in, one task at a
-// time between frames. The server going down ends one attempt, not the
-// session: the pipe respawns with a stretch of waiting between tries,
-// for as long as the window lives.
-func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string) {
+// connect runs the pipe for one app lifetime: dial the server the settings
+// chose, subscribe to its events and then take jobs and stream events in,
+// one task at a time between frames. The server going down ends one
+// attempt, not the session: the pipe dials again with a stretch of waiting
+// between tries, and a server switch jumps the line.
+func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pinnedIDs []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// The server dies with the window, even while startAgent is still
+	// The server dies with the window, even while startAgentFor is still
 	// bringing it up.
 	win.OnClosed(func() { cancel() })
 	go watchPolicy(ctx, a.policyDirs, a.policyWrites, func(result policyResult) {
@@ -505,17 +540,47 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 		})
 	})
 
+	pins := pinnedIDs
 	var last *agent
-	booted := false // the first refill settles onto the newest chat; later ones keep the view where it is
-	for reconnect := 0; ; reconnect++ {
+	booted := false // the first refill of a server settles onto its newest chat
+	switching := false
+	waitDue := false
+	reconnect := 0
+	note := ""           // the last trouble line shown, so a retry does not repeat it
+	var stash []agentJob // jobs that landed while nothing was connected
+
+	// say writes a transcript note for the attempt's server only: a
+	// connection the user switched away from stays quiet.
+	say := func(id, text string) {
+		win.Update(func() {
+			if a.activeServer == id {
+				a.streamLine(text)
+			}
+		})
+	}
+
+	for {
 		if last != nil {
 			// The seat the server sat in frees itself for the next one,
 			// in case the process lingers while its stream died.
-			last.cmd.Process.Kill()
+			last.stop()
+			last = nil
 		}
-		if reconnect > 0 {
+		if switching {
+			// The settings chose another server: dial it at once, and let
+			// its own boot settle onto its newest chat.
+			switching = false
+			waitDue = false
+			reconnect = 0
+			note = ""
+			stash = nil
+			win.Update(func() { booted = false })
+		}
+		if waitDue {
 			// Jobs queued while the pipe heals replay against the
-			// respawned server; the asks of a dead one are gone.
+			// respawned server; the asks of a dead one are gone. A server
+			// switch queued during the wait skips the rest of it.
+			waitDue = false
 			win.Update(func() {
 				a.finishCutTurns()
 				a.streamLine("The agent went down; reconnecting…")
@@ -526,23 +591,61 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 			} else {
 				wait = wait[len(wait)-1:]
 			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait[0]):
+			timer := time.NewTimer(wait[0])
+		waiting:
+			for {
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+					break waiting
+				case job := <-jobs:
+					if job.kind == jobServer {
+						cfg, pins = job.server, job.pins
+						switching = true
+						timer.Stop()
+						break waiting
+					}
+					stash = append(stash, job)
+				}
+			}
+			if switching {
+				continue
 			}
 		}
-		ag, err := startAgent(ctx, workdir())
+
+		win.Update(func() { a.setHealth(cfg.id, serverHealth{status: healthConnecting, addr: cfg.url}) })
+		ag, err := startAgentFor(ctx, cfg, workdir())
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			why := err.Error()
-			win.Update(func() { a.streamLine("The agent would not come up: " + why) })
+			win.Update(func() {
+				a.setHealth(cfg.id, serverHealth{status: healthDown, detail: err.Error(), addr: cfg.url})
+			})
+			if text := "The agent would not come up: " + err.Error(); text != note {
+				note = text
+				say(cfg.id, text)
+			}
 			last = nil // nothing to free
+			reconnect++
+			waitDue = true
 			continue
 		}
+		note = ""
 		last = ag
+		win.Update(func() {
+			a.setHealth(cfg.id, serverHealth{status: healthReady, detail: ag.version, addr: ag.addr})
+		})
+		if reconnect > 0 {
+			say(cfg.id, cfg.name+" is back.")
+		}
+		reconnect = 0
+		// srv is this attempt's server: everything the attempt publishes
+		// checks the view still shows it before writing.
+		srv := cfg
+		attemptPins := pins
 		attemptCtx, cancelAttempt := context.WithCancel(ctx)
 		go searchChats(attemptCtx, a.searches, func(ctx context.Context, query string) ([]agentSession, error) {
 			rows, _, err := ag.listSessions(ctx, "", query)
@@ -563,6 +666,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 		go func() {
 			ls, nxt, lerr := ag.listSessions(ctx, "", "")
 			win.Update(func() {
+				if a.activeServer != srv.id {
+					return
+				}
 				if !booted {
 					a.settleBoot(ls, nxt, lerr)
 					booted = true
@@ -577,9 +683,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 				a.sessionsLoaded = true
 			})
 			if lerr == nil {
-				extra, err := loadPinnedSessions(attemptCtx, pinnedIDs, ls, nxt, ag.listSessions)
+				extra, err := loadPinnedSessions(attemptCtx, attemptPins, ls, nxt, ag.listSessions)
 				win.Update(func() {
-					if attemptCtx.Err() != nil {
+					if attemptCtx.Err() != nil || a.activeServer != srv.id {
 						return
 					}
 					if err != nil {
@@ -598,6 +704,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 		go func() {
 			ms, merr := ag.listModels(ctx)
 			win.Update(func() {
+				if a.activeServer != srv.id {
+					return
+				}
 				if merr == nil {
 					a.models = ms
 				} else {
@@ -614,26 +723,28 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 		// pend is a model picked while nothing was open: it waits for the
 		// next conversation open creates.
 		var pend agentJob
-		// open brings a fresh conversation up under the app's free model,
-		// working in the directory asked for; a model ref refusing to set does
-		// not stop the turn.
-		open := func(dir string, draft uint64) bool {
+		// open brings a fresh conversation up under the model wanted --
+		// the app's default unless the job names another -- working in
+		// the directory asked for; a model ref refusing to set does not
+		// stop the turn.
+		open := func(dir string, draft uint64, want agentModelRef) bool {
 			nid, ref, nerr := ag.createSession(ctx, dir)
 			if nerr != nil {
-				why := nerr.Error()
-				win.Update(func() { a.streamLine("The agent did not open a chat: " + why) })
+				say(srv.id, "The agent did not open a chat: "+nerr.Error())
 				return false
 			}
-			if perr := ag.pickModel(ctx, nid); perr != nil {
-				why := perr.Error()
-				win.Update(func() { a.streamLine("The app's model was not set, running the config's: " + why) })
+			if want.id == "" {
+				prov, name := sessionModel()
+				want = agentModelRef{providerID: prov, id: name}
+			}
+			if perr := ag.setModel(ctx, nid, want.providerID, want.id, want.variant); perr != nil {
+				say(srv.id, "The app's model was not set, running the config's: "+perr.Error())
 			}
 			// A model picked while nothing was open applies to this new
 			// conversation instead of the default.
 			if pend.kind != "" && pend.draft == draft {
 				if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
-					why := perr.Error()
-					win.Update(func() { a.streamLine("The model did not switch: " + why) })
+					say(srv.id, "The model did not switch: "+perr.Error())
 				}
 				ref = agentModelRef{providerID: pend.provider, id: pend.model, variant: pend.variant}
 				pend = agentJob{}
@@ -645,6 +756,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 				home = canonDir(workdir())
 			}
 			win.Update(func() {
+				if a.activeServer != srv.id {
+					return
+				}
 				if a.draftVersion == draft && a.selectedSession == "" {
 					a.selectedSession = nid
 					a.selected = "New chat"
@@ -655,105 +769,138 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 			})
 			return true
 		}
+
+		// handle runs one job against the connected server; it reports the
+		// one job that asks for another server instead.
+		handle := func(job agentJob) bool {
+			switch job.kind {
+			case jobOpen:
+				msgs, oerr := ag.sessionMessages(ctx, job.sid)
+				if oerr != nil {
+					say(srv.id, "Could not open that conversation: "+oerr.Error())
+					return false
+				}
+				win.Update(func() {
+					if a.activeServer != srv.id {
+						return
+					}
+					a.freshTranscript()
+					a.blocks = restoreBlocks(msgs)
+					a.selectedSession = job.sid
+				})
+			case jobStop:
+				who := job.sid
+				if who == "" {
+					who = sid
+				}
+				if who == "" {
+					return false
+				}
+				if serr := ag.interrupt(ctx, who); serr != nil {
+					say(srv.id, "The turn refused to stop: "+serr.Error())
+				}
+			case jobAnswer:
+				if aerr := ag.replyPermission(ctx, job.sid, job.request, job.decision); aerr != nil {
+					say(srv.id, "The approval did not go through: "+aerr.Error())
+					return false
+				}
+				win.Update(func() {
+					if a.activeServer == srv.id {
+						a.dropPerm(job.request)
+					}
+				})
+			case jobRename:
+				if rerr := ag.renameSession(ctx, job.sid, job.text); rerr != nil {
+					say(srv.id, "The rename did not take: "+rerr.Error())
+				}
+				// The new title folds in over the session.renamed event.
+			case jobDelete:
+				if derr := ag.deleteSession(ctx, job.sid); derr != nil {
+					say(srv.id, "The chat did not delete: "+derr.Error())
+					return false
+				}
+				win.Update(func() {
+					if a.activeServer == srv.id {
+						a.dropSession(job.sid)
+					}
+				})
+			case jobMore:
+				rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
+				win.Update(func() {
+					if a.activeServer != srv.id {
+						return
+					}
+					if merr == nil {
+						a.sessions = dedupeSessions(a.sessions, rows)
+						a.nextCursor = cur
+					} else {
+						a.streamLine("The older chats did not load: " + merr.Error())
+					}
+					a.moreLoading = false
+				})
+			case jobModel:
+				who := job.sid
+				if who == "" && sidDraft == job.draft {
+					who = sid
+				}
+				if who == "" {
+					pend = job
+					return false
+				}
+				if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
+					say(srv.id, "The model did not switch: "+merr.Error())
+				}
+				// The switch folds back over session.model.selected.
+			case jobPrompt:
+				target := job.sid
+				if target == "" {
+					want := agentModelRef{providerID: job.provider, id: job.model, variant: job.variant}
+					if (sid == "" || sidDraft != job.draft) && !open(job.dir, job.draft, want) {
+						return false
+					}
+					target = sid
+				}
+				if perr := ag.prompt(ctx, target, job.text); perr != nil {
+					say(srv.id, "The agent could not take that: "+perr.Error())
+				}
+			case jobServer:
+				cfg, pins = job.server, job.pins
+				switching = true
+				return true
+			}
+			return false
+		}
+
 		alive := true
 		for alive {
-			select {
-			case <-ctx.Done():
-				cancelAttempt()
-				return
-			case <-done:
-				alive = false
-			case job := <-jobs:
-				switch job.kind {
-				case jobOpen:
-					msgs, oerr := ag.sessionMessages(ctx, job.sid)
-					if oerr != nil {
-						why := oerr.Error()
-						win.Update(func() { a.streamLine("Could not open that conversation: " + why) })
-						continue
-					}
-					win.Update(func() {
-						a.freshTranscript()
-						a.blocks = restoreBlocks(msgs)
-						a.selectedSession = job.sid
-					})
-				case jobStop:
-					who := job.sid
-					if who == "" {
-						who = sid
-					}
-					if who == "" {
-						continue
-					}
-					if serr := ag.interrupt(ctx, who); serr != nil {
-						why := serr.Error()
-						win.Update(func() { a.streamLine("The turn refused to stop: " + why) })
-					}
-				case jobAnswer:
-					if aerr := ag.replyPermission(ctx, job.sid, job.request, job.decision); aerr != nil {
-						why := aerr.Error()
-						win.Update(func() { a.streamLine("The approval did not go through: " + why) })
-						continue
-					}
-					win.Update(func() { a.dropPerm(job.request) })
-				case jobRename:
-					if rerr := ag.renameSession(ctx, job.sid, job.text); rerr != nil {
-						why := rerr.Error()
-						win.Update(func() { a.streamLine("The rename did not take: " + why) })
-					}
-					// The new title folds in over the session.renamed event.
-				case jobDelete:
-					if derr := ag.deleteSession(ctx, job.sid); derr != nil {
-						why := derr.Error()
-						win.Update(func() { a.streamLine("The chat did not delete: " + why) })
-						continue
-					}
-					win.Update(func() { a.dropSession(job.sid) })
-				case jobMore:
-					rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
-					win.Update(func() {
-						if merr == nil {
-							a.sessions = dedupeSessions(a.sessions, rows)
-							a.nextCursor = cur
-						} else {
-							why := merr.Error()
-							a.streamLine("The older chats did not load: " + why)
-						}
-						a.moreLoading = false
-					})
-				case jobModel:
-					who := job.sid
-					if who == "" && sidDraft == job.draft {
-						who = sid
-					}
-					if who == "" {
-						pend = job
-						continue
-					}
-					if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
-						why := merr.Error()
-						win.Update(func() { a.streamLine("The model did not switch: " + why) })
-					}
-					// The switch folds back over session.model.selected.
-				case jobPrompt:
-					target := job.sid
-					if target == "" {
-						if (sid == "" || sidDraft != job.draft) && !open(job.dir, job.draft) {
-							continue
-						}
-						target = sid
-					}
-					if perr := ag.prompt(ctx, target, job.text); perr != nil {
-						why := perr.Error()
-						win.Update(func() { a.streamLine("The agent could not take that: " + why) })
-					}
+			var job agentJob
+			if len(stash) > 0 {
+				job, stash = stash[0], stash[1:]
+			} else {
+				select {
+				case <-ctx.Done():
+					cancelAttempt()
+					return
+				case <-done:
+					alive = false
+					continue
+				case job = <-jobs:
 				}
+			}
+			if handle(job) {
+				alive = false
 			}
 		}
 		cancelAttempt()
-		// The window is gone, or the stream died with the app quitting.
 		if ctx.Err() != nil {
 			return
+		}
+		if !switching {
+			reconnect++
+			waitDue = true
+			win.Update(func() {
+				a.setHealth(srv.id, serverHealth{status: healthDown, detail: "the stream ended", addr: ag.addr})
+			})
 		}
 	}
 }

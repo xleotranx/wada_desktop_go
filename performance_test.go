@@ -100,6 +100,29 @@ func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 	}
 }
 
+// TestModelsTabBuildsOnlyVisibleRows keeps the settings' catalog on the
+// same virtual list the transcript and the sidebar use: a server with
+// hundreds of models builds the rows in view, not the whole catalog.
+func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
+	a := newApp()
+	for i := range 400 {
+		a.models = append(a.models, agentModel{providerID: "opencode-go",
+			id: fmt.Sprintf("m-%03d", i), name: fmt.Sprintf("Model %03d", i)})
+	}
+	a.modelsLoaded = true
+	a.settingsOpen = true
+	a.settingsTab = tabModels
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Model 000") || tt.HasText("Model 399") {
+		t.Fatal("the catalog did not limit construction to visible rows")
+	}
+	a.modelsList.ScrollToEnd()
+	tt.Frame()
+	if !tt.HasText("Model 399") {
+		t.Fatal("scrolling did not reach the tail of the catalog")
+	}
+}
+
 func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 	a := newApp()
 	a.sessionsLoaded = true

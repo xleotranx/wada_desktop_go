@@ -23,10 +23,7 @@ func (a *app) navRail(c *ui.Context, p palette) {
 		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(5).Padding(10, 7).Children(func() {
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
-			a.railButton(c, p, "history", "History", icHistory, func() {
-				a.searchOpen = true
-				a.focusSearch = true
-			})
+			a.railButton(c, p, "history", "History", icHistory, a.openChatSearch)
 			a.railButton(c, p, "agents", "Agents", icAgent, func() { a.openTool("Side chat") })
 			c.Key("rail:more")
 			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(10).Center().
@@ -39,13 +36,15 @@ func (a *app) navRail(c *ui.Context, p palette) {
 					a.startNewChat()
 				}
 				if m.Item("Search chats…").Chosen() {
-					a.searchOpen = true
-					a.focusSearch = true
+					a.openChatSearch()
 				}
 				if m.Item("Open folder…").Chosen() {
 					a.openProjectDialog()
 				}
 				m.Separator()
+				if m.Item("Settings").Chosen() {
+					a.openSettings("")
+				}
 				label := "Hide sidebar"
 				if a.sidebarCollapsed {
 					label = "Show sidebar"
@@ -59,6 +58,7 @@ func (a *app) navRail(c *ui.Context, p palette) {
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 			a.railButton(c, p, "changes", "Changes", icGitBranch, func() { a.openTool("Changes") })
 			a.railButton(c, p, "tools", "Tools", icGrid, func() { a.openTool("") })
+			a.settingsButton(c, p)
 		})
 		ui.Row(c).Height(48).Center().Children(func() {
 			ui.Avatar(c, "Shan Lin", nil).FontSize(12)
@@ -76,6 +76,8 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 		b.Background(p.selected)
 	}
 	b.OnClick(func() {
+		// Anything the rail navigates to leaves the settings page.
+		a.settingsOpen = false
 		a.selectedRail = key
 		on()
 	})
@@ -88,6 +90,35 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 	})
 }
 
+// settingsButton is the rail's gear: the settings page is not one of the
+// rail's places, so opening it keeps the selection the user lands back on.
+func (a *app) settingsButton(c *ui.Context, p palette) {
+	c.Key("rail:settings")
+	b := ui.ButtonBase(c).Label("Settings").Size(36, 36).Radius(10).Center().
+		Cursor(ui.CursorPointer).Tooltip("Settings")
+	if b.Hovered() {
+		b.Background(p.hover)
+	} else if a.settingsOpen {
+		b.Background(p.selected)
+	}
+	b.OnClick(func() { a.openSettings("") })
+	b.Children(func() {
+		tint := p.muted
+		if a.settingsOpen {
+			tint = p.text
+		}
+		ui.Icon(c, icGear).FontSize(18).TextColor(tint)
+	})
+}
+
+// openChatSearch aims the sidebar's search field and leaves the settings
+// page behind.
+func (a *app) openChatSearch() {
+	a.settingsOpen = false
+	a.searchOpen = true
+	a.focusSearch = true
+}
+
 // sidebarPane holds the workspace switcher, pinned chats and projects.
 func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).Width(a.sidebarW).Background(p.sidebarBg).Children(func() {
@@ -97,10 +128,10 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 			if a.metadataError != "" {
 				ui.Text(c, a.metadataError).FontSize(12).TextColor(p.orange)
 				if a.metadata != nil {
-					ui.Button(c, "Retry saving sidebar").OnClick(a.saveSidebar)
+					ui.Button(c, "Retry saving").OnClick(a.saveState)
 				}
 			} else if a.metadataSaving {
-				ui.Text(c, "Saving sidebar…").FontSize(12).TextColor(p.muted)
+				ui.Text(c, "Saving…").FontSize(12).TextColor(p.muted)
 			}
 			a.newChatRow(c, p)
 			if a.searchOpen {
@@ -159,8 +190,7 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 				a.startNewChat()
 			}
 			if m.Item("Search chats…").Chosen() {
-				a.searchOpen = true
-				a.focusSearch = true
+				a.openChatSearch()
 			}
 			m.Separator()
 			if m.Item("Open folder…").Chosen() {
@@ -178,10 +208,7 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 		ui.Spacer(c)
 
 		a.bellButton(c, p)
-		a.navButton(c, p, "Search", icSearch, func() {
-			a.searchOpen = true
-			a.focusSearch = true
-		}, p.text)
+		a.navButton(c, p, "Search", icSearch, a.openChatSearch, p.text)
 	})
 }
 
@@ -216,6 +243,7 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 // openAnAsk takes the user to a chat with an approval waiting, the one
 // the store lists first.
 func (a *app) openAnAsk() {
+	a.settingsOpen = false
 	keys := make([]string, 0, len(a.pending))
 	for k := range a.pending {
 		keys = append(keys, k)
@@ -342,7 +370,7 @@ func (a *app) addProject(dir string) {
 	}
 	a.projects = append(a.projects, dir)
 	delete(a.unavailableProjects, dir)
-	a.saveSidebar()
+	a.saveState()
 }
 
 func (a *app) removeProject(dir string) {
@@ -354,7 +382,7 @@ func (a *app) removeProject(dir string) {
 			delete(a.unavailableProjects, dir)
 			delete(a.projectCollapsed, dir)
 			delete(a.projectChatsShown, dir)
-			a.saveSidebar()
+			a.saveState()
 			return
 		}
 	}
@@ -369,7 +397,7 @@ func (a *app) toggleProjectPin(dir string) {
 	} else {
 		a.projectPins[dir] = true
 	}
-	a.saveSidebar()
+	a.saveState()
 }
 
 // projectChatPreview is how many of a folder's chats show before the
@@ -625,7 +653,10 @@ func (a *app) togglePin(s agentSession) {
 		a.pinOrder = append(a.pinOrder, s.id)
 		a.sessions = dedupeSessions(a.sessions, []agentSession{s})
 	}
-	a.saveSidebar()
+	// The active server's pins live in both shapes: the map the sidebar
+	// draws from and the store's per-server list.
+	a.pinsByServer[a.activeServer] = slices.Clone(a.pinOrder)
+	a.saveState()
 }
 
 // sessionDialogs carries the dialogs opened by conversation rows.

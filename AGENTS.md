@@ -2,9 +2,9 @@
 
 A single-package MyGo desktop app: all native UI in Go (`ui`), no webview — a design mock of the ChatGPT desktop client. MyGo is pinned in `go.mod`; docs: https://github.com/egoist/mygo/blob/main/docs/README.md
 
-Layout: one package. `main.go` — app state, window options and `view()`; `sidebar.go`, `chat.go`, `composer.go`, `browser.go` — the panes; `agent.go` — the `opencode serve` client (HTTP, SSE, job loop) with `agent_events.go` — bounded event batches and `agent_apply.go` — events and stored turns folded into the transcript; `paths.go` — workspace path helpers; `search.go`, `policy.go` (the workspace config's permission read/write), `metadata.go` (the sidebar's SQLite store), `pinned.go`, `project_picker.go` — sidebar support; `palette.go` — every color; `icons.go` — SVGs.
+Layout: one package. `main.go` — app state, window options and `view()`; `sidebar.go`, `chat.go`, `composer.go`, `browser.go` — the panes; `settings.go` — the settings page (the server manager and the model switches) and `servers.go` — server connections, their health and the connection probe; `agent.go` — the `opencode serve` client (HTTP, SSE, job loop) with `agent_events.go` — bounded event batches and `agent_apply.go` — events and stored turns folded into the transcript; `paths.go` — workspace path helpers; `search.go`, `policy.go` (the workspace config's permission read/write), `metadata.go` (the app's SQLite store: sidebar and settings), `pinned.go`, `project_picker.go` — sidebar support; `palette.go` — every color; `icons.go` — SVGs.
 
-Tests sit beside their subjects: `main_test.go` and `chat_test.go` (the view and the transcript), `agent_test.go` (the pipe), `projects_test.go`, `metadata_test.go`, `pinned_test.go`, and `performance_test.go` (frame cost).
+Tests sit beside their subjects: `main_test.go` and `chat_test.go` (the view and the transcript), `agent_test.go` (the pipe), `settings_test.go` (the settings page and the servers), `projects_test.go`, `metadata_test.go`, `pinned_test.go`, and `performance_test.go` (frame cost).
 
 ## Commands
 
@@ -18,7 +18,7 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 
 ## Verifying UI changes
 
-- `WADA_CAPTURE=/path/out.png go run .` — writes a PNG of the window content and quits. It shows only what the view draws: macOS traffic lights are native chrome and never appear. Iterate layout with this instead of clicking around.
+- `WADA_CAPTURE=/path/out.png go run .` — writes a PNG of the window content and quits. It shows only what the view draws: macOS traffic lights are native chrome and never appear. Iterate layout with this instead of clicking around. `WADA_SETTINGS=servers` (or `models`, `1`) opens the settings page first and waits a little longer for the catalog.
 - `StateKey: "main"` restores the window's position/size from the last run — don't assume it is centered when screenshotting live; ask System Events / `screencapture -R x,y,w,h` for the real frame.
 - View tests run headless against the real view: `ui.NewTester(a.view, 1400, 920)` (see `main_test.go`). Prefer adding behaviors there over manual repro.
 - Dev builds include the native-UI inspector: `F12` or `Alt+Cmd+I` opens the element tree, `Shift+Cmd+C` picks an element in the window. Its Computed tab gives exact element boxes (size and position), which beats pixel-measuring screen captures for alignment work.
@@ -27,7 +27,7 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 
 - The window is `TitleBarHidden` with `Vibrancy: VibrancyTitlebar`; the view draws its own top rows on the window's material. On macOS, `c.TitleBar()` measures the strip the traffic lights live in: `Height = traffic-light button height + 2 × TrafficLightPosition.Y`, controls are vertically centered in that strip, and `Left` is the width they occupy (the full-width top bar's left padding).
 - `main.go` keeps the pairing in one constant trio: `trafficLightButton` (14), `trafficLightY` (18) and `headerStrip` (= button + 2×Y, 50 — what `c.TitleBar()` reports on macOS). `TrafficLightPosition.Y` reads `trafficLightY`, and the top bar (browser history, the sidebar toggle, the conversation's title and the right tools toggle), the sidebar's header row and the tools toolbar floor their height at `headerStrip`, so the dots share the rows' center line. Change `trafficLightY` and everything follows; nothing to recompute by hand.
-- `topBar` anchors the title where the conversation starts — past the rail and sidebar — and the tools toggle expands or folds the right pane; both edges re-anchor when the sidebar folds away. The title is the open conversation's name, which the sidebar also lists, so one chat's name can stand more than once in a frame: tests that find rows by label count occurrences (`countTexts` in `projects_test.go`) rather than assume one.
+- `topBar` anchors the title where the conversation starts — past the rail and sidebar — and the tools toggle expands or folds the right pane; both edges re-anchor when the sidebar folds away. The title is the open conversation's name, which the sidebar also lists, so one chat's name can stand more than once in a frame: tests that find rows by label count occurrences (`countTexts` in `projects_test.go`) rather than assume one. While the settings page is up it reads "Settings".
 - The material shows wherever the view paints no background: the top bar, the rail and the strip around the content card. The root washes it with the palette's `chromeWash` (a white veil in the light appearance, a black one in the dark), so the chrome reads like the app's own surfaces over any wallpaper; `c.Vibrancy()` gates both that wash and the rail's fallback background, so the window stays opaque off macOS.
 
 ## Conventions
@@ -36,6 +36,7 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 - `block.kind` (the `kind*` constants) and `agentJob.kind` (the `job*` constants) are closed sets; a new block kind joins `blockRow`'s switch and the table in `chat_test.go` together.
 - The transcript's markdown is MyGo's `ui/markdown`: one `markdown.Options` on the app that `prepareMarkdown` retunes to the palette each frame, `markdown.Stream` while a block lands and `markdown.View` once it settles. Don't hand-roll markdown parsing.
 - Icons are single-color SVGs recolored by the text color; `ui.Icon(...).FontSize(n)` is the icon size. Multicolor art goes through `ui.Image`, not `ui.Icon`.
+- The server connections, the per-server pins and the models the user turned off live in `metadata.db` (schema v3: `servers`, `disabled_models`, `session_pins` keyed by server). Every list of models a user chooses from goes through `offerModels` (`filteredModels` for the composer's picker), so the settings' switches and the picker cannot drift apart; the pipe dials one server at a time and every runner write checks `a.activeServer` first, so a switched-away server stays quiet.
 - The transcript in `chat.go` — including fake shell output like `go tool mygo test ./...` — is demo copy, not toolchain documentation.
 - Comments are compact prose sentences; match that voice.
 

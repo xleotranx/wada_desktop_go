@@ -239,7 +239,9 @@ func (a *app) toolDescription() string {
 }
 
 func (a *app) openTool(name string) {
-	// Opening a tool is asking to see it, so the pane comes back.
+	// Opening a tool is asking to see it, so the pane comes back and the
+	// settings page steps aside.
+	a.settingsOpen = false
 	a.browserCollapsed = false
 	if name == "" {
 		a.browserTool = ""

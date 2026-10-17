@@ -67,6 +67,17 @@ func fakeAgent(t *testing.T, prompts chan<- string, models chan<- string) (*agen
 	return a, func() {}
 }
 
+// useFreeModel points one conversation at the app's free default, the way
+// the runner does before a new chat's first words.
+func useFreeModel(t *testing.T, ag *agent, ctx context.Context, sid string) (prov, name string) {
+	t.Helper()
+	prov, name = sessionModel()
+	if err := ag.setModel(ctx, sid, prov, name, ""); err != nil {
+		t.Fatal(err)
+	}
+	return prov, name
+}
+
 // TestAgentRoundTrip checks the client speaks the server's wrapping: a
 // session id out of {"data":…} and the prompt text into the request body.
 func TestAgentRoundTrip(t *testing.T) {
@@ -193,21 +204,21 @@ func TestApplyTurn(t *testing.T) {
 	}
 }
 
-// TestAgentModel checks every new conversation is pointed at the app's
-// free default, and that WADA_MODEL overrides it.
+// TestAgentModel checks what a new conversation is pointed at: the app's
+// free default while the catalog still offers it, the first enabled model
+// once the settings turn it off, and the free default again with the
+// picker empty. WADA_MODEL keeps overriding the free one.
 func TestAgentModel(t *testing.T) {
 	prompts := make(chan string, 1)
 	models := make(chan string, 1)
-	a, _ := fakeAgent(t, prompts, models)
+	ag, _ := fakeAgent(t, prompts, models)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, _, err := a.createSession(ctx, ""); err != nil {
+	if _, _, err := ag.createSession(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.pickModel(ctx, "ses_t1"); err != nil {
-		t.Fatal(err)
-	}
+	useFreeModel(t, ag, ctx, "ses_t1")
 	select {
 	case got := <-models:
 		if got != "opencode-go/longcat-2.5-preview-free" {
@@ -215,6 +226,24 @@ func TestAgentModel(t *testing.T) {
 		}
 	default:
 		t.Fatal("the model request never reached the server")
+	}
+
+	// The settings narrow the choice: the free default steps aside for
+	// the first model still on, and comes back when none is.
+	a := newApp()
+	free := agentModel{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true}
+	other := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
+	a.models = []agentModel{other, free}
+	if ref := a.defaultModelRef(); ref.providerID != "opencode-go" || ref.id != "longcat-2.5-preview-free" {
+		t.Fatalf("default %+v, want the free default", ref)
+	}
+	a.setModelEnabled(free, false)
+	if ref := a.defaultModelRef(); ref.providerID != "wada" || ref.id != "flash" {
+		t.Fatalf("default %+v, want the first enabled model", ref)
+	}
+	a.setModelEnabled(other, false)
+	if ref := a.defaultModelRef(); ref.id != "longcat-2.5-preview-free" {
+		t.Fatalf("default %+v, want the free default back", ref)
 	}
 }
 
@@ -1370,11 +1399,11 @@ func TestLiveAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgent(ctx, ".")
+	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.cmd.Process.Kill()
+	defer ag.stop()
 
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
@@ -1385,14 +1414,10 @@ func TestLiveAgent(t *testing.T) {
 	}
 	// The real pipeline names the shared free model before the first
 	// words run.
-	if err := ag.pickModel(ctx, sid); err != nil {
-		t.Fatal(err)
-	}
-	prov, name := sessionModel()
+	prov, name := useFreeModel(t, ag, ctx, sid)
 	if err := ag.prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
 		t.Fatal(err)
 	}
-
 	var text string
 	for {
 		select {
@@ -1467,11 +1492,11 @@ func TestLiveModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgent(ctx, ".")
+	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.cmd.Process.Kill()
+	defer ag.stop()
 
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
@@ -1480,9 +1505,7 @@ func TestLiveModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.pickModel(ctx, sid); err != nil {
-		t.Fatal(err)
-	}
+	useFreeModel(t, ag, ctx, sid)
 	// Beam Free is the other zero-cost model, with reasoning efforts.
 	if err := ag.setModel(ctx, sid, "opencode-go", "beam-free", ""); err != nil {
 		t.Fatal(err)
@@ -1556,11 +1579,11 @@ func TestLivePermission(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	ag, err := startAgent(ctx, dir)
+	ag, err := startAgentFor(ctx, defaultLocalServer(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.cmd.Process.Kill()
+	defer ag.stop()
 
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
@@ -1569,9 +1592,7 @@ func TestLivePermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.pickModel(ctx, sid); err != nil {
-		t.Fatal(err)
-	}
+	useFreeModel(t, ag, ctx, sid)
 	if err := ag.prompt(ctx, sid, "Run this shell command and report exactly what it prints: echo asked-probe"); err != nil {
 		t.Fatal(err)
 	}
@@ -1642,11 +1663,11 @@ func TestLiveLocation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgent(ctx, ".")
+	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.cmd.Process.Kill()
+	defer ag.stop()
 
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
@@ -1655,9 +1676,7 @@ func TestLiveLocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.pickModel(ctx, sid); err != nil {
-		t.Fatal(err)
-	}
+	useFreeModel(t, ag, ctx, sid)
 	if err := ag.prompt(ctx, sid, "Run this shell command and report exactly what it prints: pwd"); err != nil {
 		t.Fatal(err)
 	}
@@ -1717,11 +1736,11 @@ func TestLiveSessionOps(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	ag, err := startAgent(ctx, ".")
+	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.cmd.Process.Kill()
+	defer ag.stop()
 
 	evs := make(chan agentEvent, 64)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })

@@ -131,6 +131,9 @@ type app struct {
 	// a picked folder to the draft the composer asked for.
 	pickFolder         func(done func(path string))
 	selectAddedProject bool
+	// probe tests one server connection in the background, stood in for
+	// in tests as pickFolder is.
+	probe func(cfg serverConn)
 
 	// The composer's attach drawer and the conversation rows' rename and
 	// delete dialogs: one state struct each, nil until its dialog opens.
@@ -161,6 +164,23 @@ type app struct {
 	pickerOpen   bool
 	modelFilter  string
 
+	// The settings: the page itself, its tab, the server connections and
+	// health, the sketch of the server being edited or deleted, and the
+	// models the composer's picker leaves out.
+	settingsOpen  bool
+	settingsTab   string
+	servers       []serverConn
+	activeServer  string
+	serverHealth  map[string]serverHealth
+	serverEditor  *serverEditor
+	serverConfirm *confirmState
+	modelsQuery   string
+	modelsList    ui.ListState
+	modelOff      map[string]bool // modelKey of every model turned off
+	// The pins are the active server's; every server's list is kept so a
+	// switch hands them back.
+	pinsByServer map[string][]string
+
 	// The agent runner feeds the jobs; the rest is its bookkeeping of
 	// what is streaming where.
 	jobs       chan agentJob
@@ -187,6 +207,13 @@ func newApp() *app {
 		blocks:              []block{},
 		feed:                ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
 
+		settingsTab:  tabServers,
+		servers:      []serverConn{defaultLocalServer()},
+		activeServer: localServerID,
+		serverHealth: map[string]serverHealth{},
+		modelOff:     map[string]bool{},
+		pinsByServer: map[string][]string{},
+
 		jobs:         make(chan agentJob, 16),
 		live:         map[string]int{},
 		toolNames:    map[string]string{},
@@ -198,7 +225,46 @@ func newApp() *app {
 		policyWrites: make(chan policyChange, 16),
 	}
 	a.pickFolder = a.pickFolderDialog
+	a.probe = a.runProbe
 	return a
+}
+
+// defaultModelRef is what a new conversation starts on: the app's free
+// default while the catalog still offers it, else the first model the
+// composer offers (free first, then by name), and the free default again
+// when nothing is enabled. The runner names the model itself when no
+// catalog is loaded yet.
+func (a *app) defaultModelRef() agentModelRef {
+	prov, name := sessionModel()
+	free := agentModelRef{providerID: prov, id: name}
+	best := -1
+	for i, m := range a.models {
+		if m.providerID == prov && m.id == name {
+			if !a.modelDisabled(m) {
+				return free
+			}
+			continue
+		}
+		if a.modelDisabled(m) {
+			continue
+		}
+		if best < 0 || modelLess(m, a.models[best]) {
+			best = i
+		}
+	}
+	if best >= 0 {
+		return agentModelRef{providerID: a.models[best].providerID, id: a.models[best].id}
+	}
+	return free
+}
+
+// modelLess orders the picker: free models first and, inside each group,
+// names alphabetically.
+func modelLess(one, two agentModel) bool {
+	if one.free != two.free {
+		return one.free
+	}
+	return one.name < two.name
 }
 
 // reviseSearch follows the search field: a fresh query queues a lookup
@@ -254,6 +320,10 @@ func (a *app) view(c *ui.Context) {
 			// corners follow the window's, so the material frames them.
 			ui.Row(c).Grow(1).AlignItems(ui.Stretch).
 				Background(p.bg).Radius(cardRadius, cardRadius, 0, 0).Clip().Children(func() {
+				if a.settingsOpen {
+					a.settingsPane(c, p, headerH)
+					return
+				}
 				if !a.sidebarCollapsed {
 					a.sidebarPane(c, p, headerH)
 					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
@@ -268,6 +338,7 @@ func (a *app) view(c *ui.Context) {
 	})
 	a.attachModal(c, p)
 	a.sessionDialogs(c, p)
+	a.settingsDialogs(c, p)
 }
 
 // cardRadius rounds the card's top corners, a little tighter than the
@@ -310,8 +381,13 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 		}, p.text)
 
 		ui.Box(c).Width(titleGap)
-		// The title appears once the conversation has one.
-		if title := a.selected; title != "" {
+		// The title appears once the conversation has one, and names the
+		// page while the settings are up.
+		title := a.selected
+		if a.settingsOpen {
+			title = "Settings"
+		}
+		if title != "" {
 			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).Grow(1).SingleLine()
 		} else {
 			ui.Spacer(c)
@@ -330,11 +406,11 @@ func main() {
 		var db *metadataStore
 		dir, err := os.UserConfigDir()
 		if err == nil {
-			db, err = a.loadSidebar(filepath.Join(dir, "wada-desktop-go", "metadata.db"))
+			db, err = a.loadState(filepath.Join(dir, "wada-desktop-go", "metadata.db"))
 		}
 		if err != nil {
-			a.metadataError = "Sidebar storage is unavailable: " + err.Error()
-			log.Printf("sidebar metadata: %v", err)
+			a.metadataError = "Settings storage is unavailable: " + err.Error()
+			log.Printf("metadata: %v", err)
 		}
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "Codex",
@@ -356,23 +432,33 @@ func main() {
 		if db != nil {
 			a.metadata = startMetadataWriter(db, func(version uint64, err error) {
 				if err != nil {
-					log.Printf("sidebar metadata: %v", err)
+					log.Printf("metadata: %v", err)
 				}
 				win.Update(func() { a.acceptMetadataWrite(version, err) })
 			})
 			mygo.App.OnQuit(a.closeMetadata)
 		}
 
-		// The agent pipe lives in the background; it publishes what it
-		// streams back into the view through Window.Update.
-		go a.connect(win, a.jobs, append([]string(nil), a.pinOrder...))
+		// The agent pipe lives in the background; it dials the active
+		// server and publishes what it streams back into the view through
+		// Window.Update.
+		go a.connect(win, a.jobs, a.activeServerConn(), append([]string(nil), a.pinOrder...))
 
 		// WADA_CAPTURE=/path/out.png writes a PNG of the window and quits:
 		// a way to see the interface without clicking through it. The wait
-		// lets the boot settle onto the newest conversation first.
+		// lets the boot settle onto the newest conversation first, and
+		// WADA_SETTINGS=(1|servers|models) opens the settings page for it.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
-				time.AfterFunc(3*time.Second, func() {
+				wait := 3 * time.Second
+				if tab, ok := os.LookupEnv("WADA_SETTINGS"); ok {
+					if tab == "" || tab == "1" {
+						tab = tabServers
+					}
+					win.Update(func() { a.openSettings(tab) })
+					wait = 6 * time.Second // the catalog fills in behind the page
+				}
+				time.AfterFunc(wait, func() {
 					win.Update(func() {
 						if png, err := win.CapturePage(); err == nil {
 							os.WriteFile(out, png, 0o644)
@@ -409,10 +495,14 @@ func (a *app) send() {
 }
 
 // agentSend queues one user turn for the runner, addressed to the open
-// conversation or to a fresh one when none is open.
+// conversation or to a fresh one when none is open. The turn carries the
+// app's default model, so a conversation born here starts on what the
+// settings enabled.
 func (a *app) agentSend(text string) {
+	def := a.defaultModelRef()
 	select {
-	case a.jobs <- agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(), draft: a.draftVersion}:
+	case a.jobs <- agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
+		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant}:
 	default:
 	}
 }
@@ -605,8 +695,8 @@ func (a *app) titleOf(sid string) string {
 	return ""
 }
 
-// sessionModelOf is the model one conversation points at; the app's free
-// default stands in before anything was picked.
+// sessionModelOf is the model one conversation points at; a conversation
+// without one reads as what a new one would start on.
 func (a *app) sessionModelOf(sid string) agentModelRef {
 	for _, s := range a.sessions {
 		if s.id == sid {
@@ -616,8 +706,7 @@ func (a *app) sessionModelOf(sid string) agentModelRef {
 			break
 		}
 	}
-	prov, name := sessionModel()
-	return agentModelRef{providerID: prov, id: name}
+	return a.defaultModelRef()
 }
 
 // modelLabel is the fancy name of a model ref, from the catalog; the ref
@@ -709,6 +798,7 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 // startNewChat clears the view; the conversation itself comes into being
 // with the first words, so a new chat is not one until it is spoken in.
 func (a *app) startNewChat() {
+	a.settingsOpen = false
 	dir := a.chatDir()
 	a.draftProject = ""
 	for _, project := range a.projects {

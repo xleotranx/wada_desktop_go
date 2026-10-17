@@ -294,7 +294,7 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.save(context.Background(), sidebarMetadata{projects: []string{"/imported"}, pins: []string{"keep-chat"}}); err != nil {
+	if err := db.save(context.Background(), appMetadata{projects: []string{"/imported"}, pins: map[string][]string{localServerID: {"keep-chat"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Execute(context.Background(), "PRAGMA user_version = 1"); err != nil {
@@ -302,7 +302,7 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 	}
 	db.Close()
 	a := newApp()
-	db, err = a.loadSidebar(path)
+	db, err = a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,12 +310,12 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 		t.Fatal("migration must clear project imports while keeping chat pins")
 	}
 	a.addFolder(t.TempDir())
-	if err := db.save(context.Background(), a.sidebarSnapshot()); err != nil {
+	if err := db.save(context.Background(), a.stateSnapshot()); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
 	b := newApp()
-	db, err = b.loadSidebar(path)
+	db, err = b.loadState(path)
 	if err != nil {
 		t.Fatal(err)
 	}

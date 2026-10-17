@@ -207,10 +207,26 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 						})
 					}
 					if len(models) == 0 {
-						ui.Text(c, "No models in the catalog match.").
-							FontSize(12).TextColor(p.muted)
+						ui.Text(c, a.noModelsNote()).FontSize(12).TextColor(p.muted)
 					}
 				})
+				if len(a.models) > 0 {
+					// The picker is where a missing model becomes a
+					// question; its answer lives in the settings.
+					ui.Divider(c)
+					manage := ui.ButtonBase(c).Label("Manage models…").Height(26).Radius(8).
+						Padding(0, 8).FillWidth().Justify(ui.Start).Cursor(ui.CursorPointer).Shrink(0)
+					if manage.Hovered() {
+						manage.Background(p.hover)
+					}
+					manage.OnClick(func() {
+						a.pickerOpen = false
+						a.openSettings(tabModels)
+					})
+					manage.Children(func() {
+						ui.Text(c, "Manage models…").FontSize(12.5).TextColor(p.muted).SingleLine()
+					})
+				}
 				if len(variants) > 0 {
 					ui.Row(c).Shrink(0).Gap(4).Children(func() {
 						for _, v := range variants {
@@ -238,21 +254,45 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 
 // filteredModels is the catalog narrowed by the pick filter, with the
 // free models first and, within each group, names alphabetically.
-func (a *app) filteredModels() []agentModel {
+func (a *app) filteredModels() []agentModel { return a.offerModels(a.modelFilter) }
+
+// enabledModels is everything the picker offers with no filter at all:
+// the model a new conversation falls back to comes from here.
+func (a *app) enabledModels() []agentModel { return a.offerModels("") }
+
+// offerModels is the catalog in picker order -- free models first, names
+// alphabetically inside each group -- minus what the settings turned off
+// and whatever the query does not match.
+func (a *app) offerModels(query string) []agentModel {
+	query = strings.ToLower(strings.TrimSpace(query))
 	out := []agentModel{}
 	for _, m := range a.models {
-		if strings.Contains(strings.ToLower(m.name), strings.ToLower(a.modelFilter)) ||
-			strings.Contains(strings.ToLower(m.providerID), strings.ToLower(a.modelFilter)) {
-			out = append(out, m)
+		if a.modelDisabled(m) {
+			continue
 		}
+		if query != "" && !strings.Contains(strings.ToLower(m.name), query) &&
+			!strings.Contains(strings.ToLower(m.providerID), query) &&
+			!strings.Contains(strings.ToLower(m.id), query) {
+			continue
+		}
+		out = append(out, m)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].free != out[j].free {
-			return out[i].free
-		}
-		return out[i].name < out[j].name
-	})
+	sort.Slice(out, func(i, j int) bool { return modelLess(out[i], out[j]) })
 	return out
+}
+
+// noModelsNote words why the picker lists nothing.
+func (a *app) noModelsNote() string {
+	switch {
+	case len(a.models) == 0 && !a.modelsLoaded:
+		return "The catalog is still loading."
+	case len(a.models) == 0:
+		return "The server reported no models."
+	case len(a.enabledModels()) == 0:
+		return "Every model is off. Turn some on under Manage models…"
+	default:
+		return "No models in the catalog match."
+	}
 }
 
 // voiceButton stands at the composer's right: the dark voice-session

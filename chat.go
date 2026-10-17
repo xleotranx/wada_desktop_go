@@ -1,14 +1,41 @@
 package main
 
 import (
+	"math"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
+
+// prepareMarkdown tunes the transcript's shared markdown options to this
+// frame's palette: the app's colors over the package's own meters of
+// spacing, heading and code. The selection stays one across the message
+// blocks, as the wrapping scroll gives it.
+func (a *app) prepareMarkdown(p palette) {
+	a.mdTheme = markdown.Theme{
+		FontSize:            14,
+		Text:                p.text,
+		Muted:               p.muted,
+		Link:                p.link,
+		Strong:              p.text,
+		Code:                p.text,
+		CodeBackground:      p.detailBg,
+		CodeBlockBackground: p.detailBg,
+		CodeBlockBorder:     p.hairline,
+		QuoteBar:            p.hairline,
+		QuoteText:           p.muted,
+		Rule:                p.hairline,
+		TableBorder:         p.hairline,
+	}
+	a.md.Theme = &a.mdTheme
+	a.md.ShareSelection = true
+}
 
 // contentPane draws the right column: the title bar of the chat, its
 // transcript and the composer.
 func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
+	a.prepareMarkdown(p)
 	ui.Column(c).Grow(1).Background(p.bg).Children(func() {
 		a.titleBar(c, p, headerH)
 		ui.Divider(c)
@@ -17,6 +44,7 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 		// under the composer as they stream in.
 		area := ui.Box(c).Grow(1)
 		area.Children(func() {
+			a.trackFeed()
 			ui.Scroll(c).Fill().TrackScroll(&a.feed).Selectable().
 				Padding(26, 24, 18, 24).Gap(13).Children(func() {
 				if a.selectedSession == "" {
@@ -29,6 +57,9 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 				for i := range a.blocks {
 					a.blockRow(c, p, a.blocks[i])
 				}
+				if a.turnWorking() {
+					a.blockRow(c, p, block{kind: "working", text: "Working…"})
+				}
 			})
 			ui.Box(c).Absolute().Start(0).End(0).Bottom(0).Height(26).
 				Gradient(p.bg.Alpha(0), p.bg, 180)
@@ -36,6 +67,58 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 
 		a.composer(c, p)
 	})
+}
+
+// turnRunning reports the open chat's turn still going.
+func (a *app) turnRunning() bool {
+	return a.busySession != "" && a.busySession == a.selectedSession
+}
+
+// awaitingPerm reports an approval of the open chat's turn waiting on the
+// user.
+func (a *app) awaitingPerm() bool {
+	for _, perm := range a.pending {
+		if perm.session == a.selectedSession {
+			return true
+		}
+	}
+	return false
+}
+
+// turnWorking reports the open chat's turn still going with nothing being
+// said right now: the loader stands at the transcript's foot before the
+// first words, between them while a tool runs, and steps aside while an
+// approval waits on the user.
+func (a *app) turnWorking() bool {
+	if !a.turnRunning() || a.awaitingPerm() {
+		return false
+	}
+	// The newest stream row is the words landing: empty means there is
+	// nothing to read yet, and no stream row at all means the turn sits
+	// between steps.
+	for i := len(a.blocks) - 1; i >= 0; i-- {
+		if a.blocks[i].kind == "stream" {
+			return strings.TrimSpace(a.blocks[i].text) == ""
+		}
+	}
+	return true
+}
+
+// trackFeed keeps a streaming answer in view: while the reader sits at
+// the foot, the transcript glides after the growing answer; scrolled up,
+// it stays where they put it. The glide is a spring, so it chases the
+// moving end instead of stepping line by line, and the latch holds
+// through it, when the offset trails the end on the way. Growth is not
+// scrolling away: the foot of the check is the furthest the content
+// reached before this frame, not where it just grew to.
+func (a *app) trackFeed() {
+	if !a.feed.Scrolling() {
+		a.stickFeed = a.feed.Y >= a.feedFoot-1
+	}
+	a.feedFoot = a.feed.MaxY
+	if a.stickFeed && a.turnRunning() && a.feed.Y < a.feed.MaxY {
+		a.feed.ScrollTo(0, math.MaxFloat32, ui.Smooth)
+	}
 }
 
 // titleBar shows the chat's name between the window's controls.
@@ -111,7 +194,8 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 }
 
 // blockRow draws one block of the transcript: a paragraph, what the user
-// said, or a line of what the agent ran.
+// said, a line of what the agent ran, or the loader of the turn in
+// flight.
 func (a *app) blockRow(c *ui.Context, p palette, b block) {
 	ui.Column(c).FillWidth().MaxWidth(760).Margin(0, ui.Auto).Gap(10).Children(func() {
 		switch b.kind {
@@ -126,13 +210,23 @@ func (a *app) blockRow(c *ui.Context, p palette, b block) {
 			a.activityRow(c, p, b)
 		case "permission":
 			a.permissionRow(c, p, b)
-		default: // "text", "stream"
-			if b.kind == "stream" {
-				ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
-					SingleLine().Ellipsis("…")
-				return
-			}
-			a.richMarkdown(c, p, b.text)
+		case "working":
+			// The loader at the turn in flight, until words land.
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Spinner(c).Size(13, 13).Label("The agent is working")
+				ui.Text(c, b.text).FontSize(13).TextColor(p.muted)
+			})
+		case "note":
+			// Engine trouble stays a faint line under the answers.
+			ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
+				SingleLine().Ellipsis("…")
+		case "stream":
+			// Markdown still being written: the package parses the new
+			// words alone, shows half-written syntax as what it will
+			// become, and paces the words in.
+			markdown.Stream(c, b.text, &a.md)
+		default: // "text"
+			markdown.View(c, b.text, &a.md)
 		}
 	})
 }

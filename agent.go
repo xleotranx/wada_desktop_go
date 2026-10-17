@@ -823,10 +823,10 @@ func (a *app) finishCutTurns() {
 	a.pending = map[string]*agentPerm{}
 }
 
-// streamLine appends a faint line to the transcript, the way the live
-// preview renders, for engine trouble worth showing in place.
+// streamLine appends a faint note to the transcript for engine trouble
+// worth showing in place.
 func (a *app) streamLine(text string) {
-	a.blocks = append(a.blocks, block{kind: "stream", text: text})
+	a.blocks = append(a.blocks, block{kind: "note", text: text})
 	a.feed.Y = 1e9
 }
 
@@ -1050,9 +1050,9 @@ type agentPerm struct {
 }
 
 // apply folds one agent event into the transcript. Kinds reuse the
-// design's vocabulary: assistant words stream as a faint preview line and
-// settle into a text block when the sentence ends, and each tool call is an
-// activity row that gains its detail once something ran.
+// design's vocabulary: assistant words stream into the answer as it
+// lands, and each tool call is an activity row that gains its detail
+// once something ran.
 func (a *app) apply(ev agentEvent) {
 	switch ev.Type {
 	case "session.text.started":

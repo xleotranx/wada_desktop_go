@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -31,6 +33,156 @@ func TestView(t *testing.T) {
 		if tt.HasText(gone) {
 			t.Fatalf("demo furniture %q still shown: %v", gone, tt.Texts())
 		}
+	}
+}
+
+// TestStreamFollowsFeed keeps a streaming answer in view: at the foot the
+// transcript glides after the growing answer, and a reader who scrolled
+// up during it stays where they put the view.
+func TestStreamFollowsFeed(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.selected = "Turn"
+	a.busySession = "ses_z"
+	for i := range 80 {
+		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("line %d", i)})
+	}
+
+	// The first frame lays the content out; the reader is at its foot.
+	tt := ui.NewTester(a.view, 1400, 920)
+	if a.feed.MaxY <= 0 {
+		t.Fatalf("the transcript does not scroll: max %v", a.feed.MaxY)
+	}
+	a.feed.Y = a.feed.MaxY
+	grown := a.feed.MaxY
+	for i := range 40 {
+		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("more %d", i)})
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if a.feed.MaxY <= grown {
+		t.Fatalf("the new lines did not grow the content: %v -> %v", grown, a.feed.MaxY)
+	}
+	tt.Frame()                  // the grown content starts the glide
+	tt.Advance(2 * time.Second) // which lands at the new foot
+	if a.feed.Y < a.feed.MaxY-0.5 {
+		t.Fatalf("the feed did not follow the stream: at %v of %v", a.feed.Y, a.feed.MaxY)
+	}
+
+	// A reader who scrolled up keeps their place while the answer grows.
+	a.feed.Y = 0
+	for i := range 40 {
+		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("tail %d", i)})
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Advance(2 * time.Second)
+	if a.feed.Y != 0 {
+		t.Fatalf("the feed dragged the reader to the foot: %v", a.feed.Y)
+	}
+	if !tt.HasText("tail 39") {
+		t.Fatalf("the tail did not render: %v", tt.Texts())
+	}
+}
+
+// TestStreamMarkers keeps half-arrived markers out of the view: a
+// trailing line that could still turn into something else waits for what
+// follows it, half-written syntax reads as what it will become, and the
+// words pace in rather than landing in bursts.
+func TestStreamMarkers(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.selected = "Turn"
+	show := func(text string) *ui.Tester {
+		a.blocks = []block{{kind: "stream", text: text}}
+		tt := ui.NewTester(a.view, 1400, 920)
+		tt.Advance(time.Second) // the words pace in
+		return tt
+	}
+	// drew reports a text drawn whole: a piece of its own, not a dash or
+	// dot of some other label.
+	drew := func(tt *ui.Tester, s string) bool {
+		_, ok := tt.Find(s)
+		return ok
+	}
+
+	if tt := show("intro\n\n#"); drew(tt, "#") {
+		t.Fatalf("a bare heading marker drew: %v", tt.Texts())
+	}
+	if tt := show("intro\n\n-"); drew(tt, "-") {
+		t.Fatalf("a bare bullet drew: %v", tt.Texts())
+	}
+	if tt := show("intro\n\n``"); drew(tt, "``") {
+		t.Fatalf("a bare fence drew: %v", tt.Texts())
+	}
+
+	// Decided, they draw as what they are.
+	if tt := show("intro\n\n# Title"); !tt.HasText("Title") || drew(tt, "# Title") {
+		t.Fatalf("the heading did not draw: %v", tt.Texts())
+	}
+	if tt := show("intro\n\n- item"); !drew(tt, "•") || !tt.HasText("item") || drew(tt, "- item") {
+		t.Fatalf("the bullet did not draw: %v", tt.Texts())
+	}
+	if tt := show("intro\n\n1. item"); !drew(tt, "1.") || !tt.HasText("item") {
+		t.Fatalf("the numbered item did not draw: %v", tt.Texts())
+	}
+	if tt := show("intro\n\n```go\ncode"); !tt.HasText("Code, go") {
+		t.Fatalf("the fence did not draw: %v", tt.Texts())
+	}
+
+	// Half-written syntax reads as what it will become; the markers stay
+	// unshown.
+	if tt := show("run `go test"); !tt.HasText("run go test") || tt.HasText("`go test") {
+		t.Fatalf("the open code run: %v", tt.Texts())
+	}
+	if tt := show("this is **the fix"); !tt.HasText("this is the fix") || tt.HasText("**") {
+		t.Fatalf("the open bold run: %v", tt.Texts())
+	}
+	if tt := show("see [the docs](https://ex"); !tt.HasText("the docs") || tt.HasText("https://ex") {
+		t.Fatalf("the open link: %v", tt.Texts())
+	}
+}
+
+// TestTranscriptLoader keeps the working spinner at the transcript's
+// foot while the open chat's turn runs with nothing being said: before
+// the first words, between them while a tool works, never while an
+// approval waits on the user, and never for another chat's turn.
+func TestTranscriptLoader(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.selected = "Turn"
+	a.busySession = "ses_z"
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Working…") {
+		t.Fatalf("the loader is missing: %v", tt.Texts())
+	}
+
+	// Words landing take the loader's place, and an empty stream row --
+	// the next paragraph starting -- brings it back.
+	a.blocks = []block{{kind: "stream", text: "half an answer"}}
+	tt = ui.NewTester(a.view, 1400, 920)
+	tt.Advance(time.Second) // the words pace in
+	if tt.HasText("Working…") || !tt.HasText("half an answer") {
+		t.Fatalf("wordy stream: %v", tt.Texts())
+	}
+	a.blocks = append(a.blocks, block{kind: "stream", key: "stream:msg:1"})
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Working…") {
+		t.Fatalf("a silent stream row drops the loader: %v", tt.Texts())
+	}
+
+	// An approval waiting leaves the decisions to the user, not the agent.
+	a.blocks = nil
+	a.pending["per_1"] = &agentPerm{id: "per_1", session: "ses_z"}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if tt.HasText("Working…") {
+		t.Fatalf("the loader runs while waiting on the user: %v", tt.Texts())
+	}
+
+	// Another chat's turn does not show here.
+	a.pending = map[string]*agentPerm{}
+	a.selectedSession = "ses_other"
+	tt = ui.NewTester(a.view, 1400, 920)
+	if tt.HasText("Working…") {
+		t.Fatalf("another chat's turn showed its loader: %v", tt.Texts())
 	}
 }
 

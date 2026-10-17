@@ -9,11 +9,12 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 // block is one paragraph, bubble or activity line of the transcript.
 type block struct {
-	kind   string // "text", "user", "stream", "activity" or "permission"
+	kind   string // "text", "user", "stream", "note", "working", "activity" or "permission"
 	text   string
 	icon   *ui.SVG
 	key    string                         // key into app.expanded for collapsible lines
@@ -31,8 +32,18 @@ type app struct {
 
 	draft string
 
-	feed   ui.ScrollState
-	blocks []block
+	feed ui.ScrollState
+	// stickFeed holds the transcript to its foot while the open chat's
+	// turn streams, until the reader scrolls up from it; feedFoot is the
+	// foot itself, as of the frame before.
+	stickFeed bool
+	feedFoot  float32
+	blocks    []block
+
+	// md draws the transcript's markdown, one set of options shared by
+	// every message, tuned to the palette each frame.
+	md      markdown.Options
+	mdTheme markdown.Theme
 
 	// Real conversations from the agent: what the Recents list shows and
 	// what the composer talks to.

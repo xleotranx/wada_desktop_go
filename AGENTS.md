@@ -29,6 +29,7 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 ## Conventions
 
 - Route all colors through `paletteFor` (light/dark palettes in `palette.go`); don't scatter `ui.Hex` into panes.
+- The transcript's markdown is MyGo's `ui/markdown`: one `markdown.Options` on the app that `prepareMarkdown` retunes to the palette each frame, `markdown.Stream` while a block lands and `markdown.View` once it settles. Don't hand-roll markdown parsing.
 - Icons are single-color SVGs recolored by the text color; `ui.Icon(...).FontSize(n)` is the icon size. The one multicolor icon (`icBooks`) goes through `ui.Image`, not `ui.Icon`.
 - The transcript in `chat.go` — including fake shell output like `go tool mygo test ./...` — is demo copy, not toolchain documentation.
 - Comments are compact prose sentences; match that voice.
@@ -36,4 +37,4 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 ## Where the deep MyGo rules live
 
 - Repo-local skill `.agents/skills/mygo-maintenance/SKILL.md` — element lifetime, focus/handle identity, threading and migration pitfalls. Read it before nontrivial `ui` work.
-- Module source: `go list -m -f '{{.Dir}}' github.com/egoist/mygo` (read `ui/doc.go`).
+- Module source: `go list -m -f '{{.Dir}}' github.com/egoist/mygo` (read `ui/doc.go`); `docs/ui/markdown.md` covers the transcript's markdown package.

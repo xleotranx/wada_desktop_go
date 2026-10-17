@@ -1270,6 +1270,7 @@ func TestNewChatLiveRenders(t *testing.T) {
 	a.blocks = []block{{kind: "user", text: "run the checks"},
 		{kind: "stream", text: "On it — this is half of an answer"}}
 	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Advance(time.Second) // the reply's words pace in
 	if !tt.HasText("run the checks") || !tt.HasText("On it — this is half of an answer") {
 		t.Fatalf("the fresh chat drew nothing: %v", tt.Texts())
 	}

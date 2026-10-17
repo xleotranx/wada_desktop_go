@@ -11,6 +11,9 @@ import (
 // transcript's foot.
 func (a *app) composer(c *ui.Context, p palette) {
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
+		if a.selectedSession == "" {
+			ui.Row(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
+		}
 		card := ui.Column(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().
 			Radius(24).Padding(10, 14, 10, 14).Gap(4).
 			Background(p.composerBg).Border(1, p.composerBorder).

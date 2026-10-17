@@ -35,7 +35,7 @@ func openMetadata(path string) (*metadataStore, error) {
 		return fail(err)
 	}
 	version := rows.Values[0][0].(int64)
-	if version > 1 {
+	if version > 2 {
 		return fail(fmt.Errorf("sidebar database version %d is newer than this app supports", version))
 	}
 	if version == 0 {
@@ -43,7 +43,18 @@ func openMetadata(path string) (*metadataStore, error) {
 			{SQL: "CREATE TABLE projects (directory TEXT PRIMARY KEY, position INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)"},
 			{SQL: "CREATE TABLE session_pins (server_key TEXT NOT NULL, session_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(server_key, session_id))"},
 			{SQL: "CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)"},
-			{SQL: "PRAGMA user_version = 1"},
+			{SQL: "PRAGMA user_version = 2"},
+		})
+		if err != nil {
+			return fail(err)
+		}
+	}
+	if version == 1 {
+		// The first schema seeded projects from neighboring repositories.
+		// Reset that legacy list once; chat pins belong to a separate table.
+		_, err = db.Transaction(context.Background(), []sqlite.Statement{
+			{SQL: "DELETE FROM projects"},
+			{SQL: "PRAGMA user_version = 2"},
 		})
 		if err != nil {
 			return fail(err)
@@ -155,7 +166,7 @@ func (a *app) restoreSidebar(state sidebarMetadata) {
 	}
 }
 
-// Startup runs before the window exists. Discovery seeds this database once.
+// Startup loads only folders explicitly saved in the app.
 func (a *app) loadSidebar(path string) (*metadataStore, error) {
 	db, err := openMetadata(path)
 	if err != nil {

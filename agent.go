@@ -550,7 +550,7 @@ func (a *agent) events(ctx context.Context, h func(agentEvent)) error {
 // to open, a brand-new chat to create, a running turn to stop, an
 // approval to answer or a list change to make.
 type agentJob struct {
-	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model" or "more"
+	kind     string // "prompt", "open", "stop", "answer", "rename", "delete", "model" or "more"
 	sid      string // the session to act on; empty for a new one
 	dir      string // where a new chat should work; empty for the app's
 	text     string // the user's words or a new title, for "prompt" and "rename"
@@ -560,6 +560,7 @@ type agentJob struct {
 	variant  string // its reasoning effort, when it has one
 	request  string // the permission request being answered
 	decision string // "once", "always" or "reject"
+	draft    uint64 // identifies a blank draft until its server session arrives
 }
 
 // connect runs the pipe for one app lifetime: spawn the server, subscribe
@@ -684,16 +685,16 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 			})
 		}()
 
-		// sid is a conversation created here, reused until the UI learns of
-		// it from its own update.
+		// A draft reuses its pending server chat until the UI learns its ID.
 		var sid string
+		var sidDraft uint64
 		// pend is a model picked while nothing was open: it waits for the
 		// next conversation open creates.
 		var pend agentJob
 		// open brings a fresh conversation up under the app's free model,
 		// working in the directory asked for; a model ref refusing to set does
 		// not stop the turn.
-		open := func(dir string) bool {
+		open := func(dir string, draft uint64) bool {
 			nid, ref, nerr := ag.createSession(ctx, dir)
 			if nerr != nil {
 				why := nerr.Error()
@@ -706,7 +707,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 			}
 			// A model picked while nothing was open applies to this new
 			// conversation instead of the default.
-			if pend.kind != "" {
+			if pend.kind != "" && pend.draft == draft {
 				if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
 					why := perr.Error()
 					win.Update(func() { a.streamLine("The model did not switch: " + why) })
@@ -715,16 +716,19 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 				pend = agentJob{}
 			}
 			sid = nid
+			sidDraft = draft
 			home := dir
 			if home == "" {
 				home = workdir()
 			}
 			win.Update(func() {
-				a.selectedSession = sid
-				a.selected = "New chat"
+				if a.draftVersion == draft && a.selectedSession == "" {
+					a.selectedSession = nid
+					a.selected = "New chat"
+				}
 				// The untitled row stands at the top; its title fills in
 				// over the stream once words run.
-				a.sessions = append([]agentSession{{id: sid, dir: home, model: ref}}, a.sessions...)
+				a.sessions = append([]agentSession{{id: nid, dir: home, model: ref}}, a.sessions...)
 			})
 			return true
 		}
@@ -750,10 +754,6 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 						a.blocks = restoreBlocks(msgs)
 						a.selectedSession = job.sid
 					})
-				case "new":
-					if sid == "" && !open(job.dir) {
-						continue
-					}
 				case "stop":
 					who := job.sid
 					if who == "" {
@@ -800,7 +800,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 					})
 				case "model":
 					who := job.sid
-					if who == "" {
+					if who == "" && sidDraft == job.draft {
 						who = sid
 					}
 					if who == "" {
@@ -815,7 +815,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string
 				default: // "prompt"
 					target := job.sid
 					if target == "" {
-						if sid == "" && !open(job.dir) {
+						if (sid == "" || sidDraft != job.draft) && !open(job.dir, job.draft) {
 							continue
 						}
 						target = sid

@@ -572,21 +572,12 @@ func TestExpandPath(t *testing.T) {
 }
 
 // TestFolderDialog drives the folder chip and dialog: the chip shows
-// where the chat works, the dialog queues a fresh chat in a typed folder
+// where the chat works, the dialog prepares a fresh draft in a typed folder
 // and turns away from folders that are not there.
 func TestFolderDialog(t *testing.T) {
 	a := newApp()
 	tt := ui.NewTester(a.view, 1400, 920)
-	mark := dirBase(workdir())
-	if !tt.HasText(mark) {
-		t.Fatalf("no folder chip label: %v", tt.Texts())
-	}
-	if err := tt.Click(mark); err != nil {
-		t.Fatalf("clicking the folder chip: %v", err)
-	}
-	if !a.dirOpen {
-		t.Fatal("the chip did not open the dialog")
-	}
+	a.openFolderDialog()
 	tt.Frame()
 	if !tt.HasText("Start a chat in a folder") {
 		t.Fatalf("dialog not drawn: %v", tt.Texts())
@@ -606,19 +597,23 @@ func TestFolderDialog(t *testing.T) {
 	default:
 	}
 
-	// A real folder queues the new chat and closes the dialog.
+	// A real folder prepares the draft without creating an empty server chat.
 	scratch := t.TempDir()
 	a.dirDraft = scratch
 	if err := tt.Click("Start chat here"); err != nil {
 		t.Fatal(err)
 	}
+	want, err := filepath.EvalSymlinks(scratch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.chatDir() != want || a.selectedSession != "" {
+		t.Fatalf("draft directory %q, want %q", a.chatDir(), want)
+	}
 	select {
 	case job := <-a.jobs:
-		if job.kind != "new" || job.dir != scratch {
-			t.Fatalf("new-chat job %+v", job)
-		}
+		t.Fatalf("created an empty chat: %+v", job)
 	default:
-		t.Fatal("starting a chat here did not queue a job")
 	}
 	if a.dirOpen {
 		t.Fatal("the dialog stays open after starting")

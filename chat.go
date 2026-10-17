@@ -44,7 +44,11 @@ func (a *app) contentPane(c *ui.Context, p palette, headerH, leftInset float32) 
 		area.Children(func() {
 			if a.selectedSession == "" {
 				ui.Column(c).Fill().Center().Gap(8).Children(func() {
-					ui.Text(c, "What should we work on?").FontSize(26).FontWeight(600).TextColor(p.text)
+					title := "What should we work on?"
+					if a.draftProject != "" {
+						title = "What should we build in " + dirBase(a.draftProject) + "?"
+					}
+					ui.Text(c, title).FontSize(26).FontWeight(600).TextColor(p.text)
 					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
 				})
 			} else {

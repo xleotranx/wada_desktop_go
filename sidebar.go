@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -137,6 +136,9 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 
 				a.sectionHeading(c, p, "Projects", func() { a.openProjectDialog() })
 				projects := a.projectDirectories()
+				if len(projects) == 0 {
+					ui.Text(c, "Add a project to get started").FontSize(12).TextColor(p.faint).MarginStart(8)
+				}
 				visible := len(projects)
 				if !a.projectsExpanded && visible > 5 {
 					visible = 5
@@ -357,30 +359,6 @@ func (a *app) projectDirectories() []string {
 	return projects
 }
 
-func discoverProjects(home string) []string {
-	home = filepath.Clean(home)
-	projects := []string{home}
-	entries, err := os.ReadDir(filepath.Dir(home))
-	if err != nil {
-		return projects
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dir := filepath.Join(filepath.Dir(home), entry.Name())
-		if filepath.Clean(dir) != home && hasGitMetadata(dir) {
-			projects = append(projects, dir)
-		}
-	}
-	return projects
-}
-
-func hasGitMetadata(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil && (info.IsDir() || info.Mode().IsRegular())
-}
-
 func (a *app) addProject(dir string) {
 	dir = filepath.Clean(dir)
 	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
@@ -430,6 +408,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	c.Key("project:" + dir)
 	b := a.row(c, p, "Open project "+name, false)
 	b.Height(30).Tooltip(dir)
+	hovered := b.Hovered()
 	b.OnClick(func() {
 		a.openFolderDialog()
 		a.dirDraft = dir
@@ -443,6 +422,15 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		}
 		if a.projectPins[dir] {
 			ui.Text(c, "Pinned").FontSize(11).TextColor(p.muted)
+		}
+		if hovered {
+			c.Key("projectnew:" + dir)
+			add := ui.ButtonBase(c).Label("New chat in "+name).Size(22, 22).Radius(6).Center().Tooltip("New chat in " + name)
+			add.OnClick(func() { a.startChatIn(dir) })
+			if add.Hovered() {
+				add.Background(p.hover)
+			}
+			add.Children(func() { ui.Icon(c, icPlus).FontSize(14).TextColor(p.muted) })
 		}
 		c.Key("projectmenu:" + dir)
 		options := ui.ButtonBase(c).Label("Project options, "+name).Size(22, 22).Radius(6).Center()

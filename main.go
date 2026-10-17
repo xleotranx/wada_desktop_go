@@ -59,7 +59,11 @@ type app struct {
 	// expanded holds collapsible lines ("activity:…").
 	expanded map[string]bool
 
-	draft string
+	draft             string
+	draftProject      string
+	draftVersion      uint64
+	projectPickerOpen bool
+	projectFilter     string
 
 	feed        ui.ListState
 	recents     ui.ListState
@@ -80,10 +84,11 @@ type app struct {
 	pending         map[string]*agentPerm
 
 	// The folder dialog for starting a chat in another directory.
-	dirOpen    bool
-	dirAddOnly bool
-	dirDraft   string
-	dirNote    string
+	dirOpen            bool
+	dirAddOnly         bool
+	selectAddedProject bool
+	dirDraft           string
+	dirNote            string
 
 	// The file-attach dialog, quoting a workspace file into the draft.
 	attachOpen  bool
@@ -132,7 +137,6 @@ func newApp() *app {
 	a := &app{
 		sidebarW:            320,
 		home:                home,
-		projects:            discoverProjects(home),
 		selectedRail:        "home",
 		pinned:              map[string]bool{},
 		projectPins:         map[string]bool{},
@@ -292,7 +296,7 @@ func (a *app) send() {
 // conversation or to a fresh one when none is open.
 func (a *app) agentSend(text string) {
 	select {
-	case a.jobs <- agentJob{kind: "prompt", sid: a.selectedSession, text: text}:
+	case a.jobs <- agentJob{kind: "prompt", sid: a.selectedSession, text: text, dir: a.chatDir(), draft: a.draftVersion}:
 	default:
 	}
 }
@@ -319,6 +323,9 @@ func (a *app) answerPerm(perm *agentPerm, decision string) {
 
 // chatDir is the directory the open conversation works in.
 func (a *app) chatDir() string {
+	if a.selectedSession == "" {
+		return a.draftProject
+	}
 	for _, s := range a.sessions {
 		if s.id == a.selectedSession {
 			return s.dir
@@ -342,6 +349,7 @@ func (a *app) openFolderDialog() {
 func (a *app) openProjectDialog() {
 	a.openFolderDialog()
 	a.dirAddOnly = true
+	a.selectAddedProject = false
 }
 
 func (a *app) addFolder(path string) {
@@ -351,10 +359,14 @@ func (a *app) addFolder(path string) {
 		return
 	}
 	a.addProject(clean)
+	if a.selectAddedProject {
+		a.selectDraftProject(clean)
+		a.selectAddedProject = false
+	}
 	a.dirOpen = false
 }
 
-// startChatIn checks a typed folder and queues a fresh chat for it.
+// startChatIn prepares a draft; the first message creates its server chat.
 func (a *app) startChatIn(path string) {
 	clean, err := expandPath(path)
 	if err != nil {
@@ -362,13 +374,11 @@ func (a *app) startChatIn(path string) {
 		a.dirOpen = true
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: "new", dir: clean}:
-		a.dirOpen = false
-		a.addProject(clean)
-	default:
-		a.dirNote = "The agent is busy. Try again shortly."
-	}
+	a.startNewChat()
+	a.draftProject = clean
+	a.projectPickerOpen = false
+	a.dirOpen = false
+	a.addProject(clean)
 }
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.
@@ -493,7 +503,7 @@ func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
 func (a *app) chooseModel(m agentModel, variant string) {
 	a.pickerOpen = false
 	select {
-	case a.jobs <- agentJob{kind: "model", sid: a.selectedSession,
+	case a.jobs <- agentJob{kind: "model", sid: a.selectedSession, draft: a.draftVersion,
 		provider: m.providerID, model: m.id, variant: variant}:
 	default:
 	}
@@ -566,6 +576,16 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 // startNewChat clears the view; the conversation itself comes into being
 // with the first words, so a new chat is not one until it is spoken in.
 func (a *app) startNewChat() {
+	dir := a.chatDir()
+	a.draftProject = ""
+	for _, project := range a.projects {
+		if dir == project {
+			a.draftProject = dir
+			break
+		}
+	}
+	a.draftVersion++
+	a.projectPickerOpen = false
 	a.selected = ""
 	a.selectedSession = ""
 	a.draft = ""

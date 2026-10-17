@@ -51,8 +51,6 @@ func (a *app) headerRow(c *ui.Context, p palette) {
 			if m.Item("Search chats…").Chosen() {
 				a.focusSearch = true
 			}
-			m.Separator()
-			m.Item("Settings") // a placeholder until this app grows one
 		})
 		if title.Hovered() {
 			title.Background(p.hover)

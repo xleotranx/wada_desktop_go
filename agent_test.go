@@ -1598,20 +1598,32 @@ func TestLiveSessionOps(t *testing.T) {
 			t.Fatalf("stored title %q, wanted %q", s.title, title)
 		}
 	}
-	// The search over the store finds it by a piece of its title.
-	found, _, serr := ag.listSessions(ctx, "", "Wada ops "+time.Now().Format("150405"))
-	if serr != nil {
-		t.Fatal(serr)
-	}
+	// The search over the store finds it by its title; the index trails
+	// the rename briefly, so give it time rather than race it.
 	matched := false
-	for _, s := range found {
-		if s.id == sid {
-			matched = true
+	indexWait := time.After(5 * time.Second)
+	var rows int
+	for !matched {
+		found, _, serr := ag.listSessions(ctx, "", title)
+		if serr != nil {
+			t.Fatal(serr)
+		}
+		rows = len(found)
+		for _, s := range found {
+			if s.id == sid {
+				matched = true
+			}
+		}
+		if matched {
+			break
+		}
+		select {
+		case <-indexWait:
+			t.Fatalf("the search did not return the renamed session; %d rows", rows)
+		case <-time.After(300 * time.Millisecond):
 		}
 	}
-	if !matched {
-		t.Fatalf("the search did not return the renamed session; %d rows", len(found))
-	}
+
 	if err := ag.deleteSession(ctx, sid); err != nil {
 		t.Fatal(err)
 	}

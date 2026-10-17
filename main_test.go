@@ -34,6 +34,29 @@ func TestView(t *testing.T) {
 	}
 }
 
+// TestSidebarSearchCentered keeps the search row on the card's midline:
+// the card is a column, so centering it vertically is Justify's doing,
+// not AlignItems'.
+func TestSidebarSearchCentered(t *testing.T) {
+	a := newApp()
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	row, ok := tt.Find("New chat")
+	if !ok {
+		t.Fatalf("the New chat row is missing: %v", tt.Texts())
+	}
+	in, ok := tt.Find("Search chats")
+	if !ok {
+		t.Fatalf("the search field is missing: %v", tt.Texts())
+	}
+	// The search card follows the New chat row across the list's two 2px
+	// gaps and the 6px spacer; the field centers on the card's midline.
+	cardTop := row.Y + row.H + 2 + 6 + 2
+	if got, want := in.Y+in.H/2, cardTop+15; got < want-1 || got > want+1 {
+		t.Fatalf("the search field centers on %v, want the card midline %v", got, want)
+	}
+}
+
 // TestSidebarSearch drives the search field: typing queues a store
 // lookup, the results take the list over, choosing one opens the chat
 // and a blank field hands back to the ordinary list.

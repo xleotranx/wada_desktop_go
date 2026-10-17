@@ -162,7 +162,7 @@ func (a *app) newChatRow(c *ui.Context, p palette) {
 func (a *app) searchField(c *ui.Context, p palette) {
 	box := ui.Box(c).FillWidth().Height(30).Radius(9).
 		Background(p.composerBg).Border(1, p.composerBorder).Padding(0, 8).
-		AlignItems(ui.Center)
+		Justify(ui.Center)
 	if box.FocusWithin() {
 		box.Border(1, p.composerBorderFocus)
 	}
@@ -295,55 +295,40 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 	if title == "" {
 		title = "New chat"
 	}
-	ui.Modal(c, &a.confirmOpen, func() {
-		ui.Box(c).Width(340).Radius(14).Padding(16, 18).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
-			Children(func() {
-				ui.Column(c).Gap(10).Children(func() {
-					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-						ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
-						ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
-					})
-					ui.Text(c, "The conversation and what it did are gone for good.").
-						FontSize(12.5).TextColor(p.muted)
-					ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-						cancel.OnClick(func() { a.confirmOpen = false })
-						cancel.Children(func() {
-							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-						})
-						del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
-							Background(p.orange)
-						del.OnClick(a.deleteConfirmed)
-						del.Children(func() {
-							ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(ui.Hex("#ffffff"))
-						})
-					})
-				})
+	dialog(c, p, &a.confirmOpen, 340, func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
+			ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
+		})
+		ui.Text(c, "The conversation and what it did are gone for good.").
+			FontSize(12.5).TextColor(p.muted)
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+			cancel.OnClick(func() { a.confirmOpen = false })
+			cancel.Children(func() {
+				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
+			del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
+				Background(p.orange)
+			del.OnClick(a.deleteConfirmed)
+			del.Children(func() {
+				ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(ui.Hex("#ffffff"))
+			})
+		})
 	})
 
-	ui.Modal(c, &a.renameOpen, func() {
-		ui.Box(c).Width(340).Radius(14).Padding(16, 18).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
-			Children(func() {
-				ui.Column(c).Gap(10).Children(func() {
-					ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
-					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
-						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
-						ui.TextInput(c, &a.renameDraft).FontSize(13)
-					})
-					ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-						cancel.OnClick(func() { a.renameOpen = false })
-						cancel.Children(func() {
-							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-						})
-						save := ui.PrimaryButton(c, "Save")
-						save.OnClick(a.saveRename)
-					})
-				})
+	dialog(c, p, &a.renameOpen, 340, func() {
+		ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
+		textField(c, p, &a.renameDraft, "")
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+			cancel.OnClick(func() { a.renameOpen = false })
+			cancel.Children(func() {
+				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
+			save := ui.PrimaryButton(c, "Save")
+			save.OnClick(a.saveRename)
+		})
 	})
 }
 

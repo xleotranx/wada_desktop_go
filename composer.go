@@ -63,31 +63,35 @@ func (a *app) folderChip(c *ui.Context, p palette) {
 
 // folderModal is the dialog for starting a chat in a chosen directory.
 func (a *app) folderModal(c *ui.Context, p palette) {
-	ui.Modal(c, &a.dirOpen, func() {
-		ui.Box(c).Width(360).Radius(14).Padding(16, 18).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
-			Children(func() {
-				ui.Column(c).Gap(10).Children(func() {
-					ui.Text(c, "Start a chat in a folder").FontSize(14).FontWeight(600)
-					ui.Text(c, "The agent reads and changes files in this folder.").FontSize(12.5).TextColor(p.muted)
-					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
-						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
-						ui.TextInput(c, &a.dirDraft).FontSize(13)
-					})
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-						cancel.OnClick(func() { a.dirOpen = false })
-						cancel.Children(func() {
-							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-						})
-						start := ui.PrimaryButton(c, "Start chat here")
-						start.OnClick(func() { a.startChatIn(a.dirDraft) })
-					})
-					if a.dirNote != "" {
-						ui.Text(c, a.dirNote).FontSize(12).TextColor(p.orange).SingleLine()
-					}
-				})
+	dialog(c, p, &a.dirOpen, 360, func() {
+		ui.Text(c, "Start a chat in a folder").FontSize(14).FontWeight(600)
+		ui.Text(c, "The agent reads and changes files in this folder.").FontSize(12.5).TextColor(p.muted)
+		textField(c, p, &a.dirDraft, "")
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+			cancel.OnClick(func() { a.dirOpen = false })
+			cancel.Children(func() {
+				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
+			start := ui.PrimaryButton(c, "Start chat here")
+			start.OnClick(func() { a.startChatIn(a.dirDraft) })
+		})
+		if a.dirNote != "" {
+			ui.Text(c, a.dirNote).FontSize(12).TextColor(p.orange).SingleLine()
+		}
+	})
+}
+
+// dialog is the frame every dialog shares: the palette's card centered
+// over a dimmed window. It builds on DialogBase rather than Modal: the
+// theme's modal panel would sit behind the card as a second layer.
+func dialog(c *ui.Context, p palette, open *bool, width float32, fn func()) {
+	ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		backdrop.Background(ui.RGBA(0, 0, 0, 0.4))
+		panel.Width(width).Radius(14).Padding(16, 18).
+			Background(p.bg).Border(1, p.hairline).
+			Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2))
+		ui.Column(c).Gap(10).Children(fn)
 	})
 }
 
@@ -121,31 +125,22 @@ func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui
 // attachModal quotes a workspace file into the draft, so the agent reads
 // the text the user asked about along with the message.
 func (a *app) attachModal(c *ui.Context, p palette) {
-	ui.Modal(c, &a.attachOpen, func() {
-		ui.Box(c).Width(400).Radius(14).Padding(16, 18).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
-			Children(func() {
-				ui.Column(c).Gap(10).Children(func() {
-					ui.Text(c, "Quote a file").FontSize(14).FontWeight(600)
-					ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
-					ui.Box(c).FillWidth().Radius(8).Padding(4, 8).
-						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
-						ui.TextInput(c, &a.attachDraft).FontSize(13).Placeholder("src/main.go")
-					})
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-						cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-						cancel.OnClick(func() { a.attachOpen = false })
-						cancel.Children(func() {
-							ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-						})
-						quote := ui.PrimaryButton(c, "Quote")
-						quote.OnClick(a.attachFile)
-					})
-					if a.attachNote != "" {
-						ui.Text(c, a.attachNote).FontSize(12).TextColor(p.danger).SingleLine()
-					}
-				})
+	dialog(c, p, &a.attachOpen, 400, func() {
+		ui.Text(c, "Quote a file").FontSize(14).FontWeight(600)
+		ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
+		textField(c, p, &a.attachDraft, "src/main.go")
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+			cancel.OnClick(func() { a.attachOpen = false })
+			cancel.Children(func() {
+				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
+			quote := ui.PrimaryButton(c, "Quote")
+			quote.OnClick(a.attachFile)
+		})
+		if a.attachNote != "" {
+			ui.Text(c, a.attachNote).FontSize(12).TextColor(p.danger).SingleLine()
+		}
 	})
 }
 

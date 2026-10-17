@@ -181,6 +181,7 @@ func TestApplyTurn(t *testing.T) {
 
 	// The whole turn rendered: the agent's words and the expanded detail
 	// of what its tool printed.
+	a.selected = "Wired turn"
 	a.expanded["activity:call_1"] = true
 	tt := ui.NewTester(a.view, 1400, 920)
 	if got := len(a.blocks) - upTo; got < 3 {
@@ -232,7 +233,7 @@ func TestAgentSessions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessions, next, err := a.listSessions(ctx, "")
+	sessions, next, err := a.listSessions(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +244,33 @@ func TestAgentSessions(t *testing.T) {
 		sessions[0].id != "ses_a" || sessions[0].title != "Grep wiring" || sessions[0].updated != 300 ||
 		sessions[1].id != "ses_b" {
 		t.Fatalf("sessions %+v", sessions)
+	}
+}
+
+// TestAgentSearch asks the store for a piece of a title, and the fake
+// server checks the query the client actually sent.
+func TestAgentSearch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("search") != "wiring" || q.Get("limit") != "50" {
+			t.Errorf("query %q missed the search", r.URL.RawQuery)
+		}
+		w.Write([]byte(`{"data":[{"id":"ses_w","title":"Grep wiring",` +
+			`"location":{"directory":"/nowhere"},` +
+			`"model":{"id":"beam-free","providerID":"opencode-go"},` +
+			`"time":{"created":1,"updated":2}}],"cursor":{"next":""}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, _, err := a.listSessions(ctx, "", "wiring")
+	if err != nil || len(rows) != 1 || rows[0].id != "ses_w" ||
+		rows[0].title != "Grep wiring" || rows[0].model.id != "beam-free" {
+		t.Fatalf("search rows %+v %v", rows, err)
 	}
 }
 
@@ -270,6 +298,7 @@ func TestRestoreBlocks(t *testing.T) {
 	// The tool row expands like a live one does.
 	a2 := newApp()
 	a2.blocks = blocks
+	a2.selected = "Wiring check"
 	a2.expanded["activity:call_9"] = true
 	tt := ui.NewTester(a2.view, 1400, 920)
 	if !tt.HasText("$ go test ./wire") || !tt.HasText("ok") {
@@ -438,6 +467,7 @@ func TestStopAndAnswerButtons(t *testing.T) {
 	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell",
 		resources: []string{"rm -rf /tmp/scratch"}, save: []string{"rm *"}}
 	a.blocks = []block{{kind: "permission", key: "permission:per_5", req: a.pending["per_5"]}}
+	a.selected = "Approval turn"
 	tt = ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Approval needed — run a shell command") ||
 		!tt.HasText("$ rm -rf /tmp/scratch") ||
@@ -512,7 +542,7 @@ func TestAgentSessionLocation(t *testing.T) {
 		t.Fatal("the second create never reached the server")
 	}
 
-	rows, next, err := a.listSessions(ctx, "")
+	rows, next, err := a.listSessions(ctx, "", "")
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows %v %v", rows, err)
 	}
@@ -744,8 +774,8 @@ func TestOlderChatsRow(t *testing.T) {
 // transcript where the mock used to sit.
 func TestBootSettle(t *testing.T) {
 	a := newApp()
-	if len(a.blocks) == 0 {
-		t.Fatal("the boot starts on mock content")
+	if len(a.blocks) != 0 || a.selected != "" {
+		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.blocks), a.selected)
 	}
 	a.settleBoot([]agentSession{{id: "ses_a", title: "Grep wiring"}}, "", nil)
 	if !a.sessionsLoaded || a.selectedSession != "ses_a" ||
@@ -1043,7 +1073,7 @@ func TestLiveAgent(t *testing.T) {
 				}
 				// The turn shows up in the sidebar list, and the stored
 				// messages restore into the same rows as live.
-				ls, _, lerr := ag.listSessions(ctx, "")
+				ls, _, lerr := ag.listSessions(ctx, "", "")
 				if lerr != nil {
 					t.Fatal(lerr)
 				}
@@ -1391,7 +1421,7 @@ func TestLiveSessionOps(t *testing.T) {
 	}
 
 	// The store keeps the new title, and deleting removes the session.
-	ls, _, lerr := ag.listSessions(ctx, "")
+	ls, _, lerr := ag.listSessions(ctx, "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}
@@ -1400,10 +1430,24 @@ func TestLiveSessionOps(t *testing.T) {
 			t.Fatalf("stored title %q, wanted %q", s.title, title)
 		}
 	}
+	// The search over the store finds it by a piece of its title.
+	found, _, serr := ag.listSessions(ctx, "", "Wada ops "+time.Now().Format("150405"))
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	matched := false
+	for _, s := range found {
+		if s.id == sid {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatalf("the search did not return the renamed session; %d rows", len(found))
+	}
 	if err := ag.deleteSession(ctx, sid); err != nil {
 		t.Fatal(err)
 	}
-	ls, _, lerr = ag.listSessions(ctx, "")
+	ls, _, lerr = ag.listSessions(ctx, "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}

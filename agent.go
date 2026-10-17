@@ -317,11 +317,16 @@ func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
 
 // listSessions reads the conversations, newest first. The server pages
 // them; cursor "" starts at the newest page and a later page picks up
-// where the last one left off, with "" again when the list runs out.
-func (a *agent) listSessions(ctx context.Context, cursor string) ([]agentSession, string, error) {
+// where the last one left off, with "" again when the list runs out. A
+// search narrows the whole store to what the titles match, and it pages
+// the same way.
+func (a *agent) listSessions(ctx context.Context, cursor string, search string) ([]agentSession, string, error) {
 	path := "/session?limit=50"
 	if cursor != "" {
 		path += "&cursor=" + url.QueryEscape(cursor)
+	}
+	if search != "" {
+		path += "&search=" + url.QueryEscape(search)
 	}
 	raw, err := a.call(ctx, "GET", path, nil)
 	if err != nil {
@@ -540,7 +545,7 @@ func (a *agent) events(ctx context.Context, h func(agentEvent)) error {
 // to open, a brand-new chat to create, a running turn to stop, an
 // approval to answer or a list change to make.
 type agentJob struct {
-	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model" or "more"
+	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model", "search" or "more"
 	sid      string // the session to act on; empty for a new one
 	dir      string // where a new chat should work; empty for the app's
 	text     string // the user's words or a new title, for "prompt" and "rename"
@@ -576,7 +581,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 		done <- ag.events(ctx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
 	}()
 	go func() {
-		ls, nxt, lerr := ag.listSessions(ctx, "")
+		ls, nxt, lerr := ag.listSessions(ctx, "", "")
 		win.Update(func() { a.settleBoot(ls, nxt, lerr) })
 	}()
 	go func() {
@@ -691,7 +696,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 				}
 				win.Update(func() { a.dropSession(job.sid) })
 			case "more":
-				rows, cur, merr := ag.listSessions(ctx, job.cursor)
+				rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
 				win.Update(func() {
 					if merr == nil {
 						a.sessions = dedupeSessions(a.sessions, rows)
@@ -701,6 +706,22 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 						a.streamLine("The older chats did not load: " + why)
 					}
 					a.moreLoading = false
+				})
+			case "search":
+				rows, _, serr := ag.listSessions(ctx, "", job.text)
+				win.Update(func() {
+					// The field may have moved on; stale results go
+					// nowhere.
+					if a.searchText == job.text {
+						a.searchLoading = false
+						if serr == nil {
+							a.searchResults = rows
+						} else {
+							why := serr.Error()
+							a.searchResults = nil
+							a.streamLine("The search did not run: " + why)
+						}
+					}
 				})
 			case "model":
 				who := job.sid

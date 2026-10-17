@@ -20,23 +20,8 @@ func (a *app) sidebarPane(c *ui.Context, p palette, bar ui.TitleBar, headerH flo
 			a.newChatRow(c, p)
 			ui.Box(c).Height(6)
 
-			a.heading(c, p, "Pinned", "")
-			if a.sectionOpen("pinned") {
-				a.chatRow(c, p, a.pinned, 8, false, func() {
-					a.textRow(c, p, a.pinned)
-				})
-			}
-
-			a.heading(c, p, "Projects", "")
-			if a.sectionOpen("projects") {
-				for i := range a.folders {
-					a.folderRow(c, p, i)
-				}
-				a.chatRow(c, p, "Homework", 8, false, func() {
-					ui.Image(c, icBooks).Size(16, 16)
-					a.textRow(c, p, "Homework")
-				})
-			}
+			a.searchField(c, p)
+			ui.Box(c).Height(6)
 
 			a.recentsHeading(c, p)
 		})
@@ -101,35 +86,52 @@ func (a *app) newChatRow(c *ui.Context, p palette) {
 	})
 }
 
-// heading draws the small title of a section and closes or opens it.
-func (a *app) heading(c *ui.Context, p palette, label string, key string) {
-	b := ui.ButtonBase(c).Label(label).Height(24).Radius(7).Padding(0, 8).
-		Cursor(ui.CursorPointer).FillWidth().Margin(8, 0, 0, 0).Justify(ui.Start)
-	if key != "" {
-		b.OnClick(func() { a.expanded["title:"+key] = !a.expanded["title:"+key] })
-	}
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.Children(func() {
-		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
+// searchField is the filter over the store's conversations: its results
+// take the list over while a query stands.
+func (a *app) searchField(c *ui.Context, p palette) {
+	ui.Box(c).FillWidth().Height(30).Radius(9).
+		Background(p.composerBg).Border(1, p.composerBorder).Padding(0, 8).
+		AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(5).AlignItems(ui.Center).FillWidth().Children(func() {
+			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
+			in := ui.TextInput(c, &a.searchText).FontSize(13).
+				Placeholder("Search chats").FillWidth().Label("Search chats")
+			if in.Changed() {
+				a.reviseSearch()
+			}
+		})
 	})
-}
-
-func (a *app) sectionOpen(key string) bool {
-	return !a.expanded["title:"+key]
 }
 
 // recentsHeading titles the list of real conversations; while the runner
-// is still reading them a spinner stands in.
+// is still reading them a spinner stands in. A search query takes the
+// list over with what the store matched.
 func (a *app) recentsHeading(c *ui.Context, p palette) {
+	looking := a.searchText != ""
 	ui.Row(c).FillWidth().Height(24).Margin(8, 0, 0, 0).Padding(0, 8).Children(func() {
-		ui.Text(c, "Recents").FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
+		label := "Recents"
+		if looking {
+			label = "Results"
+		}
+		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
 		ui.Spacer(c)
-		if !a.sessionsLoaded {
+		if !a.sessionsLoaded && !looking {
 			ui.Spinner(c).Size(11, 11).Label("Loading recents")
+		} else if a.searchLoading {
+			ui.Spinner(c).Size(11, 11).Label("Searching chats")
 		}
 	})
+	if looking {
+		if len(a.searchResults) == 0 && !a.searchLoading {
+			ui.Row(c).Padding(4, 8).Children(func() {
+				ui.Text(c, "No chats match.").FontSize(13).TextColor(p.muted)
+			})
+		}
+		for _, s := range a.searchResults {
+			a.sessionRow(c, p, s)
+		}
+		return
+	}
 	for i := range a.sessions {
 		a.sessionRow(c, p, a.sessions[i])
 	}
@@ -263,45 +265,6 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 					})
 				})
 			})
-	})
-}
-
-// folderRow draws a project and, once open, its chats under it.
-func (a *app) folderRow(c *ui.Context, p palette, i int) {
-	f := a.folders[i]
-	key := "folder:" + f.name
-	b := ui.ButtonBase(c).Label(f.name).Height(32).Radius(9).Padding(0, 8).
-		Cursor(ui.CursorPointer).FillWidth()
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.OnClick(func() { a.expanded[key] = !a.expanded[key] })
-	b.Children(func() {
-		ui.Icon(c, icFolder).FontSize(16).TextColor(p.text)
-		ui.Text(c, f.name).MarginStart(10).FontSize(14).FontWeight(500).Grow(1).SingleLine()
-	})
-	if a.expanded[key] {
-		for _, task := range f.tasks {
-			busy := f.name == "wada_pi_webapp" && task == "Implement PD-09 outcomes and retries"
-			a.chatRow(c, p, task, 34, busy, func() {
-				a.textRow(c, p, task)
-			})
-		}
-	}
-}
-
-// chatRow is one row of the list: full width, rounded, tinted while
-// hovered, held tinted while chosen, with the running spinner at its end
-// when busy. content draws what the row shows beside its spinner.
-func (a *app) chatRow(c *ui.Context, p palette, label string, start float32, busy bool, content func()) {
-	b := a.row(c, p, label, label == a.selected)
-	b.PaddingStart(start)
-	b.OnClick(func() { a.selected = label })
-	b.Children(func() {
-		content() // the label grows and pushes the spinner to the end
-		if busy {
-			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
-		}
 	})
 }
 

@@ -20,25 +20,15 @@ type block struct {
 	req    *agentPerm                     // the approval request a permission card carries
 }
 
-// sideFolder is a section entry of the sidebar with its chats.
-type sideFolder struct {
-	name  string
-	tasks []string
-}
-
 // app is the state the window shows.
 type app struct {
 	selected string
 	sidebarW float32
 
-	// expanded holds collapsible lines ("activity:…"), folder rows
-	// ("folder:…") and section titles ("pinned", "projects", "recents").
+	// expanded holds collapsible lines ("activity:…").
 	expanded map[string]bool
 
 	draft string
-
-	pinned  string
-	folders []sideFolder
 
 	feed   ui.ScrollState
 	blocks []block
@@ -67,6 +57,12 @@ type app struct {
 	nextCursor  string
 	moreLoading bool
 
+	// The chats search: what the field shows, the results it last got
+	// and whether one is on.
+	searchText    string
+	searchResults []agentSession
+	searchLoading bool
+
 	// The model catalog and the picker's popover.
 	models       []agentModel
 	modelsLoaded bool
@@ -83,28 +79,10 @@ type app struct {
 }
 
 func newApp() *app {
-	wadaPi := sideFolder{"wada_pi_webapp", []string{
-		"Implement PD-09 outcomes and retries",
-		"Start PD-08",
-		"Build trusted parallel agent flows",
-		"Brainstorm Wada app improvements",
-		"Review code changes",
-	}}
 	a := &app{
 		sidebarW: 340,
-		expanded: map[string]bool{
-			"folder:wada_pi_webapp": true,
-			"activity:viewed-image": true,
-		},
-		selected: "Implement PD-09 outcomes and retries",
-		pinned:   "Compare OpenCode dev bot options",
-		folders: []sideFolder{
-			wadaPi,
-			{"wada_automation", []string{"Nightly digest job", "Watch releases of mygo"}},
-			{"wada-starter-hono", []string{"Scaffold the starter", "Wire the OAuth flow"}},
-			{"wada_social", []string{"Draft the first post"}},
-		},
-		blocks: memoTranscript(),
+		expanded: map[string]bool{},
+		blocks:   []block{},
 
 		jobs:       make(chan agentJob, 16),
 		live:       map[string]int{},
@@ -114,6 +92,22 @@ func newApp() *app {
 		pending:    map[string]*agentPerm{},
 	}
 	return a
+}
+
+// reviseSearch follows the search field: a fresh query queues a lookup
+// in the store, and an empty one drops back to the ordinary list at
+// once.
+func (a *app) reviseSearch() {
+	if a.searchText == "" {
+		a.searchResults = nil
+		a.searchLoading = false
+		return
+	}
+	select {
+	case a.jobs <- agentJob{kind: "search", text: a.searchText}:
+		a.searchLoading = true
+	default:
+	}
 }
 
 // view lays the window out: a sidebar, a hairline beside it and the

@@ -204,51 +204,6 @@ func permAsk(action string) string {
 	return "use " + action
 }
 
-// memoTranscript is the chat the interface starts on.
-func memoTranscript() []block {
-	return []block{
-		{kind: "text", text: "The full test suite and production build passed: 552 tests passed, with one optional Linux-only check skipped on this Mac. The catalog, migration-history check, and architecture check also passed."},
-		{kind: "text", text: "The full gate is now running the browser journeys."},
-		{kind: "activity", text: "Ran command", icon: icTerminal, key: "activity:ran-command",
-			detail: commandDetail(
-				"$ go tool mygo test ./...",
-				"ok  wada-desktop-go  2.414s",
-				"$ go tool mygo build .",
-				"build ok, one binary ready.")},
-		{kind: "text", text: "I found two more edge cases during review: the instruction editor could adopt a newer revision while someone was still drafting, and recovery still depended on workspace files after evidence had already been saved."},
-		{kind: "text", text: "I'll fix both, add regression coverage, and restart the full gate against the final changes."},
-		{kind: "activity", text: "Read files, ran commands", icon: icBook, key: "activity:read-1",
-			detail: commandDetail(
-				"$ read main.go provider.go",
-				"2 files, 214 lines",
-				"$ grep -rn \"revision\" internal/ | wc -l",
-				"42")},
-		{kind: "activity", text: "Viewed an image", icon: icImage, key: "activity:viewed-image",
-			detail: imageDetail},
-		{kind: "activity", text: "Read files, ran commands", icon: icBook, key: "activity:read-2",
-			detail: commandDetail(
-				"$ read evidence/summary.md",
-				"$ go tool mygo test ./internal/work -run TestRecovery",
-				"ok  wada-desktop-go/internal/work  0.831s")},
-		{kind: "text", text: "The updated suite passed: 557 tests, with one optional Linux-only skip. The browser check also exposed an accessibility-label issue in the revision editor, which I corrected."},
-		{kind: "text", text: "I found one final integration detail: captured files reach the worker, but its prompt doesn't list their names. I'll correct that so the worker can discover the sealed inputs."},
-		{kind: "activity", text: "Loaded a tool, read files, ran commands", icon: icPlug, key: "activity:tool",
-			detail: commandDetail(
-				"$ tool debugging-and-error-recovery",
-				"$ read worker/prompt.go",
-				"$ go tool mygo test ./worker -run TestSealedInputs")},
-		{kind: "text", text: "The latest full run stopped on a channel-test teardown error: a background callback tried to use the test database after it closed. The Work tests passed."},
-		{kind: "text", text: "I'm using the debugging-and-error-recovery skill to check that failure in isolation before rerunning acceptance."},
-		{kind: "activity", text: "Ran commands", icon: icTerminal, key: "activity:ran-commands",
-			detail: commandDetail(
-				"$ go tool mygo test -run TestChannelTeardown ./internal/hub",
-				"ok  wada-desktop-go/internal/hub  0.512s")},
-		{kind: "text", text: "The channel failure did not reproduce in either the isolated test or the full channel test file. I've preserved the failed run for reference and left that unrelated code unchanged."},
-		{kind: "text", text: "The acceptance rerun has passed tests, typecheck, and build. Browser verification is continuing."},
-		{kind: "stream", text: "The UI replacement for the \"Current revision form\" appears successful. I need to clarify the useState(item.currentRevision) update path before handing the diff back for review."},
-	}
-}
-
 // commandDetail is the expanded detail of an activity: what ran, written
 // as a terminal keeps it.
 func commandDetail(lines ...string) func(c *ui.Context, p palette) {
@@ -263,19 +218,4 @@ func commandDetail(lines ...string) func(c *ui.Context, p palette) {
 			})
 		})
 	}
-}
-
-// imageDetail is the expanded detail of "Viewed an image": a small mock
-// of the screenshot the agent read.
-func imageDetail(c *ui.Context, p palette) {
-	ui.Box(c).Width(112).Margin(6, 0, 0, 0).Padding(12).
-		Background(p.bg).Border(1, p.hairline).Radius(10).Children(func() {
-		ui.Column(c).Gap(5).Children(func() {
-			ui.Box(c).Size(66, 4).Radius(2).Background(p.thumbLine)
-			ui.Box(c).Size(44, 4).Radius(2).MarginStart(10).Background(p.thumbLine)
-			ui.Box(c).Size(74, 4).Radius(2).Background(ui.Hex("#6b6b6b"))
-			ui.Box(c).Size(30, 4).Radius(2).MarginStart(10).Background(ui.Hex("#6b6b6b"))
-			ui.Box(c).Size(58, 4).Radius(2).Background(p.thumbLine)
-		})
-	})
 }

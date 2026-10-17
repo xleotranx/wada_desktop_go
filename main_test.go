@@ -12,55 +12,115 @@ func TestView(t *testing.T) {
 	a := newApp()
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	// The interface starts on the demo chat.
-	if a.selected != "Implement PD-09 outcomes and retries" {
-		t.Fatalf("selected %q at start", a.selected)
+	// The interface starts clean: an empty transcript waiting for the
+	// boot, the search field over the store and no demo furniture.
+	if a.selected != "" || len(a.blocks) != 0 {
+		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.blocks))
 	}
-	if !tt.HasText("The full gate is now running the browser journeys.") {
-		t.Fatalf("transcript %q not shown", tt.Texts())
+	if !tt.HasText("What should we work on?") || !tt.HasText("Recents") {
+		t.Fatalf("bare interface missing: %v", tt.Texts())
 	}
-	if !tt.HasText("Full access") || !tt.HasText("longcat-2.5-preview-free") {
-		t.Fatalf("composer missing: %v", tt.Texts())
+	if !tt.HasText("Search chats") {
+		t.Fatalf("search field missing: %v", tt.Texts())
+	}
+	for _, gone := range []string{"Pinned", "Projects", "Homework",
+		"Compare OpenCode dev bot options", "wada_pi_webapp", "Nightly digest job"} {
+		if tt.HasText(gone) {
+			t.Fatalf("demo furniture %q still shown: %v", gone, tt.Texts())
+		}
 	}
 }
 
-func TestChooseChat(t *testing.T) {
+// TestSidebarSearch drives the search field: typing queues a store
+// lookup, the results take the list over, choosing one opens the chat
+// and a blank field hands back to the ordinary list.
+func TestSidebarSearch(t *testing.T) {
 	a := newApp()
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	if err := tt.Click("Start PD-08"); err != nil {
-		t.Fatal(err)
+	if err := tt.Click("Search chats"); err != nil {
+		t.Fatalf("focusing the search field: %v", err)
 	}
-	if a.selected != "Start PD-08" {
-		t.Fatalf("chosen chat %q after a click", a.selected)
+	tt.Type("wire")
+	if a.searchText != "wire" {
+		t.Fatalf("search text %q after typing", a.searchText)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "search" || job.text != "wire" {
+			t.Fatalf("search job %+v", job)
+		}
+	default:
+		t.Fatal("typing did not queue a search job")
+	}
+	if !a.searchLoading {
+		t.Fatal("the lookup does not show as running")
 	}
 
-	// A folder row opens its chats instead of choosing one.
-	if err := tt.Click("wada_automation"); err != nil {
+	// The results take the list over while the query stands.
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Results") || !tt.HasText("Searching chats") {
+		t.Fatalf("search state not shown: %v", tt.Texts())
+	}
+	a.searchLoading = false
+	a.searchResults = []agentSession{{id: "ses_b", title: "Wiring the wings"}}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Wiring the wings") || tt.HasText("Grep wiring") {
+		t.Fatalf("results not shown in place of the list: %v", tt.Texts())
+	}
+	if err := tt.Click("Wiring the wings"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.expanded["folder:wada_automation"] {
-		t.Fatal("clicking a closed folder should open it")
+	if a.selected != "Wiring the wings" || a.selectedSession != "ses_b" {
+		t.Fatalf("result not opened: %q %q", a.selected, a.selectedSession)
 	}
-	if !tt.HasText("Nightly digest job") {
-		t.Fatalf("chats under the folder not shown: %v", tt.Texts())
+	select {
+	case job := <-a.jobs:
+		if job.kind != "open" || job.sid != "ses_b" {
+			t.Fatalf("open job %+v", job)
+		}
+	default:
+		t.Fatal("opening a result did not queue a job")
+	}
+
+	// Clearing the field hands the list back at once.
+	a.searchText = ""
+	a.searchResults = nil
+	a.reviseSearch()
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Grep wiring") || tt.HasText("Results") {
+		t.Fatalf("clearing did not restore the list: %v", tt.Texts())
+	}
+	select {
+	case <-a.jobs:
+		t.Fatal("a blank field queued a lookup")
+	default:
 	}
 }
 
 func TestActivityExpands(t *testing.T) {
 	a := newApp()
+	a.selected = "Wired turn"
+	a.blocks = []block{
+		{kind: "activity", text: "Ran command", icon: icTerminal, key: "activity:call_1",
+			detail: commandDetail(
+				"$ echo hi",
+				"hi")},
+	}
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Ran command"); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.HasText("go tool mygo test ./...") {
+	if !tt.HasText("$ echo hi") || !tt.HasText("hi") {
 		t.Fatalf("expanded commands missing: %v", tt.Texts())
 	}
 	if err := tt.Click("Ran command"); err != nil {
 		t.Fatal(err)
 	}
-	if tt.HasText("go tool mygo test ./...") {
+	if tt.HasText("$ echo hi") {
 		t.Fatal("expanded commands did not close")
 	}
 }
@@ -69,10 +129,8 @@ func TestComposerSends(t *testing.T) {
 	a := newApp()
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	// Pick a chat, then work in the composer.
-	if err := tt.Click("Start PD-08"); err != nil {
-		t.Fatal(err)
-	}
+	// The composer talks even with nothing chosen: the send queues the
+	// turn for a chat the runner opens.
 	if err := tt.Click("Compose"); err != nil {
 		t.Fatal(err)
 	}

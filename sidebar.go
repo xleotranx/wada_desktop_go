@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -36,7 +37,7 @@ func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
 				show.Children(func() { ui.Icon(c, icPanel).FontSize(18).TextColor(p.muted) })
 			}
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
-			a.railButton(c, p, "projects", "Projects", icStack, a.openFolderDialog)
+			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
 			a.railButton(c, p, "history", "History", icHistory, func() {
 				a.searchOpen = true
 				a.focusSearch = true
@@ -57,7 +58,7 @@ func (a *app) navRail(c *ui.Context, p palette, headerH float32) {
 					a.focusSearch = true
 				}
 				if m.Item("Open folder…").Chosen() {
-					a.openFolderDialog()
+					a.openProjectDialog()
 				}
 				m.Separator()
 				label := "Hide sidebar"
@@ -108,6 +109,14 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 		a.headerRow(c, p, headerH, titlebarInset(barLeft))
 
 		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
+			if a.metadataError != "" {
+				ui.Text(c, a.metadataError).FontSize(12).TextColor(p.orange)
+				if a.metadata != nil {
+					ui.Button(c, "Retry saving sidebar").OnClick(a.saveSidebar)
+				}
+			} else if a.metadataSaving {
+				ui.Text(c, "Saving sidebar…").FontSize(12).TextColor(p.muted)
+			}
 			a.newChatRow(c, p)
 			if a.searchOpen {
 				a.searchField(c, p)
@@ -126,7 +135,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH, barLeft float32) {
 					}
 				}
 
-				a.sectionHeading(c, p, "Projects", func() { a.openFolderDialog() })
+				a.sectionHeading(c, p, "Projects", func() { a.openProjectDialog() })
 				projects := a.projectDirectories()
 				visible := len(projects)
 				if !a.projectsExpanded && visible > 5 {
@@ -161,7 +170,7 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH, leftInset float32) {
 			}
 			m.Separator()
 			if m.Item("Open folder…").Chosen() {
-				a.openFolderDialog()
+				a.openProjectDialog()
 			}
 		})
 		if title.Hovered() {
@@ -329,19 +338,23 @@ func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func())
 
 func (a *app) pinnedSessions() []agentSession {
 	out := make([]agentSession, 0, len(a.pinned))
+	order := make(map[string]int, len(a.pinOrder))
+	for i, id := range a.pinOrder {
+		order[id] = i
+	}
 	for _, s := range a.sessions {
 		if a.pinned[s.id] {
 			out = append(out, s)
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool { return order[out[i].id] < order[out[j].id] })
 	return out
 }
 
 func (a *app) projectDirectories() []string {
-	if len(a.projects) == 0 {
-		return []string{a.home}
-	}
-	return append([]string(nil), a.projects...)
+	projects := append([]string(nil), a.projects...)
+	sort.SliceStable(projects, func(i, j int) bool { return a.projectPins[projects[i]] && !a.projectPins[projects[j]] })
+	return projects
 }
 
 func discoverProjects(home string) []string {
@@ -370,12 +383,46 @@ func hasGitMetadata(dir string) bool {
 
 func (a *app) addProject(dir string) {
 	dir = filepath.Clean(dir)
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
 	for _, project := range a.projects {
 		if filepath.Clean(project) == dir {
+			delete(a.unavailableProjects, dir)
 			return
 		}
 	}
 	a.projects = append(a.projects, dir)
+	delete(a.unavailableProjects, dir)
+	a.saveSidebar()
+}
+
+func (a *app) removeProject(dir string) {
+	dir = filepath.Clean(dir)
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	for i, project := range a.projects {
+		if project == dir {
+			a.projects = append(a.projects[:i], a.projects[i+1:]...)
+			delete(a.projectPins, dir)
+			delete(a.unavailableProjects, dir)
+			a.saveSidebar()
+			return
+		}
+	}
+}
+
+func (a *app) toggleProjectPin(dir string) {
+	if a.projectPins == nil {
+		a.projectPins = map[string]bool{}
+	}
+	if a.projectPins[dir] {
+		delete(a.projectPins, dir)
+	} else {
+		a.projectPins[dir] = true
+	}
+	a.saveSidebar()
 }
 
 func (a *app) projectRow(c *ui.Context, p palette, dir string) {
@@ -383,11 +430,35 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	c.Key("project:" + dir)
 	b := a.row(c, p, "Open project "+name, false)
 	b.Height(30).Tooltip(dir)
-	b.OnClick(func() { a.startChatIn(dir) })
+	b.OnClick(func() {
+		a.openFolderDialog()
+		a.dirDraft = dir
+		a.startChatIn(dir)
+	})
 	b.Children(func() {
 		ui.Icon(c, icFolder).FontSize(14).TextColor(p.muted)
 		ui.Text(c, name).MarginStart(9).FontSize(13.5).Grow(1).SingleLine()
-		ui.Icon(c, icChevRight).FontSize(12).TextColor(p.faint)
+		if a.unavailableProjects[dir] {
+			ui.Text(c, "Unavailable").FontSize(11).TextColor(p.muted)
+		}
+		if a.projectPins[dir] {
+			ui.Text(c, "Pinned").FontSize(11).TextColor(p.muted)
+		}
+		c.Key("projectmenu:" + dir)
+		options := ui.ButtonBase(c).Label("Project options, "+name).Size(22, 22).Radius(6).Center()
+		options.Menu(func(m *ui.Menu) {
+			label := "Pin project"
+			if a.projectPins[dir] {
+				label = "Unpin project"
+			}
+			if m.Item(label).Chosen() {
+				a.toggleProjectPin(dir)
+			}
+			if m.Item("Remove project").Chosen() {
+				a.removeProject(dir)
+			}
+		})
+		options.Children(func() { ui.Icon(c, icEllipsis).FontSize(13).TextColor(p.muted) })
 	})
 }
 
@@ -521,9 +592,13 @@ func (a *app) togglePin(s agentSession) {
 	}
 	if a.pinned[s.id] {
 		delete(a.pinned, s.id)
+		a.pinOrder = slices.DeleteFunc(a.pinOrder, func(id string) bool { return id == s.id })
 	} else {
 		a.pinned[s.id] = true
+		a.pinOrder = append(a.pinOrder, s.id)
+		a.sessions = dedupeSessions(a.sessions, []agentSession{s})
 	}
+	a.saveSidebar()
 }
 
 // olderRow asks the runner for the next page of conversations.

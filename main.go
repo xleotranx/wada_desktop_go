@@ -26,10 +26,17 @@ type block struct {
 
 // app is the state the window shows.
 type app struct {
-	selected string
-	sidebarW float32
-	home     string
-	projects []string
+	selected            string
+	sidebarW            float32
+	home                string
+	projects            []string
+	projectPins         map[string]bool
+	pinOrder            []string
+	metadata            *metadataWriter
+	metadataVersion     uint64
+	metadataSaving      bool
+	metadataError       string
+	unavailableProjects map[string]bool
 
 	// Navigation and pinned chats belong to the Codex sidebar, while the
 	// browser history and active tool belong to the native right pane.
@@ -73,9 +80,10 @@ type app struct {
 	pending         map[string]*agentPerm
 
 	// The folder dialog for starting a chat in another directory.
-	dirOpen  bool
-	dirDraft string
-	dirNote  string
+	dirOpen    bool
+	dirAddOnly bool
+	dirDraft   string
+	dirNote    string
 
 	// The file-attach dialog, quoting a workspace file into the draft.
 	attachOpen  bool
@@ -122,15 +130,17 @@ type app struct {
 func newApp() *app {
 	home := workdir()
 	a := &app{
-		sidebarW:         320,
-		home:             home,
-		projects:         discoverProjects(home),
-		selectedRail:     "home",
-		pinned:           map[string]bool{},
-		browserHistoryAt: -1,
-		expanded:         map[string]bool{},
-		blocks:           []block{},
-		feed:             ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
+		sidebarW:            320,
+		home:                home,
+		projects:            discoverProjects(home),
+		selectedRail:        "home",
+		pinned:              map[string]bool{},
+		projectPins:         map[string]bool{},
+		unavailableProjects: map[string]bool{},
+		browserHistoryAt:    -1,
+		expanded:            map[string]bool{},
+		blocks:              []block{},
+		feed:                ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
 
 		jobs:         make(chan agentJob, 16),
 		live:         map[string]int{},
@@ -198,6 +208,16 @@ func (a *app) view(c *ui.Context) {
 func main() {
 	a := newApp()
 	mygo.App.WhenReady(func() {
+		// A fixed app directory is shared by plain, dev and packaged builds.
+		var db *metadataStore
+		dir, err := os.UserConfigDir()
+		if err == nil {
+			db, err = a.loadSidebar(filepath.Join(dir, "wada-desktop-go", "metadata.db"))
+		}
+		if err != nil {
+			a.metadataError = "Sidebar storage is unavailable: " + err.Error()
+			log.Printf("sidebar metadata: %v", err)
+		}
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "Codex",
 			Width:     1600,
@@ -213,10 +233,19 @@ func main() {
 			StateKey:             "main",
 			Content:              ui.View(a.view),
 		})
+		if db != nil {
+			a.metadata = startMetadataWriter(db, func(version uint64, err error) {
+				if err != nil {
+					log.Printf("sidebar metadata: %v", err)
+				}
+				win.Update(func() { a.acceptMetadataWrite(version, err) })
+			})
+			mygo.App.OnQuit(a.closeMetadata)
+		}
 
 		// The agent pipe lives in the background; it publishes what it
 		// streams back into the view through Window.Update.
-		go a.connect(win, a.jobs)
+		go a.connect(win, a.jobs, append([]string(nil), a.pinOrder...))
 
 		// WADA_CAPTURE=/path/out.png writes a PNG of the window and quits:
 		// a way to see the interface without clicking through it. The wait
@@ -301,6 +330,7 @@ func (a *app) chatDir() string {
 // openFolderDialog readies the folder dialog with the directory the next
 // chat would sensibly reuse.
 func (a *app) openFolderDialog() {
+	a.dirAddOnly = false
 	a.dirDraft = a.chatDir()
 	if a.dirDraft == "" {
 		a.dirDraft = workdir()
@@ -309,11 +339,27 @@ func (a *app) openFolderDialog() {
 	a.dirOpen = true
 }
 
+func (a *app) openProjectDialog() {
+	a.openFolderDialog()
+	a.dirAddOnly = true
+}
+
+func (a *app) addFolder(path string) {
+	clean, err := expandPath(path)
+	if err != nil {
+		a.dirNote = err.Error()
+		return
+	}
+	a.addProject(clean)
+	a.dirOpen = false
+}
+
 // startChatIn checks a typed folder and queues a fresh chat for it.
 func (a *app) startChatIn(path string) {
 	clean, err := expandPath(path)
 	if err != nil {
 		a.dirNote = err.Error()
+		a.dirOpen = true
 		return
 	}
 	select {

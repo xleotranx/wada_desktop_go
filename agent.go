@@ -567,7 +567,7 @@ type agentJob struct {
 // time between frames. The server going down ends one attempt, not the
 // session: the pipe respawns with a stretch of waiting between tries,
 // for as long as the window lives.
-func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
+func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, pinnedIDs []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// The server dies with the window, even while startAgent is still
@@ -652,6 +652,24 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 				}
 				a.sessionsLoaded = true
 			})
+			if lerr == nil {
+				extra, err := loadPinnedSessions(attemptCtx, pinnedIDs, ls, nxt, ag.listSessions)
+				win.Update(func() {
+					if attemptCtx.Err() != nil {
+						return
+					}
+					if err != nil {
+						a.streamLine("Pinned chats could not all load: " + err.Error())
+						return
+					}
+					// Ignore pins removed while the lookup was in flight.
+					for _, s := range extra {
+						if a.pinned[s.id] {
+							a.sessions = dedupeSessions(a.sessions, []agentSession{s})
+						}
+					}
+				})
+			}
 		}()
 		go func() {
 			ms, merr := ag.listModels(ctx)
@@ -855,6 +873,9 @@ func workdir() string {
 // ~ grows into the home directory and the path must exist.
 func expandPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("name a folder first")
+	}
 	if strings.HasPrefix(path, "~") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -869,7 +890,7 @@ func expandPath(path string) (string, error) {
 	if st, serr := os.Stat(abs); serr != nil || !st.IsDir() {
 		return "", fmt.Errorf("that folder does not exist")
 	}
-	return abs, nil
+	return filepath.EvalSymlinks(abs)
 }
 
 // expandFile resolves a file path the user typed, through ~ to the
@@ -1242,6 +1263,9 @@ func (a *app) dropPerm(requestID string) {
 // dropSession takes one conversation out of the list and, when it was
 // the one on show, leaves a fresh transcript behind.
 func (a *app) dropSession(sid string) {
+	if a.pinned[sid] {
+		a.togglePin(agentSession{id: sid})
+	}
 	for i, s := range a.sessions {
 		if s.id == sid {
 			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)

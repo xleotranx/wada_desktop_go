@@ -91,6 +91,21 @@ func (a *app) folderModal(c *ui.Context, p palette) {
 	})
 }
 
+// textField is the field the dialogs and the model picker share: the box
+// carries the one border, and the input has no look of its own, so the
+// pair reads as a single field. The border deepens while the field takes
+// the keyboard, as the old theme look did.
+func textField(c *ui.Context, p palette, value *string, placeholder string) {
+	box := ui.Box(c).Shrink(0).FillWidth().Radius(8).Padding(8, 10).
+		Background(p.composerBg).Border(1, p.composerBorder)
+	if box.FocusWithin() {
+		box.Border(1, p.composerBorderFocus)
+	}
+	box.Children(func() {
+		ui.TextInputBase(c, value).FontSize(13).Placeholder(placeholder)
+	})
+}
+
 // composeIconButton is a small icon button of the composer's bottom row.
 func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui.SVG) ui.Element {
 	b := ui.ButtonBase(c).Label(label).Size(30, 28).Radius(9).Center().Tooltip(label)
@@ -191,68 +206,67 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 
 // modelPicker is the panel under the model button: a filter, one row per
 // model of the catalog, and the reasoning efforts the chat's model has.
+// The panel is the flex column itself: a wrapper in between would hold
+// the content height of the whole catalog and spill past the panel
+// instead of handing the spare room to the list that scrolls.
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agentModelRef, variants []string) {
 	ui.Popover(c, anchor, &a.pickerOpen, func() {
-		ui.Box(c).Width(320).Height(420).Radius(14).Padding(10).
+		ui.Box(c).Width(320).MaxHeight(420).Radius(14).Padding(10).Gap(8).
 			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
 			Children(func() {
-				ui.Column(c).Gap(8).Children(func() {
-					ui.Box(c).FillWidth().Radius(8).Padding(3, 8).
-						Background(p.composerBg).Border(1, p.composerBorder).Children(func() {
-						ui.TextInput(c, &a.modelFilter).FontSize(13).Placeholder("Search models")
-					})
-					ui.Scroll(c).Grow(1).Gap(1).Children(func() {
-						for _, m := range a.filteredModels() {
-							m := m // fresh per row, the closures keep their own model
-							c.Key("model:" + m.providerID + "/" + m.id)
-							pick := ui.ButtonBase(c).Label("Pick "+m.name).Height(30).Radius(8).
-								Padding(0, 8).Justify(ui.Start).FillWidth()
-							chosen := m.providerID == ref.providerID && m.id == ref.id
-							if pick.Hovered() {
-								pick.Background(p.hover)
-							} else if chosen {
-								pick.Background(p.selected)
-							}
-							pick.OnClick(func() { a.chooseModel(m, "") })
-							pick.Children(func() {
-								ui.Text(c, m.name).FontSize(13).SingleLine()
-								ui.Text(c, m.providerID).MarginStart(6).FontSize(11).
-									TextColor(p.faint).Grow(1).SingleLine()
-								if chosen {
-									ui.Icon(c, icCheck).FontSize(13).TextColor(p.text)
-								} else if m.free {
-									ui.Text(c, "Free").FontSize(11).FontWeight(500).
-										TextColor(p.greenText)
-								}
-							})
+				textField(c, p, &a.modelFilter, "Search models")
+				models := a.filteredModels()
+				ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
+					for _, m := range models {
+						m := m // fresh per row, the closures keep their own model
+						c.Key("model:" + m.providerID + "/" + m.id)
+						pick := ui.ButtonBase(c).Label("Pick "+m.name).Height(32).Radius(8).
+							Padding(0, 8).Justify(ui.Start).FillWidth()
+						chosen := m.providerID == ref.providerID && m.id == ref.id
+						if pick.Hovered() {
+							pick.Background(p.hover)
+						} else if chosen {
+							pick.Background(p.selected)
 						}
-						if len(a.filteredModels()) == 0 {
-							ui.Text(c, "No models in the catalog match.").
-								FontSize(12).TextColor(p.muted)
-						}
-					})
-					if len(variants) > 0 {
-						ui.Row(c).Gap(4).Children(func() {
-							for _, v := range variants {
-								v := v // fresh per chip, so the closures keep their own effort
-								chip := ui.ButtonBase(c).Label("Reasoning " + v).Height(22).Radius(999).
-									PaddingX(9).Tooltip("Reasoning effort: " + v)
-								if v == ref.variant {
-									chip.Background(p.selected)
-								} else if chip.Hovered() {
-									chip.Background(p.hover)
-								}
-								chip.OnClick(func() { a.pickVariant(v) })
-								chip.Children(func() {
-									t := ui.Text(c, v).FontSize(11.5).SingleLine()
-									if v == ref.variant {
-										t.FontWeight(500)
-									}
-								})
+						pick.OnClick(func() { a.chooseModel(m, "") })
+						pick.Children(func() {
+							ui.Text(c, m.name).FontSize(13.5).SingleLine()
+							ui.Text(c, m.providerID).MarginStart(6).FontSize(11).
+								TextColor(p.faint).Grow(1).SingleLine()
+							if chosen {
+								ui.Icon(c, icCheck).FontSize(14).TextColor(p.text)
+							} else if m.free {
+								ui.Text(c, "Free").FontSize(11).FontWeight(500).
+									TextColor(p.greenBadge).Shrink(0)
 							}
 						})
 					}
+					if len(models) == 0 {
+						ui.Text(c, "No models in the catalog match.").
+							FontSize(12).TextColor(p.muted)
+					}
 				})
+				if len(variants) > 0 {
+					ui.Row(c).Shrink(0).Gap(4).Children(func() {
+						for _, v := range variants {
+							v := v // fresh per chip, so the closures keep their own effort
+							chip := ui.ButtonBase(c).Label("Reasoning " + v).Height(22).Radius(999).
+								PaddingX(9).Tooltip("Reasoning effort: " + v)
+							if v == ref.variant {
+								chip.Background(p.selected)
+							} else if chip.Hovered() {
+								chip.Background(p.hover)
+							}
+							chip.OnClick(func() { a.pickVariant(v) })
+							chip.Children(func() {
+								t := ui.Text(c, v).FontSize(11.5).SingleLine()
+								if v == ref.variant {
+									t.FontWeight(500)
+								}
+							})
+						}
+					})
+				}
 			})
 	})
 }

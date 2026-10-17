@@ -160,12 +160,16 @@ func (a *app) newChatRow(c *ui.Context, p palette) {
 // searchField is the filter over the store's conversations: its results
 // take the list over while a query stands.
 func (a *app) searchField(c *ui.Context, p palette) {
-	ui.Box(c).FillWidth().Height(30).Radius(9).
+	box := ui.Box(c).FillWidth().Height(30).Radius(9).
 		Background(p.composerBg).Border(1, p.composerBorder).Padding(0, 8).
-		AlignItems(ui.Center).Children(func() {
+		AlignItems(ui.Center)
+	if box.FocusWithin() {
+		box.Border(1, p.composerBorderFocus)
+	}
+	box.Children(func() {
 		ui.Row(c).Gap(5).AlignItems(ui.Center).FillWidth().Children(func() {
 			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
-			in := ui.TextInput(c, &a.searchText).FontSize(13).
+			in := ui.TextInputBase(c, &a.searchText).FontSize(13).
 				Placeholder("Search chats").FillWidth().Label("Search chats")
 			if in.Changed() {
 				a.reviseSearch()

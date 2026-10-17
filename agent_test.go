@@ -1025,6 +1025,96 @@ func TestModelPicker(t *testing.T) {
 	}
 }
 
+// TestModelPickerScrolls keeps the catalog inside the panel: the rows
+// share the room with the search field and the effort chips through the
+// scroll that grows, and the last rows only open from a scroll.
+func TestModelPickerScrolls(t *testing.T) {
+	a := newApp()
+	models := []agentModel{}
+	for i := range 28 {
+		models = append(models, agentModel{providerID: "opencode-go",
+			id: fmt.Sprintf("wada-%02d", i), name: fmt.Sprintf("Wada Model %02d", i), free: true})
+	}
+	models = append(models,
+		agentModel{providerID: "opencode-go", id: "zed-9000", name: "Zed 9000 Max", free: false},
+		agentModel{providerID: "opencode-go", id: "ado-1000", name: "Ado 1000 Pro New", free: false})
+	a.models = models
+	a.sessions = []agentSession{{id: "ses_z", title: "Turn",
+		model: agentModelRef{providerID: "opencode-go", id: "wada-00"}}}
+	a.selectedSession = "ses_z"
+	a.selected = "Turn"
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Model Wada Model 00"); err != nil {
+		t.Fatalf("opening the picker: %v", err)
+	}
+	if !a.pickerOpen {
+		t.Fatal("the picker did not open")
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+
+	// Every row that paints stays in the panel, above the model button it
+	// hangs off: field, chips and the rounded box bound the drawn list,
+	// and nothing spills over the composer.
+	btn, ok := tt.Find("Model Wada Model 00")
+	if !ok {
+		t.Fatalf("model button missing: %v", tt.Texts())
+	}
+	row, ok := tt.Find("Pick Wada Model 00")
+	rowX := row.X + row.W/2
+	for _, name := range []string{"Pick Wada Model 00", "Wada Model 13", "Wada Model 27"} {
+		r, ok := tt.Find(name)
+		if !ok {
+			t.Fatalf("row %q missing: %v", name, tt.Texts())
+		}
+		if r.W == 0 || r.H == 0 {
+			continue // scrolled out of view: clipped away, not painted
+		}
+		if r.Y < 4 || r.Y+r.H > btn.Y-4 {
+			t.Fatalf("row %q paints past the panel: %.1f..%.1f of 4..%.1f",
+				name, r.Y, r.Y+r.H, btn.Y-4)
+		}
+	}
+
+	// The tail of the list sits under the bottom of the panel until a
+	// scroll brings it up: its rows clip to nothing, and nothing they
+	// could not paint picks a model.
+	zed, ok := tt.Find("Zed 9000 Max")
+	if !ok || zed.W != 0 || zed.H != 0 {
+		t.Fatalf("the last paid row is visible without a scroll: %+v", zed)
+	}
+	tt.Scroll(rowX, btn.Y-220, 0, 5000)
+	zed, ok = tt.Find("Zed 9000 Max")
+	if !ok || zed.W == 0 || zed.H == 0 || zed.Y < 4 || zed.Y+zed.H > btn.Y-4 {
+		t.Fatalf("the scroll did not bring the tail in: %+v of 4..%.1f", zed, btn.Y-4)
+	}
+	if err := tt.Click("Zed 9000 Max"); err != nil {
+		t.Fatalf("the scrolled tail did not open a row: %v", err)
+	}
+	if a.pickerOpen {
+		t.Fatal("the picker stayed open")
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "model" || job.model != "zed-9000" || job.variant != "" {
+			t.Fatalf("pick job %+v", job)
+		}
+	default:
+		t.Fatal("picking did not queue a job")
+	}
+
+	// A filter that nothing matches says so inside the panel.
+	a.pickerOpen = true
+	a.modelFilter = "no such model"
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("No models in the catalog match.") {
+		t.Fatalf("empty note missing: %v", tt.Texts())
+	}
+	r, ok := tt.Find("No models in the catalog match.")
+	if !ok || r.W == 0 || r.H == 0 || r.Y < 4 || r.Y+r.H > btn.Y-4 {
+		t.Fatalf("empty note paints past the panel: %+v of 4..%.1f", r, btn.Y-4)
+	}
+}
+
 // TestLiveAgent exercises the whole pipe against a real opencode: spawn,
 // readiness, auth, one prompt, the streamed answer, then the sidebar list
 // and restore of what was stored. Opt in by hand:

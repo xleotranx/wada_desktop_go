@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -21,33 +23,44 @@ func watchPolicy(ctx context.Context, dirs <-chan string, writes <-chan policyCh
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	var dir, lastDir, lastLevel string
-	refresh := func() {
+	var lastInfo os.FileInfo
+	var lastMissing bool
+	refresh := func(force bool) {
 		if dir == "" {
+			return
+		}
+		info, statErr := os.Stat(filepath.Join(dir, "opencode.json"))
+		unchanged := os.IsNotExist(statErr) && lastMissing
+		if statErr == nil && lastInfo != nil {
+			unchanged = os.SameFile(info, lastInfo) && info.Size() == lastInfo.Size() &&
+				info.ModTime() == lastInfo.ModTime() && info.Mode() == lastInfo.Mode()
+		}
+		if !force && dir == lastDir && unchanged {
 			return
 		}
 		level, err := permissionLevel(dir)
 		if err != nil {
 			level = "ask"
 		}
-		if dir != lastDir || level != lastLevel {
-			lastDir, lastLevel = dir, level
+		if force || dir != lastDir || level != lastLevel {
 			publish(policyResult{dir: dir, level: level})
 		}
+		lastDir, lastLevel = dir, level
+		lastInfo, lastMissing = info, os.IsNotExist(statErr)
 	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case dir = <-dirs:
-			lastDir = "" // a returning workspace may have reset its UI cache
-			refresh()
+			refresh(true) // a returning workspace has reset its UI cache
 		case change := <-writes:
 			if err := setPermissionAsk(change.dir, change.ask); err != nil {
 				publish(policyResult{dir: change.dir, err: err})
 			}
-			refresh()
+			refresh(true)
 		case <-tick.C:
-			refresh()
+			refresh(false)
 		}
 	}
 }

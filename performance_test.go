@@ -42,6 +42,48 @@ func TestAgentUpdatesBatchAndFilter(t *testing.T) {
 	}
 }
 
+func TestAgentUpdatesCancelWhileUIIsBlocked(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	posts := make(chan func(), 1)
+	done := make(chan error, 1)
+	sourceDone := make(chan struct{})
+	applied := false
+	go func() {
+		done <- agentUpdates(ctx, func(ctx context.Context, emit func(agentEvent)) error {
+			defer close(sourceDone)
+			for range 10000 {
+				emit(agentEvent{Type: "session.text.delta"})
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+			}
+			return nil
+		}, func(fn func()) { posts <- fn }, func(agentEvent) { applied = true })
+	}()
+	var pending func()
+	select {
+	case pending = <-posts:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no batch was posted")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a blocked UI prevented shutdown")
+	}
+	select {
+	case <-sourceDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the source remained blocked")
+	}
+	pending()
+	if applied || len(posts) != 0 {
+		t.Fatal("events were applied after shutdown or multiple UI batches accumulated")
+	}
+}
+
 func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 	a := newApp()
 	a.sessionsLoaded = true
@@ -249,7 +291,9 @@ func TestStreamAllocationBudget(t *testing.T) {
 	if len(a.blocks[0].text) != 128<<10 {
 		t.Fatalf("answer has %d bytes", len(a.blocks[0].text))
 	}
-	if n := after.TotalAlloc - before.TotalAlloc; n > 4<<20 {
-		t.Fatalf("assembling 128 KiB allocated %d bytes, budget 4 MiB", n)
+	// The race detector deliberately drops pooled JSON decoders. Allow
+	// their extra allocations; prefix copying would exceed 250 MiB.
+	if n := after.TotalAlloc - before.TotalAlloc; n > 8<<20 {
+		t.Fatalf("assembling 128 KiB allocated %d bytes, budget 8 MiB", n)
 	}
 }

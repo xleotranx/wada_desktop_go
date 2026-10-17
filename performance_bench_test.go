@@ -10,9 +10,9 @@ import (
 func benchmarkApp(b *testing.B) *app {
 	a := newApp()
 	a.sessionsLoaded = true
-	a.selectedSession = "bench"
+	a.selectedSession = "review"
 	a.selected = "Performance review"
-	a.sessions = []agentSession{{id: "bench", title: a.selected, dir: b.TempDir()}}
+	a.sessions = []agentSession{{id: "review", title: a.selected, dir: b.TempDir()}}
 	return a
 }
 
@@ -56,8 +56,8 @@ func BenchmarkStream(b *testing.B) {
 	for _, n := range []int{256, 1024, 4096} {
 		b.Run(fmt.Sprint(n), func(b *testing.B) {
 			a := benchmarkApp(b)
-			start := agentEvent{Type: "session.text.started", Data: []byte(`{"assistantMessageID":"m","ordinal":0}`)}
-			delta := agentEvent{Type: "session.text.delta", Data: []byte(`{"assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
+			start := agentEvent{Type: "session.text.started", Data: []byte(`{"sessionID":"review","assistantMessageID":"m","ordinal":0}`)}
+			delta := agentEvent{Type: "session.text.delta", Data: []byte(`{"sessionID":"review","assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
 			b.SetBytes(int64(n * 32))
 			b.ReportAllocs()
 			for b.Loop() {

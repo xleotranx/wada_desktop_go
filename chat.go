@@ -105,10 +105,12 @@ func (a *app) blockRow(c *ui.Context, p palette, b block) {
 		case "permission":
 			a.permissionRow(c, p, b)
 		default: // "text", "stream"
-			t := ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.text)
 			if b.kind == "stream" {
-				t.TextColor(p.faint).SingleLine().Ellipsis("…")
+				ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
+					SingleLine().Ellipsis("…")
+				return
 			}
+			a.richMarkdown(c, p, b.text)
 		}
 	})
 }

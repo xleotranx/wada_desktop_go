@@ -13,6 +13,7 @@ type palette struct {
 	bubble                                   ui.Color
 	detailBg                                 ui.Color
 	danger, dangerText                       ui.Color
+	link                                     ui.Color
 	thumbLine                                ui.Color
 	voiceBg                                  ui.Color
 	green, greenText                         ui.Color
@@ -37,6 +38,7 @@ func paletteFor(c *ui.Context) palette {
 			thumbLine:      ui.Hex("#d0d0d0"),
 			voiceBg:        ui.Hex("#f2f2f2"),
 			green:          ui.Hex("#3ecf5e"),
+			link:           ui.Hex("#5aa2ff"),
 			greenText:      ui.Hex("#093a18"),
 			danger:         ui.Hex("#e0442f"),
 			dangerText:     ui.Hex("#ffffff"),
@@ -59,6 +61,7 @@ func paletteFor(c *ui.Context) palette {
 		thumbLine:      ui.Hex("#3a3a3a"),
 		voiceBg:        ui.Hex("#171717"),
 		green:          ui.Hex("#4ade5b"),
+		link:           ui.Hex("#3b82f6"),
 		greenText:      ui.Hex("#0b3b1d"),
 		danger:         ui.Hex("#e0442f"),
 		dangerText:     ui.Hex("#ffffff"),

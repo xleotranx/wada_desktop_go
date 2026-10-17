@@ -25,7 +25,7 @@ This is a `mygo init -template native` project: the CLI is pinned as a Go tool i
 
 - The window is `TitleBarHidden` with `Vibrancy: VibrancyTitlebar`; the view draws its own top rows on the window's material. On macOS, `c.TitleBar()` measures the strip the traffic lights live in: `Height = traffic-light button height + 2 × TrafficLightPosition.Y`, controls are vertically centered in that strip, and `Left` is the width they occupy (the full-width top bar's left padding).
 - `main.go` derives one `headerH := max(bar.Height, 48)` shared by the top bar (browser history, the sidebar toggle and a new chat), the sidebar's header row and the tools toolbar, and `TrafficLightPosition` is chosen so the lights share the top bar's center (close button is 14 DIP tall; `Y: 18` → 50 strip, everything centered at 25). If you change one side of that pairing, recompute the other or the dots visibly drift.
-- The material shows wherever the view paints no background: the top bar, the rail and the strip around the content card. `c.Vibrancy()` gates both the transparent root and the rail's fallback background, so the window stays opaque off macOS.
+- The material shows wherever the view paints no background: the top bar, the rail and the strip around the content card. The root washes it with the palette's `chromeWash` (a white veil in the light appearance, a black one in the dark), so the chrome reads like the app's own surfaces over any wallpaper; `c.Vibrancy()` gates both that wash and the rail's fallback background, so the window stays opaque off macOS.
 
 ## Conventions
 

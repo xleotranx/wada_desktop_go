@@ -7,6 +7,7 @@ import "github.com/egoist/mygo/ui"
 // own colors.
 type palette struct {
 	bg, sidebarBg, railBg, hover, selected, hairline ui.Color
+	chromeWash                                       ui.Color
 	text, muted, faint                               ui.Color
 	orange                                           ui.Color
 	composerBg, composerBorder, composerBorderFocus  ui.Color
@@ -25,6 +26,7 @@ func paletteFor(c *ui.Context) palette {
 			bg:                  ui.Hex("#212121"),
 			sidebarBg:           ui.Hex("#171717"),
 			railBg:              ui.Hex("#1b1b1b"),
+			chromeWash:          ui.RGBA(0, 0, 0, 0.4),
 			hover:               ui.RGBA(255, 255, 255, 0.06),
 			selected:            ui.RGBA(255, 255, 255, 0.09),
 			hairline:            ui.RGBA(255, 255, 255, 0.09),
@@ -49,6 +51,7 @@ func paletteFor(c *ui.Context) palette {
 		bg:                  ui.Hex("#ffffff"),
 		sidebarBg:           ui.Hex("#f9f9f9"),
 		railBg:              ui.Hex("#eef0ef"),
+		chromeWash:          ui.RGBA(255, 255, 255, 0.7),
 		hover:               ui.RGBA(0, 0, 0, 0.048),
 		selected:            ui.RGBA(0, 0, 0, 0.082),
 		hairline:            ui.RGBA(0, 0, 0, 0.09),

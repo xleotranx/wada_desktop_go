@@ -46,6 +46,33 @@ func TestView(t *testing.T) {
 	}
 }
 
+// TestChromeWash keeps the chrome riding the window's material readable:
+// the title bar and rail lay a translucent wash over it, near white in
+// the light appearance, so no wallpaper shows through the chrome bare.
+func TestChromeWash(t *testing.T) {
+	a := newApp()
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.SetVibrancy(true)
+
+	// The pixels are premultiplied: the light wash is white at its own
+	// alpha, down the title bar and along the rail beside it.
+	for _, at := range [][2]int{{900, 20}, {47, 400}} {
+		c := tt.Image().RGBAAt(at[0], at[1])
+		if c.A == 0 || c.A == 255 {
+			t.Fatalf("the chrome at %v is not a wash: %v", at, c)
+		}
+		if c.R != c.A || c.G != c.A || c.B != c.A {
+			t.Fatalf("the chrome at %v is not the light wash: %v", at, c)
+		}
+	}
+
+	// The dark appearance washes the other way: a translucent black.
+	tt.SetDark(true)
+	if c := tt.Image().RGBAAt(900, 20); c.A == 0 || c.R != 0 || c.G != 0 || c.B != 0 {
+		t.Fatalf("the dark chrome is not a dark wash: %v", c)
+	}
+}
+
 // TestStreamFollowsFeed keeps a streaming answer in view: at the foot the
 // transcript glides after the growing answer, and a reader who scrolled
 // up during it stays where they put the view.

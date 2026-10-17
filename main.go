@@ -199,9 +199,10 @@ func (a *app) view(c *ui.Context) {
 		headerH = 48
 	}
 	// The title bar and rail stand on the window's material, as macOS 26
-	// draws them: the desktop shows through, frosted.
+	// draws them: the desktop shows through, frosted, washed toward the
+	// palette so the chrome reads like the app's own surfaces.
 	if c.Vibrancy() {
-		c.Root().Background(ui.Transparent)
+		c.Root().Background(p.chromeWash)
 	}
 
 	ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {

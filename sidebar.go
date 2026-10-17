@@ -1,6 +1,12 @@
 package main
 
-import "github.com/egoist/mygo/ui"
+import (
+	"fmt"
+	"sort"
+	"strconv"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // sidebarPane draws the left column: the header row (the traffic lights
 // sit above it when the title bar is hidden), the source list and the
@@ -33,17 +39,20 @@ func (a *app) sidebarPane(c *ui.Context, p palette, bar ui.TitleBar, headerH flo
 	})
 }
 
-// headerRow is the app switcher: ChatGPT and its chevron with the bell
-// and the search at its right, each its own hover target.
+// headerRow is the app switcher: the product menu, the approvals bell
+// with its badge and the way into the chats search.
 func (a *app) headerRow(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().Height(38).Children(func() {
 		title := ui.ButtonBase(c).Label("ChatGPT").Height(32).Radius(9).Padding(0, 10).
 			Justify(ui.Start).Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
-			m.Item("New chat")
-			m.Item("Search chats")
+			if m.Item("New chat").Chosen() {
+				a.startNewChat()
+			}
+			if m.Item("Search chats…").Chosen() {
+				a.focusSearch = true
+			}
 			m.Separator()
-			m.Item("Settings")
-			m.Item("Help")
+			m.Item("Settings") // a placeholder until this app grows one
 		})
 		if title.Hovered() {
 			title.Background(p.hover)
@@ -55,9 +64,73 @@ func (a *app) headerRow(c *ui.Context, p palette) {
 
 		ui.Spacer(c)
 
-		a.iconChip(c, p, "Notifications", icBell, nil)
-		a.iconChip(c, p, "Search", icSearch, nil)
+		a.bellButton(c, p)
+		chip := ui.ButtonBase(c).Label("Search").Size(32, 32).Radius(9).Center().
+			Cursor(ui.CursorPointer).Tooltip("Search chats")
+		if chip.Hovered() {
+			chip.Background(p.hover)
+		}
+		chip.OnClick(func() { a.focusSearch = true })
+		chip.Children(func() {
+			ui.Icon(c, icSearch).FontSize(17).TextColor(p.text)
+		})
 	})
+}
+
+// bellButton shows the approvals waiting: its badge counts them, and a
+// click takes the user to the chat that asked.
+func (a *app) bellButton(c *ui.Context, p palette) {
+	asks := len(a.pending)
+	label := "Notifications"
+	if asks > 0 {
+		label = fmt.Sprintf("Notifications, %d approvals waiting", asks)
+	}
+	b := ui.ButtonBase(c).Label(label).Size(32, 32).Radius(9).Center().
+		Cursor(ui.CursorPointer)
+	if b.Hovered() {
+		b.Background(p.hover)
+	}
+	if asks > 0 {
+		b.OnClick(a.openAnAsk)
+	}
+	b.Children(func() {
+		ui.Icon(c, icBell).FontSize(17).TextColor(p.text)
+		if asks > 0 {
+			ui.Box(c).MarginStart(-4).Height(15).Radius(8).Padding(3, 0).
+				Background(p.danger).Children(func() {
+				ui.Text(c, strconv.Itoa(asks)).FontSize(10.5).FontWeight(600).
+					TextColor(p.dangerText)
+			})
+		}
+	})
+}
+
+// openAnAsk takes the user to a chat with an approval waiting, the one
+// the store lists first.
+func (a *app) openAnAsk() {
+	keys := make([]string, 0, len(a.pending))
+	for k := range a.pending {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	ask := a.pending[keys[0]]
+	for i := range a.sessions {
+		if a.sessions[i].id == ask.session {
+			a.adoptSession(a.sessions[i])
+			break
+		}
+	}
+	if a.selectedSession != ask.session {
+		// The conversation sits past the list's first page; open it by
+		// hand and let the restore name it.
+		a.selectedSession = ask.session
+		a.selected = ""
+		a.freshTranscript()
+	}
+	select {
+	case a.jobs <- agentJob{kind: "open", sid: ask.session}:
+	default:
+	}
 }
 
 // iconChip is a small icon button with its own hover face.
@@ -98,6 +171,10 @@ func (a *app) searchField(c *ui.Context, p palette) {
 				Placeholder("Search chats").FillWidth().Label("Search chats")
 			if in.Changed() {
 				a.reviseSearch()
+			}
+			if a.focusSearch {
+				in.Focus()
+				a.focusSearch = false
 			}
 		})
 	})

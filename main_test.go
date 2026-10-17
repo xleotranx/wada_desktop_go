@@ -100,6 +100,55 @@ func TestSidebarSearch(t *testing.T) {
 	}
 }
 
+// TestHeaderWiring drives the header shapes: the bell counts the
+// approvals waiting and takes the user to one, and the search chip aims
+// the field the way the product menu does.
+func TestHeaderWiring(t *testing.T) {
+	a := newApp()
+	a.selected = "Wired turn"
+	a.selectedSession = "ses_z"
+	a.blocks = []block{{kind: "text", text: "half a thought"}}
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	// The search chip aims the field: the ask stands until a frame gives
+	// the field the keyboard, then it is gone, one ask at a time.
+	a.focusSearch = true
+	tt = ui.NewTester(a.view, 1400, 920)
+	if a.focusSearch {
+		t.Fatal("the field did not take the focus")
+	}
+
+	// With an approval waiting, the bell names it and opens its chat.
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_z", title: "Wired turn"}}
+	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell"}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("1") || !tt.HasText("Notifications, 1 approvals waiting") {
+		t.Fatalf("bell badge missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Notifications, 1 approvals waiting"); err != nil {
+		t.Fatal(err)
+	}
+	if a.selectedSession != "ses_z" || a.selected != "Wired turn" {
+		t.Fatalf("bell click landed on %q %q", a.selectedSession, a.selected)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "open" || job.sid != "ses_z" {
+			t.Fatalf("bell job %+v", job)
+		}
+	default:
+		t.Fatal("the bell did not queue the open")
+	}
+
+	// The quiet bell, nothing pending, shows no badge.
+	a.pending = map[string]*agentPerm{}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Notifications") || tt.HasText("approvals waiting") {
+		t.Fatalf("badge stuck: %v", tt.Texts())
+	}
+}
+
 func TestActivityExpands(t *testing.T) {
 	a := newApp()
 	a.selected = "Wired turn"

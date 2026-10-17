@@ -12,6 +12,7 @@ type palette struct {
 	composerBg, composerBorder               ui.Color
 	bubble                                   ui.Color
 	detailBg                                 ui.Color
+	danger, dangerText                       ui.Color
 	thumbLine                                ui.Color
 	voiceBg                                  ui.Color
 	green, greenText                         ui.Color
@@ -37,6 +38,8 @@ func paletteFor(c *ui.Context) palette {
 			voiceBg:        ui.Hex("#f2f2f2"),
 			green:          ui.Hex("#3ecf5e"),
 			greenText:      ui.Hex("#093a18"),
+			danger:         ui.Hex("#e0442f"),
+			dangerText:     ui.Hex("#ffffff"),
 		}
 	}
 	return palette{
@@ -57,5 +60,7 @@ func paletteFor(c *ui.Context) palette {
 		voiceBg:        ui.Hex("#171717"),
 		green:          ui.Hex("#4ade5b"),
 		greenText:      ui.Hex("#0b3b1d"),
+		danger:         ui.Hex("#e0442f"),
+		dangerText:     ui.Hex("#ffffff"),
 	}
 }

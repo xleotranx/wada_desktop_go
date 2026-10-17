@@ -62,6 +62,9 @@ type app struct {
 	searchText    string
 	searchResults []agentSession
 	searchLoading bool
+	// focusSearch hands the field the keyboard once, from the header's
+	// search shape.
+	focusSearch bool
 
 	// The model catalog and the picker's popover.
 	models       []agentModel

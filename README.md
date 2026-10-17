@@ -30,6 +30,21 @@ WADA_LIVE_AGENT=1 go test -run 'TestLiveAgent|TestLiveModel|TestLivePermission|T
 
 UI verification without clicking: `WADA_CAPTURE=/path/out.png go run .` writes a PNG of the window and quits; dev builds carry an element inspector on `F12` (`Shift+Cmd+C` picks an element, Computed shows exact boxes).
 
+## Performance
+
+```
+go test -run '^$' -bench 'Benchmark(Transcript|Sidebar|Stream)$' -benchmem -count=3 .
+MYGO_FRAME_STATS=all go run .
+```
+
+The benchmarks force warm headless frames at 1400×920, including layout and CPU painting. They do not measure native GPU presentation or idle CPU. Frame statistics split native work into build, layout, paint and presentation. Count the owned `opencode serve` process separately when measuring total CPU and RAM.
+
+On an Apple M4 with Go 1.27.2, the October 2026 fixes reduced a 1,000-message frame from 11.3 ms to 0.175 ms and retained UI heap from 81.5 MiB to 2.64 MiB. A 2,000-row sidebar fell from 3.81 ms / 481 KB allocated per frame to 0.100 ms / 7 KB. Assembling a 128 KiB answer in 32-byte deltas fell from 283 MB of cumulative allocation to 0.84 MB. These are synthetic comparisons, not production latency percentiles.
+
+History and recents use keyed virtual lists; streaming uses amortized storage and bounded event batches. Searches debounce and cancel on a separate worker. The permission label is cached: a worker checks for config changes once a second and reads JSON only after metadata changes. Regression tests cover visibility, scroll following, row identity, cancellation and memory retention. The stream allocation guard allows JSON decoder pool misses under the race detector and still rejects quadratic copying.
+
+Use `go tool mygo build` for size comparisons: MyGo already strips symbols and debug data, trims paths, and omits the inspector. A plain `go build` artifact includes development overhead. The release DMG compresses the app; executable size, bundle size and installer size are different measurements.
+
 ## What is real
 
 - **Sessions** — list, restore, create, rename, delete, pagination, per-chat working directories. Search is server-side (`GET /session?search=…`) with a stale-result guard.
@@ -38,7 +53,7 @@ UI verification without clicking: `WADA_CAPTURE=/path/out.png go run .` writes a
 - **Folders** — every chat names its directory; the composer chip opens a typed-path dialog.
 - **Files** — the composer's `+` quotes a workspace file into the draft as a fenced block (path through `~` or relative to the chat's folder, 256 KiB cap, de-duplicated).
 - **Shell policy** — the pill reads the chat's `opencode.json` for the bash wildcard and the menu writes it back; the running server picks the file up, so the next turn runs under what the pill shows. An unreadable config leans to "Asks first" and refuses to be overwritten.
-- **Markdown** — settled answers render: headings, fenced code, lists, bold, italic, inline code, underlined links. In-flight previews stay plain until the turn ends.
+- **Markdown** — streaming and settled answers render through MyGo's markdown package: headings, fenced code, lists, bold, italic, inline code and links.
 - **Resilience** — a dead server ends one attempt, not the session: the pipe respawns with a stretching backoff, half-said answers settle as cut short, and queued jobs replay against the fresh server.
 
 ## Honest boundaries
@@ -48,7 +63,7 @@ UI verification without clicking: `WADA_CAPTURE=/path/out.png go run .` writes a
 
 ## Layout
 
-`main.go` (state, window, boot) → `sidebar.go` (rows, kebabs, bell, search) → `chat.go` (transcript blocks, title bar) → `composer.go` (draft, model picker, dialogs, pill) → `agent.go` (the engine: HTTP, SSE, runner) → `markdown.go` → `palette.go` / `icons.go`.
+`main.go` (state, window, boot) → `sidebar.go` (rows, kebabs, bell, search) → `chat.go` (transcript blocks, title bar) → `composer.go` (draft, model picker, dialogs, pill) → `agent.go` (HTTP and runner), `agent_events.go` (bounded SSE updates), `search.go` (cancelable lookups), `policy.go` (workspace config cache) → `palette.go` / `icons.go`.
 
 The window hides its macOS title bar and draws its own rows; the traffic-light strip geometry is derived so the lights share the row's center — change one side of that pairing in `main.go` and recompute the other.
 

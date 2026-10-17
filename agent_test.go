@@ -345,6 +345,48 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 	}
 }
 
+// TestSidebarScrollsWhenRowsOverflow keeps every pinned chat reachable
+// once the list runs past the pane: the rows scroll under the New chat
+// and search rows, which stay put.
+func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
+	a := newApp()
+	a.sessionsLoaded = true
+	for i := range 40 {
+		s := agentSession{id: fmt.Sprintf("ses_%02d", i), title: fmt.Sprintf("Pinned %02d", i)}
+		a.sessions = append(a.sessions, s)
+		a.togglePin(s)
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	top, ok := tt.Find("New chat")
+	if !ok {
+		t.Fatalf("the New chat row is missing: %v", tt.Texts())
+	}
+	if !tt.HasText("Pinned 00") {
+		t.Fatalf("the first pinned chat is not listed: %v", tt.Texts())
+	}
+	if last, ok := tt.Find("Pinned 39"); !ok || last.W != 0 || last.H != 0 {
+		t.Fatalf("the last pinned chat fits without a scroll: %+v", last)
+	}
+
+	// The wheel over the list reaches the tail it clipped away.
+	tt.Scroll(200, 400, 0, 5000)
+	last, ok := tt.Find("Pinned 39")
+	if !ok || last.W == 0 || last.H == 0 {
+		t.Fatalf("the scroll did not bring the last pinned chat in: %+v", last)
+	}
+	if err := tt.Click("Pinned 39"); err != nil {
+		t.Fatalf("the scrolled row did not open: %v", err)
+	}
+	if a.selectedSession != "ses_39" {
+		t.Fatalf("the scrolled row opened %q", a.selectedSession)
+	}
+
+	// What sits above the scroll keeps its place.
+	if now, ok := tt.Find("New chat"); !ok || now.Y != top.Y {
+		t.Fatalf("the New chat row moved from %v to %+v", top.Y, now)
+	}
+}
+
 // TestAgentInterruptAndReply checks the two turn-control calls hit the
 // paths the API documents and carry the decision in their body.
 func TestAgentInterruptAndReply(t *testing.T) {

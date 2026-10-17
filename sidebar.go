@@ -108,34 +108,38 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 			}
 
 			if a.searchText == "" {
-				a.sectionHeading(c, p, "Pinned", nil)
-				pins := a.pinnedSessions()
-				if len(pins) == 0 {
-					ui.Row(c).Height(27).Padding(0, 8).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, "No pinned chats").FontSize(12.5).TextColor(p.faint).SingleLine()
-					})
-				} else {
-					for _, s := range pins {
-						a.sessionRow(c, p, s)
+				// The lists scroll once they outgrow the pane, under the
+				// New chat and search rows, which stay put.
+				ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
+					a.sectionHeading(c, p, "Pinned", nil)
+					pins := a.pinnedSessions()
+					if len(pins) == 0 {
+						ui.Row(c).Height(27).Padding(0, 8).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, "No pinned chats").FontSize(12.5).TextColor(p.faint).SingleLine()
+						})
+					} else {
+						for _, s := range pins {
+							a.sessionRow(c, p, s)
+						}
 					}
-				}
 
-				a.sectionHeading(c, p, "Projects", func() { a.openProjectDialog() })
-				projects := a.projectDirectories()
-				if len(projects) == 0 {
-					ui.Text(c, "Add a project to get started").FontSize(12).TextColor(p.faint).MarginStart(8)
-				}
-				visible := len(projects)
-				if !a.projectsExpanded && visible > 5 {
-					visible = 5
-				}
-				ui.Column(c).FillWidth().Gap(2).Children(func() {
-					for _, dir := range projects[:visible] {
-						a.projectRow(c, p, dir)
+					a.sectionHeading(c, p, "Projects", func() { a.openProjectDialog() })
+					projects := a.projectDirectories()
+					if len(projects) == 0 {
+						ui.Text(c, "Add a project to get started").FontSize(12).TextColor(p.faint).MarginStart(8)
 					}
-					if visible < len(projects) || a.projectsExpanded {
-						a.moreProjectsRow(c, p, len(projects)-visible)
+					visible := len(projects)
+					if !a.projectsExpanded && visible > 5 {
+						visible = 5
 					}
+					ui.Column(c).FillWidth().Gap(2).Children(func() {
+						for _, dir := range projects[:visible] {
+							a.projectRow(c, p, dir)
+						}
+						if visible < len(projects) || a.projectsExpanded {
+							a.moreProjectsRow(c, p, len(projects)-visible)
+						}
+					})
 				})
 			}
 			if a.searchText != "" {

@@ -233,10 +233,27 @@ func (a *app) view(c *ui.Context) {
 // window's own.
 const cardRadius float32 = 12
 
-// topBar is the full-width title strip: the window's controls, the
-// browser's history and the sidebar toggle on the material, and a new
-// chat at its end, as macOS 26 draws them.
+// topBar is the full-width title strip: the window's controls and the
+// browser's history on the material, the conversation's title standing
+// over it, and the tools toggle at its end, as macOS 26 draws them.
 func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
+	// The title starts where the conversation does, past the sidebar, and
+	// follows it in when the sidebar folds away.
+	titleStart := float32(navRailWidth) + 12
+	if !a.sidebarCollapsed {
+		titleStart += a.sidebarW
+	}
+	// Back and forward are 28 wide, the sidebar toggle 30, and four gaps
+	// of the row's 2 stand between them and the title.
+	titleGap := titleStart - (barLeft + 8 + 28 + 28 + 30 + 4*2)
+	if titleGap < 8 {
+		titleGap = 8
+	}
+	toolsLabel := "Show tools"
+	if !a.browserCollapsed {
+		toolsLabel = "Hide tools"
+	}
+
 	ui.Row(c).FillWidth().Height(headerH).DragWindow().AlignItems(ui.Center).
 		Padding(0, 12, 0, barLeft+8).Gap(2).Children(func() {
 		a.browserIconButton(c, p, "Back", icBack, a.browserBack, a.browserHistoryAt <= 0)
@@ -251,9 +268,17 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 			a.sidebarCollapsed = !a.sidebarCollapsed
 		}, p.text)
 
-		ui.Spacer(c)
+		ui.Box(c).Width(titleGap)
+		// The title appears once the conversation has one.
+		if title := a.selected; title != "" {
+			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).Grow(1).SingleLine()
+		} else {
+			ui.Spacer(c)
+		}
 
-		a.navButton(c, p, "Start new chat", icNewChat, a.startNewChat, p.text)
+		a.navButton(c, p, toolsLabel, icPanelRight, func() {
+			a.browserCollapsed = !a.browserCollapsed
+		}, p.text)
 	})
 }
 

@@ -149,19 +149,32 @@ func TestProjectChatsNestUnderFolder(t *testing.T) {
 		t.Fatal("opening a nested chat did not queue a job")
 	}
 
-	// The folder row folds its chats away and brings them back.
+	// The folder row folds its chats away and brings them back: with the
+	// chat folded, only the title strip still carries its name.
 	if err := tt.Click("Hide chats in " + dirBase(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if tt.HasText("Folder wiring") {
+	if names := countTexts(tt.Texts(), "Folder wiring"); names != 1 {
 		t.Fatalf("collapsed folder still lists its chats: %v", tt.Texts())
 	}
 	if err := tt.Click("Show chats in " + dirBase(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.HasText("Folder wiring") {
+	if names := countTexts(tt.Texts(), "Folder wiring"); names <= 1 {
 		t.Fatalf("expanded folder lost its chats: %v", tt.Texts())
 	}
+}
+
+// countTexts is how many of a frame's texts say s, a name a frame may
+// carry more than once.
+func countTexts(texts []string, s string) int {
+	n := 0
+	for _, text := range texts {
+		if text == s {
+			n++
+		}
+	}
+	return n
 }
 
 // TestProjectChatsPreviewAndShowMore keeps a busy folder to a few rows

@@ -17,18 +17,19 @@ func filled(body string) []byte {
 // MyGo re-colors every icon by the surrounding text color, so each file
 // stays single-color.
 var (
-	icBack      = ui.MustParseSVG(stroke(`<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>`))
-	icForward   = ui.MustParseSVG(stroke(`<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`))
-	icPanel     = ui.MustParseSVG(stroke(`<rect width="18" height="18" x="3" y="3" rx="2.5"/><path d="M9.5 3v18"/>`))
-	icHome      = ui.MustParseSVG(stroke(`<path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>`))
-	icStack     = ui.MustParseSVG(stroke(`<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>`))
-	icHistory   = ui.MustParseSVG(stroke(`<path d="M3 12a9 9 0 1 0 2.64-6.36L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>`))
-	icAgent     = ui.MustParseSVG(stroke(`<path d="M12 3 13.8 9.2 20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8L12 3Z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/>`))
-	icGitBranch = ui.MustParseSVG(stroke(`<circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 6v12"/><path d="M18 8a6 6 0 0 1-6 6H6"/>`))
-	icGrid      = ui.MustParseSVG(stroke(`<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>`))
-	icClose     = ui.MustParseSVG(stroke(`<path d="m18 6-12 12M6 6l12 12"/>`))
-	icGlobe     = ui.MustParseSVG(stroke(`<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>`))
-	icMessage   = ui.MustParseSVG(stroke(`<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>`))
+	icBack       = ui.MustParseSVG(stroke(`<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>`))
+	icForward    = ui.MustParseSVG(stroke(`<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`))
+	icPanel      = ui.MustParseSVG(stroke(`<rect width="18" height="18" x="3" y="3" rx="2.5"/><path d="M9.5 3v18"/>`))
+	icPanelRight = ui.MustParseSVG(stroke(`<rect width="18" height="18" x="3" y="3" rx="2.5"/><path d="M14.5 3v18"/>`))
+	icHome       = ui.MustParseSVG(stroke(`<path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>`))
+	icStack      = ui.MustParseSVG(stroke(`<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>`))
+	icHistory    = ui.MustParseSVG(stroke(`<path d="M3 12a9 9 0 1 0 2.64-6.36L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>`))
+	icAgent      = ui.MustParseSVG(stroke(`<path d="M12 3 13.8 9.2 20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8L12 3Z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/>`))
+	icGitBranch  = ui.MustParseSVG(stroke(`<circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 6v12"/><path d="M18 8a6 6 0 0 1-6 6H6"/>`))
+	icGrid       = ui.MustParseSVG(stroke(`<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>`))
+	icClose      = ui.MustParseSVG(stroke(`<path d="m18 6-12 12M6 6l12 12"/>`))
+	icGlobe      = ui.MustParseSVG(stroke(`<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>`))
+	icMessage    = ui.MustParseSVG(stroke(`<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>`))
 
 	icBell   = ui.MustParseSVG(stroke(`<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>`))
 	icSearch = ui.MustParseSVG(stroke(`<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>`))
@@ -51,7 +52,6 @@ var (
 	icCheck    = ui.MustParseSVG(stroke(`<path d="m5 13 4 4 10-10"/>`))
 	icTasks    = ui.MustParseSVG(stroke(`<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>`))
 	icPlus     = ui.MustParseSVG(stroke(`<path d="M5 12h14"/><path d="M12 5v14"/>`))
-	icNewChat  = ui.MustParseSVG(stroke(`<rect width="18" height="18" x="3" y="3" rx="4.5"/><path d="M12 8.5v7"/><path d="M8.5 12h7"/>`))
 
 	// The check is a hole in the filled shield (fill-rule evenodd).
 	icShield = ui.MustParseSVG(filled(`<path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M12 2.8 18.6 5.3v5.2c0 4.5-3 7.5-6.6 9-3.6-1.5-6.6-4.5-6.6-9V5.3ZM11.2 17 16.3 11.9 14.8 10.4 11.2 14 9.3 12.1 7.8 13.6Z"/>`))

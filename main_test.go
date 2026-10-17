@@ -73,6 +73,53 @@ func TestChromeWash(t *testing.T) {
 	}
 }
 
+// TestTopBarChrome keeps the title strip shaped like the reference: the
+// conversation's title stands over it, clear of the sidebar, and the
+// tools toggle at its end brings the right pane in and out.
+func TestTopBarChrome(t *testing.T) {
+	a := newApp()
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_z", title: "Plan project folder metadata storage"}}
+	a.adoptSession(a.sessions[0])
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	title, ok := tt.Find("Plan project folder metadata storage")
+	if !ok {
+		t.Fatalf("the strip has no title: %v", tt.Texts())
+	}
+	// It starts where the conversation does, past the rail and sidebar,
+	// and stands inside the strip.
+	if past := navRailWidth + a.sidebarW; title.X < past || title.X > past+24 {
+		t.Fatalf("the title starts at %v, want just past the sidebar at %v", title.X, past)
+	}
+	if title.Y >= 48 {
+		t.Fatalf("the title stands outside the strip at %v", title.Y)
+	}
+
+	// The toggle at the end brings the right pane in and out.
+	if err := tt.Click("Show tools"); err != nil {
+		t.Fatalf("the tools toggle: %v", err)
+	}
+	if a.browserCollapsed || !tt.HasText("Suggested") {
+		t.Fatal("the tools toggle did not bring the right pane in")
+	}
+	if err := tt.Click("Hide tools"); err != nil {
+		t.Fatalf("the tools toggle: %v", err)
+	}
+	if !a.browserCollapsed || tt.HasText("Suggested") {
+		t.Fatal("the tools toggle did not fold the right pane away")
+	}
+
+	// Folded away, the sidebar hands the title back to the controls.
+	wide := title.X
+	if err := tt.Click("Hide sidebar"); err != nil {
+		t.Fatalf("the sidebar toggle: %v", err)
+	}
+	if folded, ok := tt.Find("Plan project folder metadata storage"); !ok || folded.X >= wide {
+		t.Fatalf("the title did not follow the sidebar in: %+v", folded)
+	}
+}
+
 // TestStreamFollowsFeed keeps a streaming answer in view: at the foot the
 // transcript glides after the growing answer, and a reader who scrolled
 // up during it stays where they put the view.

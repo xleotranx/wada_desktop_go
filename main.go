@@ -67,6 +67,12 @@ type app struct {
 	nextCursor  string
 	moreLoading bool
 
+	// The model catalog and the picker's popover.
+	models       []agentModel
+	modelsLoaded bool
+	pickerOpen   bool
+	modelFilter  string
+
 	// The agent runner feeds the jobs; the rest is its bookkeeping of
 	// what is streaming where.
 	jobs       chan agentJob
@@ -291,6 +297,56 @@ func (a *app) titleOf(sid string) string {
 		}
 	}
 	return ""
+}
+
+// sessionModelOf is the model one conversation points at; the app's free
+// default stands in before anything was picked.
+func (a *app) sessionModelOf(sid string) agentModelRef {
+	for _, s := range a.sessions {
+		if s.id == sid {
+			if s.model.id != "" {
+				return s.model
+			}
+			break
+		}
+	}
+	prov, name := sessionModel()
+	return agentModelRef{providerID: prov, id: name}
+}
+
+// modelLabel is the fancy name of a model ref, from the catalog; the ref
+// ids read fine while the catalog has not loaded.
+func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
+	name = ref.id
+	for _, m := range a.models {
+		if m.providerID == ref.providerID && m.id == ref.id {
+			name = m.name
+			variants = m.variants
+		}
+	}
+	return name, variants
+}
+
+// chooseModel queues a switch of what the open conversation runs on.
+func (a *app) chooseModel(m agentModel, variant string) {
+	a.pickerOpen = false
+	select {
+	case a.jobs <- agentJob{kind: "model", sid: a.selectedSession,
+		provider: m.providerID, model: m.id, variant: variant}:
+	default:
+	}
+}
+
+// pickVariant keeps the conversation's model and changes its reasoning
+// effort.
+func (a *app) pickVariant(variant string) {
+	ref := a.sessionModelOf(a.selectedSession)
+	for _, m := range a.models {
+		if m.providerID == ref.providerID && m.id == ref.id {
+			a.chooseModel(m, variant)
+			return
+		}
+	}
 }
 
 // confirmDelete shows the dialog that stands between a click and a

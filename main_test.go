@@ -19,7 +19,7 @@ func TestView(t *testing.T) {
 	if !tt.HasText("The full gate is now running the browser journeys.") {
 		t.Fatalf("transcript %q not shown", tt.Texts())
 	}
-	if !tt.HasText("Full access") || !tt.HasText("GPT-6.1 Sol") {
+	if !tt.HasText("Full access") || !tt.HasText("longcat-2.5-preview-free") {
 		t.Fatalf("composer missing: %v", tt.Texts())
 	}
 }

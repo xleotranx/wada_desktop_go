@@ -76,7 +76,7 @@ func TestAgentRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sid, err := a.createSession(ctx, "")
+	sid, _, err := a.createSession(ctx, "")
 	if err != nil || sid != "ses_t1" {
 		t.Fatalf("createSession %q %v", sid, err)
 	}
@@ -200,7 +200,7 @@ func TestAgentModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := a.createSession(ctx, ""); err != nil {
+	if _, _, err := a.createSession(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.pickModel(ctx, "ses_t1"); err != nil {
@@ -488,7 +488,7 @@ func TestAgentSessionLocation(t *testing.T) {
 	defer cancel()
 
 	// An explicitly named folder goes into the create body.
-	if _, err := a.createSession(ctx, "/home/you/far"); err != nil {
+	if _, _, err := a.createSession(ctx, "/home/you/far"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -500,7 +500,7 @@ func TestAgentSessionLocation(t *testing.T) {
 		t.Fatal("the create body never carried a location")
 	}
 	// No folder keeps the plain body the server's own directory needs.
-	if _, err := a.createSession(ctx, ""); err != nil {
+	if _, _, err := a.createSession(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -816,6 +816,182 @@ func TestStartNewChat(t *testing.T) {
 	}
 }
 
+// TestListModels reads the catalog the way the picker shows it: names,
+// reasoning-effort lists and whether a model runs for nothing.
+func TestListModels(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/model", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[` +
+			`{"id":"longcat-2.5-preview-free","providerID":"opencode-go","name":"LongCat 2.5 Preview Free",` +
+			`"variants":[],"cost":[{"input":0,"output":0}]},` +
+			`{"id":"beam-free","providerID":"opencode-go","name":"Beam Free",` +
+			`"variants":[{"id":"low"},{"id":"medium"},{"id":"max"}],` +
+			`"cost":[{"input":0,"output":0},{"input":0,"output":0,"tier":{"size":200000}}]},` +
+			`{"id":"minimax-m3","providerID":"opencode-go","name":"MiniMax-M3",` +
+			`"variants":[{"id":"none"},{"id":"thinking"}],"cost":[{"input":0.3,"output":1.2}]}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := a.listModels(ctx)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("models %v %v", rows, err)
+	}
+	if !rows[0].free || len(rows[0].variants) != 0 {
+		t.Fatalf("longcat %+v", rows[0])
+	}
+	if !rows[1].free || len(rows[1].variants) != 3 || rows[1].variants[2] != "max" {
+		t.Fatalf("beam %+v", rows[1])
+	}
+	if rows[2].free {
+		t.Fatal("minimax priced but marked free")
+	}
+}
+
+// TestSetModelBody carries the provider, the id and the reasoning effort
+// the picker chose into the POST body the server takes.
+func TestSetModelBody(t *testing.T) {
+	mux := http.NewServeMux()
+	got := make(chan string, 2)
+	mux.HandleFunc("POST /api/session/ses_m/model", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Model struct {
+				ID         string `json:"id"`
+				ProviderID string `json:"providerID"`
+				Variant    string `json:"variant"`
+			} `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&in)
+		got <- in.Model.ProviderID + "/" + in.Model.ID + "/" + in.Model.Variant
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := a.setModel(ctx, "ses_m", "opencode-go", "beam-free", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if one := <-got; one != "opencode-go/beam-free/high" {
+		t.Fatalf("body carried %q", one)
+	}
+}
+
+// TestApplyModelEvent folds a reasoning-effort switch into the sidebar
+// row, keeping the picker's chips in step with the server.
+func TestApplyModelEvent(t *testing.T) {
+	a := newApp()
+	a.models = []agentModel{{providerID: "opencode-go", id: "beam-free",
+		name: "Beam Free", variants: []string{"low", "medium", "high", "max"}, free: true}}
+	a.sessions = []agentSession{{id: "ses_z", title: "Weird turn",
+		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
+	a.apply(agentEvent{Type: "session.model.selected",
+		Data: json.RawMessage(`{"sessionID":"ses_z","model":{"id":"beam-free","providerID":"opencode-go","variant":"high"}}`)})
+	if a.sessions[0].model.variant != "high" ||
+		a.sessions[0].model.id != "beam-free" {
+		t.Fatalf("row model %+v", a.sessions[0].model)
+	}
+	name, variants := a.modelLabel(a.sessions[0].model)
+	if name != "Beam Free" || len(variants) == 0 {
+		t.Fatalf("label %q has no variants; catalog %v", name, a.models)
+	}
+}
+
+// TestModelPicker drives the popover: the button carries the current
+// name, the catalog lists free models first and closes the panel, the
+// filter narrows it, and the effort chips switch the variant.
+func TestModelPicker(t *testing.T) {
+	a := newApp()
+	a.models = []agentModel{
+		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", free: false},
+		{providerID: "opencode-go", id: "beam-free", name: "Beam Free",
+			variants: []string{"low", "medium", "high", "max"}, free: true},
+		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat 2.5 Preview Free", free: true},
+	}
+	a.sessions = []agentSession{{id: "ses_z", title: "Free turn",
+		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
+	a.selectedSession = "ses_z"
+	a.selected = "Free turn"
+	// The catalog rows carry the fancy names, so the button reads
+	// "Model Beam Free" and the effort chips sit ready beside the list.
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Model Beam Free") {
+		t.Fatalf("button label missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Model Beam Free"); err != nil {
+		t.Fatalf("opening the picker: %v", err)
+	}
+	if !a.pickerOpen {
+		t.Fatal("the picker did not open")
+	}
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("MiniMax-M3") || !tt.HasText("opencode-go") {
+		t.Fatalf("catalog not listed: %v", tt.Texts())
+	}
+	// The free rows stand above the paid one, each marked, names
+	// alphabetically inside the free group.
+	texts := tt.Texts()
+	longcat, beam, paid := -1, -1, -1
+	for i, s := range texts {
+		switch s {
+		case "LongCat 2.5 Preview Free":
+			if longcat < 0 {
+				longcat = i
+			}
+		case "Beam Free":
+			if beam < 0 {
+				beam = i
+			}
+		case "MiniMax-M3":
+			if paid < 0 {
+				paid = i
+			}
+		}
+	}
+	if !(beam < longcat && longcat < paid) {
+		t.Fatalf("order beam %d longcat %d paid %d", beam, longcat, paid)
+	}
+
+	// The filter narrows the rows to what matches.
+	a.modelFilter = "beam"
+	tt = ui.NewTester(a.view, 1400, 920)
+	if tt.HasText("MiniMax-M3") || !tt.HasText("Beam Free") {
+		t.Fatalf("filter left noise: %v", tt.Texts())
+	}
+	if err := tt.Click("Pick Beam Free"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "model" || job.provider != "opencode-go" ||
+			job.model != "beam-free" || job.variant != "" {
+			t.Fatalf("pick job %+v", job)
+		}
+	default:
+		t.Fatal("picking did not queue a job")
+	}
+
+	// The effort chips of the chat's model switch the variant.
+	a.pickerOpen = true
+	a.modelFilter = ""
+	tt = ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Reasoning high"); err != nil {
+		t.Fatalf("chips missing: %v", err)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "model" || job.model != "beam-free" || job.variant != "high" {
+			t.Fatalf("variant job %+v", job)
+		}
+	default:
+		t.Fatal("the chip did not queue a job")
+	}
+}
+
 // TestLiveAgent exercises the whole pipe against a real opencode: spawn,
 // readiness, auth, one prompt, the streamed answer, then the sidebar list
 // and restore of what was stored. Opt in by hand:
@@ -837,7 +1013,7 @@ func TestLiveAgent(t *testing.T) {
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
 
-	sid, err := ag.createSession(ctx, "")
+	sid, _, err := ag.createSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,6 +1090,94 @@ func TestLiveAgent(t *testing.T) {
 // by hand:
 //
 //	WADA_LIVE_AGENT=1 go test -run TestLivePermission ./...
+//
+// TestLiveModel switches a live conversation onto the other free model,
+// once plain and once with a reasoning effort, and checks both the
+// selected event and the model the turn really ran on.
+func TestLiveModel(t *testing.T) {
+	if os.Getenv("WADA_LIVE_AGENT") == "" {
+		t.Skip("set WADA_LIVE_AGENT=1 to run against a real opencode server")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	ag, err := startAgent(ctx, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ag.cmd.Process.Kill()
+
+	evs := make(chan agentEvent, 256)
+	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+
+	sid, _, err := ag.createSession(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.pickModel(ctx, sid); err != nil {
+		t.Fatal(err)
+	}
+	// Beam Free is the other zero-cost model, with reasoning efforts.
+	if err := ag.setModel(ctx, sid, "opencode-go", "beam-free", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.setModel(ctx, sid, "opencode-go", "beam-free", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
+		t.Fatal(err)
+	}
+
+	selected, sawHigh, done := 0, false, false
+	for !done {
+		select {
+		case ev := <-evs:
+			switch ev.Type {
+			case "session.model.selected":
+				var d struct {
+					SessionID string `json:"sessionID"`
+					Model     struct {
+						ID         string `json:"id"`
+						ProviderID string `json:"providerID"`
+						Variant    string `json:"variant"`
+					} `json:"model"`
+				}
+				if json.Unmarshal(ev.Data, &d) == nil && d.SessionID == sid &&
+					d.Model.ProviderID == "opencode-go" && d.Model.ID == "beam-free" {
+					selected++
+					switch d.Model.Variant {
+					case "high":
+						sawHigh = true
+					case "", "default":
+						// the plain switch reports first
+					default:
+						t.Fatalf("the effort switch reported %q", d.Model.Variant)
+					}
+				}
+			case "session.execution.succeeded", "session.execution.failed":
+				done = true
+			case "session.execution.started":
+			}
+		case <-ctx.Done():
+			t.Fatalf("the turn never finished; %d selections seen", selected)
+		}
+	}
+	if selected == 0 || !sawHigh {
+		t.Fatalf("%d selections seen, high effort among them: %v", selected, sawHigh)
+	}
+	msgs, merr := ag.sessionMessages(ctx, sid)
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	for _, m := range msgs {
+		if m.Type == "assistant" {
+			if m.Model.ID != "beam-free" || m.Model.Variant != "high" {
+				t.Fatalf("the turn ran on %s/%s+%s", m.Model.ProviderID, m.Model.ID, m.Model.Variant)
+			}
+		}
+	}
+}
+
 func TestLivePermission(t *testing.T) {
 	if os.Getenv("WADA_LIVE_AGENT") == "" {
 		t.Skip("set WADA_LIVE_AGENT=1 to run against a real opencode server")
@@ -935,7 +1199,7 @@ func TestLivePermission(t *testing.T) {
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
 
-	sid, err := ag.createSession(ctx, "")
+	sid, _, err := ag.createSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1021,7 +1285,7 @@ func TestLiveLocation(t *testing.T) {
 	evs := make(chan agentEvent, 256)
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
 
-	sid, err := ag.createSession(ctx, dir)
+	sid, _, err := ag.createSession(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1097,7 +1361,7 @@ func TestLiveSessionOps(t *testing.T) {
 	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
 
 	title := "Wada ops " + time.Now().Format("150405")
-	sid, err := ag.createSession(ctx, "")
+	sid, _, err := ag.createSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

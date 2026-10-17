@@ -147,7 +147,7 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 
 // createSession opens a fresh conversation for this app, working in the
 // directory given: the server's own when none is named.
-func (a *agent) createSession(ctx context.Context, dir string) (string, error) {
+func (a *agent) createSession(ctx context.Context, dir string) (string, agentModelRef, error) {
 	var body any = struct{}{}
 	if dir != "" {
 		body = map[string]any{
@@ -156,7 +156,7 @@ func (a *agent) createSession(ctx context.Context, dir string) (string, error) {
 	}
 	raw, err := a.call(ctx, "POST", "/session", body)
 	if err != nil {
-		return "", err
+		return "", agentModelRef{}, err
 	}
 	var out struct {
 		Data struct {
@@ -164,12 +164,18 @@ func (a *agent) createSession(ctx context.Context, dir string) (string, error) {
 			Location struct {
 				Directory string `json:"directory"`
 			} `json:"location"`
+			Model struct {
+				ID         string `json:"id"`
+				ProviderID string `json:"providerID"`
+				Variant    string `json:"variant"`
+			} `json:"model"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", err
+		return "", agentModelRef{}, err
 	}
-	return out.Data.ID, nil
+	return out.Data.ID, agentModelRef{providerID: out.Data.Model.ProviderID,
+		id: out.Data.Model.ID, variant: out.Data.Model.Variant}, nil
 }
 
 // prompt queues one user turn; the answer streams back over events, so the
@@ -197,8 +203,19 @@ func sessionModel() (string, string) {
 // the config default, which in this app is not free.
 func (a *agent) pickModel(ctx context.Context, sessionID string) error {
 	prov, name := sessionModel()
+	return a.setModel(ctx, sessionID, prov, name, "")
+}
+
+// setModel points one conversation at a model of the catalog, with its
+// reasoning effort when it has one. The switch folds back over the
+// session.model.selected event.
+func (a *agent) setModel(ctx context.Context, sessionID, providerID, id, variant string) error {
+	ref := map[string]any{"providerID": providerID, "id": id}
+	if variant != "" {
+		ref["variant"] = variant
+	}
 	_, err := a.call(ctx, "POST", "/session/"+sessionID+"/model",
-		map[string]any{"model": map[string]any{"providerID": prov, "id": name}})
+		map[string]any{"model": ref})
 	return err
 }
 
@@ -238,6 +255,64 @@ type agentSession struct {
 	title   string
 	dir     string
 	updated int64
+	model   agentModelRef // what it runs on
+}
+
+// agentModelRef is the model a conversation points at, as stored rows
+// and events both name it: a provider detail of which reasoning effort.
+type agentModelRef struct {
+	providerID string
+	id         string
+	variant    string
+}
+
+// agentModel is one entry of the server's catalog, with whether running
+// it costs anything — the picker marks free models.
+type agentModel struct {
+	providerID string
+	id         string
+	name       string
+	variants   []string
+	free       bool
+}
+
+// listModels reads the catalog the signed-in server offers.
+func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
+	raw, err := a.call(ctx, "GET", "/model", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			ID         string `json:"id"`
+			ProviderID string `json:"providerID"`
+			Name       string `json:"name"`
+			Variants   []struct {
+				ID string `json:"id"`
+			} `json:"variants"`
+			Cost []struct {
+				Input  float64 `json:"input"`
+				Output float64 `json:"output"`
+			} `json:"cost"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	all := []agentModel{}
+	for _, m := range out.Data {
+		row := agentModel{id: m.ID, providerID: m.ProviderID, name: m.Name, free: true}
+		for _, v := range m.Variants {
+			row.variants = append(row.variants, v.ID)
+		}
+		for _, c := range m.Cost {
+			if c.Input != 0 || c.Output != 0 {
+				row.free = false
+			}
+		}
+		all = append(all, row)
+	}
+	return all, nil
 }
 
 // listSessions reads the conversations, newest first. The server pages
@@ -259,6 +334,11 @@ func (a *agent) listSessions(ctx context.Context, cursor string) ([]agentSession
 			Location struct {
 				Directory string `json:"directory"`
 			} `json:"location"`
+			Model struct {
+				ID         string `json:"id"`
+				ProviderID string `json:"providerID"`
+				Variant    string `json:"variant"`
+			} `json:"model"`
 			Time struct {
 				Created int64 `json:"created"`
 				Updated int64 `json:"updated"`
@@ -273,7 +353,8 @@ func (a *agent) listSessions(ctx context.Context, cursor string) ([]agentSession
 	}
 	all := []agentSession{}
 	for _, s := range out.Data {
-		row := agentSession{id: s.ID, title: s.Title, dir: s.Location.Directory, updated: s.Time.Updated}
+		row := agentSession{id: s.ID, title: s.Title, dir: s.Location.Directory, updated: s.Time.Updated,
+			model: agentModelRef{providerID: s.Model.ProviderID, id: s.Model.ID, variant: s.Model.Variant}}
 		if row.updated == 0 {
 			row.updated = s.Time.Created
 		}
@@ -297,6 +378,7 @@ type agentMessage struct {
 	Model struct {
 		ID         string `json:"id"`
 		ProviderID string `json:"providerID"`
+		Variant    string `json:"variant"`
 	} `json:"model"`
 	Content []agentPart `json:"content"`
 }
@@ -458,11 +540,14 @@ func (a *agent) events(ctx context.Context, h func(agentEvent)) error {
 // to open, a brand-new chat to create, a running turn to stop, an
 // approval to answer or a list change to make.
 type agentJob struct {
-	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete" or "more"
+	kind     string // "prompt", "open", "new", "stop", "answer", "rename", "delete", "model" or "more"
 	sid      string // the session to act on; empty for a new one
 	dir      string // where a new chat should work; empty for the app's
 	text     string // the user's words or a new title, for "prompt" and "rename"
 	cursor   string // the next page of conversations, for "more"
+	provider string // the model's provider, for "model"
+	model    string // the model id, for "model"
+	variant  string // its reasoning effort, when it has one
 	request  string // the permission request being answered
 	decision string // "once", "always" or "reject"
 }
@@ -494,15 +579,30 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 		ls, nxt, lerr := ag.listSessions(ctx, "")
 		win.Update(func() { a.settleBoot(ls, nxt, lerr) })
 	}()
+	go func() {
+		ms, merr := ag.listModels(ctx)
+		win.Update(func() {
+			if merr == nil {
+				a.models = ms
+			} else {
+				why := merr.Error()
+				a.streamLine("The model list did not load: " + why)
+			}
+			a.modelsLoaded = true
+		})
+	}()
 
 	// sid is a conversation created here, reused until the UI learns of
 	// it from its own update.
 	var sid string
+	// pend is a model picked while nothing was open: it waits for the
+	// next conversation open creates.
+	var pend agentJob
 	// open brings a fresh conversation up under the app's free model,
 	// working in the directory asked for; a model ref refusing to set does
 	// not stop the turn.
 	open := func(dir string) bool {
-		nid, nerr := ag.createSession(ctx, dir)
+		nid, ref, nerr := ag.createSession(ctx, dir)
 		if nerr != nil {
 			why := nerr.Error()
 			win.Update(func() { a.streamLine("The agent did not open a chat: " + why) })
@@ -511,6 +611,16 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 		if perr := ag.pickModel(ctx, nid); perr != nil {
 			why := perr.Error()
 			win.Update(func() { a.streamLine("The app's model was not set, running the config's: " + why) })
+		}
+		// A model picked while nothing was open applies to this new
+		// conversation instead of the default.
+		if pend.kind != "" {
+			if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
+				why := perr.Error()
+				win.Update(func() { a.streamLine("The model did not switch: " + why) })
+			}
+			pend = agentJob{}
+			ref = agentModelRef{providerID: pend.provider, id: pend.model, variant: pend.variant}
 		}
 		sid = nid
 		home := dir
@@ -521,7 +631,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 			a.selectedSession = sid
 			// The untitled row stands at the top; its title fills in
 			// over the stream once words run.
-			a.sessions = append([]agentSession{{id: sid, dir: home}}, a.sessions...)
+			a.sessions = append([]agentSession{{id: sid, dir: home, model: ref}}, a.sessions...)
 		})
 		return true
 	}
@@ -592,6 +702,20 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 					}
 					a.moreLoading = false
 				})
+			case "model":
+				who := job.sid
+				if who == "" {
+					who = sid
+				}
+				if who == "" {
+					pend = job
+					continue
+				}
+				if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
+					why := merr.Error()
+					win.Update(func() { a.streamLine("The model did not switch: " + why) })
+				}
+				// The switch folds back over session.model.selected.
 			default: // "prompt"
 				target := job.sid
 				if target == "" {
@@ -807,6 +931,24 @@ func (a *app) apply(ev agentEvent) {
 		}
 		if a.busySession == d.SessionID {
 			a.busySession = ""
+		}
+	case "session.model.selected":
+		var d struct {
+			SessionID string `json:"sessionID"`
+			Model     struct {
+				ID         string `json:"id"`
+				ProviderID string `json:"providerID"`
+				Variant    string `json:"variant"`
+			} `json:"model"`
+		}
+		if json.Unmarshal(ev.Data, &d) != nil {
+			return
+		}
+		for i := range a.sessions {
+			if a.sessions[i].id == d.SessionID {
+				a.sessions[i].model = agentModelRef{providerID: d.Model.ProviderID,
+					id: d.Model.ID, variant: d.Model.Variant}
+			}
 		}
 	case "session.renamed":
 		var d struct {

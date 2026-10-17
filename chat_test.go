@@ -1,0 +1,59 @@
+package main
+
+import (
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
+// TestBlockKindsRender mounts one row of every kind: blockRow's switch has
+// no compiler exhaustiveness check, so this table is the spec that keeps a
+// new kind from quietly falling through to the plain-text default. Text
+// the row must show raw catches a kind routed through the markdown
+// package, and vice versa.
+func TestBlockKindsRender(t *testing.T) {
+	cases := []struct {
+		name     string
+		block    block
+		drawn    string   // a text the row must show
+		notDrawn []string // texts that would mean the row went its wrong way
+	}{
+		{name: "text", block: block{kind: kindText, text: "a **bold** answer"},
+			drawn: "a bold answer", notDrawn: []string{"**"}},
+		{name: "user", block: block{kind: kindUser, text: "**ship it**"},
+			drawn: "**ship it**"},
+		{name: "stream", block: block{kind: kindStream, text: "half a **thought**", key: "stream:m1:0"},
+			drawn: "half a thought", notDrawn: []string{"**"}},
+		{name: "note", block: block{kind: kindNote, text: "# engine trouble"},
+			drawn: "# engine trouble"},
+		{name: "working", block: block{kind: kindWorking, text: "Working…"},
+			drawn: "Working…"},
+		{name: "activity", block: block{kind: kindActivity, text: "Ran command", icon: icTerminal,
+			key: "activity:call_1", detail: commandDetail("$ echo hi", "hi")},
+			drawn: "Ran command"},
+		{name: "permission", block: block{kind: kindPermission, text: "Approval needed",
+			key: "permission:per_1", req: &agentPerm{id: "per_1", session: "ses_z", action: "shell"}},
+			drawn: "run a shell command"},
+	}
+	if len(cases) != 7 {
+		t.Fatalf("the table covers every block kind; a new kind joins it: %d of 7", len(cases))
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newApp()
+			a.selectedSession = "ses_z"
+			a.blocks = []block{tc.block}
+			tt := ui.NewTester(a.view, 1400, 920)
+			tt.Advance(time.Second) // streaming words pace in
+			if !tt.HasText(tc.drawn) {
+				t.Fatalf("a %s row draws %q nowhere: %v", tc.name, tc.drawn, tt.Texts())
+			}
+			for _, no := range tc.notDrawn {
+				if tt.HasText(no) {
+					t.Fatalf("a %s row drew %q", tc.name, no)
+				}
+			}
+		})
+	}
+}

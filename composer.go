@@ -17,7 +17,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 		card := ui.Column(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().
 			Radius(24).Padding(10, 14, 10, 14).Gap(4).
 			Background(p.composerBg).Border(1, p.composerBorder).
-			Shadow(0, 2, 10, 0, ui.RGBA(0, 0, 0, 0.05))
+			Shadow(0, 2, 10, 0, p.cardShadow)
 		card.Children(func() {
 			// The draft itself: Enter sends, Shift+Enter breaks the line.
 			ui.TextAreaBase(c, &a.draft).Label("Compose").
@@ -49,10 +49,10 @@ func (a *app) composer(c *ui.Context, p palette) {
 // theme's modal panel would sit behind the card as a second layer.
 func dialog(c *ui.Context, p palette, open *bool, width float32, fn func()) {
 	ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.4))
+		backdrop.Background(p.scrim)
 		panel.Width(width).Radius(14).Padding(16, 18).
 			Background(p.bg).Border(1, p.hairline).
-			Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2))
+			Shadow(0, 10, 30, 0, p.shadow)
 		ui.Column(c).Gap(10).Children(fn)
 	})
 }
@@ -87,21 +87,25 @@ func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui
 // attachModal quotes a workspace file into the draft, so the agent reads
 // the text the user asked about along with the message.
 func (a *app) attachModal(c *ui.Context, p palette) {
-	dialog(c, p, &a.attachOpen, 400, func() {
+	st := a.attach
+	if st == nil || !st.open {
+		return
+	}
+	dialog(c, p, &st.open, 400, func() {
 		ui.Text(c, "Quote a file").FontSize(14).FontWeight(600)
 		ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
-		textField(c, p, &a.attachDraft, "src/main.go")
+		textField(c, p, &st.draft, "src/main.go")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.attachOpen = false })
+			cancel.OnClick(func() { a.attach = nil })
 			cancel.Children(func() {
 				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
 			quote := ui.PrimaryButton(c, "Quote")
 			quote.OnClick(a.attachFile)
 		})
-		if a.attachNote != "" {
-			ui.Text(c, a.attachNote).FontSize(12).TextColor(p.danger).SingleLine()
+		if st.note != "" {
+			ui.Text(c, st.note).FontSize(12).TextColor(p.danger).SingleLine()
 		}
 	})
 }
@@ -173,7 +177,7 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agentModelRef, variants []string) {
 	ui.Popover(c, anchor, &a.pickerOpen, func() {
 		ui.Box(c).Width(320).MaxHeight(420).Radius(14).Padding(10).Gap(8).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, p.shadow).
 			Children(func() {
 				textField(c, p, &a.modelFilter, "Search models")
 				models := a.filteredModels()
@@ -258,9 +262,9 @@ func (a *app) voiceButton(c *ui.Context, p palette) {
 	bg, icon, label := p.voiceBg, icWaves, "Voice session"
 	switch {
 	case a.busySession != "":
-		bg, icon, label = ui.Hex("#3572e3"), icStop, "Stop the agent"
+		bg, icon, label = p.accent, icStop, "Stop the agent"
 	case strings.TrimSpace(a.draft) != "":
-		bg, icon, label = ui.Hex("#3572e3"), icSend, "Send message"
+		bg, icon, label = p.accent, icSend, "Send message"
 	}
 	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().Shrink(0).
 		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)

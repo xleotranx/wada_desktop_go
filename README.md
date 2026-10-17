@@ -23,8 +23,8 @@ First run restores yesterday's conversations from OpenCode's own store — nothi
 ## Test
 
 ```
-go test ./...                                   # the gate, single: go test -run TestChooseChat ./...
-go tool mygo vet .                              # go vet + native-UI build lifetimes
+make check                                      # the gate: mygo vet, golangci-lint, tests under -race and once without cgo
+go test ./...                                   # plain tests, single: go test -run TestChooseChat ./...
 WADA_LIVE_AGENT=1 go test -run 'TestLiveAgent|TestLiveModel|TestLivePermission|TestLiveLocation|TestLiveSessionOps' .   # real server, ~a minute
 ```
 
@@ -64,8 +64,8 @@ Use `go tool mygo build` for size comparisons: MyGo already strips symbols and d
 
 ## Layout
 
-`main.go` (state, window, boot) → `sidebar.go` (rows, kebabs, bell, search) → `chat.go` (transcript blocks, title bar) → `composer.go` (draft, model picker, dialogs, pill) → `agent.go` (HTTP and runner), `agent_events.go` (bounded SSE updates), `search.go` (cancelable lookups), `policy.go` (workspace config cache) → `palette.go` / `icons.go`.
+`main.go` (state, window, boot) → `sidebar.go` (rows, kebabs, bell, search), `chat.go` (transcript blocks, approvals), `composer.go` (draft, model picker, dialogs, pill), `browser.go` (right tools pane) → `agent.go` (HTTP and runner), `agent_events.go` (bounded SSE updates), `agent_apply.go` (the stream folded into the transcript), `paths.go` (workspace paths), `search.go` (cancelable lookups), `policy.go` (workspace config cache and permission read/write), `metadata.go` (sidebar SQLite store), `pinned.go`, `project_picker.go` → `palette.go` / `icons.go`.
 
-The window hides its macOS title bar and draws its own rows; the traffic-light strip geometry is derived so the lights share the row's center — change one side of that pairing in `main.go` and recompute the other.
+The window hides its macOS title bar and draws its own rows; the traffic-light strip is one constant trio in `main.go` (`trafficLightButton`, `trafficLightY`, `headerStrip`) shared by `TrafficLightPosition` and the header rows, so the lights and the rows stay on one center line.
 
 Deep MyGo rules (element lifetime, focus identity, threading) live in `.agents/skills/mygo-maintenance/SKILL.md` and in the module's `ui/doc.go`.

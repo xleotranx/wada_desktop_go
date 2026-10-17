@@ -12,16 +12,52 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 )
 
+// blockKind names what one transcript row is; blockRow's switch and the
+// render test are a new kind's other homes.
+type blockKind string
+
+const (
+	kindText       blockKind = "text"       // an answer, through the markdown package
+	kindUser       blockKind = "user"       // the user's own words
+	kindStream     blockKind = "stream"     // an answer still arriving
+	kindNote       blockKind = "note"       // engine trouble under the answers
+	kindWorking    blockKind = "working"    // the loader of a turn in flight
+	kindActivity   blockKind = "activity"   // one tool call of the agent
+	kindPermission blockKind = "permission" // an approval waiting on the user
+)
+
 // block is one paragraph, bubble or activity line of the transcript.
 type block struct {
 	id     uint64
-	kind   string // "text", "user", "stream", "note", "working", "activity" or "permission"
+	kind   blockKind // what the row is; one of the kind* constants
 	text   string
 	icon   *ui.SVG
 	key    string                         // key into app.expanded for collapsible lines
 	detail func(c *ui.Context, p palette) // drawn below the line once expanded
 	req    *agentPerm                     // the approval request a permission card carries
 	stream *strings.Builder               // amortized storage while text deltas arrive
+}
+
+// attachState is the file-attach dialog, quoting a workspace file into
+// the draft.
+type attachState struct {
+	open  bool
+	draft string
+	note  string
+}
+
+// renameState is the rename dialog of one conversation.
+type renameState struct {
+	open  bool
+	sid   string
+	draft string
+}
+
+// confirmState is the delete-confirmation dialog of one conversation.
+type confirmState struct {
+	open bool
+	sid  string
+	what string
 }
 
 // app is the state the window shows.
@@ -96,19 +132,15 @@ type app struct {
 	pickFolder         func(done func(path string))
 	selectAddedProject bool
 
-	// The file-attach dialog, quoting a workspace file into the draft.
-	attachOpen  bool
-	attachDraft string
-	attachNote  string
+	// The composer's attach drawer and the conversation rows' rename and
+	// delete dialogs: one state struct each, nil until its dialog opens.
+	// open is DialogBase's own switch, which the backdrop and Escape clear.
+	attach  *attachState
+	rename  *renameState
+	confirm *confirmState
 
-	// The rename and delete dialogs of conversation rows, and where the
-	// older conversations pick up once the first page is through.
-	renameOpen  bool
-	renameSid   string
-	renameDraft string
-	confirmOpen bool
-	confirmSid  string
-	confirmWhat string
+	// Where the older conversations pick up once the first page is
+	// through.
 	nextCursor  string
 	moreLoading bool
 
@@ -186,18 +218,27 @@ func (a *app) reviseSearch() {
 	a.searches <- searchRequest{text: a.searchText, version: a.searchVersion}
 }
 
+// The window controls center in a strip of these: the close button is
+// trafficLightButton DIP tall, with trafficLightY of room above and below,
+// giving the strip macOS measures -- and the one the top bar, the sidebar's
+// header row and the tools toolbar all center on. TrafficLightPosition
+// reads the same pair, so the dots cannot drift off the rows' center.
+const (
+	trafficLightButton = 14
+	trafficLightY      = 18
+	headerStrip        = trafficLightButton + 2*trafficLightY
+)
+
 // view lays the title bar, navigation rail, workspace sidebar, conversation
 // and tools pane out over the window's material, which shows where nothing
 // is painted.
 func (a *app) view(c *ui.Context) {
 	p := paletteFor(c)
 	bar := c.TitleBar()
-	// The window controls are centered in a strip of bar.Height, so the
-	// top bar and tools toolbar share their center line.
-	headerH := bar.Height
-	if headerH < 48 {
-		headerH = 48
-	}
+	// The controls center on the header strip, so the top bar and tools
+	// toolbar share their center line; a platform that measures no strip
+	// falls back to the same height.
+	headerH := max(bar.Height, float32(headerStrip))
 	// The title bar and rail stand on the window's material, as macOS 26
 	// draws them: the desktop shows through, frosted, washed toward the
 	// palette so the chrome reads like the app's own surfaces.
@@ -305,10 +346,9 @@ func main() {
 			// macOS 26 draws them, and the desktop shows through it.
 			TitleBarStyle: mygo.TitleBarHidden,
 			Vibrancy:      mygo.VibrancyTitlebar,
-			// Keep the title strip compact and center its controls on the
-			// 50 DIP header (the close button is 14 DIP tall, with 18 DIP
-			// of room above and below).
-			TrafficLightPosition: &mygo.Point{X: 14, Y: 18},
+			// The lights share the header strip the top rows center on;
+			// the geometry is the constant trio by view().
+			TrafficLightPosition: &mygo.Point{X: 14, Y: trafficLightY},
 			StateKey:             "main",
 			Content:              ui.View(a.view),
 		})
@@ -359,7 +399,7 @@ func (a *app) send() {
 	if a.selectedSession == "" {
 		a.freshTranscript()
 	}
-	a.blocks = append(a.blocks, block{kind: "user", text: a.draft})
+	a.blocks = append(a.blocks, block{kind: kindUser, text: a.draft})
 	text := strings.TrimSpace(a.draft)
 	a.draft = ""
 	a.feed.ScrollToEnd()
@@ -372,7 +412,7 @@ func (a *app) send() {
 // conversation or to a fresh one when none is open.
 func (a *app) agentSend(text string) {
 	select {
-	case a.jobs <- agentJob{kind: "prompt", sid: a.selectedSession, text: text, dir: a.chatDir(), draft: a.draftVersion}:
+	case a.jobs <- agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(), draft: a.draftVersion}:
 	default:
 	}
 }
@@ -380,7 +420,7 @@ func (a *app) agentSend(text string) {
 // stopTurn asks the runner to interrupt the running conversation.
 func (a *app) stopTurn() {
 	select {
-	case a.jobs <- agentJob{kind: "stop", sid: a.busySession}:
+	case a.jobs <- agentJob{kind: jobStop, sid: a.busySession}:
 	default:
 	}
 }
@@ -392,7 +432,7 @@ func (a *app) answerPerm(perm *agentPerm, decision string) {
 		return
 	}
 	select {
-	case a.jobs <- agentJob{kind: "answer", sid: perm.session, request: perm.id, decision: decision}:
+	case a.jobs <- agentJob{kind: jobAnswer, sid: perm.session, request: perm.id, decision: decision}:
 	default:
 	}
 }
@@ -485,17 +525,19 @@ func (a *app) startChatIn(path string) {
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.
 func (a *app) openAttachDialog() {
-	a.attachDraft = ""
-	a.attachNote = ""
-	a.attachOpen = true
+	a.attach = &attachState{open: true}
 }
 
 // attachFile quotes a workspace file into the draft, as a fenced block
 // the agent reads with the message; typing it again does not repeat it.
 func (a *app) attachFile() {
-	rel := strings.TrimSpace(a.attachDraft)
+	st := a.attach
+	if st == nil {
+		return
+	}
+	rel := strings.TrimSpace(st.draft)
 	if rel == "" {
-		a.attachNote = "Name a file first."
+		st.note = "Name a file first."
 		return
 	}
 	pth := rel
@@ -504,28 +546,16 @@ func (a *app) attachFile() {
 	}
 	abs, data, err := expandFile(pth)
 	if err != nil {
-		a.attachNote = err.Error()
+		st.note = err.Error()
 		return
 	}
 	mark := "(file: " + abs + ")"
 	if strings.Contains(a.draft, mark) {
-		a.attachNote = "That file is already in the draft."
+		st.note = "That file is already in the draft."
 		return
 	}
 	a.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
-	a.attachOpen = false
-	a.attachDraft = ""
-	a.attachNote = ""
-}
-
-// selectedRow is the conversation row the transcript currently looks at.
-func (a *app) selectedRow() (agentSession, bool) {
-	for _, s := range a.sessions {
-		if s.id == a.selectedSession {
-			return s, true
-		}
-	}
-	return agentSession{}, false
+	a.attach = nil
 }
 
 // setAsk moves the shell policy of the chat's folder in the workspace
@@ -544,21 +574,23 @@ func (a *app) setAsk(ask bool) {
 
 // requestRename opens the rename dialog for one conversation.
 func (a *app) requestRename(s agentSession) {
-	a.renameSid = s.id
-	a.renameDraft = s.title
-	a.renameOpen = true
+	a.rename = &renameState{open: true, sid: s.id, draft: s.title}
 }
 
 // saveRename queues the new title; the sidebar row itself updates when
 // the rename event comes back over the stream.
 func (a *app) saveRename() {
-	a.renameOpen = false
-	title := strings.TrimSpace(a.renameDraft)
-	if a.renameSid == "" || title == "" || title == a.titleOf(a.renameSid) {
+	st := a.rename
+	a.rename = nil
+	if st == nil {
+		return
+	}
+	title := strings.TrimSpace(st.draft)
+	if st.sid == "" || title == "" || title == a.titleOf(st.sid) {
 		return
 	}
 	select {
-	case a.jobs <- agentJob{kind: "rename", sid: a.renameSid, text: title}:
+	case a.jobs <- agentJob{kind: jobRename, sid: st.sid, text: title}:
 	default:
 	}
 }
@@ -605,7 +637,7 @@ func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
 func (a *app) chooseModel(m agentModel, variant string) {
 	a.pickerOpen = false
 	select {
-	case a.jobs <- agentJob{kind: "model", sid: a.selectedSession, draft: a.draftVersion,
+	case a.jobs <- agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
 		provider: m.providerID, model: m.id, variant: variant}:
 	default:
 	}
@@ -626,19 +658,18 @@ func (a *app) pickVariant(variant string) {
 // confirmDelete shows the dialog that stands between a click and a
 // conversation gone for good.
 func (a *app) confirmDelete(s agentSession) {
-	a.confirmSid = s.id
-	a.confirmWhat = s.title
-	a.confirmOpen = true
+	a.confirm = &confirmState{open: true, sid: s.id, what: s.title}
 }
 
 // deleteConfirmed queues the deletion after the dialog's say-so.
 func (a *app) deleteConfirmed() {
-	a.confirmOpen = false
-	if a.confirmSid == "" {
+	st := a.confirm
+	a.confirm = nil
+	if st == nil || st.sid == "" {
 		return
 	}
 	select {
-	case a.jobs <- agentJob{kind: "delete", sid: a.confirmSid}:
+	case a.jobs <- agentJob{kind: jobDelete, sid: st.sid}:
 	default:
 	}
 }
@@ -666,7 +697,7 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 	if lerr == nil && len(ls) > 0 {
 		a.adoptSession(ls[0])
 		select {
-		case a.jobs <- agentJob{kind: "open", sid: ls[0].id}:
+		case a.jobs <- agentJob{kind: jobOpen, sid: ls[0].id}:
 		default:
 		}
 	} else {

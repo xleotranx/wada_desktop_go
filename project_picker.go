@@ -27,7 +27,7 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 	ui.PopoverBase(c, button, &a.projectPickerOpen, func(panel ui.Element) {
 		panel.Width(280).MaxHeight(360).Radius(12).Padding(10).Gap(4).Margin(4, 0).
 			Background(p.bg).Border(1, p.hairline).
-			Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.2)).Children(func() {
+			Shadow(0, 10, 30, 0, p.shadow).Children(func() {
 			textField(c, p, &a.projectFilter, "Search projects")
 			ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
 				matches := 0

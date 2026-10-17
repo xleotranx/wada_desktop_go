@@ -9,11 +9,12 @@ type palette struct {
 	bg, sidebarBg, railBg, hover, selected, hairline ui.Color
 	chromeWash                                       ui.Color
 	text, muted, faint                               ui.Color
-	orange                                           ui.Color
+	orange, accent, accentText                       ui.Color
 	composerBg, composerBorder, composerBorderFocus  ui.Color
 	bubble                                           ui.Color
 	detailBg                                         ui.Color
 	danger, dangerText                               ui.Color
+	scrim, shadow, cardShadow                        ui.Color
 	link                                             ui.Color
 	thumbLine                                        ui.Color
 	voiceBg                                          ui.Color
@@ -34,6 +35,8 @@ func paletteFor(c *ui.Context) palette {
 			muted:               ui.Hex("#8c8c8c"),
 			faint:               ui.Hex("#5c5c5c"),
 			orange:              ui.Hex("#ff7a45"),
+			accent:              ui.Hex("#3572e3"),
+			accentText:          ui.Hex("#ffffff"),
 			composerBg:          ui.Hex("#262626"),
 			composerBorder:      ui.RGBA(255, 255, 255, 0.08),
 			composerBorderFocus: ui.RGBA(255, 255, 255, 0.34),
@@ -45,6 +48,9 @@ func paletteFor(c *ui.Context) palette {
 			greenBadge:          ui.Hex("#4ed463"),
 			danger:              ui.Hex("#e0442f"),
 			dangerText:          ui.Hex("#ffffff"),
+			scrim:               ui.RGBA(0, 0, 0, 0.4),
+			shadow:              ui.RGBA(0, 0, 0, 0.2),
+			cardShadow:          ui.RGBA(0, 0, 0, 0.05),
 		}
 	}
 	return palette{
@@ -59,6 +65,8 @@ func paletteFor(c *ui.Context) palette {
 		muted:               ui.Hex("#8e8e8e"),
 		faint:               ui.Hex("#c8c8c8"),
 		orange:              ui.Hex("#e0601e"),
+		accent:              ui.Hex("#3572e3"),
+		accentText:          ui.Hex("#ffffff"),
 		composerBg:          ui.Hex("#f7f7f7"),
 		composerBorder:      ui.RGBA(0, 0, 0, 0.06),
 		composerBorderFocus: ui.RGBA(0, 0, 0, 0.34),
@@ -70,5 +78,8 @@ func paletteFor(c *ui.Context) palette {
 		greenBadge:          ui.Hex("#0e7a34"),
 		danger:              ui.Hex("#e0442f"),
 		dangerText:          ui.Hex("#ffffff"),
+		scrim:               ui.RGBA(0, 0, 0, 0.4),
+		shadow:              ui.RGBA(0, 0, 0, 0.2),
+		cardShadow:          ui.RGBA(0, 0, 0, 0.05),
 	}
 }

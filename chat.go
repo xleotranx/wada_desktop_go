@@ -57,7 +57,7 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
 					Rows(func(row ui.ListRow) {
 						if row.Index == len(a.blocks) {
-							a.blockRow(row.Context, p, block{kind: "working", text: "Working…"})
+							a.blockRow(row.Context, p, block{kind: kindWorking, text: "Working…"})
 						} else {
 							a.blockRow(row.Context, p, a.blocks[row.Index])
 						}
@@ -99,7 +99,7 @@ func (a *app) turnWorking() bool {
 	// nothing to read yet, and no stream row at all means the turn sits
 	// between steps.
 	for i := len(a.blocks) - 1; i >= 0; i-- {
-		if a.blocks[i].kind == "stream" {
+		if a.blocks[i].kind == kindStream {
 			return strings.TrimSpace(a.blocks[i].text) == ""
 		}
 	}
@@ -126,33 +126,33 @@ func (a *app) blockIdentity(i int) any {
 func (a *app) blockRow(c *ui.Context, p palette, b block) {
 	ui.Column(c).FillWidth().MaxWidth(760).Margin(0, ui.Auto).Gap(10).Children(func() {
 		switch b.kind {
-		case "user":
+		case kindUser:
 			ui.Row(c).FillWidth().Justify(ui.End).Children(func() {
 				ui.Box(c).MaxWidthPercent(76).Radius(18).Padding(9, 14).
 					Background(p.bubble).Children(func() {
 					ui.Text(c, b.text).FontSize(14).LineHeight(1.45)
 				})
 			})
-		case "activity":
+		case kindActivity:
 			a.activityRow(c, p, b)
-		case "permission":
+		case kindPermission:
 			a.permissionRow(c, p, b)
-		case "working":
+		case kindWorking:
 			// The loader at the turn in flight, until words land.
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Spinner(c).Size(13, 13).Label("The agent is working")
 				ui.Text(c, b.text).FontSize(13).TextColor(p.muted)
 			})
-		case "note":
+		case kindNote:
 			// Engine trouble stays a faint line under the answers.
 			ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
 				SingleLine().Ellipsis("…")
-		case "stream":
+		case kindStream:
 			// Markdown still being written: the package parses the new
 			// words alone, shows half-written syntax as what it will
 			// become, and paces the words in.
 			markdown.Stream(c, b.text, &a.md)
-		default: // "text"
+		case kindText:
 			markdown.View(c, b.text, &a.md)
 		}
 	})
@@ -205,7 +205,7 @@ func (a *app) permissionRow(c *ui.Context, p palette, b block) {
 				})
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				a.permButton(c, p, true, ui.Hex("#3572e3"), ui.Hex("#ffffff"),
+				a.permButton(c, p, true, p.accent, p.accentText,
 					"Allow once", "Let it happen this turn.", func() { a.answerPerm(r, "once") })
 				a.permButton(c, p, false, p.hover, p.text,
 					"Always", "Keep allowing this pattern.", func() { a.answerPerm(r, "always") })

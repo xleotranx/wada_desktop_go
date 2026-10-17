@@ -1,0 +1,17 @@
+# The lint set is deliberately small and probationary: every check here
+# must catch what go vet cannot without crying wolf. Grow it on purpose;
+# drop a check the moment its noise outweighs its findings.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - exhaustive # a switch over the kind*/job* sets must name every member
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    exhaustive:
+      # A default case catches the zero value; every named member must
+      # still stand above it as its own case.
+      default-signifies-exhaustive: false

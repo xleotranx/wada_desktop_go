@@ -33,5 +33,16 @@ The native UI rules below apply where the app uses package `ui`; preserve a web 
 ## Verification
 
 - Reproduce UI failures with `ui.NewTester`. Exercise extra frames while elements disappear and return, plus relevant focus, typing, and shortcut behavior.
-- Run targeted regression tests, `go tool mygo vet .` for stored build values and goroutine captures, and `CGO_ENABLED=0 go test ./...`. Use race checks when changing shared state, and inspect rendered output or the native app when changing layout/platform behavior, respecting the user's verification preferences.
+- In this repo `make check` already runs vet (stored build values and goroutine captures), lint, the `-race` suite and a `CGO_ENABLED=0` pass; add targeted `ui.NewTester` tests for the change itself. Inspect rendered output or the native app when changing layout or platform behavior, respecting the user's verification preferences.
 - For upgrades, preview with `go tool mygo migrate-ui .`, apply with `-write`, and review persistent identity/services, separately assigned keys and derived bound values manually. Verify affected API/lifecycle assumptions against the new pinned source and rerun relevant UI tests. Report remaining platform-specific verification limits.
+
+## What `make check` already enforces (wada_desktop_go)
+
+The mechanical half of the rules above; don't re-derive it in review or leave it unstated:
+
+- `make vet` (`go tool mygo vet .`) owns the lifetime rules: `ui.Element`, the parts types, `ui.ListRow` and `*ui.Context` are flagged when stored in a struct or package variable, passed to a goroutine, or captured by one. "Keep Context out of app state and workers" and "never store an element or parts" are violations the gate catches, not judgment calls.
+- `make lint` keeps the closed sets and dead code honest: `exhaustive` over the `kind*`/`job*` constants, `staticcheck`, `ineffassign`, `unused`.
+- Guard tests hold the repo's conventions: `palette_test.go` (every color from `paletteFor`), `chat_test.go` (every block kind renders); the rest of the behavior lives in `ui.NewTester` tests.
+- `make test` runs the suite under the race detector; `make test-nocgo` without cgo.
+
+What stays judgment, because no check can see it: keys and identity order, bound-value timing, scoped shortcuts, side effects through actions rather than render passes, and committed geometry (`handle.Bounds` / `c.Resolve`). That is what the sections above are for.

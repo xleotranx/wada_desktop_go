@@ -236,24 +236,9 @@ func (a *app) openAnAsk() {
 		a.freshTranscript()
 	}
 	select {
-	case a.jobs <- agentJob{kind: "open", sid: ask.session}:
+	case a.jobs <- agentJob{kind: jobOpen, sid: ask.session}:
 	default:
 	}
-}
-
-// iconChip is a small icon button with its own hover face.
-func (a *app) iconChip(c *ui.Context, p palette, label string, icon *ui.SVG, on func()) {
-	b := ui.ButtonBase(c).Label(label).Size(32, 32).Radius(9).Center().
-		Cursor(ui.CursorPointer).Tooltip(label)
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	if on != nil {
-		b.OnClick(on)
-	}
-	b.Children(func() {
-		ui.Icon(c, icon).FontSize(17).TextColor(p.text)
-	})
 }
 
 // newChatRow starts a fresh chat.
@@ -588,7 +573,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, inde
 	b.OnClick(func() {
 		a.adoptSession(s)
 		select {
-		case a.jobs <- agentJob{kind: "open", sid: s.id}:
+		case a.jobs <- agentJob{kind: jobOpen, sid: s.id}:
 		default:
 		}
 	})
@@ -645,45 +630,49 @@ func (a *app) togglePin(s agentSession) {
 
 // sessionDialogs carries the dialogs opened by conversation rows.
 func (a *app) sessionDialogs(c *ui.Context, p palette) {
-	title := a.confirmWhat
-	if title == "" {
-		title = "New chat"
+	if st := a.confirm; st != nil && st.open {
+		title := st.what
+		if title == "" {
+			title = "New chat"
+		}
+		dialog(c, p, &st.open, 340, func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
+				ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
+			})
+			ui.Text(c, "The conversation and what it did are gone for good.").
+				FontSize(12.5).TextColor(p.muted)
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+				cancel.OnClick(func() { a.confirm = nil })
+				cancel.Children(func() {
+					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+				})
+				del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
+					Background(p.orange)
+				del.OnClick(a.deleteConfirmed)
+				del.Children(func() {
+					ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(p.dangerText)
+				})
+			})
+		})
 	}
-	dialog(c, p, &a.confirmOpen, 340, func() {
-		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
-			ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
-		})
-		ui.Text(c, "The conversation and what it did are gone for good.").
-			FontSize(12.5).TextColor(p.muted)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.confirmOpen = false })
-			cancel.Children(func() {
-				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-			})
-			del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
-				Background(p.orange)
-			del.OnClick(a.deleteConfirmed)
-			del.Children(func() {
-				ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(ui.Hex("#ffffff"))
-			})
-		})
-	})
 
-	dialog(c, p, &a.renameOpen, 340, func() {
-		ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
-		textField(c, p, &a.renameDraft, "")
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.renameOpen = false })
-			cancel.Children(func() {
-				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+	if st := a.rename; st != nil && st.open {
+		dialog(c, p, &st.open, 340, func() {
+			ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
+			textField(c, p, &st.draft, "")
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
+				cancel.OnClick(func() { a.rename = nil })
+				cancel.Children(func() {
+					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
+				})
+				save := ui.PrimaryButton(c, "Save")
+				save.OnClick(a.saveRename)
 			})
-			save := ui.PrimaryButton(c, "Save")
-			save.OnClick(a.saveRename)
 		})
-	})
+	}
 }
 
 // textRow is the label of a row without an icon.

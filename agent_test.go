@@ -717,7 +717,7 @@ func TestSessionDialogs(t *testing.T) {
 	// closes; an unedited save queues nothing.
 	a.requestRename(a.sessions[0])
 	tt.Frame()
-	if !tt.HasText("Rename this chat") || a.renameDraft != "Grep wiring" {
+	if !tt.HasText("Rename this chat") || a.rename == nil || a.rename.draft != "Grep wiring" {
 		t.Fatalf("rename dialog not drawn: %v", tt.Texts())
 	}
 	if err := tt.Click("Save"); err != nil {
@@ -728,11 +728,10 @@ func TestSessionDialogs(t *testing.T) {
 		t.Fatalf("unchanged title queued %+v", job)
 	default:
 	}
-	if a.renameOpen {
+	if a.rename != nil {
 		t.Fatal("the rename dialog stays open")
 	}
-	a.renameDraft = "Sharper wiring"
-	a.renameOpen = true
+	a.rename = &renameState{open: true, sid: "ses_r", draft: "Sharper wiring"}
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
@@ -764,7 +763,7 @@ func TestSessionDialogs(t *testing.T) {
 	default:
 		t.Fatal("confirming the delete did not queue a job")
 	}
-	if a.confirmOpen {
+	if a.confirm != nil {
 		t.Fatal("the confirm dialog stays open")
 	}
 
@@ -1006,7 +1005,7 @@ func TestModelPicker(t *testing.T) {
 			}
 		}
 	}
-	if !(beam < longcat && longcat < paid) {
+	if beam >= longcat || longcat >= paid {
 		t.Fatalf("order beam %d longcat %d paid %d", beam, longcat, paid)
 	}
 
@@ -1081,6 +1080,9 @@ func TestModelPickerScrolls(t *testing.T) {
 		t.Fatalf("model button missing: %v", tt.Texts())
 	}
 	row, ok := tt.Find("Pick Wada Model 00")
+	if !ok {
+		t.Fatalf("row missing: %v", tt.Texts())
+	}
 	rowX := row.X + row.W/2
 	for _, name := range []string{"Pick Wada Model 00", "Wada Model 13", "Wada Model 27"} {
 		r, ok := tt.Find(name)
@@ -1156,17 +1158,16 @@ func TestAttachFile(t *testing.T) {
 	a.selectedSession = "ses_z"
 
 	// A missing file keeps the dialog open with a note.
-	a.attachOpen = true
-	a.attachDraft = "nothere.go"
+	a.attach = &attachState{open: true, draft: "nothere.go"}
 	a.attachFile()
-	if !a.attachOpen || a.attachNote == "" {
+	if a.attach == nil || a.attach.note == "" {
 		t.Fatalf("missing file %+v", a)
 	}
 
 	// A real file lands fenced in the draft, the dialog closed.
-	a.attachDraft = "sample.go"
+	a.attach.draft = "sample.go"
 	a.attachFile()
-	if a.attachOpen || a.attachNote != "" {
+	if a.attach != nil {
 		t.Fatalf("attach state %+v", a)
 	}
 	mark := "(file: " + filepath.Join(tmp, "sample.go") + ")"
@@ -1176,16 +1177,15 @@ func TestAttachFile(t *testing.T) {
 	}
 
 	// Asking again does not repeat it; a folder refuses politely.
-	a.attachOpen = true
-	a.attachDraft = "sample.go"
+	a.attach = &attachState{open: true, draft: "sample.go"}
 	a.attachFile()
-	if !strings.Contains(a.attachNote, "already") {
-		t.Fatalf("note %q", a.attachNote)
+	if !strings.Contains(a.attach.note, "already") {
+		t.Fatalf("note %q", a.attach.note)
 	}
-	a.attachDraft, a.draft, a.attachNote = ".", "", ""
+	a.attach.draft, a.draft = ".", ""
 	a.attachFile()
-	if !strings.Contains(a.attachNote, "not a file") {
-		t.Fatalf("folder note %q", a.attachNote)
+	if !strings.Contains(a.attach.note, "not a file") {
+		t.Fatalf("folder note %q", a.attach.note)
 	}
 }
 

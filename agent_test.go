@@ -1075,6 +1075,94 @@ func TestAttachFile(t *testing.T) {
 	}
 }
 
+// TestPermissionToggle drives the shell policy through the workspace's
+// opencode.json: the ask rule lands, the file's other keys stand
+// untouched, and clearing takes only what the app put in.
+func TestPermissionToggle(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := "{\n  \"model\": \"opencode-go/minimax-m3\",\n  \"permission\": {\n    \"bash\": {\"*\": \"allow\"},\n    \"web\": {\"fetch\": \"deny\"}\n  }\n}"
+	if err := os.WriteFile(filepath.Join(tmp, "opencode.json"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	level, err := permissionLevel(tmp)
+	if err != nil || level != "full" {
+		t.Fatalf("level %q %v", level, err)
+	}
+	if err := setPermissionAsk(tmp, true); err != nil {
+		t.Fatal(err)
+	}
+	if level, _ = permissionLevel(tmp); level != "ask" {
+		t.Fatalf("level %q after the ask rule", level)
+	}
+	var doc map[string]any
+	raw, _ := os.ReadFile(filepath.Join(tmp, "opencode.json"))
+	json.Unmarshal(raw, &doc)
+	if doc["model"] != "opencode-go/minimax-m3" {
+		t.Fatalf("other keys lost: %s", raw)
+	}
+	perm := doc["permission"].(map[string]any)
+	bash := perm["bash"].(map[string]any)
+	if bash["*"] != "ask" || bash["fetch"] != nil {
+		t.Fatalf("bash rules %v", bash)
+	}
+
+	// Clearing takes the wildcard only: the web rule and the model stay.
+	if err := setPermissionAsk(tmp, false); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(tmp, "opencode.json"))
+	var kept map[string]any
+	json.Unmarshal(raw, &kept)
+	if kept["model"] == nil || !strings.Contains(string(raw), `"fetch"`) {
+		t.Fatalf("clear broke others: %s", raw)
+	}
+	if level, _ = permissionLevel(tmp); level != "full" {
+		t.Fatalf("level %q after clearing", level)
+	}
+
+	// A folder without a config grows one; unreadable JSON refuses.
+	empty := t.TempDir()
+	if err := setPermissionAsk(empty, true); err != nil {
+		t.Fatal(err)
+	}
+	if level, _ = permissionLevel(empty); level != "ask" {
+		t.Fatalf("fresh config level %q", level)
+	}
+	bad := t.TempDir()
+	os.WriteFile(filepath.Join(bad, "opencode.json"), []byte("{\n  // a thought\n}"), 0644)
+	if _, err := permissionLevel(bad); err == nil {
+		t.Fatal("an unreadable config read fine")
+	}
+	if err := setPermissionAsk(bad, true); err == nil {
+		t.Fatal("the unreadable config was overwritten")
+	}
+}
+
+// TestPermissionPill shows the workspace's shell policy in the composer
+// and moves it through the same file.
+func TestPermissionPill(t *testing.T) {
+	tmp := t.TempDir()
+	os.WriteFile(filepath.Join(tmp, "opencode.json"),
+		[]byte(`{"permission":{"bash":{"*":"ask"}}}`), 0644)
+	a := newApp()
+	a.sessionsLoaded = true
+	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.selectedSession = "ses_z"
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Asks first") {
+		t.Fatalf("pill missed the ask state: %v", tt.Texts())
+	}
+	a.setAsk(false)
+	tt = ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Full access") || tt.HasText("Asks first") {
+		t.Fatalf("pill stuck on ask: %v", tt.Texts())
+	}
+	a.setAsk(true)
+	if level, _ := permissionLevel(tmp); level != "ask" {
+		t.Fatalf("the pill did not write the rule back: %q", level)
+	}
+}
+
 func TestLiveAgent(t *testing.T) {
 	if os.Getenv("WADA_LIVE_AGENT") == "" {
 		t.Skip("set WADA_LIVE_AGENT=1 to run against a real opencode server")

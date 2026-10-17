@@ -317,6 +317,19 @@ func (a *app) selectedRow() (agentSession, bool) {
 	return agentSession{}, false
 }
 
+// setAsk moves the shell policy of the chat's folder in the workspace
+// config; the note lands in the transcript when the file refuses.
+func (a *app) setAsk(ask bool) {
+	dir := a.chatDir()
+	if dir == "" {
+		dir = workdir()
+	}
+	if err := setPermissionAsk(dir, ask); err != nil {
+		why := err.Error()
+		a.streamLine("The shell policy did not change: " + why)
+	}
+}
+
 // requestRename opens the rename dialog for one conversation.
 func (a *app) requestRename(s agentSession) {
 	a.renameSid = s.id

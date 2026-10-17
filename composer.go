@@ -134,15 +134,36 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	})
 }
 
-// fullAccessButton shows what the session's permission level is.
+// fullAccessButton shows how shell actions run in the chat's folder and
+// moves the policy between ask-first and open through the workspace
+// config the server watches.
 func (a *app) fullAccessButton(c *ui.Context, p palette) {
-	b := ui.ButtonBase(c).Label("Full access").Height(28).Radius(999).PaddingX(10).Tooltip("Session runs with full access")
+	dir := a.chatDir()
+	if dir == "" {
+		dir = workdir()
+	}
+	label := "Full access"
+	if level, err := permissionLevel(dir); err != nil || level == "ask" {
+		// A config the app cannot read leans to the safe name.
+		label = "Asks first"
+	}
+	b := ui.ButtonBase(c).Label(label).Height(28).Radius(999).PaddingX(10).
+		Tooltip("How shell actions run in " + dirBase(dir)).
+		Menu(func(m *ui.Menu) {
+			if m.Item("Asks first").Chosen() {
+				a.setAsk(true)
+			}
+			m.Separator()
+			if m.Item("Full access").Chosen() {
+				a.setAsk(false)
+			}
+		})
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
 	b.Children(func() {
 		ui.Icon(c, icShield).FontSize(15).TextColor(p.orange)
-		ui.Text(c, "Full access").MarginStart(6).FontSize(13).FontWeight(500).TextColor(p.orange).SingleLine()
+		ui.Text(c, label).MarginStart(6).FontSize(13).FontWeight(500).SingleLine()
 	})
 }
 

@@ -4,12 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 	"unsafe"
 )
+
+func TestPolicyRefreshesOutsideEdits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dirs := make(chan string, 1)
+	writes := make(chan policyChange, 1)
+	updates := make(chan policyResult, 4)
+	go watchPolicy(ctx, dirs, writes, func(result policyResult) { updates <- result })
+	dir := t.TempDir()
+	want := func(level string) {
+		t.Helper()
+		select {
+		case result := <-updates:
+			if result.dir != dir || result.level != level || result.err != nil {
+				t.Fatalf("policy: %+v, want %s", result, level)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("policy refresh did not arrive")
+		}
+	}
+	dirs <- dir
+	want("full")
+	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(`{"permission":{"bash":{"*":"ask"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	want("ask")
+	// Returning to the same directory still needs to fill a reset cache.
+	dirs <- dir
+	want("ask")
+	if err := os.Remove(filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	want("full")
+}
 
 func TestSearchCancelsObsoleteLookup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

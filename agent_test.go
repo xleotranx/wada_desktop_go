@@ -1241,16 +1241,32 @@ func TestPermissionPill(t *testing.T) {
 	a.sessionsLoaded = true
 	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	updates := make(chan policyResult, 8)
+	go watchPolicy(ctx, a.policyDirs, a.policyWrites, func(result policyResult) { updates <- result })
+	settle := func() {
+		t.Helper()
+		select {
+		case result := <-updates:
+			a.acceptPolicy(result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("policy worker did not reply")
+		}
+	}
 	tt := ui.NewTester(a.view, 1400, 920)
+	settle()
 	if !tt.HasText("Asks first") {
 		t.Fatalf("pill missed the ask state: %v", tt.Texts())
 	}
 	a.setAsk(false)
+	settle()
 	tt = ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Full access") || tt.HasText("Asks first") {
 		t.Fatalf("pill stuck on ask: %v", tt.Texts())
 	}
 	a.setAsk(true)
+	settle()
 	if level, _ := permissionLevel(tmp); level != "ask" {
 		t.Fatalf("the pill did not write the rule back: %q", level)
 	}

@@ -572,6 +572,13 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 	// The server dies with the window, even while startAgent is still
 	// bringing it up.
 	win.OnClosed(func() { cancel() })
+	go watchPolicy(ctx, a.policyDirs, a.policyWrites, func(result policyResult) {
+		win.Update(func() {
+			if ctx.Err() == nil {
+				a.acceptPolicy(result)
+			}
+		})
+	})
 
 	var last *agent
 	booted := false // the first refill settles onto the newest chat; later ones keep the view where it is

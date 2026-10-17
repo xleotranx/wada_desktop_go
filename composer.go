@@ -47,7 +47,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 func (a *app) folderChip(c *ui.Context, p palette) {
 	dir := a.chatDir()
 	if dir == "" {
-		dir = workdir()
+		dir = a.home
 	}
 	b := ui.ButtonBase(c).Label("Workspace folder, " + dirBase(dir)).Height(28).Radius(999).
 		PaddingX(10).Cursor(ui.CursorPointer).Tooltip("This chat works in " + dir + ". Start a new chat somewhere else?")
@@ -150,11 +150,12 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	dir := a.chatDir()
 	if dir == "" {
-		dir = workdir()
+		dir = a.home
 	}
+	a.watchWorkspacePolicy(dir)
 	label := "Full access"
-	if level, err := permissionLevel(dir); err != nil || level == "ask" {
-		// A config the app cannot read leans to the safe name.
+	if a.policyLevel != "full" {
+		// A policy not yet read, or unreadable, leans to the safe name.
 		label = "Asks first"
 	}
 	b := ui.ButtonBase(c).Label(label).Height(28).Radius(999).PaddingX(10).

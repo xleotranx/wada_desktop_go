@@ -27,6 +27,11 @@ type block struct {
 type app struct {
 	selected string
 	sidebarW float32
+	home     string
+
+	policyDir, policyLevel string
+	policyDirs             chan string
+	policyWrites           chan policyChange
 
 	// expanded holds collapsible lines ("activity:…").
 	expanded map[string]bool
@@ -104,16 +109,19 @@ type app struct {
 func newApp() *app {
 	a := &app{
 		sidebarW: 340,
+		home:     workdir(),
 		expanded: map[string]bool{},
 		blocks:   []block{},
 
-		jobs:       make(chan agentJob, 16),
-		live:       map[string]int{},
-		toolNames:  map[string]string{},
-		toolCmds:   map[string]string{},
-		toolBlocks: map[string]int{},
-		pending:    map[string]*agentPerm{},
-		searches:   make(chan searchRequest, 1),
+		jobs:         make(chan agentJob, 16),
+		live:         map[string]int{},
+		toolNames:    map[string]string{},
+		toolCmds:     map[string]string{},
+		toolBlocks:   map[string]int{},
+		pending:      map[string]*agentPerm{},
+		searches:     make(chan searchRequest, 1),
+		policyDirs:   make(chan string, 1),
+		policyWrites: make(chan policyChange, 16),
 	}
 	return a
 }
@@ -338,11 +346,12 @@ func (a *app) selectedRow() (agentSession, bool) {
 func (a *app) setAsk(ask bool) {
 	dir := a.chatDir()
 	if dir == "" {
-		dir = workdir()
+		dir = a.home
 	}
-	if err := setPermissionAsk(dir, ask); err != nil {
-		why := err.Error()
-		a.streamLine("The shell policy did not change: " + why)
+	select {
+	case a.policyWrites <- policyChange{dir: dir, ask: ask}:
+	default:
+		a.streamLine("The shell policy is still being updated. Try again shortly.")
 	}
 }
 

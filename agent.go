@@ -440,7 +440,11 @@ func toolDetailLines(run toolRun) []string {
 	if len(out) > 6 {
 		out = out[len(out)-6:]
 	}
-	lines = append(lines, out...)
+	// Split lines still point into the complete output. Keep only the
+	// small strings the collapsed activity may eventually show.
+	for _, line := range out {
+		lines = append(lines, strings.Clone(line))
+	}
 	if run.exit != 0 {
 		lines = append(lines, fmt.Sprintf("exit %d", run.exit))
 	}
@@ -813,6 +817,7 @@ func (a *app) finishCutTurns() {
 	for i := range a.blocks {
 		if a.blocks[i].kind == "stream" {
 			a.blocks[i].kind = "text"
+			a.blocks[i].stream = nil
 			if strings.TrimSpace(a.blocks[i].text) == "" {
 				a.blocks[i].text = "(the answer was cut short)"
 			}
@@ -1069,7 +1074,13 @@ func (a *app) apply(ev agentEvent) {
 			return
 		}
 		if idx, ok := a.live[d.MessageID+":"+strconv.Itoa(d.Ordinal)]; ok {
-			a.blocks[idx].text += d.Delta
+			b := &a.blocks[idx]
+			if b.stream == nil {
+				b.stream = &strings.Builder{}
+				b.stream.WriteString(b.text)
+			}
+			b.stream.WriteString(d.Delta)
+			b.text = b.stream.String()
 		}
 	case "session.text.ended":
 		var d evTextData

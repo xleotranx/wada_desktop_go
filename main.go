@@ -20,6 +20,7 @@ type block struct {
 	key    string                         // key into app.expanded for collapsible lines
 	detail func(c *ui.Context, p palette) // drawn below the line once expanded
 	req    *agentPerm                     // the approval request a permission card carries
+	stream *strings.Builder               // amortized storage while text deltas arrive
 }
 
 // app is the state the window shows.

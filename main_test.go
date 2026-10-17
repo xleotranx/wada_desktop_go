@@ -17,19 +17,18 @@ func TestView(t *testing.T) {
 	a := newApp()
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	// The interface starts clean: an empty transcript waiting for the
-	// boot, the search field over the store and no demo furniture.
+	// The interface starts clean, with Codex navigation and workspace
+	// tools around an empty transcript waiting for the boot.
 	if a.selected != "" || len(a.blocks) != 0 {
 		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.blocks))
 	}
-	if !tt.HasText("What should we work on?") || !tt.HasText("Recents") {
+	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
+		!tt.HasText("Pinned") || !tt.HasText("Projects") || !tt.HasText("Recents") ||
+		!tt.HasText("Tools") || !tt.HasText("Suggested") {
 		t.Fatalf("bare interface missing: %v", tt.Texts())
 	}
-	if !tt.HasText("Search chats") {
-		t.Fatalf("search field missing: %v", tt.Texts())
-	}
-	for _, gone := range []string{"Pinned", "Projects", "Homework",
-		"Compare OpenCode dev bot options", "wada_pi_webapp", "Nightly digest job"} {
+	for _, gone := range []string{"Homework",
+		"Compare OpenCode dev bot options", "Nightly digest job"} {
 		if tt.HasText(gone) {
 			t.Fatalf("demo furniture %q still shown: %v", gone, tt.Texts())
 		}

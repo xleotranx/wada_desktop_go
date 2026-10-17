@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// composer is the field the user works with ChatGPT in, over the
+// composer is the field the user works with Codex in, over the
 // transcript's foot.
 func (a *app) composer(c *ui.Context, p palette) {
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
@@ -18,7 +18,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 		card.Children(func() {
 			// The draft itself: Enter sends, Shift+Enter breaks the line.
 			ui.TextAreaBase(c, &a.draft).Label("Compose").
-				Placeholder("Work with ChatGPT").FontSize(14).LineHeight(1.5).
+				Placeholder("Work with Codex").FontSize(14).LineHeight(1.5).
 				Padding(4, 8).Lines(1, 7).
 				OnTextKey(func(k ui.TextKey) bool {
 					if k.Key == ui.KeyEnter && k.Mods == 0 {
@@ -33,31 +33,11 @@ func (a *app) composer(c *ui.Context, p palette) {
 				attach := a.composeIconButton(c, p, "Attach", icPlus)
 				attach.OnClick(a.openAttachDialog)
 				a.fullAccessButton(c, p)
-				a.folderChip(c, p)
 				ui.Spacer(c)
 				a.modelButton(c, p)
 				a.voiceButton(c, p)
 			})
 		})
-	})
-}
-
-// folderChip shows where the chat works; clicking it starts a new chat
-// in another folder.
-func (a *app) folderChip(c *ui.Context, p palette) {
-	dir := a.chatDir()
-	if dir == "" {
-		dir = a.home
-	}
-	b := ui.ButtonBase(c).Label("Workspace folder, " + dirBase(dir)).Height(28).Radius(999).
-		PaddingX(10).Cursor(ui.CursorPointer).Tooltip("This chat works in " + dir + ". Start a new chat somewhere else?")
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.OnClick(a.openFolderDialog)
-	b.Children(func() {
-		ui.Icon(c, icFolder).FontSize(13).TextColor(p.muted)
-		ui.Text(c, dirBase(dir)).MarginStart(5).FontSize(13).TextColor(p.text).SingleLine()
 	})
 }
 

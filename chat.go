@@ -31,8 +31,7 @@ func (a *app) prepareMarkdown(p palette) {
 	a.md.ShareSelection = true
 }
 
-// contentPane draws the right column: the title bar of the chat, its
-// transcript and the composer.
+// contentPane draws the conversation title, transcript and composer.
 func (a *app) contentPane(c *ui.Context, p palette, headerH float32) {
 	a.prepareMarkdown(p)
 	ui.Column(c).Grow(1).Background(p.bg).Children(func() {
@@ -126,8 +125,7 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 	if title == "" {
 		title = "New chat"
 	}
-	dir := a.chatDir()
-	icon := icFileDoc
+	icon := icFolder
 	if title == "New chat" {
 		icon = icPen
 	}
@@ -155,10 +153,6 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 			ui.Row(c).AlignItems(ui.Center).Gap(0).Children(func() {
 				ui.Icon(c, icon).FontSize(15).TextColor(p.muted)
 				ui.Text(c, title).MarginStart(8).FontSize(13).FontWeight(500).SingleLine()
-				// The chip shows where the chat works while it works there.
-				if dir != "" {
-					ui.Text(c, dirBase(dir)).MarginStart(8).FontSize(12).TextColor(p.muted).SingleLine()
-				}
 			})
 		})
 
@@ -186,8 +180,6 @@ func (a *app) titleBar(c *ui.Context, p palette, headerH float32) {
 			options.Children(func() {
 				ui.Icon(c, icEllipsis).FontSize(17).TextColor(p.muted)
 			})
-			ui.Box(c).Width(1).Height(18).MarginX(6).Background(p.hairline)
-			a.navButton(c, p, "New chat", icPlus, a.startNewChat, ui.Hex("#3572e3"))
 		})
 	})
 }

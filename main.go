@@ -29,6 +29,20 @@ type app struct {
 	selected string
 	sidebarW float32
 	home     string
+	projects []string
+
+	// Navigation and pinned chats belong to the Codex sidebar, while the
+	// browser history and active tool belong to the native right pane.
+	sidebarCollapsed bool
+	selectedRail     string
+	projectsExpanded bool
+	pinned           map[string]bool
+	searchOpen       bool
+	browserAddress   string
+	browserPage      string
+	browserTool      string
+	browserHistory   []string
+	browserHistoryAt int
 
 	policyDir, policyLevel string
 	policyDirs             chan string
@@ -105,12 +119,17 @@ type app struct {
 }
 
 func newApp() *app {
+	home := workdir()
 	a := &app{
-		sidebarW: 340,
-		home:     workdir(),
-		expanded: map[string]bool{},
-		blocks:   []block{},
-		feed:     ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
+		sidebarW:         320,
+		home:             home,
+		projects:         discoverProjects(home),
+		selectedRail:     "home",
+		pinned:           map[string]bool{},
+		browserHistoryAt: -1,
+		expanded:         map[string]bool{},
+		blocks:           []block{},
+		feed:             ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
 
 		jobs:         make(chan agentJob, 16),
 		live:         map[string]int{},
@@ -142,23 +161,27 @@ func (a *app) reviseSearch() {
 	a.searches <- searchRequest{text: a.searchText, version: a.searchVersion}
 }
 
-// view lays the window out: a sidebar, a hairline beside it and the
-// transcript of the chosen chat, with the composer at its foot.
+// view lays the Codex rail, workspace sidebar, conversation and tools pane
+// out under one aligned title strip.
 func (a *app) view(c *ui.Context) {
 	p := paletteFor(c)
 	bar := c.TitleBar()
 	// The window controls are centered in a strip of bar.Height, so the
-	// top rows take the same height: traffic lights, nav buttons and
-	// the chat title share one center line.
+	// app switcher, chat title and tools toolbar share their center line.
 	headerH := bar.Height
 	if headerH < 48 {
 		headerH = 48
 	}
 
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
-		a.sidebarPane(c, p, bar, headerH)
-		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+		a.navRail(c, p, headerH)
+		if !a.sidebarCollapsed {
+			a.sidebarPane(c, p, headerH)
+			ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+		}
 		a.contentPane(c, p, headerH)
+		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
+		a.browserPane(c, p, headerH)
 	})
 	a.folderModal(c, p)
 	a.attachModal(c, p)
@@ -169,11 +192,11 @@ func main() {
 	a := newApp()
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "Wada",
-			Width:     1400,
-			Height:    920,
-			MinWidth:  980,
-			MinHeight: 640,
+			Title:     "Codex",
+			Width:     1600,
+			Height:    1000,
+			MinWidth:  1120,
+			MinHeight: 700,
 			// The window draws its own title bar under the traffic lights.
 			TitleBarStyle: mygo.TitleBarHidden,
 			// Center the traffic lights in the header: the close button
@@ -287,10 +310,12 @@ func (a *app) startChatIn(path string) {
 		a.dirNote = err.Error()
 		return
 	}
-	a.dirOpen = false
 	select {
 	case a.jobs <- agentJob{kind: "new", dir: clean}:
+		a.dirOpen = false
+		a.addProject(clean)
 	default:
+		a.dirNote = "The agent is busy. Try again shortly."
 	}
 }
 

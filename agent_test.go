@@ -1163,6 +1163,38 @@ func TestPermissionPill(t *testing.T) {
 	}
 }
 
+// TestFinishCutTurns settles what a torn pipe leaves: the half-said
+// answers stand as their words, asks and the spinning stop release.
+func TestFinishCutTurns(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.busySession = "ses_z"
+	a.blocks = []block{
+		{kind: "text", text: "Earlier answer"},
+		{kind: "stream", text: "half of an answer"},
+		{kind: "stream", text: ""},
+	}
+	a.live["ses:part"] = 1
+	a.pending["req_1"] = &agentPerm{}
+	a.finishCutTurns()
+
+	var text []string
+	for _, b := range a.blocks {
+		if b.kind == "stream" {
+			t.Fatalf("a line still streams: %+v", a.blocks)
+		}
+		if b.kind == "text" {
+			text = append(text, b.text)
+		}
+	}
+	if strings.Join(text, "|") != "Earlier answer|half of an answer|(the answer was cut short)" {
+		t.Fatalf("settled %q", text)
+	}
+	if a.busySession != "" || len(a.live) != 0 || len(a.pending) != 0 {
+		t.Fatalf("state stuck: busy %q live %v pend %v", a.busySession, a.live, a.pending)
+	}
+}
+
 func TestLiveAgent(t *testing.T) {
 	if os.Getenv("WADA_LIVE_AGENT") == "" {
 		t.Skip("set WADA_LIVE_AGENT=1 to run against a real opencode server")

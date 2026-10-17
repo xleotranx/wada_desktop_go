@@ -559,7 +559,9 @@ type agentJob struct {
 
 // connect runs the pipe for one app lifetime: spawn the server, subscribe
 // to its events and then take jobs and stream events in, one task at a
-// time between frames.
+// time between frames. The server going down ends one attempt, not the
+// session: the pipe respawns with a stretch of waiting between tries,
+// for as long as the window lives.
 func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -567,191 +569,257 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob) {
 	// bringing it up.
 	win.OnClosed(func() { cancel() })
 
-	ag, err := startAgent(ctx, workdir())
-	if err != nil {
-		why := err.Error()
-		win.Update(func() { a.streamLine("Agent not connected: " + why) })
-		return
-	}
-
-	// The stream feeds straight into Update; helpers fill the sidebar
-	// from the stored conversations while the loop runs.
-	done := make(chan error, 1)
-	go func() {
-		done <- ag.events(ctx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
-	}()
-	go func() {
-		ls, nxt, lerr := ag.listSessions(ctx, "", "")
-		win.Update(func() { a.settleBoot(ls, nxt, lerr) })
-	}()
-	go func() {
-		ms, merr := ag.listModels(ctx)
-		win.Update(func() {
-			if merr == nil {
-				a.models = ms
+	var last *agent
+	booted := false // the first refill settles onto the newest chat; later ones keep the view where it is
+	for reconnect := 0; ; reconnect++ {
+		if last != nil {
+			// The seat the server sat in frees itself for the next one,
+			// in case the process lingers while its stream died.
+			last.cmd.Process.Kill()
+		}
+		if reconnect > 0 {
+			// Jobs queued while the pipe heals replay against the
+			// respawned server; the asks of a dead one are gone.
+			win.Update(func() {
+				a.finishCutTurns()
+				a.streamLine("The agent went down; reconnecting…")
+			})
+			wait := []time.Duration{time.Second, 3 * time.Second, 7 * time.Second, 15 * time.Second}
+			if reconnect-1 < len(wait) {
+				wait = wait[reconnect-1:]
 			} else {
-				why := merr.Error()
-				a.streamLine("The model list did not load: " + why)
+				wait = wait[len(wait)-1:]
 			}
-			a.modelsLoaded = true
-		})
-	}()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait[0]):
+			}
+		}
+		ag, err := startAgent(ctx, workdir())
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			why := err.Error()
+			win.Update(func() { a.streamLine("The agent would not come up: " + why) })
+			last = nil // nothing to free
+			continue
+		}
+		last = ag
 
-	// sid is a conversation created here, reused until the UI learns of
-	// it from its own update.
-	var sid string
-	// pend is a model picked while nothing was open: it waits for the
-	// next conversation open creates.
-	var pend agentJob
-	// open brings a fresh conversation up under the app's free model,
-	// working in the directory asked for; a model ref refusing to set does
-	// not stop the turn.
-	open := func(dir string) bool {
-		nid, ref, nerr := ag.createSession(ctx, dir)
-		if nerr != nil {
-			why := nerr.Error()
-			win.Update(func() { a.streamLine("The agent did not open a chat: " + why) })
-			return false
-		}
-		if perr := ag.pickModel(ctx, nid); perr != nil {
-			why := perr.Error()
-			win.Update(func() { a.streamLine("The app's model was not set, running the config's: " + why) })
-		}
-		// A model picked while nothing was open applies to this new
-		// conversation instead of the default.
-		if pend.kind != "" {
-			if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
-				why := perr.Error()
-				win.Update(func() { a.streamLine("The model did not switch: " + why) })
-			}
-			pend = agentJob{}
-			ref = agentModelRef{providerID: pend.provider, id: pend.model, variant: pend.variant}
-		}
-		sid = nid
-		home := dir
-		if home == "" {
-			home = workdir()
-		}
-		win.Update(func() {
-			a.selectedSession = sid
-			// The untitled row stands at the top; its title fills in
-			// over the stream once words run.
-			a.sessions = append([]agentSession{{id: sid, dir: home, model: ref}}, a.sessions...)
-		})
-		return true
-	}
-	alive := true
-	for alive {
-		select {
-		case <-done:
-			alive = false
-		case job := <-jobs:
-			switch job.kind {
-			case "open":
-				msgs, oerr := ag.sessionMessages(ctx, job.sid)
-				if oerr != nil {
-					why := oerr.Error()
-					win.Update(func() { a.streamLine("Could not open that conversation: " + why) })
-					continue
+		// The stream feeds straight into Update; helpers fill the sidebar
+		// from the stored conversations while the loop runs.
+		done := make(chan error, 1)
+		go func() {
+			done <- ag.events(ctx, func(ev agentEvent) { win.Update(func() { a.apply(ev) }) })
+		}()
+		go func() {
+			ls, nxt, lerr := ag.listSessions(ctx, "", "")
+			win.Update(func() {
+				if !booted {
+					a.settleBoot(ls, nxt, lerr)
+					booted = true
+					return
 				}
-				win.Update(func() {
-					a.freshTranscript()
-					a.blocks = restoreBlocks(msgs)
-					a.selectedSession = job.sid
-				})
-			case "new":
-				if sid == "" && !open(job.dir) {
-					continue
+				// A refill keeps what the user was reading: the list
+				// lands, the transcript stays.
+				if lerr == nil {
+					a.sessions = dedupeSessions(a.sessions, ls)
+					a.nextCursor = nxt
 				}
-			case "stop":
-				who := job.sid
-				if who == "" {
-					who = sid
-				}
-				if who == "" {
-					continue
-				}
-				if serr := ag.interrupt(ctx, who); serr != nil {
-					why := serr.Error()
-					win.Update(func() { a.streamLine("The turn refused to stop: " + why) })
-				}
-			case "answer":
-				if aerr := ag.replyPermission(ctx, job.sid, job.request, job.decision); aerr != nil {
-					why := aerr.Error()
-					win.Update(func() { a.streamLine("The approval did not go through: " + why) })
-					continue
-				}
-				win.Update(func() { a.dropPerm(job.request) })
-			case "rename":
-				if rerr := ag.renameSession(ctx, job.sid, job.text); rerr != nil {
-					why := rerr.Error()
-					win.Update(func() { a.streamLine("The rename did not take: " + why) })
-				}
-				// The new title folds in over the session.renamed event.
-			case "delete":
-				if derr := ag.deleteSession(ctx, job.sid); derr != nil {
-					why := derr.Error()
-					win.Update(func() { a.streamLine("The chat did not delete: " + why) })
-					continue
-				}
-				win.Update(func() { a.dropSession(job.sid) })
-			case "more":
-				rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
-				win.Update(func() {
-					if merr == nil {
-						a.sessions = dedupeSessions(a.sessions, rows)
-						a.nextCursor = cur
-					} else {
-						why := merr.Error()
-						a.streamLine("The older chats did not load: " + why)
-					}
-					a.moreLoading = false
-				})
-			case "search":
-				rows, _, serr := ag.listSessions(ctx, "", job.text)
-				win.Update(func() {
-					// The field may have moved on; stale results go
-					// nowhere.
-					if a.searchText == job.text {
-						a.searchLoading = false
-						if serr == nil {
-							a.searchResults = rows
-						} else {
-							why := serr.Error()
-							a.searchResults = nil
-							a.streamLine("The search did not run: " + why)
-						}
-					}
-				})
-			case "model":
-				who := job.sid
-				if who == "" {
-					who = sid
-				}
-				if who == "" {
-					pend = job
-					continue
-				}
-				if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
+				a.sessionsLoaded = true
+			})
+		}()
+		go func() {
+			ms, merr := ag.listModels(ctx)
+			win.Update(func() {
+				if merr == nil {
+					a.models = ms
+				} else {
 					why := merr.Error()
+					a.streamLine("The model list did not load: " + why)
+				}
+				a.modelsLoaded = true
+			})
+		}()
+
+		// sid is a conversation created here, reused until the UI learns of
+		// it from its own update.
+		var sid string
+		// pend is a model picked while nothing was open: it waits for the
+		// next conversation open creates.
+		var pend agentJob
+		// open brings a fresh conversation up under the app's free model,
+		// working in the directory asked for; a model ref refusing to set does
+		// not stop the turn.
+		open := func(dir string) bool {
+			nid, ref, nerr := ag.createSession(ctx, dir)
+			if nerr != nil {
+				why := nerr.Error()
+				win.Update(func() { a.streamLine("The agent did not open a chat: " + why) })
+				return false
+			}
+			if perr := ag.pickModel(ctx, nid); perr != nil {
+				why := perr.Error()
+				win.Update(func() { a.streamLine("The app's model was not set, running the config's: " + why) })
+			}
+			// A model picked while nothing was open applies to this new
+			// conversation instead of the default.
+			if pend.kind != "" {
+				if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
+					why := perr.Error()
 					win.Update(func() { a.streamLine("The model did not switch: " + why) })
 				}
-				// The switch folds back over session.model.selected.
-			default: // "prompt"
-				target := job.sid
-				if target == "" {
+				ref = agentModelRef{providerID: pend.provider, id: pend.model, variant: pend.variant}
+				pend = agentJob{}
+			}
+			sid = nid
+			home := dir
+			if home == "" {
+				home = workdir()
+			}
+			win.Update(func() {
+				a.selectedSession = sid
+				// The untitled row stands at the top; its title fills in
+				// over the stream once words run.
+				a.sessions = append([]agentSession{{id: sid, dir: home, model: ref}}, a.sessions...)
+			})
+			return true
+		}
+		alive := true
+		for alive {
+			select {
+			case <-done:
+				alive = false
+			case job := <-jobs:
+				switch job.kind {
+				case "open":
+					msgs, oerr := ag.sessionMessages(ctx, job.sid)
+					if oerr != nil {
+						why := oerr.Error()
+						win.Update(func() { a.streamLine("Could not open that conversation: " + why) })
+						continue
+					}
+					win.Update(func() {
+						a.freshTranscript()
+						a.blocks = restoreBlocks(msgs)
+						a.selectedSession = job.sid
+					})
+				case "new":
 					if sid == "" && !open(job.dir) {
 						continue
 					}
-					target = sid
-				}
-				if perr := ag.prompt(ctx, target, job.text); perr != nil {
-					why := perr.Error()
-					win.Update(func() { a.streamLine("The agent could not take that: " + why) })
+				case "stop":
+					who := job.sid
+					if who == "" {
+						who = sid
+					}
+					if who == "" {
+						continue
+					}
+					if serr := ag.interrupt(ctx, who); serr != nil {
+						why := serr.Error()
+						win.Update(func() { a.streamLine("The turn refused to stop: " + why) })
+					}
+				case "answer":
+					if aerr := ag.replyPermission(ctx, job.sid, job.request, job.decision); aerr != nil {
+						why := aerr.Error()
+						win.Update(func() { a.streamLine("The approval did not go through: " + why) })
+						continue
+					}
+					win.Update(func() { a.dropPerm(job.request) })
+				case "rename":
+					if rerr := ag.renameSession(ctx, job.sid, job.text); rerr != nil {
+						why := rerr.Error()
+						win.Update(func() { a.streamLine("The rename did not take: " + why) })
+					}
+					// The new title folds in over the session.renamed event.
+				case "delete":
+					if derr := ag.deleteSession(ctx, job.sid); derr != nil {
+						why := derr.Error()
+						win.Update(func() { a.streamLine("The chat did not delete: " + why) })
+						continue
+					}
+					win.Update(func() { a.dropSession(job.sid) })
+				case "more":
+					rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
+					win.Update(func() {
+						if merr == nil {
+							a.sessions = dedupeSessions(a.sessions, rows)
+							a.nextCursor = cur
+						} else {
+							why := merr.Error()
+							a.streamLine("The older chats did not load: " + why)
+						}
+						a.moreLoading = false
+					})
+				case "search":
+					rows, _, serr := ag.listSessions(ctx, "", job.text)
+					win.Update(func() {
+						// The field may have moved on; stale results go
+						// nowhere.
+						if a.searchText == job.text {
+							a.searchLoading = false
+							if serr == nil {
+								a.searchResults = rows
+							} else {
+								why := serr.Error()
+								a.searchResults = nil
+								a.streamLine("The search did not run: " + why)
+							}
+						}
+					})
+				case "model":
+					who := job.sid
+					if who == "" {
+						who = sid
+					}
+					if who == "" {
+						pend = job
+						continue
+					}
+					if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
+						why := merr.Error()
+						win.Update(func() { a.streamLine("The model did not switch: " + why) })
+					}
+					// The switch folds back over session.model.selected.
+				default: // "prompt"
+					target := job.sid
+					if target == "" {
+						if sid == "" && !open(job.dir) {
+							continue
+						}
+						target = sid
+					}
+					if perr := ag.prompt(ctx, target, job.text); perr != nil {
+						why := perr.Error()
+						win.Update(func() { a.streamLine("The agent could not take that: " + why) })
+					}
 				}
 			}
 		}
+		// The window is gone, or the stream died with the app quitting.
+		if ctx.Err() != nil {
+			return
+		}
 	}
+}
+
+// finishCutTurns settles what still streamed when the pipe tears: the
+// partial words stand as the answer they were, asks and spins release.
+func (a *app) finishCutTurns() {
+	for i := range a.blocks {
+		if a.blocks[i].kind == "stream" {
+			a.blocks[i].kind = "text"
+			if strings.TrimSpace(a.blocks[i].text) == "" {
+				a.blocks[i].text = "(the answer was cut short)"
+			}
+		}
+	}
+	a.live = map[string]int{}
+	a.busySession = ""
+	a.pending = map[string]*agentPerm{}
 }
 
 // streamLine appends a faint line to the transcript, the way the live

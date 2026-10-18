@@ -231,19 +231,19 @@ func (a *app) serverPill(c *ui.Context, p palette) {
 	c.Key("server-pill")
 	pill := ui.ButtonBase(c).Label("Server menu, "+s.name).Height(26).Radius(8).Padding(0, 8).
 		Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
-			for _, other := range a.servers {
-				item := m.Item(other.name)
-				if other.id == a.activeServer {
-					item.Disabled(true)
-				} else if item.Chosen() {
-					a.useServer(other.id)
-				}
+		for _, other := range a.servers {
+			item := m.Item(other.name)
+			if other.id == a.activeServer {
+				item.Disabled(true)
+			} else if item.Chosen() {
+				a.useServer(other.id)
 			}
-			m.Separator()
-			if m.Item("Server settings…").Chosen() {
-				a.openSettings(tabServers)
-			}
-		})
+		}
+		m.Separator()
+		if m.Item("Server settings…").Chosen() {
+			a.openSettings(tabServers)
+		}
+	})
 	if pill.Hovered() {
 		pill.Background(p.hover)
 	}

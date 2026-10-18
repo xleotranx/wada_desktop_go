@@ -391,6 +391,22 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 	}
 }
 
+// TestSwitchServerDropsTheDraftFolder: a draft pointed at one server's
+// folder does not carry it to the next — the folder belongs to the lists
+// of one server, and the next has never heard of it; naming it there
+// would file it a phantom project.
+func TestSwitchServerDropsTheDraftFolder(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://127.0.0.1:4096"})
+	a.activeServer = localServerID
+	a.projects = []string{"/Users/me/app"}
+	a.draftProject = "/Users/me/app"
+	a.useServer("srv-box")
+	if a.draftProject != "" {
+		t.Fatalf("the draft's folder crossed the switch: %q", a.draftProject)
+	}
+}
+
 // TestRemoteServerListsItsProjects shows a remote server's folders as the
 // picker's and the sidebar's projects, with nothing of this machine to
 // add, while the local server keeps composing its list from the folders
@@ -399,6 +415,10 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 	a := newApp()
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.activeServer = "srv-box"
+	// A folder of this machine the user added while the local server was
+	// on stays out of the remote lists: the picker offers nothing to
+	// start a server chat in, and the sidebar carries no dead row.
+	a.addProject(filepath.Join(t.TempDir(), "only-local"))
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_remote", title: "Remote wiring", dir: "/srv/app"}}
 	a.scope().projects = []string{"/srv/app", "/srv/docs"}
@@ -406,6 +426,9 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Use project app") || !tt.HasText("Use project docs") {
 		t.Fatalf("the server's projects are not all offered: %v", tt.Texts())
+	}
+	if tt.HasText("Use project only-local") || tt.HasText("Hide chats in only-local") {
+		t.Fatalf("a folder of this machine mixed into a remote server's rows: %v", tt.Texts())
 	}
 	if tt.HasText("New project…") {
 		t.Fatal("a remote server offered to browse this machine's folders")
@@ -437,11 +460,15 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 		t.Fatalf("the projects section read wrong: %v", tt.Texts())
 	}
 
-	// The local server composes its list out of added folders.
+	// The local server composes its list out of added folders, and the
+	// folder this machine keeps comes back into both lists.
 	a.activeServer = localServerID
 	a.projectFilter = ""
 	tt.Frame()
 	if !tt.HasText("New project…") {
 		t.Fatalf("the local server lost the way to add a folder: %v", tt.Texts())
+	}
+	if !tt.HasText("Use project only-local") {
+		t.Fatalf("the local folder missed its row: %v", tt.Texts())
 	}
 }

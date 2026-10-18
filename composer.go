@@ -115,12 +115,15 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 // config the server watches.
 func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	dir := a.chatDir()
-	if dir == "" {
-		dir = a.home
-	}
 	if a.localActive() {
+		if dir == "" {
+			dir = a.home
+		}
 		a.watchWorkspacePolicy(dir)
-	} else {
+	} else if dir != "" {
+		// A server workspace is only named once the chat has one: the
+		// folder tilde of this machine is none of the server's business,
+		// and naming it would file the server a phantom project.
 		a.watchServerPolicy(dir)
 	}
 	label := "Full access"

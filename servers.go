@@ -247,6 +247,9 @@ func (a *app) useServer(id string) {
 		// The app runs its own server only while it is the active one.
 		a.setHealth(old, serverHealth{status: healthStopped})
 	}
+	// The draft's folder belongs to the server's list-world: carried over,
+	// it would speak for a folder the next server has never heard of.
+	a.draftProject = ""
 	a.reconnect()
 	a.saveState()
 }

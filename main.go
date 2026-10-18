@@ -483,6 +483,9 @@ func main() {
 					win.Update(func() { a.openSettings(tab) })
 					wait = 6 * time.Second // the catalog fills in behind the page
 				}
+				if _, remote := os.LookupEnv("WADA_CAPTURE_WAIT"); remote {
+					wait = 8 * time.Second // a quiet server takes its dial
+				}
 				time.AfterFunc(wait, func() {
 					win.Update(func() {
 						if png, err := win.CapturePage(); err == nil {
@@ -737,10 +740,14 @@ func (a *app) attachQuote(st *attachState, abs string, data []byte) {
 // it watches on its machine.
 func (a *app) setAsk(ask bool) {
 	dir := a.chatDir()
-	if dir == "" {
-		dir = a.home
-	}
 	if !a.localActive() {
+		if dir == "" {
+			// No folder of the server's to settle a rule in yet, and
+			// naming one of this machine's would file the server a
+			// phantom project.
+			a.streamLine("The chat has no folder on the server yet, so the shell rule has nowhere to go.")
+			return
+		}
 		cfg := a.activeServerConn()
 		if a.win == nil { // headless, as tests run the view
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -770,6 +777,9 @@ func (a *app) setAsk(ask bool) {
 			})
 		}()
 		return
+	}
+	if dir == "" {
+		dir = a.home
 	}
 	select {
 	case a.policyWrites <- policyChange{dir: dir, ask: ask}:

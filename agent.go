@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -379,7 +380,11 @@ func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
 // listProjects reads the folders the server works in: one directory per
 // project it knows, the way its project list says them, kept in the order
 // it reports. opencode answers the list behind its data envelope or as a
-// bare array, depending on the build; both read the same.
+// bare array, depending on the build; both read the same. The server
+// remembers every directory any of its callers named — a draft pointed
+// at another machine's folder, a probe of a path that is not there — and
+// keeps the row with no way to drop it, so each name is asked of the
+// server's disk once here, and the ones that are not on it step aside.
 func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 	raw, err := a.call(ctx, "GET", "/project", nil)
 	if err != nil {
@@ -402,16 +407,45 @@ func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("the project list did not decode")
 	}
 	seen := map[string]bool{}
-	dirs := []string{}
+	uniq := []string{}
 	for _, p := range rows {
 		dir := canonDir(p.Canonical)
 		if dir == "" || seen[dir] {
 			continue
 		}
 		seen[dir] = true
-		dirs = append(dirs, dir)
+		uniq = append(uniq, dir)
+	}
+	// The glances go out side by side: a dial waits on all of them, and a
+	// slow round trip the list's length times would hold the door.
+	exists := make([]bool, len(uniq))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, dir := range uniq {
+		wg.Add(1)
+		go func(i int, dir string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			exists[i] = a.locationExists(ctx, dir)
+		}(i, dir)
+	}
+	wg.Wait()
+	dirs := []string{}
+	for i, dir := range uniq {
+		if exists[i] {
+			dirs = append(dirs, dir)
+		}
 	}
 	return dirs, nil
+}
+
+// locationExists asks the server's file system whether one workspace
+// lives on its disk. Only directories the project list already carries
+// come asking, so the glance itself registers nothing the list lacks.
+func (a *agent) locationExists(ctx context.Context, dir string) bool {
+	_, err := a.call(ctx, "GET", "/fs/list?location[directory]="+url.QueryEscape(dir), nil)
+	return err == nil
 }
 
 // agentConfigEntry is one configuration document a workspace stacks up,

@@ -327,6 +327,17 @@ func TestAgentProjects(t *testing.T) {
 		mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(body))
 		})
+		// The server answers for the workspaces on its disk; a row for a
+		// folder that is not there goes unanswered for, as a probe of one
+		// reads, and drops out of the list.
+		mux.HandleFunc("GET /api/fs/list", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("location[directory]") == "/srv/missing" {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"_tag":"LocationNotFoundError","message":"Location not found: /srv/missing"}`))
+				return
+			}
+			w.Write([]byte(`{"data":[]}`))
+		})
 		srv := httptest.NewServer(mux)
 		a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -339,6 +350,41 @@ func TestAgentProjects(t *testing.T) {
 		if len(dirs) != 2 || dirs[0] != "/srv/app" || dirs[1] != "/srv/docs" {
 			t.Fatalf("projects %+v", dirs)
 		}
+	}
+}
+
+// TestAgentProjectsFilterDropsPhantoms runs the same read against a list
+// the server keeps beyond its disk: a project row for another machine's
+// folder stays in its registry with no call to remove it, so the read
+// asks each name of the file system and the misses never come through.
+func TestAgentProjectsFilterDropsPhantoms(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[` +
+			`{"id":"p1","canonical":"/Users/leotran/project/wada_labs/wada_desktop_go"},` +
+			`{"id":"p2","canonical":"/tmp/opencode-wlpro"},` +
+			`{"id":"p3","canonical":"/workspace/wada_cal"}` +
+			`]`))
+	})
+	mux.HandleFunc("GET /api/fs/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("location[directory]") == "/workspace/wada_cal" {
+			w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"_tag":"LocationNotFoundError","message":"no"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dirs, err := a.listProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirs) != 1 || dirs[0] != "/workspace/wada_cal" {
+		t.Fatalf("the phantom rows did not drop: %+v", dirs)
 	}
 }
 

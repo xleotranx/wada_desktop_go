@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -12,6 +13,10 @@ import (
 // filesShown is how much of one file the viewer shows: enough for a source
 // file or a page of logs, not enough to hang the pane on a bundle.
 const filesShown = 256 * 1024
+
+// filesFound is how many matches the search asks the server for: more
+// than the pane shows at once, few enough to rank well.
+const filesFound = 50
 
 // filesLineCut is how much of one line the viewer draws: a minified file
 // can hold a line the length of the whole window, and measuring it costs a
@@ -40,6 +45,10 @@ type filesState struct {
 	clipped  bool   // the file runs past what the viewer shows
 	note     string // trouble or an explanation, instead of a tree
 	fileErr  string // the file on show refused to read
+	query    string // what the search field holds
+	results  []fsEntry
+	finding  bool   // a search is on its way
+	findErr  string // the search refused to run
 }
 
 // openFiles reads the open chat's folder into the Files tool. A remote chat
@@ -69,14 +78,20 @@ func (a *app) openFiles() {
 	st.location, st.note, st.fileErr = dir, "", ""
 	st.open, st.entries, st.loading = map[string]bool{}, map[string][]fsEntry{}, map[string]bool{}
 	st.path, st.content, st.clipped = "", "", false
+	st.query, st.results, st.finding, st.findErr = "", nil, false, ""
 	a.filesList(".")
 }
 
-// filesRefresh reads the tree again: the folder's own root, every folder
-// already listed, and the file on show.
+// filesRefresh reads again what the pane is showing: the tree with its
+// root and every folder listed, or the search when one is on, and the file
+// on show either way.
 func (a *app) filesRefresh() {
 	st := a.files
 	if st == nil || st.location == "" {
+		return
+	}
+	if st.query != "" {
+		a.filesFind()
 		return
 	}
 	rels := []string{"."}
@@ -122,6 +137,43 @@ func (a *app) filesList(rel string) {
 			return
 		}
 		st.entries[rel] = entries
+	})
+}
+
+// filesFind searches the workspace for what the field holds: the files
+// whose paths match stand in for the tree while a query is named, and an
+// emptied field brings the tree back.
+func (a *app) filesFind() {
+	st := a.files
+	if st == nil || st.location == "" {
+		return
+	}
+	st.query = strings.TrimSpace(st.query)
+	st.results, st.findErr, st.finding = nil, "", false
+	if st.query == "" {
+		return
+	}
+	st.finding = true
+	cfg, location, query := a.activeServerConn(), st.location, st.query
+	inBackground(a, func() ([]fsEntry, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		ag, err := standaloneAgent(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return ag.findFiles(ctx, location, query, filesFound)
+	}, func(entries []fsEntry, err error) {
+		st := a.files
+		if st == nil || st.location != location || st.query != query {
+			return // another search moved on
+		}
+		st.finding = false
+		if err != nil {
+			st.findErr = "The search did not run: " + err.Error()
+			return
+		}
+		st.results = entries
 	})
 }
 
@@ -187,11 +239,91 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 		return
 	}
 
-	ui.Text(c, "Workspace  ·  "+dirBase(st.location)).FontSize(12).TextColor(p.faint).SingleLine()
-	ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).Children(func() {
-		a.filesRows(c, p, ".", 0)
-	})
+	a.filesField(c, p)
+	if st.query != "" {
+		a.filesResults(c, p)
+	} else {
+		ui.Text(c, "Workspace  ·  "+dirBase(st.location)).FontSize(12).TextColor(p.faint).SingleLine()
+		ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).Children(func() {
+			a.filesRows(c, p, ".", 0)
+		})
+	}
+	a.filesViewer(c, p)
+}
 
+// filesField is the pane's search: what is typed narrows the workspace to
+// the files whose paths match it, and Enter runs it.
+func (a *app) filesField(c *ui.Context, p palette) {
+	st := a.files
+	field := ui.Box(c).FillWidth().Height(32).Radius(999).Padding(0, 10).
+		Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
+	if field.FocusWithin() {
+		field.Border(1, p.composerBorderFocus)
+	}
+	field.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
+			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
+			ui.TextInputBase(c, &st.query).FontSize(12.5).
+				Placeholder("Search files").Label("Search files").FillWidth().
+				OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						a.filesFind()
+						return true
+					}
+					return false
+				})
+		})
+	})
+}
+
+// filesResults draws what the search found in place of the tree: the
+// files' names, the folders they sit in beside them.
+func (a *app) filesResults(c *ui.Context, p palette) {
+	st := a.files
+	if st.finding {
+		ui.Text(c, "Searching…").FontSize(12.5).TextColor(p.muted)
+		return
+	}
+	if st.findErr != "" {
+		ui.Text(c, st.findErr).FontSize(12.5).LineHeight(1.45).TextColor(p.danger)
+		return
+	}
+	if len(st.results) == 0 {
+		ui.Text(c, "No files match "+st.query+".").FontSize(12.5).TextColor(p.muted)
+		return
+	}
+	ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).Children(func() {
+		for _, e := range st.results {
+			e := e
+			chosen := e.rel == st.path
+			c.Key("found:" + e.rel)
+			b := ui.ButtonBase(c).Label("Read "+e.rel).Height(25).Radius(6).
+				Padding(0, 6).Justify(ui.Start).FillWidth()
+			if b.Hovered() {
+				b.Background(p.hover)
+			} else if chosen {
+				b.Background(p.selected)
+			}
+			b.OnClick(func() { a.filesRead(e.rel) })
+			b.Children(func() {
+				ui.Icon(c, icFileDoc).FontSize(12).TextColor(p.faint).Shrink(0)
+				ui.Text(c, e.name).MarginStart(6).FontSize(12).TextColor(p.text).
+					Shrink(0)
+				if dir := path.Dir(e.rel); dir != "." {
+					ui.Text(c, dir).MarginStart(6).FontSize(11.5).TextColor(p.faint).
+						Grow(1).SingleLine().Ellipsis("…").MinWidth(0)
+				} else {
+					ui.Spacer(c)
+				}
+			})
+		}
+	})
+}
+
+// filesViewer draws the file on show: its path, what the viewer cut off it,
+// and its text.
+func (a *app) filesViewer(c *ui.Context, p palette) {
+	st := a.files
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 	if st.path == "" {
 		ui.Text(c, "Pick a file to read it.").FontSize(12.5).TextColor(p.muted)

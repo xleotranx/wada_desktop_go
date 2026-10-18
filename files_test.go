@@ -39,6 +39,17 @@ func filesServer(t *testing.T) (*httptest.Server, *[]string) {
 		}
 		w.Write([]byte(`{"location":{"directory":"` + location + `"},"data":[` + body + `]}`))
 	})
+	mux.HandleFunc("GET /api/fs/find", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		asked = appendString(asked, "find "+q.Get("location[directory]")+" "+q.Get("query")+
+			" "+q.Get("type")+" "+q.Get("limit"))
+		if q.Get("query") == "zzz" {
+			w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		w.Write([]byte(`{"location":{"directory":"/srv/app"},"data":[` +
+			`{"path":"src/main.go","type":"file"},{"path":"src/deep/notes.txt","type":"file"}]}`))
+	})
 	mux.HandleFunc("GET /api/fs/read/{file...}", func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.PathValue("file"), "/")
 		location := r.URL.Query().Get("location[directory]")
@@ -138,6 +149,83 @@ func TestFilesPane(t *testing.T) {
 	a.adoptSession(a.scope().sessions[len(a.scope().sessions)-1])
 	if a.files.location != "/srv/app/src" || a.files.path != "" {
 		t.Fatalf("the tool kept reading %+v", a.files)
+	}
+}
+
+// TestFilesSearch runs the pane's search: Enter asks the server for the
+// files whose paths match, the matches stand in the tree's place, a match
+// opens into the viewer, and an emptied field brings the tree back.
+func TestFilesSearch(t *testing.T) {
+	srv, asked := filesServer(t)
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.activeServer = "srv-box"
+	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.selectedSession, a.selected = "ses_r", "Remote turn"
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	a.openTool("Files")
+	tt.Frame()
+	if !tt.HasText("Search files") {
+		t.Fatalf("the field is not drawn: %v", tt.Texts())
+	}
+	// Typing and pressing Enter is the whole road: no job, just the read.
+	if err := tt.Click("Search files"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("notes")
+	tt.Key(0, ui.KeyEnter)
+	if a.files.query != "notes" || a.files.finding {
+		t.Fatalf("the search reads %+v", a.files)
+	}
+	if len(a.files.results) != 2 {
+		t.Fatalf("the results read %+v", a.files.results)
+	}
+	if got := (*asked)[len(*asked)-1]; got != "find /srv/app notes file 50" {
+		t.Fatalf("the search asked %q", got)
+	}
+	tt.Frame()
+	if !tt.HasText("main.go") || !tt.HasText("notes.txt") || !tt.HasText("src/deep") {
+		t.Fatalf("the results are not drawn: %v", tt.Texts())
+	}
+	if tt.HasText("Workspace  ·") {
+		t.Fatalf("the tree stood beside the results: %v", tt.Texts())
+	}
+
+	// A match opens into the viewer under the results.
+	if err := tt.Click("Read src/deep/notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.files.path != "src/deep/notes.txt" || !strings.Contains(a.files.content, "a long line") {
+		t.Fatalf("the match did not open: %+v", a.files)
+	}
+	if !tt.HasText("notes.txt") {
+		t.Fatalf("the results left with the read: %v", tt.Texts())
+	}
+
+	// Emptying the field puts the tree back; a query with no matches says so.
+	a.files.query = ""
+	tt.Frame()
+	if err := tt.Click("Search files"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(0, ui.KeyEnter)
+	if a.files.query != "" || !tt.HasText("Workspace  ·") {
+		t.Fatalf("the tree did not come back: %+v / %v", a.files, tt.Texts())
+	}
+	a.files.query = "zzz"
+	a.filesFind()
+	tt.Frame()
+	if !tt.HasText("No files match zzz.") {
+		t.Fatalf("an empty result reads: %v", tt.Texts())
+	}
+
+	// Reloading re-runs what the pane shows: the search, not the tree.
+	before := len(*asked)
+	a.reloadBrowserPage()
+	if got := (*asked)[len(*asked)-1]; got != "find /srv/app zzz file 50" {
+		t.Fatalf("the reload asked %q (before %d)", got, before)
 	}
 }
 

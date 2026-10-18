@@ -655,6 +655,39 @@ func (a *agent) workspaceChanges(ctx context.Context, dir, mode string) ([]vcsCh
 	return files, nil
 }
 
+// findFiles searches one workspace's disk for files whose paths match a
+// query, ranked by the server, cut at the limit asked for: the way to a
+// file in a deep tree without unfolding it folder by folder.
+func (a *agent) findFiles(ctx context.Context, dir, query string, limit int) ([]fsEntry, error) {
+	route := "/fs/find?location[directory]=" + url.QueryEscape(dir) +
+		"&query=" + url.QueryEscape(query) + "&type=file"
+	if limit > 0 {
+		route += "&limit=" + strconv.Itoa(limit)
+	}
+	raw, err := a.call(ctx, "GET", route, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return nil, fmt.Errorf("the search did not read")
+	}
+	entries := []fsEntry{}
+	for _, e := range out.Data {
+		rel := strings.TrimSuffix(e.Path, "/")
+		if rel == "" {
+			continue
+		}
+		entries = append(entries, fsEntry{rel: rel, name: path.Base(rel), dir: e.Type == "directory"})
+	}
+	return entries, nil
+}
+
 // readWorkspaceFile streams one file named relative to the workspace.
 func (a *agent) readWorkspaceFile(ctx context.Context, dir, rel string) ([]byte, error) {
 	raw, err := a.call(ctx, "GET", "/fs/read/"+escapeFileRoute(rel)+"?location[directory]="+url.QueryEscape(dir), nil)

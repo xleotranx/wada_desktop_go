@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -81,7 +82,7 @@ func TestFilesPane(t *testing.T) {
 	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
 	a.selectedSession, a.selected = "ses_r", "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -154,7 +155,7 @@ func TestFilesPane(t *testing.T) {
 	}
 
 	// Another chat's folder is another tree.
-	a.scope().sessions = append(a.scope().sessions, agentSession{id: "ses_other", title: "Other", dir: "/srv/app/src"})
+	a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: "ses_other", Title: "Other", Directory: "/srv/app/src"})
 	a.adoptSession(a.scope().sessions[len(a.scope().sessions)-1])
 	if a.files.location != "/srv/app/src" || a.files.path != "" {
 		t.Fatalf("the tool kept reading %+v", a.files)
@@ -169,7 +170,7 @@ func TestFilesSearch(t *testing.T) {
 	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
 	a.selectedSession, a.selected = "ses_r", "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -258,7 +259,7 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	}
 
 	// A folder on the server, with a file past the viewer's cap.
-	a.scope().sessions = []agentSession{{id: "ses_big", title: "Big", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_big", Title: "Big", Directory: "/srv/app"}}
 	a.selectedSession, a.selected = "ses_big", "Big"
 	a.openFiles()
 	if len(a.files.entries["."]) != 2 {
@@ -274,7 +275,7 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 
 	// The viewer cuts what runs past its window, and says so.
 	st := a.files
-	st.location, st.entries["."] = "/srv/big", []fsEntry{{rel: "huge.txt", name: "huge.txt"}}
+	st.location, st.entries["."] = "/srv/big", []opencode.FileEntry{{Path: "huge.txt", Name: "huge.txt"}}
 	big := strings.Repeat("x\n", filesShown/2+8)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/fs/read/{file...}", func(w http.ResponseWriter, r *http.Request) {

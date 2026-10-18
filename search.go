@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"time"
+	"wada-desktop-go/internal/opencode"
 )
 
 type searchRequest struct {
@@ -14,8 +15,8 @@ type searchRequest struct {
 // A new query cancels the old lookup; revisions also reject replies that
 // were already posted when the query changed, including an A-B-A edit.
 func searchChats(ctx context.Context, queries <-chan searchRequest,
-	lookup func(context.Context, string) ([]agentSession, error),
-	post func(func()), accept func(searchRequest, []agentSession, error)) {
+	lookup func(context.Context, string) ([]opencode.Session, error),
+	post func(func()), accept func(searchRequest, []opencode.Session, error)) {
 	var pending searchRequest
 	var cancel context.CancelFunc
 	timer := time.NewTimer(time.Hour)
@@ -59,7 +60,7 @@ func searchChats(ctx context.Context, queries <-chan searchRequest,
 	}
 }
 
-func (a *app) acceptSearch(query searchRequest, rows []agentSession, err error) {
+func (a *app) acceptSearch(query searchRequest, rows []opencode.Session, err error) {
 	if a.searchVersion != query.version {
 		return
 	}

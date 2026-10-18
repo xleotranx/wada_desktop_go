@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"time"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -24,8 +25,8 @@ type changesState struct {
 	loading  bool
 	dir      string
 	mode     string
-	info     vcsInfo
-	files    []vcsChange
+	info     opencode.VCSInfo
+	files    []opencode.Change
 	selected int
 	note     string
 
@@ -39,8 +40,8 @@ type changesState struct {
 type changesRead struct {
 	dir   string
 	mode  string
-	info  vcsInfo
-	files []vcsChange
+	info  opencode.VCSInfo
+	files []opencode.Change
 }
 
 // readChanges asks a server for one folder's version control and the diff
@@ -48,15 +49,15 @@ type changesRead struct {
 // pane can tell its own read's trouble from another read's.
 func readChanges(ctx context.Context, cfg serverConn, dir, mode string) (changesRead, error) {
 	read := changesRead{dir: dir, mode: mode}
-	ag, err := standaloneAgent(cfg)
+	ag, err := opencode.NewClient(cfg.transport())
 	if err != nil {
 		return read, err
 	}
-	info, err := ag.workspaceVcs(ctx, dir)
+	info, err := ag.WorkspaceVcs(ctx, dir)
 	if err != nil {
 		return read, err
 	}
-	files, err := ag.workspaceChanges(ctx, dir, mode)
+	files, err := ag.WorkspaceChanges(ctx, dir, mode)
 	if err != nil {
 		return read, err
 	}
@@ -128,16 +129,16 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 		return
 	}
 
-	label := st.info.provider
-	if st.info.branch != "" {
-		label += " · " + st.info.branch
+	label := st.info.Provider
+	if st.info.Branch != "" {
+		label += " · " + st.info.Branch
 	}
-	if st.mode == changesBranch && st.info.base != "" {
-		label += " against " + st.info.base
+	if st.mode == changesBranch && st.info.Base != "" {
+		label += " against " + st.info.Base
 	}
 	added, removed := 0, 0
 	for _, f := range st.files {
-		added, removed = added+f.additions, removed+f.deletions
+		added, removed = added+f.Additions, removed+f.Deletions
 	}
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Text(c, label).FontSize(12).TextColor(p.faint).SingleLine().Shrink(1).MinWidth(0)
@@ -162,8 +163,8 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	ui.Scroll(c).FillWidth().MaxHeight(190).Gap(1).Children(func() {
 		for i, f := range st.files {
 			i, f := i, f
-			c.Key("change:" + f.file)
-			b := ui.ButtonBase(c).Label("Show "+f.file).Height(26).Radius(6).
+			c.Key("change:" + f.File)
+			b := ui.ButtonBase(c).Label("Show "+f.File).Height(26).Radius(6).
 				Padding(0, 8).Justify(ui.Start).FillWidth()
 			if b.Hovered() {
 				b.Background(p.hover)
@@ -172,11 +173,11 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 			}
 			b.OnClick(func() { st.selected = i })
 			b.Children(func() {
-				ui.Text(c, statusLetter(f.status)).Font("monospace").FontSize(11.5).
-					TextColor(statusTint(p, f.status)).Width(14).Shrink(0)
-				ui.Text(c, f.file).FontSize(12.5).TextColor(p.text).MarginStart(6).
+				ui.Text(c, statusLetter(f.Status)).Font("monospace").FontSize(11.5).
+					TextColor(statusTint(p, f.Status)).Width(14).Shrink(0)
+				ui.Text(c, f.File).FontSize(12.5).TextColor(p.text).MarginStart(6).
 					Grow(1).SingleLine().Ellipsis("…").MinWidth(0)
-				for _, part := range changesCounts(p, f.additions, f.deletions) {
+				for _, part := range changesCounts(p, f.Additions, f.Deletions) {
 					ui.Text(c, part.text).Font("monospace").FontSize(11).TextColor(part.tint).Shrink(0)
 				}
 			})
@@ -188,13 +189,13 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	}
 	f := st.files[st.selected]
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-	if st.diff == nil || st.patchFile != f.file || st.patch != f.patch {
-		st.patchFile, st.patch = f.file, f.patch
+	if st.diff == nil || st.patchFile != f.File || st.patch != f.Patch {
+		st.patchFile, st.patch = f.File, f.Patch
 		st.diff = &editor.DiffState{Layout: editor.DiffUnified, Indicators: editor.DiffClassic,
 			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
-		if patches, err := editor.ParsePatch(f.patch); err == nil && len(patches) == 1 && len(patches[0].Hunks) > 0 {
+		if patches, err := editor.ParsePatch(f.Patch); err == nil && len(patches) == 1 && len(patches[0].Hunks) > 0 {
 			st.diff.SetPatch(patches[0])
-			lang := editor.LanguageFor(f.file)
+			lang := editor.LanguageFor(f.File)
 			st.diff.Old.SetLanguage(lang)
 			st.diff.New.SetLanguage(lang)
 		}
@@ -207,7 +208,7 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	}
 	st.diff.Theme = &editor.Theme{Background: p.bg, Text: p.muted,
 		LineNumber: p.faint, Added: p.diffAdd, Deleted: p.diffDel, Modified: p.link}
-	editor.DiffView(c.Key("patch:"+f.file), st.diff).FillWidth().Grow(1)
+	editor.DiffView(c.Key("patch:"+f.File), st.diff).FillWidth().Grow(1)
 }
 
 // modePill is one of the Changes tool's reads, the chosen one standing out.

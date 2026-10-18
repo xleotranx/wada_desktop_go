@@ -1,6 +1,6 @@
 //go:build !linux
 
-package main
+package opencode
 
 import (
 	"os/exec"

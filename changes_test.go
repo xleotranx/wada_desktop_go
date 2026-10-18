@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -49,28 +50,28 @@ func changesServer(t *testing.T) (*httptest.Server, *[]string) {
 // with its counts.
 func TestAgentWorkspaceChanges(t *testing.T) {
 	srv, asked := changesServer(t)
-	ag := &agent{base: srv.URL + "/api", http: srv.Client()}
+	ag := &opencode.Client{Base: srv.URL + "/api", HTTP: srv.Client()}
 	ctx := context.Background()
 
-	info, err := ag.workspaceVcs(ctx, "/srv/app")
-	if err != nil || info.provider != "git" || info.branch != "feature/remote" || info.base != "main" {
+	info, err := ag.WorkspaceVcs(ctx, "/srv/app")
+	if err != nil || info.Provider != "git" || info.Branch != "feature/remote" || info.Base != "main" {
 		t.Fatalf("vcs %+v %v", info, err)
 	}
-	files, err := ag.workspaceChanges(ctx, "/srv/app", "working")
+	files, err := ag.WorkspaceChanges(ctx, "/srv/app", "working")
 	if err != nil || len(files) != 2 {
 		t.Fatalf("changes %+v %v", files, err)
 	}
-	if files[0].file != "src/app.go" || files[0].additions != 1 || files[0].status != "modified" ||
-		!strings.Contains(files[0].patch, "+// a new line") {
+	if files[0].File != "src/app.go" || files[0].Additions != 1 || files[0].Status != "modified" ||
+		!strings.Contains(files[0].Patch, "+// a new line") {
 		t.Fatalf("the first change reads %+v", files[0])
 	}
-	if files[1].status != "added" {
+	if files[1].Status != "added" {
 		t.Fatalf("the added file reads %+v", files[1])
 	}
 	if got := (*asked)[1]; got != "diff /srv/app working" {
 		t.Fatalf("the diff asked %q", got)
 	}
-	if _, err := ag.workspaceChanges(ctx, "/srv/app", "branch"); err != nil {
+	if _, err := ag.WorkspaceChanges(ctx, "/srv/app", "branch"); err != nil {
 		t.Fatal(err)
 	}
 	if got := (*asked)[len(*asked)-1]; got != "diff /srv/app branch" {
@@ -86,7 +87,7 @@ func TestChangesPane(t *testing.T) {
 	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
 	a.selectedSession, a.selected = "ses_r", "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -142,7 +143,7 @@ func TestChangesPane(t *testing.T) {
 	}
 
 	// Another chat's folder is another diff.
-	a.scope().sessions = append(a.scope().sessions, agentSession{id: "ses_other", title: "Other", dir: "/srv/other"})
+	a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: "ses_other", Title: "Other", Directory: "/srv/other"})
 	a.adoptSession(a.scope().sessions[len(a.scope().sessions)-1])
 	if a.changes.dir != "/srv/other" {
 		t.Fatalf("the tool kept comparing %q", a.changes.dir)
@@ -181,7 +182,7 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 	clean := httptest.NewServer(mux)
 	defer clean.Close()
 	a.servers[1].url = clean.URL
-	a.scope().sessions = []agentSession{{id: "ses_clean", title: "Clean turn", dir: "/srv/clean"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_clean", Title: "Clean turn", Directory: "/srv/clean"}}
 	a.selectedSession, a.selected = "ses_clean", "Clean turn"
 	a.openChanges(changesWorking)
 	if a.changes.note != "" || len(a.changes.files) != 0 {
@@ -209,9 +210,9 @@ func TestChangesPatchIsSelectableAndReadOnly(t *testing.T) {
 	a := newTestApp(t)
 	a.browserCollapsed, a.browserTool = false, "Changes"
 	line := strings.Repeat("x", 600)
-	a.changes = &changesState{mode: changesWorking, files: []vcsChange{
-		{file: "long.txt", patch: "@@ -1 +1 @@\n-old\n+" + line + "\n"},
-		{file: "other.txt", patch: "@@ -1 +1 @@\n-before\n+after\n"},
+	a.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "long.txt", Patch: "@@ -1 +1 @@\n-old\n+" + line + "\n"},
+		{File: "other.txt", Patch: "@@ -1 +1 @@\n-before\n+after\n"},
 	}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("New text"); err != nil {
@@ -246,7 +247,7 @@ func TestChangesRawPatch(t *testing.T) {
 		t.Run(patch, func(t *testing.T) {
 			a := newTestApp(t)
 			a.browserCollapsed, a.browserTool = false, "Changes"
-			a.changes = &changesState{mode: changesWorking, files: []vcsChange{{file: "x", patch: patch}}}
+			a.changes = &changesState{mode: changesWorking, files: []opencode.Change{{File: "x", Patch: patch}}}
 			tt := ui.NewTester(a.view, 1400, 920)
 			if err := tt.Click("Raw patch"); err != nil {
 				t.Fatal(err)

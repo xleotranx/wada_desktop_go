@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"time"
+	"wada-desktop-go/internal/opencode"
 )
 
 func renderedEvent(kind string) bool {
@@ -20,14 +21,14 @@ func renderedEvent(kind string) bool {
 // agentUpdates publishes ordered batches at most one pending UI callback
 // at a time. The unbuffered pipe gives a busy UI backpressure instead of
 // retaining an unbounded queue of event payloads.
-func agentUpdates(ctx context.Context, source func(context.Context, func(agentEvent)) error,
-	post func(func()), apply func(agentEvent)) error {
+func agentUpdates(ctx context.Context, source func(context.Context, func(opencode.Event)) error,
+	post func(func()), apply func(opencode.Event)) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	queue := make(chan agentEvent)
+	queue := make(chan opencode.Event)
 	done := make(chan error, 1)
 	go func() {
-		done <- source(ctx, func(ev agentEvent) {
+		done <- source(ctx, func(ev opencode.Event) {
 			if !renderedEvent(ev.Type) {
 				return
 			}
@@ -39,7 +40,7 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(agentEv
 		close(queue)
 	}()
 	for {
-		var first agentEvent
+		var first opencode.Event
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -49,7 +50,7 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(agentEv
 			}
 			first = ev
 		}
-		batch := []agentEvent{first}
+		batch := []opencode.Event{first}
 		bytes := len(first.Data)
 		timer := time.NewTimer(time.Second / 60)
 	collect:

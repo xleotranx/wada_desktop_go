@@ -3,9 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strconv"
 	"strings"
+	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/opencode"
 )
 
 // toolRun is the shared outcome of one tool call, as both the live events
@@ -44,8 +44,8 @@ func toolDetailLines(run toolRun) []string {
 
 // restoreBlocks turns a session's stored messages into the transcript
 // blocks the live stream would have drawn.
-func restoreBlocks(messages []agentMessage) []block {
-	var out []block
+func restoreBlocks(messages []opencode.Message) []chat.Block {
+	var out []chat.Block
 	for _, m := range messages {
 		switch m.Type {
 		case "user":
@@ -54,7 +54,7 @@ func restoreBlocks(messages []agentMessage) []block {
 				t = m.Text
 			}
 			if t = strings.TrimSpace(t); t != "" {
-				out = append(out, block{kind: kindUser, text: t})
+				out = append(out, chat.Block{Kind: chat.KindUser, Text: t})
 			}
 		case "assistant":
 			spent := -1 // the message's last text part, which words its spending
@@ -62,11 +62,11 @@ func restoreBlocks(messages []agentMessage) []block {
 				switch part.Type {
 				case "text":
 					if t := strings.TrimSpace(part.Text); t != "" {
-						out = append(out, block{kind: kindText, text: t, msg: m.ID})
+						out = append(out, chat.Block{Kind: chat.KindText, Text: t, Message: m.ID})
 						spent = len(out) - 1
 					}
 				case "tool":
-					label, icon := toolLook(part.Name)
+					label, icon := chat.ToolLook(part.Name)
 					id := part.ID
 					if id == "" {
 						id = fmt.Sprintf("part-%d", i)
@@ -78,15 +78,15 @@ func restoreBlocks(messages []agentMessage) []block {
 					run := toolRun{command: cmd.Command,
 						exit: part.State.Metadata.Exit, truncated: part.State.Metadata.Truncated}
 					run.out = textOf(part.State.Content)
-					out = append(out, block{kind: kindActivity, text: label, icon: icon,
-						key: "activity:" + id, detail: toolDetailLines(run)})
+					out = append(out, chat.Block{Kind: chat.KindActivity, Text: label, Icon: icon,
+						Key: "activity:" + id, Detail: toolDetailLines(run)})
 				}
 			}
 			// One answer can hold several text parts; the spending stands
 			// under the last of them, where the message ends.
 			if spent >= 0 {
-				out[spent].cost = m.Cost
-				out[spent].tokens = m.Tokens.Output + m.Tokens.Reasoning
+				out[spent].Cost = m.Cost
+				out[spent].Tokens = m.Tokens.Output + m.Tokens.Reasoning
 			}
 		}
 	}
@@ -94,7 +94,7 @@ func restoreBlocks(messages []agentMessage) []block {
 }
 
 // textOf joins the text pieces of tool output into lines.
-func textOf(content []toolOut) []string {
+func textOf(content []opencode.ToolOutput) []string {
 	var out []string
 	for _, o := range content {
 		if o.Type == "text" {
@@ -106,25 +106,12 @@ func textOf(content []toolOut) []string {
 
 // finishCutTurns settles what still streamed when the pipe tears: the
 // partial words stand as the answer they were, asks and spins release.
-func (a *app) finishCutTurns() {
-	for i := range a.blocks {
-		if a.blocks[i].kind == kindStream {
-			a.blocks[i].kind = kindText
-			a.blocks[i].stream = nil
-			if strings.TrimSpace(a.blocks[i].text) == "" {
-				a.blocks[i].text = "(the answer was cut short)"
-			}
-		}
-	}
-	a.live = map[string]int{}
-	a.busySession = ""
-	a.pending = map[string]*agentPerm{}
-}
+func (a *app) finishCutTurns() { a.transcript.Cut() }
 
 // streamLine appends a faint note to the transcript for engine trouble
 // worth showing in place.
 func (a *app) streamLine(text string) {
-	a.blocks = append(a.blocks, block{kind: kindNote, text: text})
+	a.transcript.Append(chat.Block{Kind: chat.KindNote, Text: text})
 	a.feed.ScrollToEnd()
 }
 
@@ -141,22 +128,16 @@ type evTextData struct {
 // evToolData is the payload of the session.tool.* events: one tool call,
 // addressed by its id, whose name, input and output fill in progressively.
 type evToolData struct {
-	SessionID string          `json:"sessionID"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	Content   []toolOut       `json:"content"`
+	SessionID string                `json:"sessionID"`
+	ID        string                `json:"id"`
+	Name      string                `json:"name"`
+	Input     json.RawMessage       `json:"input"`
+	Content   []opencode.ToolOutput `json:"content"`
 	Metadata  struct {
 		Status    string `json:"status"`
 		Truncated bool   `json:"truncated"`
 		Exit      int    `json:"exit"`
 	} `json:"metadata"`
-}
-
-// toolOut is one piece of a tool's output, of which text pieces render.
-type toolOut struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
 }
 
 // evPermissionData is the payload of permission.asked: one approval the
@@ -169,108 +150,59 @@ type evPermissionData struct {
 	Save      []string `json:"save"`
 }
 
-// agentPerm is an approval request the agent raised mid-turn, held onto so
-// its card's buttons know where to answer.
-type agentPerm struct {
-	id        string
-	session   string
-	action    string
-	resources []string
-	save      []string
-}
-
 // apply folds one agent event into the transcript. Kinds reuse the
 // design's vocabulary: assistant words stream into the answer as it
 // lands, and each tool call is an activity row that gains its detail
 // once something ran.
-func (a *app) apply(ev agentEvent) {
+func (a *app) apply(ev opencode.Event) {
 	switch ev.Type {
 	case "session.text.started":
 		var d evTextData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		key := d.MessageID + ":" + strconv.Itoa(d.Ordinal)
-		a.live[key] = len(a.blocks)
-		a.blocks = append(a.blocks, block{kind: kindStream, key: "stream:" + key, msg: d.MessageID})
+		a.transcript.StartText(d.MessageID, d.Ordinal)
 	case "session.text.delta":
 		var d evTextData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		if idx, ok := a.live[d.MessageID+":"+strconv.Itoa(d.Ordinal)]; ok {
-			b := &a.blocks[idx]
-			if b.stream == nil {
-				b.stream = &strings.Builder{}
-				b.stream.WriteString(b.text)
-			}
-			b.stream.WriteString(d.Delta)
-			b.text = b.stream.String()
-		}
+		a.transcript.Delta(d.MessageID, d.Ordinal, d.Delta)
 	case "session.text.ended":
 		var d evTextData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		key := d.MessageID + ":" + strconv.Itoa(d.Ordinal)
-		if idx, ok := a.live[key]; ok {
-			delete(a.live, key)
-			a.blocks[idx].kind = kindText
-			a.blocks[idx].text = d.Text
-			a.blocks[idx].stream = nil
-		}
+		a.transcript.EndText(d.MessageID, d.Ordinal, d.Text)
 	case "session.tool.input.started":
 		var d evToolData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		a.toolNames[d.ID] = d.Name
+		a.transcript.ToolStarted(d.ID, d.Name)
 	case "session.tool.called":
 		var d evToolData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		label, icon := toolLook(a.toolNames[d.ID])
 		var in struct {
 			Command string `json:"command"`
 		}
 		json.Unmarshal(d.Input, &in)
-		var lines []string
-		if in.Command != "" {
-			lines = append(lines, "$ "+in.Command)
-			a.toolCmds[d.ID] = in.Command
-		}
-		a.toolBlocks[d.ID] = len(a.blocks)
-		a.blocks = append(a.blocks, block{kind: kindActivity, text: label, icon: icon,
-			key: "activity:" + d.ID, detail: lines})
+		a.transcript.ToolCalled(d.ID, in.Command)
 	case "session.tool.success":
 		var d evToolData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		idx, ok := a.toolBlocks[d.ID]
-		if !ok {
-			return
-		}
-		delete(a.toolBlocks, d.ID)
-		run := toolRun{command: a.toolCmds[d.ID],
-			exit: d.Metadata.Exit, truncated: d.Metadata.Truncated}
-		delete(a.toolCmds, d.ID)
-		run.out = textOf(d.Content)
-		a.blocks[idx].detail = toolDetailLines(run)
+		run := toolRun{command: a.transcript.ToolCommand(d.ID), exit: d.Metadata.Exit, truncated: d.Metadata.Truncated, out: textOf(d.Content)}
+		a.transcript.ToolFinished(d.ID, toolDetailLines(run))
 	case "permission.asked":
 		var d evPermissionData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		if _, ok := a.pending[d.ID]; ok {
-			return
-		}
-		perm := &agentPerm{id: d.ID, session: d.SessionID,
-			action: d.Action, resources: d.Resources, save: d.Save}
-		a.pending[d.ID] = perm
-		a.blocks = append(a.blocks, block{kind: kindPermission,
-			text: "Approval needed", key: "permission:" + d.ID, req: perm})
+		a.transcript.Ask(&chat.Permission{ID: d.ID, Session: d.SessionID, Action: d.Action, Resources: d.Resources, Save: d.Save})
 	case "session.execution.started":
 		var d struct {
 			SessionID string `json:"sessionID"`
@@ -278,7 +210,7 @@ func (a *app) apply(ev agentEvent) {
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		a.busySession = d.SessionID
+		a.transcript.Start(d.SessionID)
 	case "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted":
 		var d struct {
 			SessionID string `json:"sessionID"`
@@ -286,8 +218,8 @@ func (a *app) apply(ev agentEvent) {
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
 			return
 		}
-		if a.busySession == d.SessionID {
-			a.busySession = ""
+		if !a.transcript.Finish() {
+			return
 		}
 		// The turn moved the chat's place in the list and what it has
 		// spent: read the newest page again, and ask the store what the
@@ -307,9 +239,9 @@ func (a *app) apply(ev agentEvent) {
 			return
 		}
 		for i := range a.scope().sessions {
-			if a.scope().sessions[i].id == d.SessionID {
-				a.scope().sessions[i].model = agentModelRef{providerID: d.Model.ProviderID,
-					id: d.Model.ID, variant: d.Model.Variant}
+			if a.scope().sessions[i].ID == d.SessionID {
+				a.scope().sessions[i].Model = opencode.ModelRef{ProviderID: d.Model.ProviderID,
+					ID: d.Model.ID, Variant: d.Model.Variant}
 			}
 		}
 	case "session.renamed":
@@ -321,8 +253,8 @@ func (a *app) apply(ev agentEvent) {
 			return
 		}
 		for i := range a.scope().sessions {
-			if a.scope().sessions[i].id == d.SessionID {
-				a.scope().sessions[i].title = d.Title
+			if a.scope().sessions[i].ID == d.SessionID {
+				a.scope().sessions[i].Title = d.Title
 			}
 		}
 		// The conversation on show takes its new name at once.
@@ -340,46 +272,21 @@ func (a *app) belongs(sid string) bool {
 
 // dropPerm takes an approval card out of the transcript once its reply
 // has landed; the tool row below it carries the story from there.
-func (a *app) dropPerm(requestID string) {
-	if _, ok := a.pending[requestID]; !ok {
-		return
-	}
-	delete(a.pending, requestID)
-	for i, b := range a.blocks {
-		if b.key == "permission:"+requestID {
-			a.blocks = slices.Delete(a.blocks, i, i+1)
-			for key, idx := range a.live {
-				if idx > i {
-					a.live[key] = idx - 1
-				}
-			}
-			for key, idx := range a.toolBlocks {
-				if idx > i {
-					a.toolBlocks[key] = idx - 1
-				}
-			}
-			break
-		}
-	}
-}
+func (a *app) dropPerm(requestID string) { a.transcript.DropPermission(requestID) }
 
 // dropSession takes one conversation out of the list and, when it was
 // the one on show, leaves a fresh transcript behind.
 func (a *app) dropSession(sid string) {
 	if a.pinned[sid] {
-		a.togglePin(agentSession{id: sid})
+		a.togglePin(opencode.Session{ID: sid})
 	}
 	for i, s := range a.scope().sessions {
-		if s.id == sid {
+		if s.ID == sid {
 			a.scope().sessions = append(a.scope().sessions[:i], a.scope().sessions[i+1:]...)
 			break
 		}
 	}
-	for id, p := range a.pending {
-		if p.session == sid {
-			delete(a.pending, id)
-		}
-	}
+	a.transcript.DropSession(sid)
 	if a.selectedSession != sid {
 		return
 	}
@@ -391,15 +298,15 @@ func (a *app) dropSession(sid string) {
 
 // dedupeSessions adds the rows the list does not have yet, keeping what
 // came first, since later pages hold the older conversations.
-func dedupeSessions(all, add []agentSession) []agentSession {
+func dedupeSessions(all, add []opencode.Session) []opencode.Session {
 	seen := map[string]bool{}
 	for _, s := range all {
-		seen[s.id] = true
+		seen[s.ID] = true
 	}
 	out := all
 	for _, s := range add {
-		if !seen[s.id] {
-			seen[s.id] = true
+		if !seen[s.ID] {
+			seen[s.ID] = true
 			out = append(out, s)
 		}
 	}
@@ -409,33 +316,16 @@ func dedupeSessions(all, add []agentSession) []agentSession {
 // freshSessions lays one page the server just gave over a list that
 // already holds older pages: the fresh rows stand in their own order at
 // the head, and the kept ones they do not name follow in theirs.
-func freshSessions(kept, fresh []agentSession) []agentSession {
+func freshSessions(kept, fresh []opencode.Session) []opencode.Session {
 	seen := map[string]bool{}
 	for _, s := range fresh {
-		seen[s.id] = true
+		seen[s.ID] = true
 	}
 	out := fresh
 	for _, s := range kept {
-		if !seen[s.id] {
+		if !seen[s.ID] {
 			out = append(out, s)
 		}
 	}
 	return out
-}
-
-// toolLook pairs a tool's name with the activity row's label and icon as
-// the design draws them.
-func toolLook(name string) (string, string) {
-	switch name {
-	case "shell":
-		return "Ran command", "shell"
-	case "read":
-		return "Read files", "read"
-	case "grep", "glob", "list", "find":
-		return "Searched", "read"
-	case "":
-		return "Used tool", "tool"
-	default:
-		return "Used " + name, "tool"
-	}
 }

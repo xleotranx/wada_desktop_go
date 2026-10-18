@@ -114,9 +114,9 @@ Verify: `go test ./internal/chat`, full view tests, streaming benchmark and
 
 ## 9. Extract the OpenCode adapter
 
-- [ ] Move HTTP calls, wire DTOs, SSE framing and subprocess lifetime into `internal/opencode`. Keep UI result application in root until runner extraction.
-- [ ] Preserve request/authentication semantics, response limits, remote operations, process cleanup and context cancellation.
-- [ ] Move protocol tests alongside implementation; root uses the client API without accessing transport internals.
+- [x] Move HTTP calls, wire DTOs, SSE framing and subprocess lifetime into `internal/opencode`. Keep UI result application in root until runner extraction.
+- [x] Preserve request/authentication semantics, response limits, remote operations, process cleanup and context cancellation.
+- [x] Move protocol tests alongside implementation; root uses the client API without accessing transport internals.
 
 Depends on: 8. Files: new `internal/opencode` files/tests, transport/process
 sections of `agent.go`, `agent_child_*.go`, callers of standaloneAgent and moved

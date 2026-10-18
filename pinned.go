@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
+	"wada-desktop-go/internal/opencode"
 )
 
 // Find saved pins beyond page one without changing the Recents cursor.
-func loadPinnedSessions(ctx context.Context, ids []string, first []agentSession, next string,
-	list func(context.Context, string, string) ([]agentSession, string, error)) ([]agentSession, error) {
+func loadPinnedSessions(ctx context.Context, ids []string, first []opencode.Session, next string,
+	list func(context.Context, string, string) ([]opencode.Session, string, error)) ([]opencode.Session, error) {
 	missing := map[string]bool{}
 	for _, id := range ids {
 		missing[id] = true
 	}
 	for _, s := range first {
-		delete(missing, s.id)
+		delete(missing, s.ID)
 	}
-	var found []agentSession
+	var found []opencode.Session
 	seen := map[string]bool{}
 	for len(missing) > 0 && next != "" {
 		if seen[next] {
@@ -27,9 +28,9 @@ func loadPinnedSessions(ctx context.Context, ids []string, first []agentSession,
 			return found, err
 		}
 		for _, s := range rows {
-			if missing[s.id] {
+			if missing[s.ID] {
 				found = append(found, s)
-				delete(missing, s.id)
+				delete(missing, s.ID)
 			}
 		}
 		next = cursor

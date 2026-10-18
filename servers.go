@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
+	"wada-desktop-go/internal/opencode"
+
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
-	"net"
+
 	"net/http"
 	"net/url"
 	"slices"
@@ -77,17 +77,9 @@ const (
 	healthStopped    = "stopped"    // the app stops its own server when it is idle
 )
 
-// serverKey makes a fresh secret for the app's own server, 43 URL-safe
-// characters, as opencode serve takes.
-func serverKey() string {
-	key := make([]byte, 32)
-	rand.Read(key)
-	return base64.RawURLEncoding.EncodeToString(key)
-}
-
 // newServerID names a connection the user adds; the id outlives renames
 // and edits, so its pins and model choices follow it.
-func newServerID() string { return "srv-" + serverKey()[:10] }
+func newServerID() string { return "srv-" + opencode.Secret()[:10] }
 
 // modelKey names one model of one server in the settings' model choices.
 func modelKey(serverID, provider, id string) string {
@@ -144,34 +136,6 @@ func serverPasswordLine(s serverConn) string {
 	}
 }
 
-// refusedLine words a 401 for one connection: a pairing token lapses on
-// its own after its month, while a password was simply refused.
-func refusedLine(paired bool) string {
-	if paired {
-		return "the pairing has lapsed; pair again from Edit"
-	}
-	return "the password was refused (401)"
-}
-
-// apiBase is the /api endpoint of a server address the user typed: a
-// missing scheme reads as http, and a trailing slash or /api falls away.
-func apiBase(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", fmt.Errorf("give the server an address")
-	}
-	if !strings.Contains(raw, "://") {
-		raw = "http://" + raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "", fmt.Errorf("%s is not an address to reach", raw)
-	}
-	path := strings.TrimSuffix(u.Path, "/")
-	path = strings.TrimSuffix(path, "/api")
-	return u.Scheme + "://" + u.Host + path + "/api", nil
-}
-
 // pairLink splits a pairing link — the address `opencode pair` prints,
 // with /auth/connect/<code> on it — into the server's address and the
 // one-shot code. The address comes back the way the editor stores one:
@@ -210,7 +174,7 @@ func redeemPairLink(ctx context.Context, link string) (string, string, error) {
 	if !ok {
 		return "", "", fmt.Errorf("that is not a pairing link")
 	}
-	base, err := apiBase(addr)
+	base, err := opencode.APIBase(addr)
 	if err != nil {
 		return "", "", err
 	}
@@ -220,7 +184,7 @@ func redeemPairLink(ctx context.Context, link string) (string, string, error) {
 		return "", "", err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := httpClient().Do(req)
+	resp, err := opencode.HTTPClient().Do(req)
 	if err != nil {
 		return "", "", err
 	}
@@ -281,12 +245,12 @@ type mintedLink struct {
 // `opencode pair` does: a short-lived code for another client to join
 // with, on an address the server names for itself, else the one the app
 // dials it at.
-func mintPairLink(ctx context.Context, cfg serverConn, facts serverFacts) (string, error) {
-	ag, err := standaloneAgent(cfg)
+func mintPairLink(ctx context.Context, cfg serverConn, facts opencode.Facts) (string, error) {
+	ag, err := opencode.NewClient(cfg.transport())
 	if err != nil {
 		return "", err
 	}
-	raw, err := ag.call(ctx, "POST", "/pair", struct{}{})
+	raw, err := ag.Call(ctx, "POST", "/pair", struct{}{})
 	if err != nil {
 		return "", err
 	}
@@ -307,11 +271,11 @@ func mintPairLink(ctx context.Context, cfg serverConn, facts serverFacts) (strin
 		return "", fmt.Errorf("the server minted no pairing code")
 	}
 	addr := strings.TrimSuffix(cfg.url, "/")
-	if len(facts.urls) > 0 {
-		addr = strings.TrimSuffix(facts.urls[0], "/")
+	if len(facts.URLs) > 0 {
+		addr = strings.TrimSuffix(facts.URLs[0], "/")
 	}
 	if addr == "" {
-		addr = ag.addr
+		addr = ag.Address
 	}
 	return addr + "/auth/connect/" + url.PathEscape(code), nil
 }
@@ -360,61 +324,12 @@ func (a *app) activePairLink(serverID string) string {
 	return m.link
 }
 
-// httpClient is what agents dial with: a host that blackholes must not
-// hang a call forever, while the event stream, whose headers arrive at
-// once, stays open.
-func httpClient() *http.Client {
-	return &http.Client{Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 8 * time.Second}).DialContext,
-		ResponseHeaderTimeout: 20 * time.Second,
-	}}
-}
-
-// serverFacts is what a server's /info says about itself: the version it
-// runs, the addresses it says it answers on, its process and what its
-// capabilities allow.
-type serverFacts struct {
-	version string
-	urls    []string
-	pid     int
-	pty     bool // it offers persistent terminals
-}
-
-// infoBody is one /info answer's fields, which opencode wraps in a data
-// envelope on some builds and not on others.
-type infoBody struct {
-	Version      string   `json:"version"`
-	PID          int      `json:"pid"`
-	URLs         []string `json:"urls"`
-	Capabilities struct {
-		PersistentPty bool `json:"persistentPty"`
-	} `json:"capabilities"`
-}
-
-// readInfo reads a /info body, bare or wrapped, into what the app keeps of
-// it. A body it cannot read reads as the zero facts.
-func readInfo(raw []byte) serverFacts {
-	var out struct {
-		infoBody
-		Data infoBody `json:"data"`
-	}
-	if json.Unmarshal(raw, &out) != nil {
-		return serverFacts{}
-	}
-	body := out.infoBody
-	if body.Version == "" {
-		body = out.Data
-	}
-	return serverFacts{version: body.Version, urls: body.URLs, pid: body.PID,
-		pty: body.Capabilities.PersistentPty}
-}
-
 // serverFactsLine words what the server's own /info added to the row: the
 // addresses it says it answers on that the app does not already name.
 // Capabilities the app has no use for yet stay out of the reading.
-func serverFactsLine(f serverFacts, s serverConn, h serverHealth) string {
+func serverFactsLine(f opencode.Facts, s serverConn, h serverHealth) string {
 	urls := []string{}
-	for _, u := range f.urls {
+	for _, u := range f.URLs {
 		u = strings.TrimSuffix(u, "/")
 		if u == "" || u == strings.TrimSuffix(h.addr, "/") || u == strings.TrimSuffix(s.url, "/") {
 			continue
@@ -429,32 +344,32 @@ func serverFactsLine(f serverFacts, s serverConn, h serverHealth) string {
 
 // probeServer asks a server for its facts without taking it over: what
 // Settings tests a connection with while the pipe talks to another one.
-func probeServer(ctx context.Context, cfg serverConn) (serverFacts, error) {
-	base, err := apiBase(cfg.url)
+func probeServer(ctx context.Context, cfg serverConn) (opencode.Facts, error) {
+	base, err := opencode.APIBase(cfg.url)
 	if err != nil {
-		return serverFacts{}, err
+		return opencode.Facts{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", base+"/info", nil)
 	if err != nil {
-		return serverFacts{}, err
+		return opencode.Facts{}, err
 	}
 	req.SetBasicAuth("opencode", cfg.password)
-	resp, err := httpClient().Do(req)
+	resp, err := opencode.HTTPClient().Do(req)
 	if err != nil {
-		return serverFacts{}, err
+		return opencode.Facts{}, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
-		return serverFacts{}, fmt.Errorf("%s", refusedLine(cfg.paired))
+		return opencode.Facts{}, fmt.Errorf("%s", opencode.RefusedLine(cfg.paired))
 	}
 	if resp.StatusCode >= 300 {
-		return serverFacts{}, fmt.Errorf("%s: %s", base, resp.Status)
+		return opencode.Facts{}, fmt.Errorf("%s: %s", base, resp.Status)
 	}
-	if facts := readInfo(raw); facts.version != "" {
+	if facts := opencode.ReadInfo(raw); facts.Version != "" {
 		return facts, nil
 	}
-	return serverFacts{}, fmt.Errorf("%s did not name its version", base)
+	return opencode.Facts{}, fmt.Errorf("%s did not name its version", base)
 }
 
 // serverByID finds one connection as it stands now.
@@ -492,9 +407,9 @@ func (a *app) setHealth(id string, h serverHealth) {
 }
 
 // setFacts records what one server's /info said about itself.
-func (a *app) setFacts(id string, f serverFacts) {
+func (a *app) setFacts(id string, f opencode.Facts) {
 	if a.serverFacts == nil {
-		a.serverFacts = map[string]serverFacts{}
+		a.serverFacts = map[string]opencode.Facts{}
 	}
 	a.serverFacts[id] = f
 }
@@ -524,7 +439,7 @@ func (a *app) useServer(id string) {
 	// carried over, they would speak for a folder the next server has
 	// never heard of, or a model it does not offer.
 	a.draftProject = ""
-	a.draftModel = agentModelRef{}
+	a.draftModel = opencode.ModelRef{}
 	a.reconnect()
 	a.saveState()
 }
@@ -593,11 +508,11 @@ func (a *app) runProbe(cfg serverConn) {
 		return
 	}
 	request := a.registryRequest("probe:" + cfg.id)
-	runOwned(a, request, a.lifetime, func(ctx context.Context) (serverFacts, error) {
+	runOwned(a, request, a.lifetime, func(ctx context.Context) (opencode.Facts, error) {
 		ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
 		return probeServer(ctx, cfg)
-	}, func(facts serverFacts, err error) {
+	}, func(facts opencode.Facts, err error) {
 		if current, ok := a.serverByID(cfg.id); !ok || current != cfg {
 			return
 		}
@@ -605,7 +520,7 @@ func (a *app) runProbe(cfg serverConn) {
 		if err != nil {
 			h.status, h.detail = healthDown, err.Error()
 		} else {
-			h.status, h.detail = healthReady, facts.version
+			h.status, h.detail = healthReady, facts.Version
 		}
 		a.setHealth(cfg.id, h)
 		a.setFacts(cfg.id, facts)
@@ -643,4 +558,8 @@ func (a *app) probeUntried() {
 			a.probe(s)
 		}
 	}
+}
+
+func (s serverConn) transport() opencode.Config {
+	return opencode.Config{URL: s.url, Password: s.password, Paired: s.paired, Managed: s.managed}
 }

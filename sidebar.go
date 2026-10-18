@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -258,7 +259,7 @@ func (a *app) serverPill(c *ui.Context, p palette) {
 // bellButton shows the approvals waiting: its badge counts them, and a
 // click takes the user to the chat that asked.
 func (a *app) bellButton(c *ui.Context, p palette) {
-	asks := len(a.pending)
+	asks := len(a.transcript.Pending())
 	label := "Notifications"
 	if asks > 0 {
 		label = fmt.Sprintf("Notifications, %d approvals waiting", asks)
@@ -287,26 +288,26 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 // the store lists first.
 func (a *app) openAnAsk() {
 	a.settingsOpen = false
-	keys := make([]string, 0, len(a.pending))
-	for k := range a.pending {
+	keys := make([]string, 0, len(a.transcript.Pending()))
+	for k := range a.transcript.Pending() {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	ask := a.pending[keys[0]]
+	ask := a.transcript.Pending()[keys[0]]
 	for i := range a.scope().sessions {
-		if a.scope().sessions[i].id == ask.session {
+		if a.scope().sessions[i].ID == ask.Session {
 			a.adoptSession(a.scope().sessions[i])
 			break
 		}
 	}
-	if a.selectedSession != ask.session {
+	if a.selectedSession != ask.Session {
 		// The conversation sits past the list's first page; open it by
 		// hand and let the restore name it.
-		a.selectedSession = ask.session
+		a.selectedSession = ask.Session
 		a.selected = ""
 		a.freshTranscript()
 	}
-	a.queueJob(agentJob{kind: jobOpen, sid: ask.session})
+	a.queueJob(agentJob{kind: jobOpen, sid: ask.Session})
 }
 
 // newChatRow starts a fresh chat.
@@ -379,18 +380,18 @@ func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func())
 	})
 }
 
-func (a *app) pinnedSessions() []agentSession {
-	out := make([]agentSession, 0, len(a.pinned))
+func (a *app) pinnedSessions() []opencode.Session {
+	out := make([]opencode.Session, 0, len(a.pinned))
 	order := make(map[string]int, len(a.pinOrder))
 	for i, id := range a.pinOrder {
 		order[id] = i
 	}
 	for _, s := range a.scope().sessions {
-		if a.pinned[s.id] {
+		if a.pinned[s.ID] {
 			out = append(out, s)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return order[out[i].id] < order[out[j].id] })
+	sort.SliceStable(out, func(i, j int) bool { return order[out[i].ID] < order[out[j].ID] })
 	return out
 }
 
@@ -411,11 +412,11 @@ func (a *app) projectDirectories() []string {
 			seen[filepath.Clean(dir)] = true
 		}
 		for _, s := range a.scope().sessions {
-			if s.dir == "" || seen[filepath.Clean(s.dir)] {
+			if s.Directory == "" || seen[filepath.Clean(s.Directory)] {
 				continue
 			}
-			seen[filepath.Clean(s.dir)] = true
-			projects = append(projects, s.dir)
+			seen[filepath.Clean(s.Directory)] = true
+			projects = append(projects, s.Directory)
 		}
 	}
 	sort.SliceStable(projects, func(i, j int) bool { return a.projectPins[projects[i]] && !a.projectPins[projects[j]] })
@@ -549,10 +550,10 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 
 // projectChats lists the conversations working in one project's folder,
 // newest first, the way the tree nests them.
-func (a *app) projectChats(dir string) []agentSession {
-	var chats []agentSession
+func (a *app) projectChats(dir string) []opencode.Session {
+	var chats []opencode.Session
 	for _, s := range a.scope().sessions {
-		if sameDir(s.dir, dir) {
+		if sameDir(s.Directory, dir) {
 			chats = append(chats, s)
 		}
 	}
@@ -626,7 +627,7 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 			if i == len(rows) {
 				return "footer"
 			}
-			return "session:" + rows[i].id
+			return "session:" + rows[i].ID
 		}).Rows(func(row ui.ListRow) {
 		if row.Index < len(rows) {
 			a.sessionRow(row.Context, p, rows[row.Index])
@@ -641,28 +642,28 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 // sessionRow is one real conversation among the pinned rows: choosing it
 // swaps the transcript while the runner brings the stored one back, and
 // the kebab at its end renames, pins or deletes it.
-func (a *app) sessionRow(c *ui.Context, p palette, s agentSession) {
+func (a *app) sessionRow(c *ui.Context, p palette, s opencode.Session) {
 	a.chatRow(c, p, s, "session:", 8)
 }
 
 // projectChatRow nests one conversation under its project folder.
-func (a *app) projectChatRow(c *ui.Context, p palette, s agentSession) {
-	a.chatRow(c, p, s, "projectchat:"+s.dir+":", 30)
+func (a *app) projectChatRow(c *ui.Context, p palette, s opencode.Session) {
+	a.chatRow(c, p, s, "projectchat:"+s.Directory+":", 30)
 }
 
 // chatRow draws one conversation row in either place, indented by the
 // tree it sits in.
-func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, indent float32) {
-	label := s.title
+func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, indent float32) {
+	label := s.Title
 	if label == "" {
 		label = "New chat"
 	}
-	c.Key(key + s.id)
-	b := a.row(c, p, label, s.id == a.selectedSession)
+	c.Key(key + s.ID)
+	b := a.row(c, p, label, s.ID == a.selectedSession)
 	b.PaddingStart(indent)
 	b.OnClick(func() {
 		a.adoptSession(s)
-		a.queueJob(agentJob{kind: jobOpen, sid: s.id})
+		a.queueJob(agentJob{kind: jobOpen, sid: s.ID})
 	})
 	tint := p.faint
 	if b.Hovered() {
@@ -670,10 +671,10 @@ func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, inde
 	}
 	b.Children(func() {
 		a.textRow(c, p, label)
-		if s.id == a.busySession {
+		if s.ID == a.transcript.Busy() {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
-		c.Key(key + "menu:" + s.id)
+		c.Key(key + "menu:" + s.ID)
 		kebab := ui.ButtonBase(c).Label("Conversation options, "+label).Size(22, 22).
 			Radius(6).Center().Tooltip("Rename or delete this chat")
 		kebab.Menu(func(m *ui.Menu) {
@@ -681,7 +682,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, inde
 				a.requestRename(s)
 			}
 			pinLabel := "Pin chat"
-			if a.pinned[s.id] {
+			if a.pinned[s.ID] {
 				pinLabel = "Unpin from Pinned"
 			}
 			if m.Item(pinLabel).Chosen() {
@@ -700,17 +701,17 @@ func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, inde
 	})
 }
 
-func (a *app) togglePin(s agentSession) {
+func (a *app) togglePin(s opencode.Session) {
 	if a.pinned == nil {
 		a.pinned = map[string]bool{}
 	}
-	if a.pinned[s.id] {
-		delete(a.pinned, s.id)
-		a.pinOrder = slices.DeleteFunc(a.pinOrder, func(id string) bool { return id == s.id })
+	if a.pinned[s.ID] {
+		delete(a.pinned, s.ID)
+		a.pinOrder = slices.DeleteFunc(a.pinOrder, func(id string) bool { return id == s.ID })
 	} else {
-		a.pinned[s.id] = true
-		a.pinOrder = append(a.pinOrder, s.id)
-		a.scope().sessions = dedupeSessions(a.scope().sessions, []agentSession{s})
+		a.pinned[s.ID] = true
+		a.pinOrder = append(a.pinOrder, s.ID)
+		a.scope().sessions = dedupeSessions(a.scope().sessions, []opencode.Session{s})
 	}
 	// The active server's pins live in both shapes: the map the sidebar
 	// draws from and the store's per-server list.

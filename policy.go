@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"wada-desktop-go/internal/opencode"
 )
 
 type policyChange struct {
@@ -114,7 +115,7 @@ func (a *app) watchServerPolicy(dir string) {
 	})
 }
 
-// permissionLevel reads the workspace's opencode.json: how bash actions
+// permissionLevel reads the workspace's json: how bash actions
 // run in it, ask-first or open. A config the decoder cannot read shows
 // itself as ask-first, the safe reading.
 func permissionLevel(dir string) (string, error) {
@@ -287,11 +288,11 @@ func setPermissionAsk(dir string, ask bool) error {
 // a remote server: the config documents it stacks up, and the project's
 // own opencode.json among them holds the door like the local file does.
 func remotePermissionLevel(ctx context.Context, cfg serverConn, dir string) (string, error) {
-	ag, err := standaloneAgent(cfg)
+	ag, err := opencode.NewClient(cfg.transport())
 	if err != nil {
 		return "", err
 	}
-	entries, err := ag.listConfig(ctx, dir)
+	entries, err := ag.ListConfig(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -310,11 +311,11 @@ func remotePermissionLevel(ctx context.Context, cfg serverConn, dir string) (str
 // written back through the file API. It names the level the server will
 // read out next, or why the write did not go through.
 func remoteSetPermissionAsk(ctx context.Context, cfg serverConn, dir string, ask bool) (string, error) {
-	ag, err := standaloneAgent(cfg)
+	ag, err := opencode.NewClient(cfg.transport())
 	if err != nil {
 		return "", err
 	}
-	entries, err := ag.listConfig(ctx, dir)
+	entries, err := ag.ListConfig(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -334,7 +335,7 @@ func remoteSetPermissionAsk(ctx context.Context, cfg serverConn, dir string, ask
 	if err != nil {
 		return "", err
 	}
-	if err := ag.writeWorkspaceFile(ctx, dir, "opencode.json", out); err != nil {
+	if err := ag.WriteWorkspaceFile(ctx, dir, "opencode.json", out); err != nil {
 		return "", err
 	}
 	return shellGate(doc), nil

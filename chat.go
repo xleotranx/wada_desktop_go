@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"wada-desktop-go/internal/chat"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -54,17 +55,17 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
 				})
 			} else {
-				count := len(a.blocks)
+				count := len(a.transcript.Rows())
 				if a.turnWorking() {
 					count++
 				}
 				ui.List(c.Key(a.selectedSession), &a.feed, count).Fill().Selectable().
 					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
 					Rows(func(row ui.ListRow) {
-						if row.Index == len(a.blocks) {
-							a.blockRow(row.Context, p, block{kind: kindWorking, text: "Working…"})
+						if row.Index == len(a.transcript.Rows()) {
+							a.blockRow(row.Context, p, chat.Block{Kind: chat.KindWorking, Text: "Working…"})
 						} else {
-							a.blockRow(row.Context, p, a.blocks[row.Index])
+							a.blockRow(row.Context, p, a.transcript.Rows()[row.Index])
 						}
 					})
 			}
@@ -78,14 +79,14 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 
 // turnRunning reports the open chat's turn still going.
 func (a *app) turnRunning() bool {
-	return a.busySession != "" && a.busySession == a.selectedSession
+	return a.transcript.Busy() != "" && a.transcript.Busy() == a.selectedSession
 }
 
 // awaitingPerm reports an approval of the open chat's turn waiting on the
 // user.
 func (a *app) awaitingPerm() bool {
-	for _, perm := range a.pending {
-		if perm.session == a.selectedSession {
+	for _, perm := range a.transcript.Pending() {
+		if perm.Session == a.selectedSession {
 			return true
 		}
 	}
@@ -103,9 +104,9 @@ func (a *app) turnWorking() bool {
 	// The newest stream row is the words landing: empty means there is
 	// nothing to read yet, and no stream row at all means the turn sits
 	// between steps.
-	for i := len(a.blocks) - 1; i >= 0; i-- {
-		if a.blocks[i].kind == kindStream {
-			return strings.TrimSpace(a.blocks[i].text) == ""
+	for i := len(a.transcript.Rows()) - 1; i >= 0; i-- {
+		if a.transcript.Rows()[i].Kind == chat.KindStream {
+			return strings.TrimSpace(a.transcript.Rows()[i].Text) == ""
 		}
 	}
 	return true
@@ -115,51 +116,47 @@ func (a *app) turnWorking() bool {
 // settles. IDs are assigned lazily, so opening history visits only what
 // the virtual list needs.
 func (a *app) blockIdentity(i int) any {
-	if i == len(a.blocks) {
+	if i == len(a.transcript.Rows()) {
 		return "working"
 	}
-	if a.blocks[i].id == 0 {
-		a.nextBlockID++
-		a.blocks[i].id = a.nextBlockID
-	}
-	return a.blocks[i].id
+	return a.transcript.Identity(i)
 }
 
 // blockRow draws one block of the transcript: a paragraph, what the user
 // said, a line of what the agent ran, or the loader of the turn in
 // flight.
-func (a *app) blockRow(c *ui.Context, p palette, b block) {
+func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 	ui.Column(c).FillWidth().MaxWidth(760).Margin(0, ui.Auto).Gap(10).Children(func() {
-		switch b.kind {
-		case kindUser:
+		switch b.Kind {
+		case chat.KindUser:
 			ui.Row(c).FillWidth().Justify(ui.End).Children(func() {
 				ui.Box(c).MaxWidthPercent(76).Radius(18).Padding(9, 14).
 					Background(p.bubble).Children(func() {
-					ui.Text(c, b.text).FontSize(14).LineHeight(1.45)
+					ui.Text(c, b.Text).FontSize(14).LineHeight(1.45)
 				})
 			})
-		case kindActivity:
+		case chat.KindActivity:
 			a.activityRow(c, p, b)
-		case kindPermission:
+		case chat.KindPermission:
 			a.permissionRow(c, p, b)
-		case kindWorking:
+		case chat.KindWorking:
 			// The loader at the turn in flight, until words land.
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Spinner(c).Size(13, 13).Label("The agent is working")
-				ui.Text(c, b.text).FontSize(13).TextColor(p.muted)
+				ui.Text(c, b.Text).FontSize(13).TextColor(p.muted)
 			})
-		case kindNote:
+		case chat.KindNote:
 			// Engine trouble stays a faint line under the answers.
-			ui.Text(c, b.text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
+			ui.Text(c, b.Text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
 				SingleLine().Ellipsis("…")
-		case kindStream:
+		case chat.KindStream:
 			// Markdown still being written: the package parses the new
 			// words alone, shows half-written syntax as what it will
 			// become, and paces the words in.
-			markdown.Stream(c, b.text, &a.md)
-		case kindText:
-			markdown.View(c, b.text, &a.md)
-			if line := usageLine(b.cost, b.tokens); line != "" {
+			markdown.Stream(c, b.Text, &a.md)
+		case chat.KindText:
+			markdown.View(c, b.Text, &a.md)
+			if line := usageLine(b.Cost, b.Tokens); line != "" {
 				ui.Text(c, line).FontSize(11.5).TextColor(p.faint).SingleLine()
 			}
 		}
@@ -167,33 +164,33 @@ func (a *app) blockRow(c *ui.Context, p palette, b block) {
 }
 
 // activityRow is one line the agent ran, opening its detail below it.
-func (a *app) activityRow(c *ui.Context, p palette, b block) {
-	open := a.expanded[b.key]
+func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
+	open := a.expanded[b.Key]
 	chev := icChevRight
 	if open {
 		chev = icChevDown
 	}
-	row := ui.ButtonBase(c).Label(b.text).Height(28).Radius(8).Padding(0, 6).
-		FillWidth().Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip(b.text)
+	row := ui.ButtonBase(c).Label(b.Text).Height(28).Radius(8).Padding(0, 6).
+		FillWidth().Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip(b.Text)
 	if row.Hovered() {
 		row.Background(p.hover)
 	}
-	row.OnClick(func() { a.expanded[b.key] = !a.expanded[b.key] })
+	row.OnClick(func() { a.expanded[b.Key] = !a.expanded[b.Key] })
 	row.Children(func() {
-		ui.Icon(c, toolIcon(b.icon)).FontSize(15).TextColor(p.muted)
-		ui.Text(c, b.text).MarginStart(9).FontSize(13).TextColor(p.muted).SingleLine()
+		ui.Icon(c, toolIcon(b.Icon)).FontSize(15).TextColor(p.muted)
+		ui.Text(c, b.Text).MarginStart(9).FontSize(13).TextColor(p.muted).SingleLine()
 		ui.Icon(c, chev).FontSize(12).MarginStart(6).TextColor(p.muted)
 	})
-	if open && b.detail != nil {
-		ui.Row(c).FillWidth().Children(func() { drawCommandDetail(c, p, b.detail) })
+	if open && b.Detail != nil {
+		ui.Row(c).FillWidth().Children(func() { drawCommandDetail(c, p, b.Detail) })
 	}
 }
 
 // permissionRow is one approval the agent raised mid-turn: what it wants
 // to do, with the three decisions the server takes. It stays until the
 // runner's reply lands, then the card leaves the transcript.
-func (a *app) permissionRow(c *ui.Context, p palette, b block) {
-	r := b.req
+func (a *app) permissionRow(c *ui.Context, p palette, b chat.Block) {
+	r := b.Request
 	if r == nil {
 		return
 	}
@@ -202,10 +199,10 @@ func (a *app) permissionRow(c *ui.Context, p palette, b block) {
 		ui.Column(c).Gap(8).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icShield).FontSize(15).TextColor(p.orange)
-				ui.Text(c, "Approval needed — "+permAsk(r.action)).
+				ui.Text(c, "Approval needed — "+permAsk(r.Action)).
 					FontSize(13).FontWeight(500).SingleLine()
 			})
-			for _, res := range r.resources {
+			for _, res := range r.Resources {
 				ui.Box(c).FillWidth().Radius(8).Padding(5, 10).
 					Background(p.bg).Border(1, p.hairline).Children(func() {
 					ui.Text(c, "$ "+res).Font("monospace").FontSize(12).LineHeight(1.5).
@@ -220,8 +217,8 @@ func (a *app) permissionRow(c *ui.Context, p palette, b block) {
 				a.permButton(c, p, false, p.hover, p.text,
 					"Deny", "Refuse and let the agent carry on.", func() { a.answerPerm(r, "reject") })
 			})
-			if len(r.save) > 0 {
-				ui.Text(c, "Always would remember "+strings.Join(r.save, ", ")+".").
+			if len(r.Save) > 0 {
+				ui.Text(c, "Always would remember "+strings.Join(r.Save, ", ")+".").
 					FontSize(12).TextColor(p.muted).SingleLine()
 			}
 		})

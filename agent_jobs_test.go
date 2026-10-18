@@ -1,5 +1,9 @@
 package main
 
+import "wada-desktop-go/internal/opencode"
+
+import "wada-desktop-go/internal/chat"
+
 import "testing"
 
 func TestServerSwitchReplacesFullQueue(t *testing.T) {
@@ -66,23 +70,23 @@ func TestDraftRejectsUnrelatedSessionEvents(t *testing.T) {
 	a.startNewChat()
 	a.draft = "my question"
 	a.send()
-	for _, ev := range []agentEvent{
+	for _, ev := range []opencode.Event{
 		{Type: "session.text.started", Data: []byte(`{"sessionID":"other","assistantMessageID":"msg","ordinal":0}`)},
 		{Type: "session.execution.started", Data: []byte(`{"sessionID":"other"}`)},
 		{Type: "permission.asked", Data: []byte(`{"sessionID":"other","id":"ask","action":"shell"}`)},
 	} {
 		a.apply(ev)
 	}
-	if len(a.blocks) != 1 || a.blocks[0].kind != kindUser || len(a.pending) != 0 || a.busySession != "" {
-		t.Fatalf("unrelated events entered the pending turn: %+v", a.blocks)
+	if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != chat.KindUser || len(a.transcript.Pending()) != 0 || a.transcript.Busy() != "" {
+		t.Fatalf("unrelated events entered the pending turn: %+v", a.transcript.Rows())
 	}
 	a.selectedSession = "mine"
-	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"assistantMessageID":"anonymous","ordinal":0}`)})
-	if len(a.blocks) != 1 {
+	a.apply(opencode.Event{Type: "session.text.started", Data: []byte(`{"assistantMessageID":"anonymous","ordinal":0}`)})
+	if len(a.transcript.Rows()) != 1 {
 		t.Fatal("an event without a session ID entered the selected conversation")
 	}
-	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"sessionID":"mine","assistantMessageID":"mine-msg","ordinal":0}`)})
-	if len(a.blocks) != 2 || a.blocks[1].kind != kindStream {
+	a.apply(opencode.Event{Type: "session.text.started", Data: []byte(`{"sessionID":"mine","assistantMessageID":"mine-msg","ordinal":0}`)})
+	if len(a.transcript.Rows()) != 2 || a.transcript.Rows()[1].Kind != chat.KindStream {
 		t.Fatal("the adopted conversation did not accept its own stream")
 	}
 }

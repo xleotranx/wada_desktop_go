@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/plugins/sqlite"
 	"github.com/egoist/mygo/ui"
@@ -313,10 +314,10 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	if len(a.projects) != 0 || a.projectPins[project] {
 		t.Fatal("project menu did not remove the folder and its pin")
 	}
-	a.scope().sessions = []agentSession{{id: "b"}, {id: "a"}}
+	a.scope().sessions = []opencode.Session{{ID: "b"}, {ID: "a"}}
 	a.togglePin(a.scope().sessions[1])
 	a.togglePin(a.scope().sessions[0])
-	if pins := a.pinnedSessions(); len(pins) != 2 || pins[0].id != "a" {
+	if pins := a.pinnedSessions(); len(pins) != 2 || pins[0].ID != "a" {
 		t.Fatalf("pin order: %+v", pins)
 	}
 	a.dropSession("a")
@@ -356,9 +357,9 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 	a.addFolder(t.TempDir())
 	project := a.projects[0]
 	a.toggleProjectPin(project)
-	a.togglePin(agentSession{id: "saved-chat"})
-	a.togglePin(agentSession{id: "unpin-me"})
-	a.togglePin(agentSession{id: "unpin-me"})
+	a.togglePin(opencode.Session{ID: "saved-chat"})
+	a.togglePin(opencode.Session{ID: "unpin-me"})
+	a.togglePin(opencode.Session{ID: "unpin-me"})
 	a.closeMetadata()
 	b := newTestApp(t)
 	db, err = b.loadState(path)
@@ -373,8 +374,8 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 
 func TestPinSearchResultOutsideLoadedHistory(t *testing.T) {
 	a := newTestApp(t)
-	a.togglePin(agentSession{id: "older-search-result", title: "Older chat"})
-	if pins := a.pinnedSessions(); len(pins) != 1 || pins[0].title != "Older chat" {
+	a.togglePin(opencode.Session{ID: "older-search-result", Title: "Older chat"})
+	if pins := a.pinnedSessions(); len(pins) != 1 || pins[0].Title != "Older chat" {
 		t.Fatalf("search result pin disappeared: %+v", pins)
 	}
 }

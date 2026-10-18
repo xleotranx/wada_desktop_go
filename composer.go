@@ -3,6 +3,7 @@ package main
 import (
 	"sort"
 	"strings"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -149,7 +150,7 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 func (a *app) modelButton(c *ui.Context, p palette) {
 	ref := a.sessionModelOf(a.selectedSession)
 	name, variants := a.modelLabel(ref)
-	b := ui.ButtonBase(c).Label("Model " + name).Height(28).Radius(999).PaddingX(8).
+	b := ui.ButtonBase(c).Label("opencode.Model " + name).Height(28).Radius(999).PaddingX(8).
 		MinWidth(80).Shrink(1).
 		Cursor(ui.CursorPointer).Tooltip("Choose a model")
 	b.OnClick(func() {
@@ -160,8 +161,8 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 		ui.Icon(c, icLoad).FontSize(13).TextColor(p.muted).Shrink(0)
 		ui.Text(c, name).MarginStart(5).FontSize(13).TextColor(p.text).
 			SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
-		if ref.variant != "" {
-			ui.Text(c, ref.variant).MarginStart(4).FontSize(13).TextColor(p.muted).
+		if ref.Variant != "" {
+			ui.Text(c, ref.Variant).MarginStart(4).FontSize(13).TextColor(p.muted).
 				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		}
 		ui.Icon(c, icChevUD).FontSize(12).MarginStart(5).TextColor(p.muted).Shrink(0)
@@ -174,7 +175,7 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 // The panel is the flex column itself: a wrapper in between would hold
 // the content height of the whole catalog and spill past the panel
 // instead of handing the spare room to the list that scrolls.
-func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agentModelRef, variants []string) {
+func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
 	ui.Popover(c, anchor, &a.pickerOpen, func() {
 		ui.Box(c).Width(320).MaxHeight(420).Radius(14).Padding(10).Gap(8).
 			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, p.shadow).
@@ -184,10 +185,10 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 				ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
 					for _, m := range models {
 						m := m // fresh per row, the closures keep their own model
-						c.Key("model:" + m.providerID + "/" + m.id)
-						pick := ui.ButtonBase(c).Label("Pick "+m.name).Height(32).Radius(8).
+						c.Key("model:" + m.ProviderID + "/" + m.ID)
+						pick := ui.ButtonBase(c).Label("Pick "+m.Name).Height(32).Radius(8).
 							Padding(0, 8).Justify(ui.Start).FillWidth()
-						chosen := m.providerID == ref.providerID && m.id == ref.id
+						chosen := m.ProviderID == ref.ProviderID && m.ID == ref.ID
 						if pick.Hovered() {
 							pick.Background(p.hover)
 						} else if chosen {
@@ -195,12 +196,12 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 						}
 						pick.OnClick(func() { a.chooseModel(m, "") })
 						pick.Children(func() {
-							ui.Text(c, m.name).FontSize(13.5).SingleLine()
-							ui.Text(c, m.providerID).MarginStart(6).FontSize(11).
+							ui.Text(c, m.Name).FontSize(13.5).SingleLine()
+							ui.Text(c, m.ProviderID).MarginStart(6).FontSize(11).
 								TextColor(p.faint).Grow(1).SingleLine()
 							if chosen {
 								ui.Icon(c, icCheck).FontSize(14).TextColor(p.text)
-							} else if m.free {
+							} else if m.Free {
 								ui.Text(c, "Free").FontSize(11).FontWeight(500).
 									TextColor(p.greenBadge).Shrink(0)
 							}
@@ -233,7 +234,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 							v := v // fresh per chip, so the closures keep their own effort
 							chip := ui.ButtonBase(c).Label("Reasoning " + v).Height(22).Radius(999).
 								PaddingX(9).Tooltip("Reasoning effort: " + v)
-							if v == ref.variant {
+							if v == ref.Variant {
 								chip.Background(p.selected)
 							} else if chip.Hovered() {
 								chip.Background(p.hover)
@@ -241,7 +242,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 							chip.OnClick(func() { a.pickVariant(v) })
 							chip.Children(func() {
 								t := ui.Text(c, v).FontSize(11.5).SingleLine()
-								if v == ref.variant {
+								if v == ref.Variant {
 									t.FontWeight(500)
 								}
 							})
@@ -254,25 +255,25 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 
 // filteredModels is the catalog narrowed by the pick filter, with the
 // free models first and, within each group, names alphabetically.
-func (a *app) filteredModels() []agentModel { return a.offerModels(a.modelFilter) }
+func (a *app) filteredModels() []opencode.Model { return a.offerModels(a.modelFilter) }
 
 // enabledModels is everything the picker offers with no filter at all:
 // the model a new conversation falls back to comes from here.
-func (a *app) enabledModels() []agentModel { return a.offerModels("") }
+func (a *app) enabledModels() []opencode.Model { return a.offerModels("") }
 
 // offerModels is the catalog in picker order -- free models first, names
 // alphabetically inside each group -- minus what the settings turned off
 // and whatever the query does not match.
-func (a *app) offerModels(query string) []agentModel {
+func (a *app) offerModels(query string) []opencode.Model {
 	query = strings.ToLower(strings.TrimSpace(query))
-	out := []agentModel{}
+	out := []opencode.Model{}
 	for _, m := range a.scope().models {
 		if a.modelDisabled(m) {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(m.name), query) &&
-			!strings.Contains(strings.ToLower(m.providerID), query) &&
-			!strings.Contains(strings.ToLower(m.id), query) {
+		if query != "" && !strings.Contains(strings.ToLower(m.Name), query) &&
+			!strings.Contains(strings.ToLower(m.ProviderID), query) &&
+			!strings.Contains(strings.ToLower(m.ID), query) {
 			continue
 		}
 		out = append(out, m)
@@ -301,7 +302,7 @@ func (a *app) noModelsNote() string {
 func (a *app) voiceButton(c *ui.Context, p palette) {
 	bg, icon, label := p.voiceBg, icWaves, "Voice session"
 	switch {
-	case a.busySession != "":
+	case a.transcript.Busy() != "":
 		bg, icon, label = p.accent, icStop, "Stop the agent"
 	case strings.TrimSpace(a.draft) != "":
 		bg, icon, label = p.accent, icSend, "Send message"
@@ -310,7 +311,7 @@ func (a *app) voiceButton(c *ui.Context, p palette) {
 		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)
 	b.OnClick(func() {
 		switch {
-		case a.busySession != "":
+		case a.transcript.Busy() != "":
 			a.stopTurn()
 		case strings.TrimSpace(a.draft) != "":
 			a.send()

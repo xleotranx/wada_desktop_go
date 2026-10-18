@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -314,7 +315,7 @@ func (a *app) saveServerEditor() {
 			})
 			return
 		}
-		base, err := apiBase(url)
+		base, err := opencode.APIBase(url)
 		if err != nil {
 			st.note = err.Error()
 			return
@@ -451,38 +452,38 @@ func (a *app) catalogNote(srv serverConn) string {
 // its models.
 type catalogRow struct {
 	provider string
-	model    *agentModel
+	model    *opencode.Model
 }
 
 func (r catalogRow) key() string {
 	if r.model == nil {
 		return "provider:" + r.provider
 	}
-	return "model:" + r.model.providerID + "/" + r.model.id
+	return "model:" + r.model.ProviderID + "/" + r.model.ID
 }
 
 // catalogRows is the Models tab's lines: one heading per provider with its
 // models under it, narrowed by the search field.
 func (a *app) catalogRows() []catalogRow {
 	query := strings.ToLower(strings.TrimSpace(a.modelsQuery))
-	byProvider := map[string][]agentModel{}
+	byProvider := map[string][]opencode.Model{}
 	providers := []string{}
 	for _, m := range a.scope().models {
-		if query != "" && !strings.Contains(strings.ToLower(m.name), query) &&
-			!strings.Contains(strings.ToLower(m.providerID), query) &&
-			!strings.Contains(strings.ToLower(m.id), query) {
+		if query != "" && !strings.Contains(strings.ToLower(m.Name), query) &&
+			!strings.Contains(strings.ToLower(m.ProviderID), query) &&
+			!strings.Contains(strings.ToLower(m.ID), query) {
 			continue
 		}
-		if _, seen := byProvider[m.providerID]; !seen {
-			providers = append(providers, m.providerID)
+		if _, seen := byProvider[m.ProviderID]; !seen {
+			providers = append(providers, m.ProviderID)
 		}
-		byProvider[m.providerID] = append(byProvider[m.providerID], m)
+		byProvider[m.ProviderID] = append(byProvider[m.ProviderID], m)
 	}
 	sort.Strings(providers)
 	rows := []catalogRow{}
 	for _, prov := range providers {
 		models := byProvider[prov]
-		sort.Slice(models, func(i, j int) bool { return models[i].name < models[j].name })
+		sort.Slice(models, func(i, j int) bool { return models[i].Name < models[j].Name })
 		rows = append(rows, catalogRow{provider: prov})
 		for i := range models {
 			rows = append(rows, catalogRow{model: &models[i]})
@@ -495,7 +496,7 @@ func (a *app) catalogRows() []catalogRow {
 func (a *app) providerRow(c *ui.Context, p palette, provider string) {
 	on, total := 0, 0
 	for _, m := range a.scope().models {
-		if m.providerID != provider {
+		if m.ProviderID != provider {
 			continue
 		}
 		total++
@@ -512,29 +513,29 @@ func (a *app) providerRow(c *ui.Context, p palette, provider string) {
 
 // modelRow is one model with the switch that keeps it in the composer's
 // picker.
-func (a *app) modelRow(c *ui.Context, p palette, m agentModel) {
+func (a *app) modelRow(c *ui.Context, p palette, m opencode.Model) {
 	on := !a.modelDisabled(m)
 	ui.Row(c).FillWidth().Height(46).Padding(0, 10).AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-				ui.Text(c, m.name).FontSize(13.5).TextColor(p.text).
+				ui.Text(c, m.Name).FontSize(13.5).TextColor(p.text).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
-				if m.free {
+				if m.Free {
 					a.badge(c, p, "Free", p.bg, p.greenBadge).Border(1, p.hairline)
 				}
 			})
-			ui.Text(c, m.providerID+"/"+m.id).FontSize(11.5).TextColor(p.faint).
+			ui.Text(c, m.ProviderID+"/"+m.ID).FontSize(11.5).TextColor(p.faint).
 				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		})
-		c.Key("model-switch:" + m.providerID + "/" + m.id)
-		sw := ui.Switch(c, &on).Label("Keep " + m.name + " in the composer's picker")
+		c.Key("model-switch:" + m.ProviderID + "/" + m.ID)
+		sw := ui.Switch(c, &on).Label("Keep " + m.Name + " in the composer's picker")
 		sw.OnClick(func() { a.setModelEnabled(m, on) })
 	})
 }
 
 // modelDisabled reports one model of the active server turned off.
-func (a *app) modelDisabled(m agentModel) bool {
-	return a.modelOff[modelKey(a.activeServer, m.providerID, m.id)]
+func (a *app) modelDisabled(m opencode.Model) bool {
+	return a.modelOff[modelKey(a.activeServer, m.ProviderID, m.ID)]
 }
 
 // modelsEnabled counts one server's catalog, the models its user turned
@@ -544,7 +545,7 @@ func (a *app) modelsEnabled(serverID string, scope *serverScope) (on, total int)
 		return 0, 0
 	}
 	for _, m := range scope.models {
-		if !a.modelOff[modelKey(serverID, m.providerID, m.id)] {
+		if !a.modelOff[modelKey(serverID, m.ProviderID, m.ID)] {
 			on++
 		}
 		total++
@@ -554,8 +555,8 @@ func (a *app) modelsEnabled(serverID string, scope *serverScope) (on, total int)
 
 // setModelEnabled turns one model of the active server on or off; the
 // composer's picker follows at once.
-func (a *app) setModelEnabled(m agentModel, on bool) {
-	key := modelKey(a.activeServer, m.providerID, m.id)
+func (a *app) setModelEnabled(m opencode.Model, on bool) {
+	key := modelKey(a.activeServer, m.ProviderID, m.ID)
 	if on {
 		delete(a.modelOff, key)
 	} else {
@@ -568,7 +569,7 @@ func (a *app) setModelEnabled(m agentModel, on bool) {
 // off in one move.
 func (a *app) setAllModelsEnabled(on bool) {
 	for _, m := range a.scope().models {
-		key := modelKey(a.activeServer, m.providerID, m.id)
+		key := modelKey(a.activeServer, m.ProviderID, m.ID)
 		if on {
 			delete(a.modelOff, key)
 		} else {
@@ -614,7 +615,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 					&st.url, "http://127.0.0.1:4096", false, nil)
 			}
 			settingsField(c, p, "Password", passwordHint(st), &st.password, passwordPlaceholder(st), !st.show, func() {
-				a.linkButton(c, p, "Generate a password", "Generate", func() { st.password = serverKey() })
+				a.linkButton(c, p, "Generate a password", "Generate", func() { st.password = opencode.Secret() })
 				ui.Checkbox(c, &st.show, "Show").MarginStart(6)
 			})
 			if st.pairing {

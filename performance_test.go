@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -21,15 +23,15 @@ func TestAgentUpdatesBatchAndFilter(t *testing.T) {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			posted, applied := 0, 0
 			ended := errors.New("stream ended")
-			err := agentUpdates(context.Background(), func(ctx context.Context, emit func(agentEvent)) error {
+			err := agentUpdates(context.Background(), func(ctx context.Context, emit func(opencode.Event)) error {
 				for range 100 {
-					emit(agentEvent{Type: "session.tool.input.delta"})
+					emit(opencode.Event{Type: "session.tool.input.delta"})
 				}
 				for i := range n {
-					emit(agentEvent{Type: "session.text.delta", Data: []byte(fmt.Sprint(i))})
+					emit(opencode.Event{Type: "session.text.delta", Data: []byte(fmt.Sprint(i))})
 				}
 				return ended
-			}, func(fn func()) { posted++; fn() }, func(ev agentEvent) {
+			}, func(fn func()) { posted++; fn() }, func(ev opencode.Event) {
 				if string(ev.Data) != fmt.Sprint(applied) {
 					t.Fatalf("event %d: %s", applied, ev.Data)
 				}
@@ -50,16 +52,16 @@ func TestAgentUpdatesCancelWhileUIIsBlocked(t *testing.T) {
 	sourceDone := make(chan struct{})
 	applied := false
 	go func() {
-		done <- agentUpdates(ctx, func(ctx context.Context, emit func(agentEvent)) error {
+		done <- agentUpdates(ctx, func(ctx context.Context, emit func(opencode.Event)) error {
 			defer close(sourceDone)
 			for range 10000 {
-				emit(agentEvent{Type: "session.text.delta"})
+				emit(opencode.Event{Type: "session.text.delta"})
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
 			}
 			return nil
-		}, func(fn func()) { posts <- fn }, func(agentEvent) { applied = true })
+		}, func(fn func()) { posts <- fn }, func(opencode.Event) { applied = true })
 	}()
 	var pending func()
 	select {
@@ -89,7 +91,7 @@ func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
-		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
+		a.transcript.Append(chat.Block{Kind: "text", Text: fmt.Sprintf("Answer %d", i)})
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Answer 999") {
@@ -106,19 +108,19 @@ func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
 	a := newTestApp(t)
 	for i := range 400 {
-		a.scope().models = append(a.scope().models, agentModel{providerID: "opencode-go",
-			id: fmt.Sprintf("m-%03d", i), name: fmt.Sprintf("Model %03d", i)})
+		a.scope().models = append(a.scope().models, opencode.Model{ProviderID: "opencode-go",
+			ID: fmt.Sprintf("m-%03d", i), Name: fmt.Sprintf("opencode.Model %03d", i)})
 	}
 	a.scope().modelsLoaded = true
 	a.settingsOpen = true
 	a.settingsTab = tabModels
 	tt := ui.NewTester(a.view, 1400, 920)
-	if !tt.HasText("Model 000") || tt.HasText("Model 399") {
+	if !tt.HasText("opencode.Model 000") || tt.HasText("opencode.Model 399") {
 		t.Fatal("the catalog did not limit construction to visible rows")
 	}
 	a.modelsList.ScrollToEnd()
 	tt.Frame()
-	if !tt.HasText("Model 399") {
+	if !tt.HasText("opencode.Model 399") {
 		t.Fatal("scrolling did not reach the tail of the catalog")
 	}
 }
@@ -127,7 +129,7 @@ func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	for i := range 2000 {
-		a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
+		a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: fmt.Sprint(i), Title: fmt.Sprintf("Chat %d", i)})
 	}
 	a.searchOpen = true
 	a.searchText = "Chat"
@@ -151,10 +153,10 @@ func TestActivitySurvivesVirtualScrolling(t *testing.T) {
 	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
-		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
+		a.transcript.Append(chat.Block{Kind: "text", Text: fmt.Sprintf("Answer %d", i)})
 	}
-	a.blocks = append(a.blocks, block{kind: "activity", text: "Ran command", key: "activity:tail", icon: "shell",
-		detail: []string{"$ echo retained", "retained"}})
+	a.transcript.Append(chat.Block{Kind: "activity", Text: "Ran command", Key: "activity:tail", Icon: "shell",
+		Detail: []string{"$ echo retained", "retained"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Ran command"); err != nil {
 		t.Fatal(err)
@@ -176,13 +178,13 @@ func TestActivitySurvivesVirtualScrolling(t *testing.T) {
 func TestApprovalRemovalPreservesLiveRows(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "s"
-	a.apply(agentEvent{Type: "permission.asked", Data: []byte(`{"id":"ask","sessionID":"s","action":"shell"}`)})
-	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
+	a.apply(opencode.Event{Type: "permission.asked", Data: []byte(`{"id":"ask","sessionID":"s","action":"shell"}`)})
+	a.apply(opencode.Event{Type: "session.text.started", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
 	id := a.blockIdentity(1)
 	a.dropPerm("ask")
-	a.apply(agentEvent{Type: "session.text.delta", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
-	a.apply(agentEvent{Type: "session.text.ended", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
-	if a.blockIdentity(0) != id || a.blocks[0].text != "kept" || a.blocks[0].kind != "text" {
+	a.apply(opencode.Event{Type: "session.text.delta", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
+	a.apply(opencode.Event{Type: "session.text.ended", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
+	if a.blockIdentity(0) != id || a.transcript.Rows()[0].Text != "kept" || a.transcript.Rows()[0].Kind != "text" {
 		t.Fatal("removing an approval changed the live row's identity or content")
 	}
 }
@@ -228,15 +230,15 @@ func TestSearchCancelsObsoleteLookup(t *testing.T) {
 	started := make(chan string, 2)
 	stopped := make(chan struct{}, 1)
 	accepted := make(chan searchRequest, 2)
-	go searchChats(ctx, queries, func(ctx context.Context, text string) ([]agentSession, error) {
+	go searchChats(ctx, queries, func(ctx context.Context, text string) ([]opencode.Session, error) {
 		started <- text
 		if text == "old" {
 			<-ctx.Done()
 			stopped <- struct{}{}
 			return nil, ctx.Err()
 		}
-		return []agentSession{{title: text}}, nil
-	}, func(fn func()) { fn() }, func(q searchRequest, _ []agentSession, _ error) { accepted <- q })
+		return []opencode.Session{{Title: text}}, nil
+	}, func(fn func()) { fn() }, func(q searchRequest, _ []opencode.Session, _ error) { accepted <- q })
 	queries <- searchRequest{text: "old", version: 1}
 	select {
 	case <-started:
@@ -272,7 +274,7 @@ func TestSearchKeepsNewestQuery(t *testing.T) {
 	if query.text != "query-19" {
 		t.Fatalf("last lookup: %s", query.text)
 	}
-	a.acceptSearch(query, []agentSession{{title: "Found"}}, nil)
+	a.acceptSearch(query, []opencode.Session{{Title: "Found"}}, nil)
 	if a.searchLoading || len(a.searchResults) != 1 {
 		t.Fatal("the latest query did not finish")
 	}
@@ -291,7 +293,7 @@ func TestSearchKeepsNewestQuery(t *testing.T) {
 
 func TestToolTailReleasesOutput(t *testing.T) {
 	output := strings.Repeat("x", 4<<20) + "\none\ntwo\nthree\nfour\nfive\nsix\n"
-	lines := toolDetailLines(toolRun{out: textOf([]toolOut{{Type: "text", Text: output}})})
+	lines := toolDetailLines(toolRun{out: textOf([]opencode.ToolOutput{{Type: "text", Text: output}})})
 	if strings.Join(lines, "|") != "one|two|three|four|five|six" {
 		t.Fatalf("tail: %q", lines)
 	}
@@ -308,16 +310,16 @@ func TestToolTailReleasesOutput(t *testing.T) {
 func TestStreamAllocationBudget(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "s"
-	a.apply(agentEvent{Type: "session.text.started", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
-	ev := agentEvent{Type: "session.text.delta", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
+	a.apply(opencode.Event{Type: "session.text.started", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
+	ev := opencode.Event{Type: "session.text.delta", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	for range 4096 {
 		a.apply(ev)
 	}
 	runtime.ReadMemStats(&after)
-	if len(a.blocks[0].text) != 128<<10 {
-		t.Fatalf("answer has %d bytes", len(a.blocks[0].text))
+	if len(a.transcript.Rows()[0].Text) != 128<<10 {
+		t.Fatalf("answer has %d bytes", len(a.transcript.Rows()[0].Text))
 	}
 	// The race detector deliberately drops pooled JSON decoders. Allow
 	// their extra allocations; prefix copying would exceed 250 MiB.

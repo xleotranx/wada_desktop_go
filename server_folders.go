@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -23,7 +24,7 @@ type browseState struct {
 	location string
 	rel      string
 	path     string // the path field, absolute in the server's spelling
-	entries  []fsEntry
+	entries  []opencode.FileEntry
 	loading  bool
 	note     string
 	draft    bool // the browse settles a draft's project, rather than starting a chat
@@ -58,11 +59,11 @@ func (a *app) browseServerFolders(forDraft bool) {
 	runRequest(a, &st.request, func(ctx context.Context) (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return "", err
 		}
-		return ag.location(ctx, "")
+		return ag.Location(ctx, "")
 	}, func(dir string, err error) {
 		if a.browse != st || !st.open {
 			return
@@ -86,15 +87,15 @@ func (a *app) browseList() {
 	}
 	st.loading, st.note = true, ""
 	cfg, location, rel := a.activeServerConn(), st.location, st.rel
-	runRequest(a, &st.request, func(ctx context.Context) ([]fsEntry, error) {
+	runRequest(a, &st.request, func(ctx context.Context) ([]opencode.FileEntry, error) {
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return nil, err
 		}
-		return ag.listDir(ctx, location, rel)
-	}, func(entries []fsEntry, err error) {
+		return ag.ListDir(ctx, location, rel)
+	}, func(entries []opencode.FileEntry, err error) {
 		if a.browse != st || !st.open {
 			return
 		}
@@ -218,25 +219,25 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 			}
 			for _, e := range st.entries {
 				e := e // fresh per row, the closures keep their own entry
-				if !e.dir {
+				if !e.Directory {
 					// Files are orientation: what is in the folder, without
 					// a way to pick one as a workspace.
 					ui.Row(c).Height(26).Padding(0, 8).AlignItems(ui.Center).Gap(7).Children(func() {
 						ui.Icon(c, icFileDoc).FontSize(12).TextColor(p.faint)
-						ui.Text(c, e.name).FontSize(12.5).TextColor(p.faint).SingleLine()
+						ui.Text(c, e.Name).FontSize(12.5).TextColor(p.faint).SingleLine()
 					})
 					continue
 				}
-				c.Key("browse:" + e.rel)
-				row := ui.ButtonBase(c).Label("Open "+e.name).Height(28).Radius(7).Padding(0, 8).
+				c.Key("browse:" + e.Path)
+				row := ui.ButtonBase(c).Label("Open "+e.Name).Height(28).Radius(7).Padding(0, 8).
 					Justify(ui.Start).FillWidth()
 				if row.Hovered() {
 					row.Background(p.hover)
 				}
-				row.OnClick(func() { st.rel = e.rel; a.browseList() })
+				row.OnClick(func() { st.rel = e.Path; a.browseList() })
 				row.Children(func() {
 					ui.Icon(c, icFolder).FontSize(13).TextColor(p.muted)
-					ui.Text(c, e.name).MarginStart(7).FontSize(12.5).TextColor(p.text).
+					ui.Text(c, e.Name).MarginStart(7).FontSize(12.5).TextColor(p.text).
 						Grow(1).SingleLine()
 				})
 			}

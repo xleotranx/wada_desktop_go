@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -20,7 +21,7 @@ import (
 func TestSettingsOpenAndClose(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
 	a.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -185,10 +186,10 @@ func TestServerUseSwitches(t *testing.T) {
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.settingsOpen = true
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_local", title: "Local chat"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_local", Title: "Local chat"}}
 	a.selectedSession = "ses_local"
 	a.selected = "Local chat"
-	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
 	a.pinned["ses_local"] = true
 	a.pinOrder = []string{"ses_local"}
@@ -458,10 +459,10 @@ func TestDeleteServerConfirms(t *testing.T) {
 // switch, and the two bulk actions over the whole catalog.
 func TestModelsTabToggles(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().models = []agentModel{
-		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
-		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", variants: []string{"low", "high"}},
-		{providerID: "wada", id: "flash", name: "Flash", free: true},
+	a.scope().models = []opencode.Model{
+		{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true},
+		{ProviderID: "opencode-go", ID: "minimax-m3", Name: "MiniMax-M3", Variants: []string{"low", "high"}},
+		{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true},
 	}
 	a.scope().modelsLoaded = true
 	a.settingsOpen = true
@@ -528,7 +529,7 @@ func TestModelsFollowTheServer(t *testing.T) {
 	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	// The local server's dial filled its catalog; the free default is off here.
-	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
 	a.setModelEnabled(a.scope().models[0], false)
 	if on, _ := a.enabledModelCount(); on != 0 {
@@ -536,7 +537,7 @@ func TestModelsFollowTheServer(t *testing.T) {
 	}
 	a.activeServer = "srv-box"
 	// The build box's scope starts empty and fills on its own dial.
-	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
 	if on, _ := a.enabledModelCount(); on != 1 {
 		t.Fatal("the switch leaked across servers")
@@ -553,11 +554,11 @@ func TestServerCardShowsItsScope(t *testing.T) {
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.activeServer = "srv-box" // the build box stands alone, no pipe served it yet
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_a"}, {id: "ses_b"}, {id: "ses_c"}, {id: "ses_d"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_a"}, {ID: "ses_b"}, {ID: "ses_c"}, {ID: "ses_d"}}
 	a.scope().projects = []string{"/srv/app", "/srv/docs", "/srv/labs"}
-	a.scope().models = []agentModel{
-		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
-		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3"},
+	a.scope().models = []opencode.Model{
+		{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true},
+		{ProviderID: "opencode-go", ID: "minimax-m3", Name: "MiniMax-M3"},
 	}
 	a.scope().modelsLoaded = true
 	a.modelOff[modelKey("srv-box", "opencode-go", "minimax-m3")] = true
@@ -573,19 +574,19 @@ func TestServerCardShowsItsScope(t *testing.T) {
 // models opens the tab behind it.
 func TestComposerPickerHidesDisabledModels(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().models = []agentModel{
-		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
-		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3"},
+	a.scope().models = []opencode.Model{
+		{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true},
+		{ProviderID: "opencode-go", ID: "minimax-m3", Name: "MiniMax-M3"},
 	}
 	a.scope().modelsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Free turn",
-		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Free turn",
+		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "beam-free"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Free turn"
 	a.setModelEnabled(a.scope().models[1], false)
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	if err := tt.Click("Model Beam Free"); err != nil {
+	if err := tt.Click("opencode.Model Beam Free"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
 	tt.Frame()
@@ -620,14 +621,14 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 func TestDraftModelChoiceSticks(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().modelsLoaded = true
-	a.scope().models = []agentModel{
-		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true},
-		{providerID: "opencode", id: "glm-5.3-flash-free", name: "GLM", free: true},
+	a.scope().models = []opencode.Model{
+		{ProviderID: "opencode-go", ID: "longcat-2.5-preview-free", Name: "LongCat", Free: true},
+		{ProviderID: "opencode", ID: "glm-5.3-flash-free", Name: "GLM", Free: true},
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.chooseModel(a.scope().models[1], "max")
-	if ref := a.sessionModelOf(""); ref.id != "glm-5.3-flash-free" || ref.variant != "max" {
+	if ref := a.sessionModelOf(""); ref.ID != "glm-5.3-flash-free" || ref.Variant != "max" {
 		t.Fatalf("the draft reads %+v", ref)
 	}
 	tt.Frame()
@@ -648,7 +649,7 @@ func TestDraftModelChoiceSticks(t *testing.T) {
 	}
 
 	a.startNewChat()
-	if ref := a.sessionModelOf(""); ref.id != "longcat-2.5-preview-free" || ref.variant != "" {
+	if ref := a.sessionModelOf(""); ref.ID != "longcat-2.5-preview-free" || ref.Variant != "" {
 		t.Fatalf("a fresh draft reads %+v", ref)
 	}
 }
@@ -657,7 +658,7 @@ func TestDraftModelChoiceSticks(t *testing.T) {
 // enabled: the job names it, so the runner does not fall back on its own.
 func TestSendCarriesTheDefault(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().models = []agentModel{{providerID: "wada", id: "flash", name: "Flash", free: true}}
+	a.scope().models = []opencode.Model{{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true}}
 	a.scope().modelsLoaded = true
 	a.draft = "hello"
 	a.send()
@@ -830,7 +831,7 @@ func TestAPIBaseNormalizes(t *testing.T) {
 		{"", "", true},
 		{"not an address", "", true},
 	} {
-		got, err := apiBase(tc.in)
+		got, err := opencode.APIBase(tc.in)
 		if tc.bad {
 			if err == nil {
 				t.Fatalf("apiBase(%q) = %q, want an error", tc.in, got)
@@ -908,25 +909,25 @@ func TestMintPairLink(t *testing.T) {
 
 	ctx := context.Background()
 	link, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "key"},
-		serverFacts{urls: []string{"https://box.tailnet:4096/"}})
+		opencode.Facts{URLs: []string{"https://box.tailnet:4096/"}})
 	if err != nil || link != "https://box.tailnet:4096/auth/connect/abc-123" {
 		t.Fatalf("mint = %q %v", link, err)
 	}
 	// A server that names no address of its own is reached where it was
 	// dialed, the way the settings row spells it.
-	link, err = mintPairLink(ctx, serverConn{url: srv.URL, password: "key"}, serverFacts{})
+	link, err = mintPairLink(ctx, serverConn{url: srv.URL, password: "key"}, opencode.Facts{})
 	if err != nil || link != srv.URL+"/auth/connect/abc-123" {
 		t.Fatalf("mint = %q %v", link, err)
 	}
-	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong"}, serverFacts{}); err == nil ||
+	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong"}, opencode.Facts{}); err == nil ||
 		!strings.Contains(err.Error(), "refused") {
 		t.Fatalf("a refused mint reads %v", err)
 	}
-	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong", paired: true}, serverFacts{}); err == nil ||
+	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong", paired: true}, opencode.Facts{}); err == nil ||
 		!strings.Contains(err.Error(), "pairing has lapsed") {
 		t.Fatalf("a lapsed pairing reads %v", err)
 	}
-	if _, err := mintPairLink(ctx, serverConn{url: "http://127.0.0.1:1", password: "key"}, serverFacts{}); err == nil {
+	if _, err := mintPairLink(ctx, serverConn{url: "http://127.0.0.1:1", password: "key"}, opencode.Facts{}); err == nil {
 		t.Fatal("a dead address minted a link")
 	}
 }
@@ -943,7 +944,7 @@ func TestCopyPairLink(t *testing.T) {
 	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "key"})
 	a.setHealth("srv-box", serverHealth{status: healthReady, detail: "2.0.32", addr: srv.URL})
-	a.setFacts("srv-box", serverFacts{urls: []string{srv.URL}})
+	a.setFacts("srv-box", opencode.Facts{URLs: []string{srv.URL}})
 	copied := ""
 	a.copy = func(text string) error { copied = text; return nil }
 	a.settingsOpen = true
@@ -980,13 +981,13 @@ func TestCopyPairLink(t *testing.T) {
 		t.Fatal("the link did not land despite the clipboard's refusal")
 	}
 	found := false
-	for _, b := range a.blocks {
-		if strings.Contains(b.text, "could not reach the clipboard") {
+	for _, b := range a.transcript.Rows() {
+		if strings.Contains(b.Text, "could not reach the clipboard") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("the refusal is not in the transcript: %+v", a.blocks)
+		t.Fatalf("the refusal is not in the transcript: %+v", a.transcript.Rows())
 	}
 }
 
@@ -1010,11 +1011,11 @@ func TestProbeServer(t *testing.T) {
 	defer srv.Close()
 
 	facts, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "right-key"})
-	if err != nil || facts.version != "0.5.5" {
+	if err != nil || facts.Version != "0.5.5" {
 		t.Fatalf("probe %+v %v", facts, err)
 	}
 	facts, err = probeServer(context.Background(), serverConn{url: srv.URL, password: "fresh-token", paired: true})
-	if err != nil || facts.version != "0.5.5" || facts.pid != 42 || len(facts.urls) != 1 || !facts.pty {
+	if err != nil || facts.Version != "0.5.5" || facts.PID != 42 || len(facts.URLs) != 1 || !facts.PTY {
 		t.Fatalf("probe %+v %v", facts, err)
 	}
 	if _, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "wrong"}); err == nil ||
@@ -1051,19 +1052,19 @@ func TestPairedServerRow(t *testing.T) {
 
 	// The server's own address shows only when the app does not already
 	// name it; its own dialed address keeps the row quiet.
-	facts := serverFacts{urls: []string{"http://10.0.0.12:4096/", "http://box.tailnet:4096"}}
+	facts := opencode.Facts{URLs: []string{"http://10.0.0.12:4096/", "http://box.tailnet:4096"}}
 	if got := serverFactsLine(facts, s, serverHealth{addr: "http://10.0.0.12:4096"}); got != "Reachable at http://box.tailnet:4096" {
 		t.Fatalf("the reachable line reads %q", got)
 	}
-	if got := serverFactsLine(serverFacts{urls: []string{"http://10.0.0.12:4096"}}, s, serverHealth{addr: "http://10.0.0.12:4096"}); got != "" {
+	if got := serverFactsLine(opencode.Facts{URLs: []string{"http://10.0.0.12:4096"}}, s, serverHealth{addr: "http://10.0.0.12:4096"}); got != "" {
 		t.Fatalf("an already-named address still reads %q", got)
 	}
 
 	// The refusal's wording depends on what the credential is.
-	if got := refusedLine(true); !strings.Contains(got, "pairing has lapsed") {
+	if got := opencode.RefusedLine(true); !strings.Contains(got, "pairing has lapsed") {
 		t.Fatalf("a paired refusal reads %q", got)
 	}
-	if got := refusedLine(false); !strings.Contains(got, "refused") {
+	if got := opencode.RefusedLine(false); !strings.Contains(got, "refused") {
 		t.Fatalf("a password refusal reads %q", got)
 	}
 }

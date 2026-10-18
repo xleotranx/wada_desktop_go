@@ -104,7 +104,7 @@ func TestBrowseListingRejectsRepeatedPathResult(t *testing.T) {
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.browse.entries; len(got) != 1 || got[0].name != "current.txt" {
+	if got := a.browse.entries; len(got) != 1 || got[0].Name != "current.txt" {
 		t.Fatalf("first visit replaced the latest visit to the same folder: %+v", got)
 	}
 }
@@ -144,7 +144,7 @@ func TestFilesFindRejectsRepeatedQueryResult(t *testing.T) {
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.files.results; len(got) != 1 || got[0].name != "current.txt" {
+	if got := a.files.results; len(got) != 1 || got[0].Name != "current.txt" {
 		t.Fatalf("first search replaced the latest search for the same query: %+v", got)
 	}
 }
@@ -167,7 +167,7 @@ func TestChangesRejectsRepeatedModeResult(t *testing.T) {
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.changes.files; len(got) != 1 || got[0].file != "current.go" {
+	if got := a.changes.files; len(got) != 1 || got[0].File != "current.go" {
 		t.Fatalf("first read replaced the latest changes in the same mode: %+v", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -27,17 +28,17 @@ type filesState struct {
 	listRequests             map[string]*requestState
 
 	location string
-	open     map[string]bool      // folder rel -> unfolded
-	entries  map[string][]fsEntry // folder rel -> what the server listed
-	loading  map[string]bool      // folder rel -> a listing is on its way
-	path     string               // the file on show, relative to the location
+	open     map[string]bool                 // folder rel -> unfolded
+	entries  map[string][]opencode.FileEntry // folder rel -> what the server listed
+	loading  map[string]bool                 // folder rel -> a listing is on its way
+	path     string                          // the file on show, relative to the location
 	content  string
 	viewer   *editor.State
 	clipped  bool   // the file runs past what the viewer shows
 	note     string // trouble or an explanation, instead of a tree
 	fileErr  string // the file on show refused to read
 	query    string // what the search field holds
-	results  []fsEntry
+	results  []opencode.FileEntry
 	finding  bool   // a search is on its way
 	findErr  string // the search refused to run
 }
@@ -48,7 +49,7 @@ type filesState struct {
 func (a *app) openFiles() {
 	st := a.files
 	if st == nil {
-		st = &filesState{open: map[string]bool{}, entries: map[string][]fsEntry{},
+		st = &filesState{open: map[string]bool{}, entries: map[string][]opencode.FileEntry{},
 			loading: map[string]bool{}}
 		a.files = st
 	}
@@ -67,7 +68,7 @@ func (a *app) openFiles() {
 		return
 	}
 	st.location, st.note, st.fileErr = dir, "", ""
-	st.open, st.entries, st.loading = map[string]bool{}, map[string][]fsEntry{}, map[string]bool{}
+	st.open, st.entries, st.loading = map[string]bool{}, map[string][]opencode.FileEntry{}, map[string]bool{}
 	st.path, st.content, st.clipped = "", "", false
 	st.viewer = nil
 	st.query, st.results, st.finding, st.findErr = "", nil, false, ""
@@ -116,15 +117,15 @@ func (a *app) filesList(rel string) {
 	st.loading[rel] = true
 	st.note = ""
 	cfg, location := a.activeServerConn(), st.location
-	runRequest(a, st.listRequests[rel], func(ctx context.Context) ([]fsEntry, error) {
+	runRequest(a, st.listRequests[rel], func(ctx context.Context) ([]opencode.FileEntry, error) {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return nil, err
 		}
-		return ag.listDir(ctx, location, rel)
-	}, func(entries []fsEntry, err error) {
+		return ag.ListDir(ctx, location, rel)
+	}, func(entries []opencode.FileEntry, err error) {
 		if a.files != st || st.location != location {
 			return
 		}
@@ -153,15 +154,15 @@ func (a *app) filesFind() {
 	}
 	st.finding = true
 	cfg, location, query := a.activeServerConn(), st.location, st.query
-	runRequest(a, &st.findRequest, func(ctx context.Context) ([]fsEntry, error) {
+	runRequest(a, &st.findRequest, func(ctx context.Context) ([]opencode.FileEntry, error) {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return nil, err
 		}
-		return ag.findFiles(ctx, location, query, filesFound)
-	}, func(entries []fsEntry, err error) {
+		return ag.FindFiles(ctx, location, query, filesFound)
+	}, func(entries []opencode.FileEntry, err error) {
 		if a.files != st || st.location != location || st.query != query {
 			return // another search moved on
 		}
@@ -186,11 +187,11 @@ func (a *app) filesRead(rel string) {
 	runRequest(a, &st.readRequest, func(ctx context.Context) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return nil, err
 		}
-		return ag.readWorkspaceFile(ctx, location, rel)
+		return ag.ReadWorkspaceFile(ctx, location, rel)
 	}, func(data []byte, err error) {
 		if a.files != st || st.location != location || st.path != rel {
 			return
@@ -293,21 +294,21 @@ func (a *app) filesResults(c *ui.Context, p palette) {
 	ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).Children(func() {
 		for _, e := range st.results {
 			e := e
-			chosen := e.rel == st.path
-			c.Key("found:" + e.rel)
-			b := ui.ButtonBase(c).Label("Read "+e.rel).Height(25).Radius(6).
+			chosen := e.Path == st.path
+			c.Key("found:" + e.Path)
+			b := ui.ButtonBase(c).Label("Read "+e.Path).Height(25).Radius(6).
 				Padding(0, 6).Justify(ui.Start).FillWidth()
 			if b.Hovered() {
 				b.Background(p.hover)
 			} else if chosen {
 				b.Background(p.selected)
 			}
-			b.OnClick(func() { a.filesRead(e.rel) })
+			b.OnClick(func() { a.filesRead(e.Path) })
 			b.Children(func() {
 				ui.Icon(c, icFileDoc).FontSize(12).TextColor(p.faint).Shrink(0)
-				ui.Text(c, e.name).MarginStart(6).FontSize(12).TextColor(p.text).
+				ui.Text(c, e.Name).MarginStart(6).FontSize(12).TextColor(p.text).
 					Shrink(0)
-				if dir := path.Dir(e.rel); dir != "." {
+				if dir := path.Dir(e.Path); dir != "." {
 					ui.Text(c, dir).MarginStart(6).FontSize(11.5).TextColor(p.faint).
 						Grow(1).SingleLine().Ellipsis("…").MinWidth(0)
 				} else {
@@ -350,56 +351,56 @@ func (a *app) filesRows(c *ui.Context, p palette, rel string, depth int) {
 	st := a.files
 	for _, e := range st.entries[rel] {
 		indent := float32(depth) * 13
-		if !e.dir {
-			chosen := e.rel == st.path
-			c.Key("file:" + e.rel)
-			b := ui.ButtonBase(c).Label("Read "+e.name).Height(25).Radius(6).
+		if !e.Directory {
+			chosen := e.Path == st.path
+			c.Key("file:" + e.Path)
+			b := ui.ButtonBase(c).Label("Read "+e.Name).Height(25).Radius(6).
 				Padding(0, 6).MarginStart(indent).Justify(ui.Start).FillWidth()
 			if b.Hovered() {
 				b.Background(p.hover)
 			} else if chosen {
 				b.Background(p.selected)
 			}
-			b.OnClick(func() { a.filesRead(e.rel) })
+			b.OnClick(func() { a.filesRead(e.Path) })
 			b.Children(func() {
 				ui.Icon(c, icFileDoc).FontSize(12).TextColor(p.faint).Shrink(0)
-				ui.Text(c, e.name).MarginStart(6).FontSize(12).TextColor(p.text).
+				ui.Text(c, e.Name).MarginStart(6).FontSize(12).TextColor(p.text).
 					Grow(1).SingleLine().Ellipsis("…").MinWidth(0)
 			})
 			continue
 		}
-		c.Key("folder:" + e.rel)
-		b := ui.ButtonBase(c).Label("Unfold "+e.name).Height(25).Radius(6).
+		c.Key("folder:" + e.Path)
+		b := ui.ButtonBase(c).Label("Unfold "+e.Name).Height(25).Radius(6).
 			Padding(0, 6).MarginStart(indent).Justify(ui.Start).FillWidth()
 		if b.Hovered() {
 			b.Background(p.hover)
 		}
 		b.OnClick(func() {
-			if st.open[e.rel] {
-				delete(st.open, e.rel)
+			if st.open[e.Path] {
+				delete(st.open, e.Path)
 				return
 			}
-			st.open[e.rel] = true
-			a.filesList(e.rel)
+			st.open[e.Path] = true
+			a.filesList(e.Path)
 		})
 		b.Children(func() {
 			chevron := icChevRight
-			if st.open[e.rel] {
+			if st.open[e.Path] {
 				chevron = icChevDown
 			}
 			ui.Icon(c, chevron).FontSize(11).TextColor(p.faint).Shrink(0)
 			ui.Icon(c, icFolder).FontSize(12).TextColor(p.muted).MarginStart(2).Shrink(0)
-			ui.Text(c, e.name).MarginStart(6).FontSize(12.5).TextColor(p.text).
+			ui.Text(c, e.Name).MarginStart(6).FontSize(12.5).TextColor(p.text).
 				Grow(1).SingleLine().Ellipsis("…").MinWidth(0)
 		})
-		if st.open[e.rel] {
-			if _, ok := st.entries[e.rel]; !ok {
+		if st.open[e.Path] {
+			if _, ok := st.entries[e.Path]; !ok {
 				ui.Row(c).Height(24).MarginStart(indent + 13).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "Reading…").FontSize(11.5).TextColor(p.faint)
 				})
 				continue
 			}
-			a.filesRows(c, p, e.rel, depth+1)
+			a.filesRows(c, p, e.Path, depth+1)
 		}
 	}
 }

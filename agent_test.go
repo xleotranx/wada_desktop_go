@@ -13,13 +13,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
 
 // fakeAgent is a tiny opencode server speaking just the endpoints the
 // client uses, over an httptest.Server.
-func fakeAgent(t *testing.T, prompts chan<- string, models chan<- string) (*agent, context.CancelFunc) {
+func fakeAgent(t *testing.T, prompts chan<- string, models chan<- string) (*opencode.Client, context.CancelFunc) {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
@@ -67,16 +69,16 @@ func fakeAgent(t *testing.T, prompts chan<- string, models chan<- string) (*agen
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	return a, func() {}
 }
 
 // useFreeModel points one conversation at the app's free default, the way
 // the runner does before a new chat's first words.
-func useFreeModel(t *testing.T, ag *agent, ctx context.Context, sid string) (prov, name string) {
+func useFreeModel(t *testing.T, ag *opencode.Client, ctx context.Context, sid string) (prov, name string) {
 	t.Helper()
-	prov, name = sessionModel()
-	if err := ag.setModel(ctx, sid, prov, name, ""); err != nil {
+	prov, name = opencode.DefaultModel()
+	if err := ag.SetModel(ctx, sid, prov, name, ""); err != nil {
 		t.Fatal(err)
 	}
 	return prov, name
@@ -91,11 +93,11 @@ func TestAgentRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sid, _, err := a.createSession(ctx, "")
+	sid, _, err := a.CreateSession(ctx, "")
 	if err != nil || sid != "ses_t1" {
 		t.Fatalf("createSession %q %v", sid, err)
 	}
-	if err := a.prompt(ctx, sid, "hello there"); err != nil {
+	if err := a.Prompt(ctx, sid, "hello there"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -120,16 +122,16 @@ func TestAgentRefusesOversizedBody(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	ag := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client(), bodyCap: 1024}
+	ag := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client(), BodyCap: 1024}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := ag.sessionMessages(ctx, "big"); err == nil || !strings.Contains(err.Error(), "larger than") {
+	if _, err := ag.SessionMessages(ctx, "big"); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatalf("an oversized body read as %v", err)
 	}
 	// Under the cap the same endpoint reads fine.
-	ag.bodyCap = 8192
-	msgs, err := ag.sessionMessages(ctx, "big")
+	ag.BodyCap = 8192
+	msgs, err := ag.SessionMessages(ctx, "big")
 	if err != nil || len(msgs) != 1 || len(msgs[0].Payload.Text) != 4096 {
 		t.Fatalf("a body within the cap failed: %d messages, %v", len(msgs), err)
 	}
@@ -152,12 +154,12 @@ func TestAgentEventsStream(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	evs := make(chan agentEvent, 8)
-	go a.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 8)
+	go a.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
 	select {
 	case ev := <-evs:
@@ -189,35 +191,35 @@ func TestAgentEventsStream(t *testing.T) {
 func TestApplyTurn(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "s"
-	upTo := len(a.blocks)
+	upTo := len(a.transcript.Rows())
 	step := func(typ, data string) {
-		a.apply(agentEvent{Type: typ, Data: json.RawMessage(data)})
+		a.apply(opencode.Event{Type: typ, Data: json.RawMessage(data)})
 	}
 
 	step("session.text.started", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0}`)
-	last := a.blocks[len(a.blocks)-1]
-	if last.kind != "stream" || last.text != "" {
-		t.Fatalf("preview row kind %q text %q", last.kind, last.text)
+	last := a.transcript.Rows()[len(a.transcript.Rows())-1]
+	if last.Kind != "stream" || last.Text != "" {
+		t.Fatalf("preview row kind %q text %q", last.Kind, last.Text)
 	}
 	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":"PONG"}`)
 	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":" now"}`)
-	if last := a.blocks[len(a.blocks)-1]; last.text != "PONG now" {
-		t.Fatalf("preview text %q", last.text)
+	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Text != "PONG now" {
+		t.Fatalf("preview text %q", last.Text)
 	}
 	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"text":"PONG now"}`)
-	if last := a.blocks[len(a.blocks)-1]; last.kind != "text" || last.text != "PONG now" {
-		t.Fatalf("settled block kind %q text %q", last.kind, last.text)
+	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Kind != "text" || last.Text != "PONG now" {
+		t.Fatalf("settled block kind %q text %q", last.Kind, last.Text)
 	}
 	// A second paragraph of the same answer is its own row.
 	step("session.text.started", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1}`)
 	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1,"text":"Also, hi again."}`)
-	if last := a.blocks[len(a.blocks)-1]; last.kind != "text" || last.text != "Also, hi again." {
-		t.Fatalf("second block kind %q text %q", last.kind, last.text)
+	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Kind != "text" || last.Text != "Also, hi again." {
+		t.Fatalf("second block kind %q text %q", last.Kind, last.Text)
 	}
 
 	step("session.tool.input.started", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","name":"shell"}`)
 	step("session.tool.called", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","input":{"command":"echo hi"}}`)
-	if row := a.blocks[len(a.blocks)-1]; row.kind != "activity" || row.text != "Ran command" {
+	if row := a.transcript.Rows()[len(a.transcript.Rows())-1]; row.Kind != "activity" || row.Text != "Ran command" {
 		t.Fatalf("activity row %+v", row)
 	}
 	step("session.tool.success", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","content":[{"type":"text","text":"hi\n"}],"metadata":{"status":"completed","exit":0}}`)
@@ -228,7 +230,7 @@ func TestApplyTurn(t *testing.T) {
 	a.selected = "Wired turn"
 	a.expanded["activity:call_1"] = true
 	tt := ui.NewTester(a.view, 1400, 920)
-	if got := len(a.blocks) - upTo; got < 3 {
+	if got := len(a.transcript.Rows()) - upTo; got < 3 {
 		t.Fatalf("turn added %d rows", got)
 	}
 	if !tt.HasText("Ran command") || !tt.HasText("$ echo hi") || !tt.HasText("hi") {
@@ -247,7 +249,7 @@ func TestAgentModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, _, err := ag.createSession(ctx, ""); err != nil {
+	if _, _, err := ag.CreateSession(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	useFreeModel(t, ag, ctx, "ses_t1")
@@ -263,18 +265,18 @@ func TestAgentModel(t *testing.T) {
 	// The settings narrow the choice: the free default steps aside for
 	// the first model still on, and comes back when none is.
 	a := newTestApp(t)
-	free := agentModel{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true}
-	other := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
-	a.scope().models = []agentModel{other, free}
-	if ref := a.defaultModelRef(); ref.providerID != "opencode-go" || ref.id != "longcat-2.5-preview-free" {
+	free := opencode.Model{ProviderID: "opencode-go", ID: "longcat-2.5-preview-free", Name: "LongCat", Free: true}
+	other := opencode.Model{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true}
+	a.scope().models = []opencode.Model{other, free}
+	if ref := a.defaultModelRef(); ref.ProviderID != "opencode-go" || ref.ID != "longcat-2.5-preview-free" {
 		t.Fatalf("default %+v, want the free default", ref)
 	}
 	a.setModelEnabled(free, false)
-	if ref := a.defaultModelRef(); ref.providerID != "wada" || ref.id != "flash" {
+	if ref := a.defaultModelRef(); ref.ProviderID != "wada" || ref.ID != "flash" {
 		t.Fatalf("default %+v, want the first enabled model", ref)
 	}
 	a.setModelEnabled(other, false)
-	if ref := a.defaultModelRef(); ref.id != "longcat-2.5-preview-free" {
+	if ref := a.defaultModelRef(); ref.ID != "longcat-2.5-preview-free" {
 		t.Fatalf("default %+v, want the free default back", ref)
 	}
 }
@@ -286,28 +288,28 @@ func TestAgentModel(t *testing.T) {
 // steps aside.
 func TestDefaultFollowsTheServer(t *testing.T) {
 	a := newTestApp(t)
-	paid := agentModel{providerID: "wada", id: "pro", name: "Pro"}
-	a.scope().models = []agentModel{paid}
-	a.scope().serverDefault = agentModelRef{providerID: "wada", id: "their-default"}
-	if ref := a.defaultModelRef(); ref.providerID != "wada" || ref.id != "their-default" {
+	paid := opencode.Model{ProviderID: "wada", ID: "pro", Name: "Pro"}
+	a.scope().models = []opencode.Model{paid}
+	a.scope().serverDefault = opencode.ModelRef{ProviderID: "wada", ID: "their-default"}
+	if ref := a.defaultModelRef(); ref.ProviderID != "wada" || ref.ID != "their-default" {
 		t.Fatalf("default %+v, want the server's own", ref)
 	}
-	freebie := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
-	a.scope().models = []agentModel{paid, freebie}
-	if ref := a.defaultModelRef(); ref.id != "flash" {
+	freebie := opencode.Model{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true}
+	a.scope().models = []opencode.Model{paid, freebie}
+	if ref := a.defaultModelRef(); ref.ID != "flash" {
 		t.Fatalf("default %+v, want the free model", ref)
 	}
 	// A default the settings turned off leaves the catalog standing.
-	a.setModelEnabled(agentModel{providerID: "wada", id: "their-default"}, false)
-	a.scope().models = []agentModel{paid}
-	if ref := a.defaultModelRef(); ref.id != "pro" {
+	a.setModelEnabled(opencode.Model{ProviderID: "wada", ID: "their-default"}, false)
+	a.scope().models = []opencode.Model{paid}
+	if ref := a.defaultModelRef(); ref.ID != "pro" {
 		t.Fatalf("default %+v, want the paid catalog model", ref)
 	}
 	// Before the catalog lands, the server's own stands in place of a
 	// model it may never have heard of.
 	b := newTestApp(t)
-	b.scope().serverDefault = agentModelRef{providerID: "remote", id: "their-default"}
-	if ref := b.defaultModelRef(); ref.id != "their-default" {
+	b.scope().serverDefault = opencode.ModelRef{ProviderID: "remote", ID: "their-default"}
+	if ref := b.defaultModelRef(); ref.ID != "their-default" {
 		t.Fatalf("default %+v, want the server's own before a catalog", ref)
 	}
 }
@@ -322,22 +324,22 @@ func TestAgentDefaultModel(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ref, err := a.defaultModel(ctx)
-	if err != nil || ref.providerID != "opencode-go" || ref.id != "minimax-m3" || ref.variant != "max" {
+	ref, err := a.DefaultModel(ctx)
+	if err != nil || ref.ProviderID != "opencode-go" || ref.ID != "minimax-m3" || ref.Variant != "max" {
 		t.Fatalf("default %+v %v", ref, err)
 	}
-	if _, err := (&agent{base: "http://127.0.0.1:1/api", http: httpClient()}).defaultModel(ctx); err == nil {
+	if _, err := (&opencode.Client{Base: "http://127.0.0.1:1/api", HTTP: opencode.HTTPClient()}).DefaultModel(ctx); err == nil {
 		t.Fatal("a dead address named a default")
 	}
 }
 
 func TestSessionModelOverride(t *testing.T) {
 	t.Setenv("WADA_MODEL", "opencode/glm-5.3-flash-free")
-	if prov, name := sessionModel(); prov+"/"+name != "opencode/glm-5.3-flash-free" {
+	if prov, name := opencode.DefaultModel(); prov+"/"+name != "opencode/glm-5.3-flash-free" {
 		t.Fatalf("override %s/%s", prov, name)
 	}
 }
@@ -351,7 +353,7 @@ func TestAgentSessions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessions, next, err := a.listSessions(ctx, "", "", "")
+	sessions, next, err := a.ListSessions(ctx, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,8 +361,8 @@ func TestAgentSessions(t *testing.T) {
 		t.Fatalf("unexpected cursor %q", next)
 	}
 	if len(sessions) != 2 ||
-		sessions[0].id != "ses_a" || sessions[0].title != "Grep wiring" || sessions[0].updated != 300 ||
-		sessions[1].id != "ses_b" {
+		sessions[0].ID != "ses_a" || sessions[0].Title != "Grep wiring" || sessions[0].Updated != 300 ||
+		sessions[1].ID != "ses_b" {
 		t.Fatalf("sessions %+v", sessions)
 	}
 }
@@ -398,9 +400,9 @@ func TestAgentProjects(t *testing.T) {
 			w.Write([]byte(`{"data":[]}`))
 		})
 		srv := httptest.NewServer(mux)
-		a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+		a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		dirs, err := a.listProjects(ctx)
+		dirs, err := a.ListProjects(ctx)
 		cancel()
 		srv.Close()
 		if err != nil {
@@ -430,11 +432,11 @@ func TestAgentProjectsOrderByActivity(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	dirs, err := a.listProjects(ctx)
+	dirs, err := a.ListProjects(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,10 +474,10 @@ func TestAgentProjectsFilterDropsPhantoms(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	dirs, err := a.listProjects(ctx)
+	dirs, err := a.ListProjects(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,11 +504,11 @@ func TestAgentSessionRowsAskForRootsAndCost(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, next, err := a.listSessions(ctx, "", "", "")
+	rows, next, err := a.ListSessions(ctx, "", "", "")
 	if err != nil || next != "" {
 		t.Fatalf("rows %v %v %q", rows, err, next)
 	}
@@ -514,11 +516,11 @@ func TestAgentSessionRowsAskForRootsAndCost(t *testing.T) {
 	if !strings.Contains(query, "parentID=null") {
 		t.Fatalf("the read asked %q", query)
 	}
-	if len(rows) != 1 || rows[0].id != "ses_root" || rows[0].cost != 0.3196 {
+	if len(rows) != 1 || rows[0].ID != "ses_root" || rows[0].Cost != 0.3196 {
 		t.Fatalf("rows %+v", rows)
 	}
 	// A folder's own chats can be asked for the same way.
-	if _, _, err := a.listSessions(ctx, "", "", "/srv/app"); err != nil {
+	if _, _, err := a.ListSessions(ctx, "", "", "/srv/app"); err != nil {
 		t.Fatal(err)
 	}
 	if q := <-asked; !strings.Contains(q, "directory=%2Fsrv%2Fapp") {
@@ -531,13 +533,13 @@ func TestAgentSessionRowsAskForRootsAndCost(t *testing.T) {
 // order, and the pages loaded before it follow, with the fresh copy of a
 // row winning.
 func TestFreshSessionsPrepend(t *testing.T) {
-	kept := []agentSession{{id: "ses_a", updated: 30}, {id: "ses_b", updated: 20}}
-	fresh := []agentSession{{id: "ses_c", updated: 40}, {id: "ses_a", updated: 31, cost: 0.5}}
+	kept := []opencode.Session{{ID: "ses_a", Updated: 30}, {ID: "ses_b", Updated: 20}}
+	fresh := []opencode.Session{{ID: "ses_c", Updated: 40}, {ID: "ses_a", Updated: 31, Cost: 0.5}}
 	got := freshSessions(kept, fresh)
-	if len(got) != 3 || got[0].id != "ses_c" || got[1].id != "ses_a" || got[2].id != "ses_b" {
+	if len(got) != 3 || got[0].ID != "ses_c" || got[1].ID != "ses_a" || got[2].ID != "ses_b" {
 		t.Fatalf("the list reads %+v", got)
 	}
-	if got[1].cost != 0.5 {
+	if got[1].Cost != 0.5 {
 		t.Fatalf("the kept row did not take the fresh one: %+v", got[1])
 	}
 }
@@ -547,10 +549,10 @@ func TestFreshSessionsPrepend(t *testing.T) {
 func TestRefreshAfterATurn(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
-	a.busySession = "ses_z"
-	a.apply(agentEvent{Type: "session.execution.succeeded", Data: []byte(`{"sessionID":"ses_z"}`)})
-	if a.busySession != "" {
-		t.Fatalf("the turn is still busy: %q", a.busySession)
+	a.transcript.Start("ses_z")
+	a.apply(opencode.Event{Type: "session.execution.succeeded", Data: []byte(`{"sessionID":"ses_z"}`)})
+	if a.transcript.Busy() != "" {
+		t.Fatalf("the turn is still busy: %q", a.transcript.Busy())
 	}
 	select {
 	case job := <-a.jobs:
@@ -568,10 +570,10 @@ func TestRefreshAfterATurn(t *testing.T) {
 func TestUsageFollowsTheTurn(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
-	a.blocks = []block{
-		{kind: kindUser, text: "run the checks"},
-		{kind: kindText, text: "Running them.", msg: "msg_z"},
-	}
+	a.transcript.Replace([]chat.Block{
+		{Kind: chat.KindUser, Text: "run the checks"},
+		{Kind: chat.KindText, Text: "Running them.", Message: "msg_z"},
+	})
 	a.refreshUsage("ses_z")
 	select {
 	case job := <-a.jobs:
@@ -584,23 +586,23 @@ func TestUsageFollowsTheTurn(t *testing.T) {
 
 	// The words of one answer may stand as several rows: the spending
 	// lands under the last of them.
-	a.blocks = append(a.blocks, block{kind: kindText, text: "One more word.", msg: "msg_z"})
-	a.acceptUsage(agentMessage{ID: "msg_z", Cost: 0.031,
-		Tokens: tokenSpend{Output: 3000, Reasoning: 500}})
-	if a.blocks[1].cost != 0 || a.blocks[1].tokens != 0 {
-		t.Fatalf("an earlier row took the spending: %+v", a.blocks[1])
+	a.transcript.Append(chat.Block{Kind: chat.KindText, Text: "One more word.", Message: "msg_z"})
+	a.acceptUsage(opencode.Message{ID: "msg_z", Cost: 0.031,
+		Tokens: opencode.TokenSpend{Output: 3000, Reasoning: 500}})
+	if a.transcript.Rows()[1].Cost != 0 || a.transcript.Rows()[1].Tokens != 0 {
+		t.Fatalf("an earlier row took the spending: %+v", a.transcript.Rows()[1])
 	}
-	if a.blocks[2].cost != 0.031 || a.blocks[2].tokens != 3500 {
-		t.Fatalf("the last row reads %+v", a.blocks[2])
+	if a.transcript.Rows()[2].Cost != 0.031 || a.transcript.Rows()[2].Tokens != 3500 {
+		t.Fatalf("the last row reads %+v", a.transcript.Rows()[2])
 	}
 
 	// A streamed row knows its turn the moment the words start.
 	c := newTestApp(t)
 	c.selectedSession = "ses_live"
-	c.apply(agentEvent{Type: "session.text.started",
+	c.apply(opencode.Event{Type: "session.text.started",
 		Data: []byte(`{"sessionID":"ses_live","assistantMessageID":"msg_l","ordinal":0}`)})
-	if len(c.blocks) != 1 || c.blocks[0].msg != "msg_l" || c.blocks[0].kind != "stream" {
-		t.Fatalf("a streamed row reads %+v", c.blocks)
+	if len(c.transcript.Rows()) != 1 || c.transcript.Rows()[0].Message != "msg_l" || c.transcript.Rows()[0].Kind != "stream" {
+		t.Fatalf("a streamed row reads %+v", c.transcript.Rows())
 	}
 
 	// Nothing to ask when no answer of this app's stands, or when the
@@ -658,13 +660,13 @@ func TestAgentSearch(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, _, err := a.listSessions(ctx, "", "wiring", "")
-	if err != nil || len(rows) != 1 || rows[0].id != "ses_w" ||
-		rows[0].title != "Grep wiring" || rows[0].model.id != "beam-free" {
+	rows, _, err := a.ListSessions(ctx, "", "wiring", "")
+	if err != nil || len(rows) != 1 || rows[0].ID != "ses_w" ||
+		rows[0].Title != "Grep wiring" || rows[0].Model.ID != "beam-free" {
 		t.Fatalf("search rows %+v %v", rows, err)
 	}
 }
@@ -678,25 +680,25 @@ func TestRestoreBlocks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	msgs, err := a.sessionMessages(ctx, "ses_a")
+	msgs, err := a.SessionMessages(ctx, "ses_a")
 	if err != nil || len(msgs) != 4 {
 		t.Fatalf("messages %v %v", msgs, err)
 	}
 	blocks := restoreBlocks(msgs)
 	if len(blocks) != 4 ||
-		blocks[0].kind != "user" || blocks[0].text != "Run the wiring check" ||
-		blocks[1].kind != "text" || blocks[1].text != "Running it now." ||
-		blocks[2].kind != "activity" || blocks[2].text != "Ran command" ||
-		blocks[3].kind != "user" || blocks[3].text != "Top-level hello" {
+		blocks[0].Kind != "user" || blocks[0].Text != "Run the wiring check" ||
+		blocks[1].Kind != "text" || blocks[1].Text != "Running it now." ||
+		blocks[2].Kind != "activity" || blocks[2].Text != "Ran command" ||
+		blocks[3].Kind != "user" || blocks[3].Text != "Top-level hello" {
 		t.Fatalf("restored blocks %+v", blocks)
 	}
 	// The answer keeps the turn it came from and what that turn spent.
-	if blocks[1].msg != "msg_r" || blocks[1].cost != 0.000959688 || blocks[1].tokens != 503 {
+	if blocks[1].Message != "msg_r" || blocks[1].Cost != 0.000959688 || blocks[1].Tokens != 503 {
 		t.Fatalf("the answer's spending reads %+v", blocks[1])
 	}
 	// The tool row expands like a live one does.
 	a2 := newTestApp(t)
-	a2.blocks = blocks
+	a2.transcript.Replace(blocks)
 	a2.selectedSession = "ses_seed"
 	a2.selected = "Wiring check"
 	a2.expanded["activity:call_9"] = true
@@ -719,7 +721,7 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 
 	// Once the runner filled the list, real rows appear; an untitled
 	// conversation reads as a new chat row.
-	a.scope().sessions = []agentSession{{id: "ses_z"}, {id: "ses_a", title: "Grep wiring", updated: 2}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z"}, {ID: "ses_a", Title: "Grep wiring", Updated: 2}}
 	a.scope().sessionsLoaded = true
 	tt.Frame()
 	if tt.HasText("Grep wiring") {
@@ -733,8 +735,8 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 	if err := tt.Click("Grep wiring"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selected != "Grep wiring" || a.selectedSession != "ses_a" || len(a.blocks) != 0 {
-		t.Fatalf("after choosing a session: %q %q %d", a.selected, a.selectedSession, len(a.blocks))
+	if a.selected != "Grep wiring" || a.selectedSession != "ses_a" || len(a.transcript.Rows()) != 0 {
+		t.Fatalf("after choosing a session: %q %q %d", a.selected, a.selectedSession, len(a.transcript.Rows()))
 	}
 	select {
 	case job := <-a.jobs:
@@ -753,7 +755,7 @@ func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	for i := range 40 {
-		s := agentSession{id: fmt.Sprintf("ses_%02d", i), title: fmt.Sprintf("Pinned %02d", i)}
+		s := opencode.Session{ID: fmt.Sprintf("ses_%02d", i), Title: fmt.Sprintf("Pinned %02d", i)}
 		a.scope().sessions = append(a.scope().sessions, s)
 		a.togglePin(s)
 	}
@@ -807,15 +809,15 @@ func TestAgentInterruptAndReply(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := a.interrupt(ctx, "ses_x"); err != nil {
+	if err := a.Interrupt(ctx, "ses_x"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.replyPermission(ctx, "ses_x", "per_1", "always"); err != nil {
+	if err := a.ReplyPermission(ctx, "ses_x", "per_1", "always"); err != nil {
 		t.Fatal(err)
 	}
 	if one := <-got; one != "interrupt /api/session/ses_x/interrupt" {
@@ -832,32 +834,32 @@ func TestAgentInterruptAndReply(t *testing.T) {
 func TestApplyPermission(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "s"
-	upTo := len(a.blocks)
+	upTo := len(a.transcript.Rows())
 	step := func(typ, data string) {
-		a.apply(agentEvent{Type: typ, Data: json.RawMessage(data)})
+		a.apply(opencode.Event{Type: typ, Data: json.RawMessage(data)})
 	}
 
 	step("session.execution.started", `{"sessionID":"s"}`)
-	if a.busySession != "s" {
-		t.Fatalf("busy after start %q", a.busySession)
+	if a.transcript.Busy() != "s" {
+		t.Fatalf("busy after start %q", a.transcript.Busy())
 	}
 	step("permission.asked", `{"sessionID":"s","id":"per_1","action":"shell",`+
 		`"resources":["echo asked-probe"],"save":["echo *"]}`)
-	if len(a.blocks) != upTo+1 || a.blocks[len(a.blocks)-1].kind != "permission" {
-		t.Fatalf("card not added: %+v", a.blocks[len(a.blocks)-1])
+	if len(a.transcript.Rows()) != upTo+1 || a.transcript.Rows()[len(a.transcript.Rows())-1].Kind != "permission" {
+		t.Fatalf("card not added: %+v", a.transcript.Rows()[len(a.transcript.Rows())-1])
 	}
-	card := a.blocks[len(a.blocks)-1]
-	if card.key != "permission:per_1" || card.req == nil ||
-		card.req.action != "shell" || card.req.session != "s" ||
-		len(card.req.resources) != 1 || card.req.resources[0] != "echo asked-probe" {
+	card := a.transcript.Rows()[len(a.transcript.Rows())-1]
+	if card.Key != "permission:per_1" || card.Request == nil ||
+		card.Request.Action != "shell" || card.Request.Session != "s" ||
+		len(card.Request.Resources) != 1 || card.Request.Resources[0] != "echo asked-probe" {
 		t.Fatalf("card payload %+v", card)
 	}
-	if _, ok := a.pending["per_1"]; !ok {
+	if _, ok := a.transcript.Pending()["per_1"]; !ok {
 		t.Fatal("the request is not held as pending")
 	}
 
 	// Answering queues the runner job addressed to the request.
-	a.answerPerm(card.req, "once")
+	a.answerPerm(card.Request, "once")
 	select {
 	case job := <-a.jobs:
 		if job.kind != "answer" || job.sid != "s" || job.request != "per_1" || job.decision != "once" {
@@ -869,24 +871,24 @@ func TestApplyPermission(t *testing.T) {
 
 	// The reply landing takes the card back out.
 	a.dropPerm("per_1")
-	if len(a.blocks) != upTo {
-		t.Fatalf("card still drawn: %+v", a.blocks)
+	if len(a.transcript.Rows()) != upTo {
+		t.Fatalf("card still drawn: %+v", a.transcript.Rows())
 	}
-	if _, ok := a.pending["per_1"]; ok {
+	if _, ok := a.transcript.Pending()["per_1"]; ok {
 		t.Fatal("the request is still pending")
 	}
 
 	// Interrupting clears the busy state the stop button feeds on.
 	step("session.execution.interrupted", `{"sessionID":"s"}`)
-	if a.busySession != "" {
-		t.Fatalf("busy after interrupt %q", a.busySession)
+	if a.transcript.Busy() != "" {
+		t.Fatalf("busy after interrupt %q", a.transcript.Busy())
 	}
 
 	// Switching conversations forgets everything outstanding.
 	step("session.execution.started", `{"sessionID":"s"}`)
 	a.freshTranscript()
-	if a.busySession != "" || len(a.pending) != 0 {
-		t.Fatalf("stale turn state after switch: %q %d", a.busySession, len(a.pending))
+	if a.transcript.Busy() != "" || len(a.transcript.Pending()) != 0 {
+		t.Fatalf("stale turn state after switch: %q %d", a.transcript.Busy(), len(a.transcript.Pending()))
 	}
 }
 
@@ -895,7 +897,7 @@ func TestApplyPermission(t *testing.T) {
 // clicking the card's pill answers it.
 func TestStopAndAnswerButtons(t *testing.T) {
 	a := newTestApp(t)
-	a.busySession = "ses_z"
+	a.transcript.Start("ses_z")
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Stop the agent") {
 		t.Fatalf("no stop button while busy: %v", tt.Texts())
@@ -914,9 +916,9 @@ func TestStopAndAnswerButtons(t *testing.T) {
 
 	// The approval card renders what the agent asked for and answers
 	// through its pills.
-	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell",
-		resources: []string{"rm -rf /tmp/scratch"}, save: []string{"rm *"}}
-	a.blocks = []block{{kind: "permission", key: "permission:per_5", req: a.pending["per_5"]}}
+	a.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell",
+		Resources: []string{"rm -rf /tmp/scratch"}, Save: []string{"rm *"}})
+	a.transcript.Replace([]chat.Block{{Kind: "permission", Key: "permission:per_5", Request: a.transcript.Pending()["per_5"]}})
 	a.selectedSession = "ses_seed"
 	a.selected = "Approval turn"
 	tt.Frame()
@@ -964,12 +966,12 @@ func TestAgentSessionLocation(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// An explicitly named folder goes into the create body.
-	if _, _, err := a.createSession(ctx, "/home/you/far"); err != nil {
+	if _, _, err := a.CreateSession(ctx, "/home/you/far"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -981,7 +983,7 @@ func TestAgentSessionLocation(t *testing.T) {
 		t.Fatal("the create body never carried a location")
 	}
 	// No folder keeps the plain body the server's own directory needs.
-	if _, _, err := a.createSession(ctx, ""); err != nil {
+	if _, _, err := a.CreateSession(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -993,12 +995,12 @@ func TestAgentSessionLocation(t *testing.T) {
 		t.Fatal("the second create never reached the server")
 	}
 
-	rows, next, err := a.listSessions(ctx, "", "", "")
+	rows, next, err := a.ListSessions(ctx, "", "", "")
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows %v %v", rows, err)
 	}
-	if next != "" || rows[0].dir != "/home/you/far" {
-		t.Fatalf("row folder %q cursor %q", rows[0].dir, next)
+	if next != "" || rows[0].Directory != "/home/you/far" {
+		t.Fatalf("row folder %q cursor %q", rows[0].Directory, next)
 	}
 }
 
@@ -1028,9 +1030,9 @@ func TestStartChatInFolder(t *testing.T) {
 	if a.draftProject != "" || len(a.projects) != 0 {
 		t.Fatalf("missing folder landed a draft: %q, %v", a.draftProject, a.projects)
 	}
-	if len(a.blocks) != 1 || a.blocks[0].kind != "note" ||
-		!strings.Contains(a.blocks[0].text, "that folder does not exist") {
-		t.Fatalf("missing folder left no note: %v", a.blocks)
+	if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != "note" ||
+		!strings.Contains(a.transcript.Rows()[0].Text, "that folder does not exist") {
+		t.Fatalf("missing folder left no note: %v", a.transcript.Rows())
 	}
 	select {
 	case job := <-a.jobs:
@@ -1050,8 +1052,8 @@ func TestStartChatInFolder(t *testing.T) {
 	if len(a.projects) != 1 || a.projects[0] != want {
 		t.Fatalf("folders after starting: %v", a.projects)
 	}
-	if len(a.blocks) != 0 {
-		t.Fatalf("starting a chat left the old note: %v", a.blocks)
+	if len(a.transcript.Rows()) != 0 {
+		t.Fatalf("starting a chat left the old note: %v", a.transcript.Rows())
 	}
 	select {
 	case job := <-a.jobs:
@@ -1079,14 +1081,14 @@ func TestAgentListOps(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := a.renameSession(ctx, "ses_r", "Fresh title"); err != nil {
+	if err := a.RenameSession(ctx, "ses_r", "Fresh title"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.deleteSession(ctx, "ses_r"); err != nil {
+	if err := a.DeleteSession(ctx, "ses_r"); err != nil {
 		t.Fatal(err)
 	}
 	if one := <-seen; one != "patch Fresh title" {
@@ -1099,9 +1101,9 @@ func TestAgentListOps(t *testing.T) {
 
 // TestDedupeSessions folds later pages in without repeating rows.
 func TestDedupeSessions(t *testing.T) {
-	all := []agentSession{{id: "a"}, {id: "b"}}
-	got := dedupeSessions(all, []agentSession{{id: "b"}, {id: "c"}})
-	if len(got) != 3 || got[0].id != "a" || got[1].id != "b" || got[2].id != "c" {
+	all := []opencode.Session{{ID: "a"}, {ID: "b"}}
+	got := dedupeSessions(all, []opencode.Session{{ID: "b"}, {ID: "c"}})
+	if len(got) != 3 || got[0].ID != "a" || got[1].ID != "b" || got[2].ID != "c" {
 		t.Fatalf("dedupe %+v", got)
 	}
 }
@@ -1110,7 +1112,7 @@ func TestDedupeSessions(t *testing.T) {
 // kebab opens: the pills queue the two list jobs or leave things be.
 func TestSessionDialogs(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Grep wiring", dir: "/tmp"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Grep wiring", Directory: "/tmp"}}
 	a.selectedSession = "ses_r"
 	a.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -1171,16 +1173,16 @@ func TestSessionDialogs(t *testing.T) {
 
 	// Once the server answers, the row goes and the open chat blanks.
 	a.dropSession("ses_r")
-	if len(a.scope().sessions) != 0 || a.selectedSession != "" || len(a.blocks) != 0 {
+	if len(a.scope().sessions) != 0 || a.selectedSession != "" || len(a.transcript.Rows()) != 0 {
 		t.Fatalf("after drop: %d rows, session %q, %d blocks",
-			len(a.scope().sessions), a.selectedSession, len(a.blocks))
+			len(a.scope().sessions), a.selectedSession, len(a.transcript.Rows()))
 	}
 }
 
 // Removing Recents also removes its pagination action.
 func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
 	a.scope().sessionsLoaded = true
 	tt := ui.NewTester(a.view, 1400, 920)
 	if tt.HasText("Show older chats") {
@@ -1199,14 +1201,14 @@ func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 // transcript where the mock used to sit.
 func TestBootSettle(t *testing.T) {
 	a := newTestApp(t)
-	if len(a.blocks) != 0 || a.selected != "" {
-		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.blocks), a.selected)
+	if len(a.transcript.Rows()) != 0 || a.selected != "" {
+		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.transcript.Rows()), a.selected)
 	}
-	a.settleBoot([]agentSession{{id: "ses_a", title: "Grep wiring"}}, "", nil)
+	a.settleBoot([]opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}, "", nil)
 	if !a.scope().sessionsLoaded || a.selectedSession != "ses_a" ||
-		a.selected != "Grep wiring" || len(a.blocks) != 0 {
+		a.selected != "Grep wiring" || len(a.transcript.Rows()) != 0 {
 		t.Fatalf("boot settle: loaded %v session %q label %q blocks %d",
-			a.scope().sessionsLoaded, a.selectedSession, a.selected, len(a.blocks))
+			a.scope().sessionsLoaded, a.selectedSession, a.selected, len(a.transcript.Rows()))
 	}
 	select {
 	case job := <-a.jobs:
@@ -1220,15 +1222,15 @@ func TestBootSettle(t *testing.T) {
 	// A startup without a server lands empty, not on the mock.
 	a2 := newTestApp(t)
 	a2.settleBoot(nil, "", fmt.Errorf("not connected"))
-	if len(a2.blocks) != 0 || !a2.scope().sessionsLoaded {
-		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.blocks), a2.scope().sessionsLoaded)
+	if len(a2.transcript.Rows()) != 0 || !a2.scope().sessionsLoaded {
+		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.transcript.Rows()), a2.scope().sessionsLoaded)
 	}
 
 	// An empty store reads the same: nothing mock survives the boot.
 	a3 := newTestApp(t)
 	a3.settleBoot(nil, "", nil)
-	if len(a3.blocks) != 0 || a3.selectedSession != "" {
-		t.Fatalf("empty boot: session %q, %d blocks", a3.selectedSession, len(a3.blocks))
+	if len(a3.transcript.Rows()) != 0 || a3.selectedSession != "" {
+		t.Fatalf("empty boot: session %q, %d blocks", a3.selectedSession, len(a3.transcript.Rows()))
 	}
 }
 
@@ -1246,8 +1248,8 @@ func TestFirstSendClean(t *testing.T) {
 	default:
 		t.Fatal("the first send did not queue a job")
 	}
-	if len(a.blocks) != 1 || a.blocks[0].kind != "user" || a.blocks[0].text != "hello" {
-		t.Fatalf("first send blocks %+v", a.blocks)
+	if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != "user" || a.transcript.Rows()[0].Text != "hello" {
+		t.Fatalf("first send blocks %+v", a.transcript.Rows())
 	}
 }
 
@@ -1255,14 +1257,14 @@ func TestFirstSendClean(t *testing.T) {
 // session on its own: one comes into being with the first words.
 func TestStartNewChat(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
 	a.selected = "Grep wiring"
-	a.blocks = []block{{kind: "text", text: "leftover"}}
+	a.transcript.Replace([]chat.Block{{Kind: "text", Text: "leftover"}})
 	a.startNewChat()
-	if a.selectedSession != "" || a.selected != "" || len(a.blocks) != 0 {
+	if a.selectedSession != "" || a.selected != "" || len(a.transcript.Rows()) != 0 {
 		t.Fatalf("after new chat: session %q label %q blocks %d",
-			a.selectedSession, a.selected, len(a.blocks))
+			a.selectedSession, a.selected, len(a.transcript.Rows()))
 	}
 	select {
 	case job := <-a.jobs:
@@ -1287,21 +1289,21 @@ func TestListModels(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, err := a.listModels(ctx)
+	rows, err := a.ListModels(ctx)
 	if err != nil || len(rows) != 3 {
 		t.Fatalf("models %v %v", rows, err)
 	}
-	if !rows[0].free || len(rows[0].variants) != 0 {
+	if !rows[0].Free || len(rows[0].Variants) != 0 {
 		t.Fatalf("longcat %+v", rows[0])
 	}
-	if !rows[1].free || len(rows[1].variants) != 3 || rows[1].variants[2] != "max" {
+	if !rows[1].Free || len(rows[1].Variants) != 3 || rows[1].Variants[2] != "max" {
 		t.Fatalf("beam %+v", rows[1])
 	}
-	if rows[2].free {
+	if rows[2].Free {
 		t.Fatal("minimax priced but marked free")
 	}
 }
@@ -1324,11 +1326,11 @@ func TestSetModelBody(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := a.setModel(ctx, "ses_m", "opencode-go", "beam-free", "high"); err != nil {
+	if err := a.SetModel(ctx, "ses_m", "opencode-go", "beam-free", "high"); err != nil {
 		t.Fatal(err)
 	}
 	if one := <-got; one != "opencode-go/beam-free/high" {
@@ -1340,17 +1342,17 @@ func TestSetModelBody(t *testing.T) {
 // row, keeping the picker's chips in step with the server.
 func TestApplyModelEvent(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free",
-		name: "Beam Free", variants: []string{"low", "medium", "high", "max"}, free: true}}
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Weird turn",
-		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
-	a.apply(agentEvent{Type: "session.model.selected",
+	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free",
+		Name: "Beam Free", Variants: []string{"low", "medium", "high", "max"}, Free: true}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Weird turn",
+		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "beam-free"}}}
+	a.apply(opencode.Event{Type: "session.model.selected",
 		Data: json.RawMessage(`{"sessionID":"ses_z","model":{"id":"beam-free","providerID":"opencode-go","variant":"high"}}`)})
-	if a.scope().sessions[0].model.variant != "high" ||
-		a.scope().sessions[0].model.id != "beam-free" {
-		t.Fatalf("row model %+v", a.scope().sessions[0].model)
+	if a.scope().sessions[0].Model.Variant != "high" ||
+		a.scope().sessions[0].Model.ID != "beam-free" {
+		t.Fatalf("row model %+v", a.scope().sessions[0].Model)
 	}
-	name, variants := a.modelLabel(a.scope().sessions[0].model)
+	name, variants := a.modelLabel(a.scope().sessions[0].Model)
 	if name != "Beam Free" || len(variants) == 0 {
 		t.Fatalf("label %q has no variants; catalog %v", name, a.scope().models)
 	}
@@ -1361,23 +1363,23 @@ func TestApplyModelEvent(t *testing.T) {
 // filter narrows it, and the effort chips switch the variant.
 func TestModelPicker(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().models = []agentModel{
-		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", free: false},
-		{providerID: "opencode-go", id: "beam-free", name: "Beam Free",
-			variants: []string{"low", "medium", "high", "max"}, free: true},
-		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat 2.5 Preview Free", free: true},
+	a.scope().models = []opencode.Model{
+		{ProviderID: "opencode-go", ID: "minimax-m3", Name: "MiniMax-M3", Free: false},
+		{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free",
+			Variants: []string{"low", "medium", "high", "max"}, Free: true},
+		{ProviderID: "opencode-go", ID: "longcat-2.5-preview-free", Name: "LongCat 2.5 Preview Free", Free: true},
 	}
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Free turn",
-		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Free turn",
+		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "beam-free"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Free turn"
 	// The catalog rows carry the fancy names, so the button reads
-	// "Model Beam Free" and the effort chips sit ready beside the list.
+	// "opencode.Model Beam Free" and the effort chips sit ready beside the list.
 	tt := ui.NewTester(a.view, 1400, 920)
-	if !tt.HasText("Model Beam Free") {
+	if !tt.HasText("opencode.Model Beam Free") {
 		t.Fatalf("button label missing: %v", tt.Texts())
 	}
-	if err := tt.Click("Model Beam Free"); err != nil {
+	if err := tt.Click("opencode.Model Beam Free"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
 	if !a.pickerOpen {
@@ -1452,21 +1454,21 @@ func TestModelPicker(t *testing.T) {
 // scroll that grows, and the last rows only open from a scroll.
 func TestModelPickerScrolls(t *testing.T) {
 	a := newTestApp(t)
-	models := []agentModel{}
+	models := []opencode.Model{}
 	for i := range 28 {
-		models = append(models, agentModel{providerID: "opencode-go",
-			id: fmt.Sprintf("wada-%02d", i), name: fmt.Sprintf("Wada Model %02d", i), free: true})
+		models = append(models, opencode.Model{ProviderID: "opencode-go",
+			ID: fmt.Sprintf("wada-%02d", i), Name: fmt.Sprintf("Wada opencode.Model %02d", i), Free: true})
 	}
 	models = append(models,
-		agentModel{providerID: "opencode-go", id: "zed-9000", name: "Zed 9000 Max", free: false},
-		agentModel{providerID: "opencode-go", id: "ado-1000", name: "Ado 1000 Pro New", free: false})
+		opencode.Model{ProviderID: "opencode-go", ID: "zed-9000", Name: "Zed 9000 Max", Free: false},
+		opencode.Model{ProviderID: "opencode-go", ID: "ado-1000", Name: "Ado 1000 Pro New", Free: false})
 	a.scope().models = models
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn",
-		model: agentModelRef{providerID: "opencode-go", id: "wada-00"}}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn",
+		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "wada-00"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
-	if err := tt.Click("Model Wada Model 00"); err != nil {
+	if err := tt.Click("opencode.Model Wada opencode.Model 00"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
 	if !a.pickerOpen {
@@ -1477,16 +1479,16 @@ func TestModelPickerScrolls(t *testing.T) {
 	// Every row that paints stays in the panel, above the model button it
 	// hangs off: field, chips and the rounded box bound the drawn list,
 	// and nothing spills over the composer.
-	btn, ok := tt.Find("Model Wada Model 00")
+	btn, ok := tt.Find("opencode.Model Wada opencode.Model 00")
 	if !ok {
 		t.Fatalf("model button missing: %v", tt.Texts())
 	}
-	row, ok := tt.Find("Pick Wada Model 00")
+	row, ok := tt.Find("Pick Wada opencode.Model 00")
 	if !ok {
 		t.Fatalf("row missing: %v", tt.Texts())
 	}
 	rowX := row.X + row.W/2
-	for _, name := range []string{"Pick Wada Model 00", "Wada Model 13", "Wada Model 27"} {
+	for _, name := range []string{"Pick Wada opencode.Model 00", "Wada opencode.Model 13", "Wada opencode.Model 27"} {
 		r, ok := tt.Find(name)
 		if !ok {
 			t.Fatalf("row %q missing: %v", name, tt.Texts())
@@ -1556,7 +1558,7 @@ func TestAttachFile(t *testing.T) {
 	}
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
 	a.selectedSession = "ses_z"
 
 	// A missing file keeps the dialog open with a note.
@@ -1612,7 +1614,7 @@ func TestRemoteAttachFile(t *testing.T) {
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "test"})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
 	a.selectedSession = "ses_r"
 
 	// A file that is not there keeps the dialog open with a note.
@@ -1651,7 +1653,7 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 	state := map[string]any{"shell": "zsh"} // the project's own config
 	var docs []byte
 	flush := func() {
-		raw, _ := json.Marshal([]agentConfigEntry{
+		raw, _ := json.Marshal([]opencode.ConfigEntry{
 			{Type: "document", Path: "/home/dev/.config/opencode/opencode.json",
 				Info: map[string]any{"shell": "bash"}},
 			{Type: "directory", Path: "/home/dev/.config/opencode"},
@@ -1746,7 +1748,7 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 }
 
 // TestPermissionToggle drives the shell policy through the workspace's
-// opencode.json: the ask rule lands in the V2 permissions array, the
+// json: the ask rule lands in the V2 permissions array, the
 // file's other keys stand untouched, and clearing takes only what the app
 // put in.
 func TestPermissionToggle(t *testing.T) {
@@ -1914,7 +1916,7 @@ func TestPermissionPill(t *testing.T) {
 		[]byte(`{"permission":{"bash":{"*":"ask"}}}`), 0644)
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
 	a.selectedSession = "ses_z"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1955,7 +1957,7 @@ func TestPermissionPillRemote(t *testing.T) {
 	state := map[string]any{"shell": "zsh"}
 	var docs []byte
 	flush := func() {
-		docs, _ = json.Marshal([]agentConfigEntry{
+		docs, _ = json.Marshal([]opencode.ConfigEntry{
 			{Type: "document", Path: "/srv/app/opencode.json", Info: state},
 		})
 	}
@@ -1975,7 +1977,7 @@ func TestPermissionPillRemote(t *testing.T) {
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
 	a.selectedSession = "ses_r"
 	a.refreshWorkspacePolicy()
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -2013,21 +2015,21 @@ func TestPermissionPillRemote(t *testing.T) {
 // app runs on by default, and no chat's money on the settings page.
 func TestTopBarShowsWhatTheChatSpent(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().sessions = []agentSession{{id: "ses_paid", title: "Reviewing the wiring", cost: 0.3196}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_paid", Title: "Reviewing the wiring", Cost: 0.3196}}
 	a.selectedSession, a.selected = "ses_paid", "Reviewing the wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Reviewing the wiring") || !tt.HasText("$0.32") {
 		t.Fatalf("the spending is not beside the title: %v", tt.Texts())
 	}
 
-	a.scope().sessions = []agentSession{{id: "ses_free", title: "Reviewing the wiring"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_free", Title: "Reviewing the wiring"}}
 	a.selectedSession = "ses_free"
 	tt.Frame()
 	if tt.HasText("$0.00") || tt.HasText("$0.0000") {
 		t.Fatalf("a chat that spent nothing shows spending: %v", tt.Texts())
 	}
 
-	a.scope().sessions = []agentSession{{id: "ses_free", title: "Reviewing the wiring", cost: 1.5}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_free", Title: "Reviewing the wiring", Cost: 1.5}}
 	a.settingsOpen = true
 	tt.Frame()
 	if tt.HasText("$1.50") {
@@ -2049,8 +2051,8 @@ func TestNewChatLiveRenders(t *testing.T) {
 	// real session id, no title yet.
 	a.selectedSession = "ses_fresh"
 	a.selected = "New chat"
-	a.blocks = []block{{kind: "user", text: "run the checks"},
-		{kind: "stream", text: "On it — this is half of an answer"}}
+	a.transcript.Replace([]chat.Block{{Kind: "user", Text: "run the checks"},
+		{Kind: "stream", Text: "On it — this is half of an answer"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.Advance(time.Second) // the reply's words pace in
 	if !tt.HasText("run the checks") || !tt.HasText("On it — this is half of an answer") {
@@ -2058,7 +2060,7 @@ func TestNewChatLiveRenders(t *testing.T) {
 	}
 
 	// The auto-title folds onto the conversation on show.
-	a.apply(agentEvent{Type: "session.renamed",
+	a.apply(opencode.Event{Type: "session.renamed",
 		Data: []byte(`{"sessionID":"ses_fresh","title":"Check runner"}`)})
 	if a.selected != "Check runner" {
 		t.Fatalf("the open chat did not take its rename: %q", a.selected)
@@ -2069,7 +2071,7 @@ func TestNewChatLiveRenders(t *testing.T) {
 	}
 
 	// A session the user is not looking at renames silently.
-	a.apply(agentEvent{Type: "session.renamed",
+	a.apply(opencode.Event{Type: "session.renamed",
 		Data: []byte(`{"sessionID":"ses_fresh2","title":"Other"}`)})
 	if a.selected != "Check runner" {
 		t.Fatalf("another chat's rename stole the bar: %q", a.selected)
@@ -2081,30 +2083,30 @@ func TestNewChatLiveRenders(t *testing.T) {
 func TestFinishCutTurns(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
-	a.busySession = "ses_z"
-	a.blocks = []block{
-		{kind: "text", text: "Earlier answer"},
-		{kind: "stream", text: "half of an answer"},
-		{kind: "stream", text: ""},
-	}
-	a.live["ses:part"] = 1
-	a.pending["req_1"] = &agentPerm{}
+	a.transcript.Start("ses_z")
+	a.transcript.Replace([]chat.Block{
+		{Kind: "text", Text: "Earlier answer"},
+		{Kind: "stream", Text: "half of an answer"},
+		{Kind: "stream", Text: ""},
+	})
+
+	a.transcript.Ask(&chat.Permission{})
 	a.finishCutTurns()
 
 	var text []string
-	for _, b := range a.blocks {
-		if b.kind == "stream" {
-			t.Fatalf("a line still streams: %+v", a.blocks)
+	for _, b := range a.transcript.Rows() {
+		if b.Kind == "stream" {
+			t.Fatalf("a line still streams: %+v", a.transcript.Rows())
 		}
-		if b.kind == "text" {
-			text = append(text, b.text)
+		if b.Kind == "text" {
+			text = append(text, b.Text)
 		}
 	}
 	if strings.Join(text, "|") != "Earlier answer|half of an answer|(the answer was cut short)" {
 		t.Fatalf("settled %q", text)
 	}
-	if a.busySession != "" || len(a.live) != 0 || len(a.pending) != 0 {
-		t.Fatalf("state stuck: busy %q live %v pend %v", a.busySession, a.live, a.pending)
+	if a.transcript.Busy() != "" || len(a.transcript.Streaming()) != 0 || len(a.transcript.Pending()) != 0 {
+		t.Fatalf("state stuck: busy %q live %v pend %v", a.transcript.Busy(), a.transcript.Streaming(), a.transcript.Pending())
 	}
 }
 
@@ -2115,23 +2117,23 @@ func TestLiveAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
+	ag, err := opencode.StartClient(ctx, defaultLocalServer().transport(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.stop()
+	defer ag.Stop()
 
-	evs := make(chan agentEvent, 256)
-	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 256)
+	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.createSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The real pipeline names the shared free model before the first
 	// words run.
 	prov, name := useFreeModel(t, ag, ctx, sid)
-	if err := ag.prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
+	if err := ag.Prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
 		t.Fatal(err)
 	}
 	var text string
@@ -2150,20 +2152,20 @@ func TestLiveAgent(t *testing.T) {
 				}
 				// The turn shows up in the sidebar list, and the stored
 				// messages restore into the same rows as live.
-				ls, _, lerr := ag.listSessions(ctx, "", "", "")
+				ls, _, lerr := ag.ListSessions(ctx, "", "", "")
 				if lerr != nil {
 					t.Fatal(lerr)
 				}
 				found := false
 				for _, s := range ls {
-					if s.id == sid {
+					if s.ID == sid {
 						found = true
 					}
 				}
 				if !found {
 					t.Fatal("the new session is not in the stored list")
 				}
-				msgs, merr := ag.sessionMessages(ctx, sid)
+				msgs, merr := ag.SessionMessages(ctx, sid)
 				if merr != nil {
 					t.Fatal(merr)
 				}
@@ -2177,10 +2179,10 @@ func TestLiveAgent(t *testing.T) {
 				}
 				blocks := restoreBlocks(msgs)
 				if len(blocks) < 2 ||
-					blocks[0].kind != "user" ||
-					blocks[0].text != "Reply with exactly: PONG" ||
-					blocks[len(blocks)-1].kind != "text" ||
-					!strings.Contains(blocks[len(blocks)-1].text, "PONG") {
+					blocks[0].Kind != "user" ||
+					blocks[0].Text != "Reply with exactly: PONG" ||
+					blocks[len(blocks)-1].Kind != "text" ||
+					!strings.Contains(blocks[len(blocks)-1].Text, "PONG") {
 					t.Fatalf("restored transcript %+v", blocks)
 				}
 				return
@@ -2208,28 +2210,28 @@ func TestLiveModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
+	ag, err := opencode.StartClient(ctx, defaultLocalServer().transport(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.stop()
+	defer ag.Stop()
 
-	evs := make(chan agentEvent, 256)
-	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 256)
+	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.createSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	useFreeModel(t, ag, ctx, sid)
 	// Beam Free is the other zero-cost model, with reasoning efforts.
-	if err := ag.setModel(ctx, sid, "opencode-go", "beam-free", ""); err != nil {
+	if err := ag.SetModel(ctx, sid, "opencode-go", "beam-free", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.setModel(ctx, sid, "opencode-go", "beam-free", "high"); err != nil {
+	if err := ag.SetModel(ctx, sid, "opencode-go", "beam-free", "high"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
+	if err := ag.Prompt(ctx, sid, "Reply with exactly: PONG"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2270,7 +2272,7 @@ func TestLiveModel(t *testing.T) {
 	if selected == 0 || !sawHigh {
 		t.Fatalf("%d selections seen, high effort among them: %v", selected, sawHigh)
 	}
-	msgs, merr := ag.sessionMessages(ctx, sid)
+	msgs, merr := ag.SessionMessages(ctx, sid)
 	if merr != nil {
 		t.Fatal(merr)
 	}
@@ -2295,21 +2297,21 @@ func TestLivePermission(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	ag, err := startAgentFor(ctx, defaultLocalServer(), dir)
+	ag, err := opencode.StartClient(ctx, defaultLocalServer().transport(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.stop()
+	defer ag.Stop()
 
-	evs := make(chan agentEvent, 256)
-	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 256)
+	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.createSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	useFreeModel(t, ag, ctx, sid)
-	if err := ag.prompt(ctx, sid, "Run this shell command and report exactly what it prints: echo asked-probe"); err != nil {
+	if err := ag.Prompt(ctx, sid, "Run this shell command and report exactly what it prints: echo asked-probe"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2326,7 +2328,7 @@ func TestLivePermission(t *testing.T) {
 				if len(d.Resources) == 0 || d.Action != "shell" {
 					t.Fatalf("asked %+v", d)
 				}
-				if err := ag.replyPermission(ctx, sid, d.ID, "once"); err != nil {
+				if err := ag.ReplyPermission(ctx, sid, d.ID, "once"); err != nil {
 					t.Fatal(err)
 				}
 				answered = true
@@ -2337,7 +2339,7 @@ func TestLivePermission(t *testing.T) {
 					t.Fatalf("turn finished but unanswered %v / no tool ran %v", answered, sawTool)
 				}
 				// Nothing pending is left on the server either.
-				raw, lerr := ag.call(ctx, "GET", "/permission/request", nil)
+				raw, lerr := ag.Call(ctx, "GET", "/permission/request", nil)
 				if lerr != nil {
 					t.Fatal(lerr)
 				}
@@ -2379,21 +2381,21 @@ func TestLiveLocation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
+	ag, err := opencode.StartClient(ctx, defaultLocalServer().transport(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.stop()
+	defer ag.Stop()
 
-	evs := make(chan agentEvent, 256)
-	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 256)
+	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.createSession(ctx, dir)
+	sid, _, err := ag.CreateSession(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	useFreeModel(t, ag, ctx, sid)
-	if err := ag.prompt(ctx, sid, "Run this shell command and report exactly what it prints: pwd"); err != nil {
+	if err := ag.Prompt(ctx, sid, "Run this shell command and report exactly what it prints: pwd"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2452,21 +2454,21 @@ func TestLiveSessionOps(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	ag, err := startAgentFor(ctx, defaultLocalServer(), ".")
+	ag, err := opencode.StartClient(ctx, defaultLocalServer().transport(), ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.stop()
+	defer ag.Stop()
 
-	evs := make(chan agentEvent, 64)
-	go ag.events(ctx, func(ev agentEvent) { evs <- ev })
+	evs := make(chan opencode.Event, 64)
+	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
 	title := "Wada ops " + time.Now().Format("150405")
-	sid, _, err := ag.createSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.renameSession(ctx, sid, title); err != nil {
+	if err := ag.RenameSession(ctx, sid, title); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2492,13 +2494,13 @@ func TestLiveSessionOps(t *testing.T) {
 	}
 
 	// The store keeps the new title, and deleting removes the session.
-	ls, _, lerr := ag.listSessions(ctx, "", "", "")
+	ls, _, lerr := ag.ListSessions(ctx, "", "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}
 	for _, s := range ls {
-		if s.id == sid && s.title != title {
-			t.Fatalf("stored title %q, wanted %q", s.title, title)
+		if s.ID == sid && s.Title != title {
+			t.Fatalf("stored title %q, wanted %q", s.Title, title)
 		}
 	}
 	// The search over the store finds it by its title; the index trails
@@ -2507,13 +2509,13 @@ func TestLiveSessionOps(t *testing.T) {
 	indexWait := time.After(5 * time.Second)
 	var rows int
 	for !matched {
-		found, _, serr := ag.listSessions(ctx, "", title, "")
+		found, _, serr := ag.ListSessions(ctx, "", title, "")
 		if serr != nil {
 			t.Fatal(serr)
 		}
 		rows = len(found)
 		for _, s := range found {
-			if s.id == sid {
+			if s.ID == sid {
 				matched = true
 			}
 		}
@@ -2527,19 +2529,19 @@ func TestLiveSessionOps(t *testing.T) {
 		}
 	}
 
-	if err := ag.deleteSession(ctx, sid); err != nil {
+	if err := ag.DeleteSession(ctx, sid); err != nil {
 		t.Fatal(err)
 	}
-	ls, _, lerr = ag.listSessions(ctx, "", "", "")
+	ls, _, lerr = ag.ListSessions(ctx, "", "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}
 	for _, s := range ls {
-		if s.id == sid {
+		if s.ID == sid {
 			t.Fatal("the deleted session is still in the list")
 		}
 	}
-	if _, gerr := ag.call(ctx, "GET", "/session/"+sid, nil); gerr == nil {
+	if _, gerr := ag.Call(ctx, "GET", "/session/"+sid, nil); gerr == nil {
 		t.Fatal("the deleted session still reads from the store")
 	}
 }

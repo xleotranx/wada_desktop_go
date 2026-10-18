@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 	"time"
+	"wada-desktop-go/internal/chat"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -15,25 +16,25 @@ import (
 func TestBlockKindsRender(t *testing.T) {
 	cases := []struct {
 		name     string
-		block    block
+		block    chat.Block
 		drawn    string   // a text the row must show
 		notDrawn []string // texts that would mean the row went its wrong way
 	}{
-		{name: "text", block: block{kind: kindText, text: "a **bold** answer"},
+		{name: "text", block: chat.Block{Kind: chat.KindText, Text: "a **bold** answer"},
 			drawn: "a bold answer", notDrawn: []string{"**"}},
-		{name: "user", block: block{kind: kindUser, text: "**ship it**"},
+		{name: "user", block: chat.Block{Kind: chat.KindUser, Text: "**ship it**"},
 			drawn: "**ship it**"},
-		{name: "stream", block: block{kind: kindStream, text: "half a **thought**", key: "stream:m1:0"},
+		{name: "stream", block: chat.Block{Kind: chat.KindStream, Text: "half a **thought**", Key: "stream:m1:0"},
 			drawn: "half a thought", notDrawn: []string{"**"}},
-		{name: "note", block: block{kind: kindNote, text: "# engine trouble"},
+		{name: "note", block: chat.Block{Kind: chat.KindNote, Text: "# engine trouble"},
 			drawn: "# engine trouble"},
-		{name: "working", block: block{kind: kindWorking, text: "Working…"},
+		{name: "working", block: chat.Block{Kind: chat.KindWorking, Text: "Working…"},
 			drawn: "Working…"},
-		{name: "activity", block: block{kind: kindActivity, text: "Ran command", icon: "shell",
-			key: "activity:call_1", detail: []string{"$ echo hi", "hi"}},
+		{name: "activity", block: chat.Block{Kind: chat.KindActivity, Text: "Ran command", Icon: "shell",
+			Key: "activity:call_1", Detail: []string{"$ echo hi", "hi"}},
 			drawn: "Ran command"},
-		{name: "permission", block: block{kind: kindPermission, text: "Approval needed",
-			key: "permission:per_1", req: &agentPerm{id: "per_1", session: "ses_z", action: "shell"}},
+		{name: "permission", block: chat.Block{Kind: chat.KindPermission, Text: "Approval needed",
+			Key: "permission:per_1", Request: &chat.Permission{ID: "per_1", Session: "ses_z", Action: "shell"}},
 			drawn: "run a shell command"},
 	}
 	if len(cases) != 7 {
@@ -43,7 +44,7 @@ func TestBlockKindsRender(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newTestApp(t)
 			a.selectedSession = "ses_z"
-			a.blocks = []block{tc.block}
+			a.transcript.Replace([]chat.Block{tc.block})
 			tt := ui.NewTester(a.view, 1400, 920)
 			tt.Advance(time.Second) // streaming words pace in
 			if !tt.HasText(tc.drawn) {

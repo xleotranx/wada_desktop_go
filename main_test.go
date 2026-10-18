@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -19,8 +21,8 @@ func TestView(t *testing.T) {
 
 	// The interface starts clean, with Codex navigation and workspace
 	// tools around an empty transcript waiting for the boot.
-	if a.selected != "" || len(a.blocks) != 0 {
-		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.blocks))
+	if a.selected != "" || len(a.transcript.Rows()) != 0 {
+		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.transcript.Rows()))
 	}
 	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
 		!tt.HasText("Pinned") || !tt.HasText("Projects") || tt.HasText("Recents") ||
@@ -79,7 +81,7 @@ func TestChromeWash(t *testing.T) {
 func TestTopBarChrome(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Plan project folder metadata storage"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Plan project folder metadata storage"}}
 	a.adoptSession(a.scope().sessions[0])
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -127,9 +129,9 @@ func TestStreamFollowsFeed(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
-	a.busySession = "ses_z"
+	a.transcript.Start("ses_z")
 	for i := range 80 {
-		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("line %d", i)})
+		a.transcript.Append(chat.Block{Kind: "text", Text: fmt.Sprintf("line %d", i)})
 	}
 
 	// A conversation opens at its foot, then follows newly appended rows.
@@ -138,7 +140,7 @@ func TestStreamFollowsFeed(t *testing.T) {
 		t.Fatal("the transcript did not open at its end")
 	}
 	for i := range 40 {
-		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("more %d", i)})
+		a.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("more %d", i)})
 	}
 	tt.Frame()                  // the grown content starts the glide
 	tt.Advance(2 * time.Second) // which lands at the new foot
@@ -153,7 +155,7 @@ func TestStreamFollowsFeed(t *testing.T) {
 		t.Fatalf("scrolling up did not leave the foot: first %d", first)
 	}
 	for i := range 40 {
-		a.blocks = append(a.blocks, block{kind: "stream", text: fmt.Sprintf("tail %d", i)})
+		a.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("tail %d", i)})
 	}
 	tt.Frame()
 	tt.Advance(2 * time.Second)
@@ -172,11 +174,11 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
-	a.busySession = "ses_z"
+	a.transcript.Start("ses_z")
 	for i := range 80 {
-		a.blocks = append(a.blocks, block{kind: kindText, text: fmt.Sprintf("line %d", i)})
+		a.transcript.Append(chat.Block{Kind: chat.KindText, Text: fmt.Sprintf("line %d", i)})
 	}
-	a.blocks = append(a.blocks, block{kind: kindStream, text: "start", key: "stream:m:0", msg: "m"})
+	a.transcript.Append(chat.Block{Kind: chat.KindStream, Text: "start", Key: "stream:m:0", Message: "m"})
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.Advance(time.Second) // the words pace in
 
@@ -185,7 +187,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 		t.Fatalf("the row above the answer is not in view: %v", tt.Texts())
 	}
 	// Words that stay on the answer's first line leave the feed alone.
-	a.blocks[len(a.blocks)-1].text = "start with a few more words"
+	a.transcript.Rows()[len(a.transcript.Rows())-1].Text = "start with a few more words"
 	for range 20 {
 		tt.Frame()
 		tt.Advance(16 * time.Millisecond)
@@ -195,7 +197,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 	}
 	// A wrapped line pins the bottom at once, lifting the rows above by
 	// that line rather than gliding over the next half second.
-	a.blocks[len(a.blocks)-1].text = strings.Repeat("word ", 40)
+	a.transcript.Rows()[len(a.transcript.Rows())-1].Text = strings.Repeat("word ", 40)
 	tt.Frame()
 	tt.Advance(time.Second)
 	if after, _ := tt.Find("line 79"); after.Y >= before.Y {
@@ -213,7 +215,7 @@ func TestStreamMarkers(t *testing.T) {
 	a.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 	show := func(text string) *ui.Tester {
-		a.blocks = []block{{kind: "stream", text: text}}
+		a.transcript.Replace([]chat.Block{{Kind: "stream", Text: text}})
 		tt.Frame()
 		tt.Advance(time.Second) // the words pace in
 		return tt
@@ -270,7 +272,7 @@ func TestTranscriptLoader(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
-	a.busySession = "ses_z"
+	a.transcript.Start("ses_z")
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Working…") {
 		t.Fatalf("the loader is missing: %v", tt.Texts())
@@ -278,28 +280,28 @@ func TestTranscriptLoader(t *testing.T) {
 
 	// Words landing take the loader's place, and an empty stream row --
 	// the next paragraph starting -- brings it back.
-	a.blocks = []block{{kind: "stream", text: "half an answer"}}
+	a.transcript.Replace([]chat.Block{{Kind: "stream", Text: "half an answer"}})
 	tt.Frame()
 	tt.Advance(time.Second) // the words pace in
 	if tt.HasText("Working…") || !tt.HasText("half an answer") {
 		t.Fatalf("wordy stream: %v", tt.Texts())
 	}
-	a.blocks = append(a.blocks, block{kind: "stream", key: "stream:msg:1"})
+	a.transcript.Append(chat.Block{Kind: "stream", Key: "stream:msg:1"})
 	tt.Frame()
 	if !tt.HasText("Working…") {
 		t.Fatalf("a silent stream row drops the loader: %v", tt.Texts())
 	}
 
 	// An approval waiting leaves the decisions to the user, not the agent.
-	a.blocks = nil
-	a.pending["per_1"] = &agentPerm{id: "per_1", session: "ses_z"}
+	a.transcript.Replace(nil)
+	a.transcript.Ask(&chat.Permission{ID: "per_1", Session: "ses_z"})
 	tt.Frame()
 	if tt.HasText("Working…") {
 		t.Fatalf("the loader runs while waiting on the user: %v", tt.Texts())
 	}
 
 	// Another chat's turn does not show here.
-	a.pending = map[string]*agentPerm{}
+	a.transcript.ClearPermissions()
 	a.selectedSession = "ses_other"
 	tt.Frame()
 	if tt.HasText("Working…") {
@@ -337,7 +339,7 @@ func TestSidebarSearchCentered(t *testing.T) {
 func TestSidebarSearch(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Search"); err != nil {
@@ -365,7 +367,7 @@ func TestSidebarSearch(t *testing.T) {
 		t.Fatalf("search state not shown: %v", tt.Texts())
 	}
 	a.searchLoading = false
-	a.searchResults = []agentSession{{id: "ses_b", title: "Wiring the wings"}}
+	a.searchResults = []opencode.Session{{ID: "ses_b", Title: "Wiring the wings"}}
 	tt.Frame()
 	if !tt.HasText("Wiring the wings") || tt.HasText("Grep wiring") {
 		t.Fatalf("results not shown in place of the list: %v", tt.Texts())
@@ -408,7 +410,7 @@ func TestHeaderWiring(t *testing.T) {
 	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.selectedSession = "ses_z"
-	a.blocks = []block{{kind: "text", text: "half a thought"}}
+	a.transcript.Replace([]chat.Block{{Kind: "text", Text: "half a thought"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The search chip aims the field: the ask stands until a frame gives
@@ -422,8 +424,8 @@ func TestHeaderWiring(t *testing.T) {
 
 	// With an approval waiting, the bell names it and opens its chat.
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Wired turn"}}
-	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell"}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Wired turn"}}
+	a.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell"})
 	tt.Frame()
 	if !tt.HasText("1") || !tt.HasText("Notifications, 1 approvals waiting") {
 		t.Fatalf("bell badge missing: %v", tt.Texts())
@@ -444,7 +446,7 @@ func TestHeaderWiring(t *testing.T) {
 	}
 
 	// The quiet bell, nothing pending, shows no badge.
-	a.pending = map[string]*agentPerm{}
+	a.transcript.ClearPermissions()
 	tt.Frame()
 	if !tt.HasText("Notifications") || tt.HasText("approvals waiting") {
 		t.Fatalf("badge stuck: %v", tt.Texts())
@@ -460,7 +462,7 @@ func TestAttachDialog(t *testing.T) {
 	}
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
 	a.selectedSession = "ses_z"
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -501,12 +503,12 @@ func TestActivityExpands(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
-	a.blocks = []block{
-		{kind: "activity", text: "Ran command", icon: "shell", key: "activity:call_1",
-			detail: []string{
+	a.transcript.Replace([]chat.Block{
+		{Kind: "activity", Text: "Ran command", Icon: "shell", Key: "activity:call_1",
+			Detail: []string{
 				"$ echo hi",
 				"hi"}},
-	}
+	})
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Ran command"); err != nil {
@@ -540,10 +542,10 @@ func TestComposerSends(t *testing.T) {
 	if a.draft != "" {
 		t.Fatalf("draft %q after Enter", a.draft)
 	}
-	if len(a.blocks) == 0 || a.blocks[len(a.blocks)-1].text != "Ship the boundary check" {
-		t.Fatalf("last block %v", a.blocks[len(a.blocks)-1])
+	if len(a.transcript.Rows()) == 0 || a.transcript.Rows()[len(a.transcript.Rows())-1].Text != "Ship the boundary check" {
+		t.Fatalf("last block %v", a.transcript.Rows()[len(a.transcript.Rows())-1])
 	}
-	if a.blocks[len(a.blocks)-1].kind != "user" {
+	if a.transcript.Rows()[len(a.transcript.Rows())-1].Kind != "user" {
 		t.Fatal("the sent block is not the user's")
 	}
 
@@ -564,8 +566,8 @@ func TestComposerSends(t *testing.T) {
 	if a.draft != "" {
 		t.Fatalf("draft %q after the send button", a.draft)
 	}
-	if n := len(a.blocks); n == 0 || a.blocks[n-1].text != "One more" {
-		t.Fatalf("last block %v", a.blocks[n-1])
+	if n := len(a.transcript.Rows()); n == 0 || a.transcript.Rows()[n-1].Text != "One more" {
+		t.Fatalf("last block %v", a.transcript.Rows()[n-1])
 	}
 	if tt.HasText("Send message") {
 		t.Fatal("send button stayed after sending")

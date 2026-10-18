@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"wada-desktop-go/internal/chat"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -11,7 +12,7 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 		t.Run("session="+session, func(t *testing.T) {
 			a := newTestApp(t)
 			a.selectedSession = session
-			a.blocks = []block{{kind: kindText, text: "Previous answer"}}
+			a.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 			a.draft = "  Keep this unsent question  "
 			for range cap(a.jobs) {
 				a.jobs <- agentJob{kind: jobRefresh}
@@ -29,8 +30,8 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 			if a.draft != "  Keep this unsent question  " {
 				t.Fatalf("full queue consumed the unsent draft: %q", a.draft)
 			}
-			if len(a.blocks) != 1 || a.blocks[0].kind != kindText || a.blocks[0].text != "Previous answer" {
-				t.Fatalf("full queue changed the transcript: %+v", a.blocks)
+			if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != chat.KindText || a.transcript.Rows()[0].Text != "Previous answer" {
+				t.Fatalf("full queue changed the transcript: %+v", a.transcript.Rows())
 			}
 			if len(a.jobs) != cap(a.jobs) {
 				t.Fatalf("full queue changed admission count: %d", len(a.jobs))
@@ -42,13 +43,13 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses-existing"
-	a.blocks = []block{{kind: kindText, text: "Previous answer"}}
+	a.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 	a.draft = "  Send this question  "
 	if !a.send() {
 		t.Fatal("available queue rejected the prompt")
 	}
-	if a.draft != "" || len(a.blocks) != 2 || a.blocks[1].kind != kindUser || a.blocks[1].text != "  Send this question  " {
-		t.Fatalf("accepted prompt did not enter the transcript once: draft=%q, blocks=%+v", a.draft, a.blocks)
+	if a.draft != "" || len(a.transcript.Rows()) != 2 || a.transcript.Rows()[1].Kind != chat.KindUser || a.transcript.Rows()[1].Text != "  Send this question  " {
+		t.Fatalf("accepted prompt did not enter the transcript once: draft=%q, blocks=%+v", a.draft, a.transcript.Rows())
 	}
 	if len(a.jobs) != 1 {
 		t.Fatalf("accepted prompt queued %d jobs, want 1", len(a.jobs))
@@ -60,7 +61,7 @@ func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 	if a.send() {
 		t.Fatal("empty draft reported a prompt accepted")
 	}
-	if len(a.jobs) != 0 || len(a.blocks) != 2 {
+	if len(a.jobs) != 0 || len(a.transcript.Rows()) != 2 {
 		t.Fatal("empty draft submitted or appended the accepted prompt again")
 	}
 }
@@ -68,7 +69,7 @@ func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 func TestClosedAppPreservesUnsentDraft(t *testing.T) {
 	a := newTestApp(t)
 	a.selectedSession = "ses-existing"
-	a.blocks = []block{{kind: kindText, text: "Previous answer"}}
+	a.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 	a.draft = "Keep this after closing"
 	a.closeWork()
 	if a.send() {
@@ -77,8 +78,8 @@ func TestClosedAppPreservesUnsentDraft(t *testing.T) {
 	if a.commandError == "" {
 		t.Fatal("closed app supplied no rejection feedback")
 	}
-	if a.draft != "Keep this after closing" || len(a.blocks) != 1 || a.blocks[0].text != "Previous answer" || len(a.jobs) != 0 {
-		t.Fatalf("closed app accepted a prompt: draft=%q blocks=%+v jobs=%d", a.draft, a.blocks, len(a.jobs))
+	if a.draft != "Keep this after closing" || len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Text != "Previous answer" || len(a.jobs) != 0 {
+		t.Fatalf("closed app accepted a prompt: draft=%q blocks=%+v jobs=%d", a.draft, a.transcript.Rows(), len(a.jobs))
 	}
 }
 

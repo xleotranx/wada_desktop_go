@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -52,33 +53,33 @@ func browseServer(t *testing.T) (*httptest.Server, *[]string) {
 // come back as folders.
 func TestListDir(t *testing.T) {
 	srv, listed := browseServer(t)
-	ag := &agent{base: srv.URL + "/api", http: srv.Client()}
+	ag := &opencode.Client{Base: srv.URL + "/api", HTTP: srv.Client()}
 	ctx := context.Background()
 
-	entries, err := ag.listDir(ctx, "/srv/work", ".")
+	entries, err := ag.ListDir(ctx, "/srv/work", ".")
 	if err != nil || len(entries) != 3 {
 		t.Fatalf("list %+v %v", entries, err)
 	}
-	if entries[0].rel != "proj" || entries[0].name != "proj" || !entries[0].dir {
+	if entries[0].Path != "proj" || entries[0].Name != "proj" || !entries[0].Directory {
 		t.Fatalf("the folder row reads %+v", entries[0])
 	}
-	if entries[2].rel != "notes.md" || entries[2].dir {
+	if entries[2].Path != "notes.md" || entries[2].Directory {
 		t.Fatalf("the file row reads %+v", entries[2])
 	}
 	// A walk below the location spells its own path; the location stays.
-	entries, err = ag.listDir(ctx, "/srv/work", "proj")
-	if err != nil || len(entries) != 2 || entries[0].rel != "proj/inner" || !entries[0].dir {
+	entries, err = ag.ListDir(ctx, "/srv/work", "proj")
+	if err != nil || len(entries) != 2 || entries[0].Path != "proj/inner" || !entries[0].Directory {
 		t.Fatalf("nested list %+v %v", entries, err)
 	}
 	if got := (*listed)[len(*listed)-1]; got != "/srv/work | proj" {
 		t.Fatalf("the nested ask reads %q", got)
 	}
-	if _, err := ag.listDir(ctx, "/srv/work", "nowhere"); err == nil ||
+	if _, err := ag.ListDir(ctx, "/srv/work", "nowhere"); err == nil ||
 		!strings.Contains(err.Error(), "not there") {
 		t.Fatalf("a missing folder reads %v", err)
 	}
 
-	dir, err := ag.location(ctx, "")
+	dir, err := ag.Location(ctx, "")
 	if err != nil || dir != "/srv/work" {
 		t.Fatalf("location %q %v", dir, err)
 	}

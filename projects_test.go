@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -21,7 +22,7 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	a.addFolder(t.TempDir())
 	dir := a.projects[0]
 	a.selectedSession = "old-chat"
-	a.scope().sessions = []agentSession{{id: "old-chat", dir: a.home}}
+	a.scope().sessions = []opencode.Session{{ID: "old-chat", Directory: a.home}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	label := "New chat in " + dirBase(dir)
 	if tt.HasText(label) {
@@ -92,7 +93,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().projects = []string{"/srv/app"}
-	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote wiring", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote wiring", Directory: "/srv/app"}}
 	a.adoptSession(a.scope().sessions[0])
 	a.startNewChat()
 	if a.chatDir() != "/srv/app" {
@@ -104,7 +105,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 
 	// The local list is made of choices: a chat elsewhere starts free.
 	b := newTestApp(t)
-	b.scope().sessions = []agentSession{{id: "ses_l", title: "Local wiring", dir: canonDir(t.TempDir())}}
+	b.scope().sessions = []opencode.Session{{ID: "ses_l", Title: "Local wiring", Directory: canonDir(t.TempDir())}}
 	b.adoptSession(b.scope().sessions[0])
 	b.startNewChat()
 	if b.chatDir() != "" || b.selectedSession != "" {
@@ -187,9 +188,9 @@ func TestProjectChatsNestUnderFolder(t *testing.T) {
 	dir := canonDir(picked)
 	other := canonDir(t.TempDir())
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{
-		{id: "ses_here", title: "Folder wiring", dir: dir},
-		{id: "ses_loose", title: "Loose wiring", dir: other},
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_here", Title: "Folder wiring", Directory: dir},
+		{ID: "ses_loose", Title: "Loose wiring", Directory: other},
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Folder wiring") {
@@ -252,8 +253,8 @@ func TestProjectChatsPreviewAndShowMore(t *testing.T) {
 	dir := canonDir(picked)
 	a.scope().sessionsLoaded = true
 	for i := range 7 {
-		a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i),
-			title: fmt.Sprintf("Chat %d", i), dir: dir})
+		a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: fmt.Sprint(i),
+			Title: fmt.Sprintf("Chat %d", i), Directory: dir})
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Chat 0") || tt.HasText("Chat 6") {
@@ -280,7 +281,7 @@ func TestPinnedChatAlsoNests(t *testing.T) {
 	picked := t.TempDir()
 	a.addProject(picked)
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_pin", title: "Pinned wiring", dir: canonDir(picked)}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_pin", Title: "Pinned wiring", Directory: canonDir(picked)}}
 	a.togglePin(a.scope().sessions[0])
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Pinned wiring") {
@@ -322,7 +323,7 @@ func TestProjectRowKeepsItsColumns(t *testing.T) {
 	busy := t.TempDir()
 	a.addProject(empty)
 	a.addProject(busy)
-	a.scope().sessions = []agentSession{{id: "ses_b", title: "Busy wiring", dir: canonDir(busy)}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_b", Title: "Busy wiring", Directory: canonDir(busy)}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	emptyRow, ok := tt.Find(dirBase(empty))
 	if !ok {
@@ -339,14 +340,14 @@ func TestProjectRowKeepsItsColumns(t *testing.T) {
 
 func TestProjectChatsMatchFolder(t *testing.T) {
 	a := newTestApp(t)
-	a.scope().sessions = []agentSession{
-		{id: "a", dir: "/work/app/."},
-		{id: "b", dir: "/work/app"},
-		{id: "c", dir: "/work/other"},
-		{id: "d"},
+	a.scope().sessions = []opencode.Session{
+		{ID: "a", Directory: "/work/app/."},
+		{ID: "b", Directory: "/work/app"},
+		{ID: "c", Directory: "/work/other"},
+		{ID: "d"},
 	}
 	chats := a.projectChats("/work/app")
-	if len(chats) != 2 || chats[0].id != "a" || chats[1].id != "b" {
+	if len(chats) != 2 || chats[0].ID != "a" || chats[1].ID != "b" {
 		t.Fatalf("folder chats: %+v", chats)
 	}
 	if len(a.projectChats("/nowhere")) != 0 || len(a.projectChats("")) != 0 {
@@ -420,7 +421,7 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 	// start a server chat in, and the sidebar carries no dead row.
 	a.addProject(filepath.Join(t.TempDir(), "only-local"))
 	a.scope().sessionsLoaded = true
-	a.scope().sessions = []agentSession{{id: "ses_remote", title: "Remote wiring", dir: "/srv/app"}}
+	a.scope().sessions = []opencode.Session{{ID: "ses_remote", Title: "Remote wiring", Directory: "/srv/app"}}
 	a.scope().projects = []string{"/srv/app", "/srv/docs"}
 	a.projectPickerOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)

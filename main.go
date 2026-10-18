@@ -10,42 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
-
-// blockKind names what one transcript row is; blockRow's switch and the
-// render test are a new kind's other homes.
-type blockKind string
-
-const (
-	kindText       blockKind = "text"       // an answer, through the markdown package
-	kindUser       blockKind = "user"       // the user's own words
-	kindStream     blockKind = "stream"     // an answer still arriving
-	kindNote       blockKind = "note"       // engine trouble under the answers
-	kindWorking    blockKind = "working"    // the loader of a turn in flight
-	kindActivity   blockKind = "activity"   // one tool call of the agent
-	kindPermission blockKind = "permission" // an approval waiting on the user
-)
-
-// block is one paragraph, bubble or activity line of the transcript.
-type block struct {
-	id     uint64
-	kind   blockKind // what the row is; one of the kind* constants
-	text   string
-	icon   string
-	key    string           // key into app.expanded for collapsible lines
-	detail []string         // drawn below the line once expanded
-	req    *agentPerm       // the approval request a permission card carries
-	stream *strings.Builder // amortized storage while text deltas arrive
-	// The stored turn this row came from, and what it spent: the usage
-	// line only the store knows waits under the answer that earned it.
-	msg    string
-	cost   float64
-	tokens int
-}
 
 // attachState is the file-attach dialog, quoting a workspace file into
 // the draft.
@@ -77,15 +48,15 @@ type confirmState struct {
 // the runner's own tests stand in for a server's freshness on dial. The
 // transcript and the picker stay on the app, since one conversation renders.
 type serverScope struct {
-	sessions       []agentSession
+	sessions       []opencode.Session
 	sessionsLoaded bool
 	nextCursor     string
 	moreLoading    bool
-	models         []agentModel
+	models         []opencode.Model
 	modelsLoaded   bool
 	// The model the server itself would run, for when the catalog offers
 	// nothing this app knows; zero until a dial reads it.
-	serverDefault agentModelRef
+	serverDefault opencode.ModelRef
 	// The folders the server works in, as its project list says them;
 	// empty until a dial reads it.
 	projects []string
@@ -93,6 +64,8 @@ type serverScope struct {
 
 // app is the state the window shows.
 type app struct {
+	transcript chat.State
+
 	registryRequests map[string]*requestState
 	policyRequest    requestState
 
@@ -155,15 +128,13 @@ type app struct {
 	// draftModel is what a conversation born here runs on once the
 	// composer's picker has chosen one: a draft has no session yet, so its
 	// pick waits here until the first words open one.
-	draftModel        agentModelRef
+	draftModel        opencode.ModelRef
 	draftVersion      uint64
 	projectPickerOpen bool
 	projectFilter     string
 
 	feed        ui.ListState
 	resultsList ui.ListState
-	blocks      []block
-	nextBlockID uint64
 
 	// md draws the transcript's markdown, one set of options shared by
 	// every message, tuned to the palette each frame.
@@ -173,8 +144,6 @@ type app struct {
 	// The open conversation and its streaming state; one transcript
 	// renders no matter which server owns it.
 	selectedSession string
-	busySession     string // the conversation whose turn is running
-	pending         map[string]*agentPerm
 
 	// The folder chooser behind "Add folder" and "New project…": the
 	// system's own panel, stood in for in tests. selectAddedProject hands
@@ -207,7 +176,7 @@ type app struct {
 	// The chats search: what the field shows, the results it last got
 	// and whether one is on.
 	searchText    string
-	searchResults []agentSession
+	searchResults []opencode.Session
 	searchLoading bool
 	searchVersion uint64
 	searches      chan searchRequest
@@ -227,7 +196,7 @@ type app struct {
 	servers       []serverConn
 	activeServer  string
 	serverHealth  map[string]serverHealth
-	serverFacts   map[string]serverFacts
+	serverFacts   map[string]opencode.Facts
 	serverEditor  *serverEditor
 	serverConfirm *confirmState
 	modelsQuery   string
@@ -239,12 +208,8 @@ type app struct {
 
 	// The agent runner feeds the jobs; the rest is its bookkeeping of
 	// what is streaming where.
-	route      uint64 // UI-owned generation of the active connection
-	jobs       chan agentJob
-	live       map[string]int    // streaming row by message id and ordinal
-	toolNames  map[string]string // tool call id -> tool name
-	toolCmds   map[string]string // tool call id -> command line
-	toolBlocks map[string]int    // tool call id -> activity row index
+	route uint64 // UI-owned generation of the active connection
+	jobs  chan agentJob
 }
 
 func newApp() *app {
@@ -265,24 +230,20 @@ func newApp() *app {
 		unavailableProjects: map[string]bool{},
 		browserHistoryAt:    -1,
 		expanded:            map[string]bool{},
-		blocks:              []block{},
-		feed:                newFeed(),
+
+		feed: newFeed(),
 
 		settingsTab:  tabServers,
 		servers:      []serverConn{defaultLocalServer()},
 		activeServer: localServerID,
 		serverHealth: map[string]serverHealth{},
-		serverFacts:  map[string]serverFacts{},
+		serverFacts:  map[string]opencode.Facts{},
 		scopes:       map[string]*serverScope{},
 		modelOff:     map[string]bool{},
 		pinsByServer: map[string][]string{},
 
-		jobs:         make(chan agentJob, 16),
-		live:         map[string]int{},
-		toolNames:    map[string]string{},
-		toolCmds:     map[string]string{},
-		toolBlocks:   map[string]int{},
-		pending:      map[string]*agentPerm{},
+		jobs: make(chan agentJob, 16),
+
 		searches:     make(chan searchRequest, 1),
 		policyDirs:   make(chan string, 1),
 		policyWrites: make(chan policyChange, 16),
@@ -308,8 +269,8 @@ func (a *app) scope() *serverScope {
 
 // draftModelRef is what a conversation born here would run on: the model
 // the composer's picker chose for the draft, else the app's default.
-func (a *app) draftModelRef() agentModelRef {
-	if a.draftModel.id != "" {
+func (a *app) draftModelRef() opencode.ModelRef {
+	if a.draftModel.ID != "" {
 		return a.draftModel
 	}
 	return a.defaultModelRef()
@@ -320,27 +281,27 @@ func (a *app) draftModelRef() agentModelRef {
 // nothing, else the server's own default, else the first model still on.
 // A server whose providers differ is never told about a model it has not
 // heard of, and a free model is never passed over for a paid one.
-func (a *app) defaultModelRef() agentModelRef {
-	prov, name := sessionModel()
-	free := agentModelRef{providerID: prov, id: name}
+func (a *app) defaultModelRef() opencode.ModelRef {
+	prov, name := opencode.DefaultModel()
+	free := opencode.ModelRef{ProviderID: prov, ID: name}
 	def := a.scope().serverDefault
 	if len(a.scope().models) == 0 {
 		// Nothing to choose from yet: the server's own default stands when
 		// a dial has read it, the app's free default otherwise.
-		if def.id != "" {
+		if def.ID != "" {
 			return def
 		}
 		return free
 	}
-	var freeOffered, paidOffered *agentModel
+	var freeOffered, paidOffered *opencode.Model
 	for _, m := range a.scope().models {
 		if a.modelDisabled(m) {
 			continue
 		}
-		if m.providerID == prov && m.id == name {
+		if m.ProviderID == prov && m.ID == name {
 			return free
 		}
-		if m.free {
+		if m.Free {
 			if freeOffered == nil || modelLess(m, *freeOffered) {
 				freeOffered = &m
 			}
@@ -351,24 +312,24 @@ func (a *app) defaultModelRef() agentModelRef {
 		}
 	}
 	if freeOffered != nil {
-		return agentModelRef{providerID: freeOffered.providerID, id: freeOffered.id}
+		return opencode.ModelRef{ProviderID: freeOffered.ProviderID, ID: freeOffered.ID}
 	}
-	if def.id != "" && !a.modelOff[modelKey(a.activeServer, def.providerID, def.id)] {
+	if def.ID != "" && !a.modelOff[modelKey(a.activeServer, def.ProviderID, def.ID)] {
 		return def
 	}
 	if paidOffered != nil {
-		return agentModelRef{providerID: paidOffered.providerID, id: paidOffered.id}
+		return opencode.ModelRef{ProviderID: paidOffered.ProviderID, ID: paidOffered.ID}
 	}
 	return free
 }
 
 // modelLess orders the picker: free models first and, inside each group,
 // names alphabetically.
-func modelLess(one, two agentModel) bool {
-	if one.free != two.free {
-		return one.free
+func modelLess(one, two opencode.Model) bool {
+	if one.Free != two.Free {
+		return one.Free
 	}
-	return one.name < two.name
+	return one.Name < two.Name
 }
 
 // reviseSearch follows the search field: a fresh query queues a lookup
@@ -601,7 +562,7 @@ func (a *app) send() bool {
 	if a.selectedSession == "" {
 		a.freshTranscript()
 	}
-	a.blocks = append(a.blocks, block{kind: kindUser, text: a.draft})
+	a.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.draft})
 	a.draft = ""
 	a.feed.ScrollToEnd()
 	return true
@@ -614,21 +575,21 @@ func (a *app) send() bool {
 func (a *app) agentSend(text string) bool {
 	def := a.draftModelRef()
 	return a.queueJob(agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
-		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant}) == admissionAccepted
+		draft: a.draftVersion, provider: def.ProviderID, model: def.ID, variant: def.Variant}) == admissionAccepted
 }
 
 // stopTurn asks the runner to interrupt the running conversation.
 func (a *app) stopTurn() {
-	a.queueJob(agentJob{kind: jobStop, sid: a.busySession})
+	a.queueJob(agentJob{kind: jobStop, sid: a.transcript.Busy()})
 }
 
 // answerPerm sends the decision for one approval request; the runner
 // replies to the server and the card leaves the transcript once it lands.
-func (a *app) answerPerm(perm *agentPerm, decision string) {
+func (a *app) answerPerm(perm *chat.Permission, decision string) {
 	if perm == nil {
 		return
 	}
-	a.queueJob(agentJob{kind: jobAnswer, sid: perm.session, request: perm.id, decision: decision})
+	a.queueJob(agentJob{kind: jobAnswer, sid: perm.Session, request: perm.ID, decision: decision})
 }
 
 // chatDir is the directory the open conversation works in.
@@ -637,8 +598,8 @@ func (a *app) chatDir() string {
 		return a.draftProject
 	}
 	for _, s := range a.scope().sessions {
-		if s.id == a.selectedSession {
-			return s.dir
+		if s.ID == a.selectedSession {
+			return s.Directory
 		}
 	}
 	return ""
@@ -788,13 +749,13 @@ func (a *app) attachRemote(st *attachState, rel string) {
 	}
 	cfg, draft := a.activeServerConn(), a.draftVersion
 	runRequest(a, &st.request, func(ctx context.Context) ([]byte, error) {
-		ag, err := standaloneAgent(cfg)
+		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
 			return nil, err
 		}
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		return ag.readWorkspaceFile(ctx, dir, trimmed)
+		return ag.ReadWorkspaceFile(ctx, dir, trimmed)
 	}, func(data []byte, err error) {
 		if a.attach != st || a.draftVersion != draft || a.chatDir() != dir {
 			return
@@ -861,8 +822,8 @@ func (a *app) setAsk(ask bool) {
 }
 
 // requestRename opens the rename dialog for one conversation.
-func (a *app) requestRename(s agentSession) {
-	a.rename = &renameState{open: true, sid: s.id, draft: s.title}
+func (a *app) requestRename(s opencode.Session) {
+	a.rename = &renameState{open: true, sid: s.ID, draft: s.Title}
 }
 
 // saveRename queues the new title; the sidebar row itself updates when
@@ -885,18 +846,8 @@ func (a *app) saveRename() {
 // acceptUsage gives one stored turn's answer what the store says it spent:
 // the words may stand as several rows, and the line belongs under the last
 // of them.
-func (a *app) acceptUsage(m agentMessage) {
-	last := -1
-	for i := range a.blocks {
-		if a.blocks[i].msg == m.ID {
-			last = i
-		}
-	}
-	if last < 0 {
-		return
-	}
-	a.blocks[last].cost = m.Cost
-	a.blocks[last].tokens = m.Tokens.Output + m.Tokens.Reasoning
+func (a *app) acceptUsage(m opencode.Message) {
+	a.transcript.Usage(m.ID, m.Cost, m.Tokens.Output+m.Tokens.Reasoning)
 }
 
 // refreshUsage asks the pipe for the stored form of the answer a turn just
@@ -907,9 +858,9 @@ func (a *app) refreshUsage(sid string) {
 		return
 	}
 	msg := ""
-	for i := len(a.blocks) - 1; i >= 0; i-- {
-		if a.blocks[i].msg != "" {
-			msg = a.blocks[i].msg
+	for i := len(a.transcript.Rows()) - 1; i >= 0; i-- {
+		if a.transcript.Rows()[i].Message != "" {
+			msg = a.transcript.Rows()[i].Message
 			break
 		}
 	}
@@ -965,8 +916,8 @@ func spentLine(cost float64) string {
 // spentOf is what one conversation has spent, as the list last read it.
 func (a *app) spentOf(sid string) float64 {
 	for _, s := range a.scope().sessions {
-		if s.id == sid {
-			return s.cost
+		if s.ID == sid {
+			return s.Cost
 		}
 	}
 	return 0
@@ -975,8 +926,8 @@ func (a *app) spentOf(sid string) float64 {
 // titleOf is one conversation's title as the list shows it now.
 func (a *app) titleOf(sid string) string {
 	for _, s := range a.scope().sessions {
-		if s.id == sid {
-			return s.title
+		if s.ID == sid {
+			return s.Title
 		}
 	}
 	return ""
@@ -985,11 +936,11 @@ func (a *app) titleOf(sid string) string {
 // sessionModelOf is the model one conversation points at; a conversation
 // without one, and the draft that has none at all, read as what a new one
 // would start on.
-func (a *app) sessionModelOf(sid string) agentModelRef {
+func (a *app) sessionModelOf(sid string) opencode.ModelRef {
 	for _, s := range a.scope().sessions {
-		if s.id == sid {
-			if s.model.id != "" {
-				return s.model
+		if s.ID == sid {
+			if s.Model.ID != "" {
+				return s.Model
 			}
 			break
 		}
@@ -999,12 +950,12 @@ func (a *app) sessionModelOf(sid string) agentModelRef {
 
 // modelLabel is the fancy name of a model ref, from the catalog; the ref
 // ids read fine while the catalog has not loaded.
-func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
-	name = ref.id
+func (a *app) modelLabel(ref opencode.ModelRef) (name string, variants []string) {
+	name = ref.ID
 	for _, m := range a.scope().models {
-		if m.providerID == ref.providerID && m.id == ref.id {
-			name = m.name
-			variants = m.variants
+		if m.ProviderID == ref.ProviderID && m.ID == ref.ID {
+			name = m.Name
+			variants = m.Variants
 		}
 	}
 	return name, variants
@@ -1014,14 +965,14 @@ func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
 // is switched over the pipe, while a draft — which has no conversation yet
 // — keeps its pick where the composer can show it, and the first words hand
 // it to the chat the server opens.
-func (a *app) chooseModel(m agentModel, variant string) {
+func (a *app) chooseModel(m opencode.Model, variant string) {
 	a.pickerOpen = false
 	if a.selectedSession == "" {
-		a.draftModel = agentModelRef{providerID: m.providerID, id: m.id, variant: variant}
+		a.draftModel = opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}
 		return
 	}
 	a.queueJob(agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
-		provider: m.providerID, model: m.id, variant: variant})
+		provider: m.ProviderID, model: m.ID, variant: variant})
 }
 
 // pickVariant keeps the conversation's model and changes its reasoning
@@ -1029,7 +980,7 @@ func (a *app) chooseModel(m agentModel, variant string) {
 func (a *app) pickVariant(variant string) {
 	ref := a.sessionModelOf(a.selectedSession)
 	for _, m := range a.scope().models {
-		if m.providerID == ref.providerID && m.id == ref.id {
+		if m.ProviderID == ref.ProviderID && m.ID == ref.ID {
 			a.chooseModel(m, variant)
 			return
 		}
@@ -1038,8 +989,8 @@ func (a *app) pickVariant(variant string) {
 
 // confirmDelete shows the dialog that stands between a click and a
 // conversation gone for good.
-func (a *app) confirmDelete(s agentSession) {
-	a.confirm = &confirmState{open: true, sid: s.id, what: s.title}
+func (a *app) confirmDelete(s opencode.Session) {
+	a.confirm = &confirmState{open: true, sid: s.ID, what: s.Title}
 }
 
 // deleteConfirmed queues the deletion after the dialog's say-so.
@@ -1055,13 +1006,13 @@ func (a *app) deleteConfirmed() {
 
 // adoptSession settles the view onto one conversation: what a conversation
 // click does, and what the boot does with the newest conversation.
-func (a *app) adoptSession(s agentSession) {
-	label := s.title
+func (a *app) adoptSession(s opencode.Session) {
+	label := s.Title
 	if label == "" {
 		label = "New chat"
 	}
 	a.selected = label
-	a.selectedSession = s.id
+	a.selectedSession = s.ID
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
@@ -1071,14 +1022,14 @@ func (a *app) adoptSession(s agentSession) {
 // settleBoot finishes the boot: the conversation list lands and the view
 // settles onto the newest conversation, as its click would have; with
 // none, the transcript starts clean instead of showing the mock.
-func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
+func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 	if lerr == nil {
 		a.scope().sessions = ls
 		a.scope().nextCursor = next
 	}
 	if lerr == nil && len(ls) > 0 {
 		a.adoptSession(ls[0])
-		a.queueJob(agentJob{kind: jobOpen, sid: ls[0].id})
+		a.queueJob(agentJob{kind: jobOpen, sid: ls[0].ID})
 	} else {
 		a.freshTranscript()
 	}
@@ -1107,20 +1058,11 @@ func (a *app) startDraft(dir string) {
 	a.selected = ""
 	a.selectedSession = ""
 	a.draft = ""
-	a.draftModel = agentModelRef{}
+	a.draftModel = opencode.ModelRef{}
 	a.freshTranscript()
 	a.workspaceChanged()
 }
 
 // freshTranscript empties the transcript for another conversation,
 // forgetting what was streaming and what tools ran.
-func (a *app) freshTranscript() {
-	a.blocks = nil
-	a.live = map[string]int{}
-	a.toolNames = map[string]string{}
-	a.toolCmds = map[string]string{}
-	a.toolBlocks = map[string]int{}
-	a.pending = map[string]*agentPerm{}
-	a.busySession = ""
-	a.feed = newFeed()
-}
+func (a *app) freshTranscript() { a.transcript.Reset(); a.feed = newFeed() }

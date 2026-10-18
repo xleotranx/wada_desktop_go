@@ -31,6 +31,27 @@ type serverConn struct {
 	managed  bool   // it runs with the app, on a port the app picks
 	url      string // where it listens; empty while the app runs it
 	password string // the password the app connects with
+	// A paired connection's password is the token a pairing link handed
+	// back, which lapses on its own after pairedLife.
+	paired   bool
+	pairedAt int64 // when that token was issued, in unix milliseconds
+}
+
+// pairedLife is how long a pairing token signs in for: the month opencode
+// hands a paired client before a fresh link is needed.
+const pairedLife = 30 * 24 * time.Hour
+
+// pairedDaysLeft is how much of a pairing token's month is left, floored,
+// as the settings row says it.
+func pairedDaysLeft(pairedAt int64) int {
+	if pairedAt == 0 {
+		return 0
+	}
+	left := time.Until(time.UnixMilli(pairedAt).Add(pairedLife))
+	if left <= 0 {
+		return 0
+	}
+	return int(left / (24 * time.Hour))
 }
 
 // defaultLocalServer is the connection the app starts with: its own
@@ -107,6 +128,11 @@ func serverLine(s serverConn, h serverHealth) string {
 // serverPasswordLine words what the row says about the password.
 func serverPasswordLine(s serverConn) string {
 	switch {
+	case s.paired:
+		if days := pairedDaysLeft(s.pairedAt); days > 0 {
+			return fmt.Sprintf("Paired · signs in for %d more days", days)
+		}
+		return "Paired · the token has lapsed; pair again from Edit"
 	case s.password != "":
 		return "Password set"
 	case s.managed:
@@ -114,6 +140,15 @@ func serverPasswordLine(s serverConn) string {
 	default:
 		return "No password set"
 	}
+}
+
+// refusedLine words a 401 for one connection: a pairing token lapses on
+// its own after its month, while a password was simply refused.
+func refusedLine(paired bool) string {
+	if paired {
+		return "the pairing has lapsed; pair again from Edit"
+	}
+	return "the password was refused (401)"
 }
 
 // apiBase is the /api endpoint of a server address the user typed: a
@@ -135,6 +170,104 @@ func apiBase(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host + path + "/api", nil
 }
 
+// pairLink splits a pairing link — the address `opencode pair` prints,
+// with /auth/connect/<code> on it — into the server's address and the
+// one-shot code. The address comes back the way the editor stores one:
+// the scheme filled in, any path prefix kept, no /api on it. What is not
+// a pairing link reads false, an ordinary address among them.
+func pairLink(raw string) (addr, code string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", false
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", "", false
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	at := strings.LastIndex(path, "/auth/connect/")
+	if at < 0 {
+		return "", "", false
+	}
+	prefix, code := path[:at], path[at+len("/auth/connect/"):]
+	if code == "" || strings.Contains(code, "/") {
+		return "", "", false
+	}
+	return u.Scheme + "://" + u.Host + prefix, code, true
+}
+
+// redeemPairLink trades one pairing link for the token that stands in for
+// the server's password, the way opencode's own clients join a server: the
+// link works once and expires in five minutes, the token signs in for a
+// month. The link's code is the credential, so the request carries none.
+func redeemPairLink(ctx context.Context, link string) (string, string, error) {
+	addr, code, ok := pairLink(link)
+	if !ok {
+		return "", "", fmt.Errorf("that is not a pairing link")
+	}
+	base, err := apiBase(addr)
+	if err != nil {
+		return "", "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		strings.TrimSuffix(base, "/api")+"/auth/connect/"+url.PathEscape(code), nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		var tagged struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(raw, &tagged) == nil && tagged.Message != "" {
+			return "", "", fmt.Errorf("%s", tagged.Message)
+		}
+		return "", "", fmt.Errorf("%s: %s", addr, resp.Status)
+	}
+	var out struct {
+		Token string `json:"token"`
+		Data  struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return "", "", fmt.Errorf("%s did not read as a pairing answer", addr)
+	}
+	if out.Token == "" {
+		out.Token = out.Data.Token
+	}
+	if out.Token == "" {
+		return "", "", fmt.Errorf("%s handed back no token", addr)
+	}
+	return addr, out.Token, nil
+}
+
+// runPair redeems one pairing link in the background, its answer landing
+// through the window the way the probes do. Tests stand in for it, as they
+// do for pickFolder.
+func (a *app) runPair(link string, done func(addr, token string, err error)) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		addr, token, err := redeemPairLink(ctx, link)
+		land := func() { done(addr, token, err) }
+		if a.win == nil { // headless, as tests run the view
+			mygo.RunOnMain(land)
+			return
+		}
+		a.win.Update(land)
+	}()
+}
+
 // httpClient is what agents dial with: a host that blackholes must not
 // hang a call forever, while the event stream, whose headers arrive at
 // once, stays open.
@@ -145,51 +278,91 @@ func httpClient() *http.Client {
 	}}
 }
 
-// infoVersion reads the version out of a /info body, bare or wrapped.
-func infoVersion(raw []byte) string {
-	var out struct {
-		Version string `json:"version"`
-		Data    struct {
-			Version string `json:"version"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(raw, &out) != nil {
-		return ""
-	}
-	if out.Version != "" {
-		return out.Version
-	}
-	return out.Data.Version
+// serverFacts is what a server's /info says about itself: the version it
+// runs, the addresses it says it answers on, its process and what its
+// capabilities allow.
+type serverFacts struct {
+	version string
+	urls    []string
+	pid     int
+	pty     bool // it offers persistent terminals
 }
 
-// probeServer asks a server for its version without taking it over: what
+// infoBody is one /info answer's fields, which opencode wraps in a data
+// envelope on some builds and not on others.
+type infoBody struct {
+	Version      string   `json:"version"`
+	PID          int      `json:"pid"`
+	URLs         []string `json:"urls"`
+	Capabilities struct {
+		PersistentPty bool `json:"persistentPty"`
+	} `json:"capabilities"`
+}
+
+// readInfo reads a /info body, bare or wrapped, into what the app keeps of
+// it. A body it cannot read reads as the zero facts.
+func readInfo(raw []byte) serverFacts {
+	var out struct {
+		infoBody
+		Data infoBody `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return serverFacts{}
+	}
+	body := out.infoBody
+	if body.Version == "" {
+		body = out.Data
+	}
+	return serverFacts{version: body.Version, urls: body.URLs, pid: body.PID,
+		pty: body.Capabilities.PersistentPty}
+}
+
+// serverFactsLine words what the server's own /info added to the row: the
+// addresses it says it answers on that the app does not already name.
+// Capabilities the app has no use for yet stay out of the reading.
+func serverFactsLine(f serverFacts, s serverConn, h serverHealth) string {
+	urls := []string{}
+	for _, u := range f.urls {
+		u = strings.TrimSuffix(u, "/")
+		if u == "" || u == strings.TrimSuffix(h.addr, "/") || u == strings.TrimSuffix(s.url, "/") {
+			continue
+		}
+		urls = append(urls, u)
+	}
+	if len(urls) == 0 {
+		return ""
+	}
+	return "Reachable at " + strings.Join(urls, ", ")
+}
+
+// probeServer asks a server for its facts without taking it over: what
 // Settings tests a connection with while the pipe talks to another one.
-func probeServer(ctx context.Context, cfg serverConn) (string, error) {
+func probeServer(ctx context.Context, cfg serverConn) (serverFacts, error) {
 	base, err := apiBase(cfg.url)
 	if err != nil {
-		return "", err
+		return serverFacts{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", base+"/info", nil)
 	if err != nil {
-		return "", err
+		return serverFacts{}, err
 	}
 	req.SetBasicAuth("opencode", cfg.password)
 	resp, err := httpClient().Do(req)
 	if err != nil {
-		return "", err
+		return serverFacts{}, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("the password was refused")
+		return serverFacts{}, fmt.Errorf("%s", refusedLine(cfg.paired))
 	}
 	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("%s: %s", base, resp.Status)
+		return serverFacts{}, fmt.Errorf("%s: %s", base, resp.Status)
 	}
-	if v := infoVersion(raw); v != "" {
-		return v, nil
+	if facts := readInfo(raw); facts.version != "" {
+		return facts, nil
 	}
-	return "", fmt.Errorf("%s did not name its version", base)
+	return serverFacts{}, fmt.Errorf("%s did not name its version", base)
 }
 
 // serverByID finds one connection as it stands now.
@@ -224,6 +397,14 @@ func (a *app) setHealth(id string, h serverHealth) {
 		a.serverHealth = map[string]serverHealth{}
 	}
 	a.serverHealth[id] = h
+}
+
+// setFacts records what one server's /info said about itself.
+func (a *app) setFacts(id string, f serverFacts) {
+	if a.serverFacts == nil {
+		a.serverFacts = map[string]serverFacts{}
+	}
+	a.serverFacts[id] = f
 }
 
 // useServer points the app at one connection: the pipe redials, the view
@@ -296,6 +477,7 @@ func (a *app) dropServer(id string) {
 	delete(a.pinsByServer, id)
 	delete(a.scopes, id)
 	delete(a.serverHealth, id)
+	delete(a.serverFacts, id)
 	prefix := id + "\x00"
 	for key := range a.modelOff {
 		if strings.HasPrefix(key, prefix) {
@@ -317,13 +499,16 @@ func (a *app) runProbe(cfg serverConn) {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		h := serverHealth{addr: strings.TrimSuffix(cfg.url, "/")}
-		version, err := probeServer(ctx, cfg)
+		facts, err := probeServer(ctx, cfg)
 		if err != nil {
 			h.status, h.detail = healthDown, err.Error()
 		} else {
-			h.status, h.detail = healthReady, version
+			h.status, h.detail = healthReady, facts.version
 		}
-		land := func() { a.setHealth(cfg.id, h) }
+		land := func() {
+			a.setHealth(cfg.id, h)
+			a.setFacts(cfg.id, facts)
+		}
 		if a.win == nil { // headless, as tests run the view
 			mygo.RunOnMain(land)
 			return

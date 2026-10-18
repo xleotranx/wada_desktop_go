@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -629,6 +631,150 @@ func TestSendCarriesTheDefault(t *testing.T) {
 	}
 }
 
+// TestPairLinkSplits keeps the pairing links the editor accepts honest:
+// the address comes back the way the editor stores one, and anything that
+// is not a pairing link reads false.
+func TestPairLinkSplits(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		wantAddr string
+		wantCode string
+		bad      bool
+	}{
+		{"http://127.0.0.1:49374/auth/connect/abc123", "http://127.0.0.1:49374", "abc123", false},
+		{"  http://127.0.0.1:49374/auth/connect/abc123  ", "http://127.0.0.1:49374", "abc123", false},
+		{"127.0.0.1:49374/auth/connect/abc-1_2.3~x", "http://127.0.0.1:49374", "abc-1_2.3~x", false},
+		{"https://box.local/opencode/auth/connect/k9/", "https://box.local/opencode", "k9", false},
+		{"http://10.0.0.12:4096", "", "", true},
+		{"http://10.0.0.12:4096/auth/connect/", "", "", true},
+		{"http://10.0.0.12:4096/auth/connect/a/b", "", "", true},
+		{"", "", "", true},
+	} {
+		addr, code, ok := pairLink(tc.in)
+		if tc.bad {
+			if ok {
+				t.Fatalf("pairLink(%q) = %q %q, want a miss", tc.in, addr, code)
+			}
+			continue
+		}
+		if !ok || addr != tc.wantAddr || code != tc.wantCode {
+			t.Fatalf("pairLink(%q) = %q %q %v; want %q %q", tc.in, addr, code, ok, tc.wantAddr, tc.wantCode)
+		}
+	}
+}
+
+// TestRedeemPairLink trades a link for its token over the wire: the code
+// rides the path, the request asks for JSON and carries no password, and
+// the server's refusal comes back as its own words.
+func TestRedeemPairLink(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, _, ok := r.BasicAuth(); ok {
+			t.Errorf("the redeem carried a password")
+		}
+		if got := r.Header.Get("Accept"); got != "application/json" {
+			t.Errorf("the redeem asked for %q", got)
+		}
+		seen = r.URL.Path
+		switch r.URL.Path {
+		case "/auth/connect/good":
+			w.Write([]byte(`{"token":"paired-token"}`))
+		case "/auth/connect/wrapped":
+			w.Write([]byte(`{"data":{"token":"wrapped-token"}}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"_tag":"UnauthorizedError","message":"Pairing link expired or already used"}`))
+		}
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	addr, token, err := redeemPairLink(ctx, srv.URL+"/auth/connect/good")
+	if err != nil || token != "paired-token" || addr != srv.URL {
+		t.Fatalf("redeem = %q %q %v", addr, token, err)
+	}
+	if seen != "/auth/connect/good" {
+		t.Fatalf("the redeem asked %q", seen)
+	}
+	if _, token, err := redeemPairLink(ctx, srv.URL+"/auth/connect/wrapped"); err != nil || token != "wrapped-token" {
+		t.Fatalf("a wrapped answer read %q %v", token, err)
+	}
+	if _, _, err := redeemPairLink(ctx, srv.URL+"/auth/connect/spent"); err == nil ||
+		!strings.Contains(err.Error(), "expired or already used") {
+		t.Fatalf("a spent link reads %v", err)
+	}
+	if _, _, err := redeemPairLink(ctx, "http://10.0.0.12:4096"); err == nil {
+		t.Fatal("a plain address redeemed as a link")
+	}
+	if _, _, err := redeemPairLink(ctx, "http://127.0.0.1:1/auth/connect/x"); err == nil {
+		t.Fatal("a dead address redeemed fine")
+	}
+}
+
+// TestServerEditorPairsALink takes a link through the editor: Save hands
+// the link to the pairing, and what lands back — the address and the token
+// — is what the connection is saved with.
+func TestServerEditorPairsALink(t *testing.T) {
+	a := newApp()
+	a.settingsOpen = true
+	probed := []string{}
+	a.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Add server"); err != nil {
+		t.Fatalf("the Add server action: %v", err)
+	}
+	a.serverEditor.name = "Build box"
+	a.serverEditor.url = "http://10.0.0.12:49374/auth/connect/abc"
+	link := ""
+	paired := false
+	a.pair = func(got string, done func(addr, token string, err error)) {
+		link = got
+		paired = true
+		done("http://10.0.0.12:49374", "paired-token", nil)
+	}
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	if !paired || link != "http://10.0.0.12:49374/auth/connect/abc" {
+		t.Fatalf("the save handed the pairing %q (paired %v)", link, paired)
+	}
+	if a.serverEditor != nil {
+		t.Fatalf("the editor stayed open after a paired save: %+v", a.serverEditor)
+	}
+	if len(a.servers) != 2 {
+		t.Fatalf("servers after the paired add: %+v", a.servers)
+	}
+	added := a.servers[1]
+	if added.url != "http://10.0.0.12:49374" || added.password != "paired-token" {
+		t.Fatalf("the paired server reads %+v", added)
+	}
+	if len(probed) != 1 || probed[0] != added.id {
+		t.Fatalf("the paired server was not probed: %v", probed)
+	}
+
+	// A link the server refuses keeps the dialog on its feet, with the
+	// reason in its note and the link still in the field.
+	if err := tt.Click("Add server"); err != nil {
+		t.Fatal(err)
+	}
+	a.serverEditor.name = "Stale box"
+	a.serverEditor.url = "http://10.0.0.12:49374/auth/connect/spent"
+	a.pair = func(_ string, done func(addr, token string, err error)) {
+		done("", "", errors.New("Pairing link expired or already used"))
+	}
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	if a.serverEditor == nil || !strings.Contains(a.serverEditor.note, "Pairing link expired") {
+		t.Fatalf("a refused link reads %+v", a.serverEditor)
+	}
+	if len(a.servers) != 2 {
+		t.Fatalf("a refused link added a server: %+v", a.servers)
+	}
+}
+
 // TestAPIBaseNormalizes keeps the typed addresses of the editor honest.
 func TestAPIBaseNormalizes(t *testing.T) {
 	for _, tc := range []struct {
@@ -657,28 +803,126 @@ func TestAPIBaseNormalizes(t *testing.T) {
 	}
 }
 
-// TestProbeServer checks the connection test the settings run: a version
-// out of /info, and the password's refusal told apart from a dead address.
+// TestServerEditorKeepsThePairing walks a paired row through the editor:
+// an edit that leaves the token alone keeps its month, a password typed
+// over it takes its place, and the row says which credential it holds.
+func TestServerEditorKeepsThePairing(t *testing.T) {
+	a := newApp()
+	a.settingsOpen = true
+	issued := time.Now().Add(-3 * 24 * time.Hour).UnixMilli()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box",
+		url: "http://10.0.0.12:4096", password: "token-1", paired: true, pairedAt: issued})
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if !tt.HasText("Paired · signs in for") {
+		t.Fatalf("a paired row does not say so: %v", tt.Texts())
+	}
+
+	if err := tt.Click("Edit Build box"); err != nil {
+		t.Fatal(err)
+	}
+	a.serverEditor.name = "Build box 2"
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	got := a.servers[1]
+	if !got.paired || got.pairedAt != issued || got.password != "token-1" {
+		t.Fatalf("editing dropped the pairing: %+v", got)
+	}
+
+	// A password typed in the token's place is a password again.
+	if err := tt.Click("Edit Build box 2"); err != nil {
+		t.Fatal(err)
+	}
+	a.serverEditor.password = "typed-key"
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.servers[1]; got.paired || got.pairedAt != 0 || got.password != "typed-key" {
+		t.Fatalf("a typed password kept a pairing: %+v", got)
+	}
+	if !tt.HasText("Password set") {
+		t.Fatalf("the row does not read as a password: %v", tt.Texts())
+	}
+}
+
+// TestProbeServer checks the connection test the settings run: the facts
+// out of /info, and the credential's refusal told apart from a dead
+// address — a pairing token's lapse reading as its own thing.
 func TestProbeServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if user, pw, ok := r.BasicAuth(); !ok || user != "opencode" || pw != "right-key" {
+		_, pw, ok := r.BasicAuth()
+		if !ok || pw == "wrong" {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if pw == "fresh-token" {
+			w.Write([]byte(`{"version":"0.5.5","pid":42,"urls":["http://box.local:4096"],` +
+				`"capabilities":{"persistentPty":true}}`))
 			return
 		}
 		w.Write([]byte(`{"version":"0.5.5"}`))
 	}))
 	defer srv.Close()
 
-	version, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "right-key"})
-	if err != nil || version != "0.5.5" {
-		t.Fatalf("probe %q %v", version, err)
+	facts, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "right-key"})
+	if err != nil || facts.version != "0.5.5" {
+		t.Fatalf("probe %+v %v", facts, err)
+	}
+	facts, err = probeServer(context.Background(), serverConn{url: srv.URL, password: "fresh-token", paired: true})
+	if err != nil || facts.version != "0.5.5" || facts.pid != 42 || len(facts.urls) != 1 || !facts.pty {
+		t.Fatalf("probe %+v %v", facts, err)
 	}
 	if _, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "wrong"}); err == nil ||
 		!strings.Contains(err.Error(), "refused") {
 		t.Fatalf("a refused password reads %v", err)
 	}
+	if _, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "wrong", paired: true}); err == nil ||
+		!strings.Contains(err.Error(), "pairing has lapsed") {
+		t.Fatalf("a lapsed pairing reads %v", err)
+	}
 	if _, err := probeServer(context.Background(), serverConn{url: "http://127.0.0.1:1"}); err == nil {
 		t.Fatal("a dead address probed fine")
+	}
+}
+
+// TestPairedServerRow words what the settings show a paired connection:
+// the token's remaining month, its lapse once the month is up, and the
+// address the server names for itself when it is not the stored one.
+func TestPairedServerRow(t *testing.T) {
+	now := time.Now()
+	s := serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096",
+		password: "tok", paired: true, pairedAt: now.Add(-10 * 24 * time.Hour).UnixMilli()}
+	if line := serverPasswordLine(s); line != "Paired · signs in for 19 more days" &&
+		line != "Paired · signs in for 20 more days" {
+		t.Fatalf("a paired row reads %q", line)
+	}
+	s.pairedAt = now.Add(-31 * 24 * time.Hour).UnixMilli()
+	if line := serverPasswordLine(s); !strings.Contains(line, "lapsed") {
+		t.Fatalf("a lapsed pairing reads %q", line)
+	}
+	if line := serverPasswordLine(serverConn{password: "k"}); line != "Password set" {
+		t.Fatalf("an ordinary password reads %q", line)
+	}
+
+	// The server's own address shows only when the app does not already
+	// name it; its own dialed address keeps the row quiet.
+	facts := serverFacts{urls: []string{"http://10.0.0.12:4096/", "http://box.tailnet:4096"}}
+	if got := serverFactsLine(facts, s, serverHealth{addr: "http://10.0.0.12:4096"}); got != "Reachable at http://box.tailnet:4096" {
+		t.Fatalf("the reachable line reads %q", got)
+	}
+	if got := serverFactsLine(serverFacts{urls: []string{"http://10.0.0.12:4096"}}, s, serverHealth{addr: "http://10.0.0.12:4096"}); got != "" {
+		t.Fatalf("an already-named address still reads %q", got)
+	}
+
+	// The refusal's wording depends on what the credential is.
+	if got := refusedLine(true); !strings.Contains(got, "pairing has lapsed") {
+		t.Fatalf("a paired refusal reads %q", got)
+	}
+	if got := refusedLine(false); !strings.Contains(got, "refused") {
+		t.Fatalf("a password refusal reads %q", got)
 	}
 }
 

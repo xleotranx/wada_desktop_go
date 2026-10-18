@@ -34,6 +34,35 @@ func serverTables() []sqlite.Statement {
 	}
 }
 
+// pairedTables is the version 4 step: a connection whose password is the
+// token a pairing link handed back keeps the token's own life, so the row
+// can say when it lapses. A table already carrying a column — a hand-wound
+// version number jumps the ladder — only steps over it.
+func pairedTables(has func(column string) bool) []sqlite.Statement {
+	out := []sqlite.Statement{}
+	if !has("paired") {
+		out = append(out, sqlite.Statement{SQL: "ALTER TABLE servers ADD COLUMN paired INTEGER NOT NULL DEFAULT 0"})
+	}
+	if !has("paired_at") {
+		out = append(out, sqlite.Statement{SQL: "ALTER TABLE servers ADD COLUMN paired_at INTEGER NOT NULL DEFAULT 0"})
+	}
+	return out
+}
+
+// hasColumn says whether one table already carries a column.
+func hasColumn(db *sqlite.DB, table, column string) bool {
+	rows, err := db.Query(context.Background(), "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false
+	}
+	for _, row := range rows.Values {
+		if len(row) > 1 && row[1] == column {
+			return true
+		}
+	}
+	return false
+}
+
 func openMetadata(path string) (*metadataStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -48,7 +77,7 @@ func openMetadata(path string) (*metadataStore, error) {
 		return fail(err)
 	}
 	version := rows.Values[0][0].(int64)
-	if version > 3 {
+	if version > 4 {
 		return fail(fmt.Errorf("metadata database version %d is newer than this app supports", version))
 	}
 	if version == 0 {
@@ -58,7 +87,8 @@ func openMetadata(path string) (*metadataStore, error) {
 			{SQL: "CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)"},
 		}
 		statements = append(statements, serverTables()...)
-		statements = append(statements, sqlite.Statement{SQL: "PRAGMA user_version = 3"})
+		statements = append(statements, pairedTables(func(column string) bool { return hasColumn(db, "servers", column) })...)
+		statements = append(statements, sqlite.Statement{SQL: "PRAGMA user_version = 4"})
 		if _, err := db.Transaction(context.Background(), statements); err != nil {
 			return fail(err)
 		}
@@ -77,6 +107,14 @@ func openMetadata(path string) (*metadataStore, error) {
 	}
 	if version == 2 {
 		statements := append(serverTables(), sqlite.Statement{SQL: "PRAGMA user_version = 3"})
+		if _, err := db.Transaction(context.Background(), statements); err != nil {
+			return fail(err)
+		}
+		version = 3
+	}
+	if version == 3 {
+		statements := append(pairedTables(func(column string) bool { return hasColumn(db, "servers", column) }),
+			sqlite.Statement{SQL: "PRAGMA user_version = 4"})
 		if _, err := db.Transaction(context.Background(), statements); err != nil {
 			return fail(err)
 		}
@@ -109,7 +147,7 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 		key, sid := row[0].(string), row[1].(string)
 		state.pins[key] = append(state.pins[key], sid)
 	}
-	rows, err = db.Query(ctx, "SELECT id, name, kind, managed, url, password FROM servers ORDER BY position")
+	rows, err = db.Query(ctx, "SELECT id, name, kind, managed, url, password, paired, paired_at FROM servers ORDER BY position")
 	if err != nil {
 		return state, err
 	}
@@ -121,6 +159,8 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			managed:  row[3].(int64) != 0,
 			url:      row[4].(string),
 			password: row[5].(string),
+			paired:   row[6].(int64) != 0,
+			pairedAt: row[7].(int64),
 		})
 	}
 	rows, err = db.Query(ctx, "SELECT server_id, provider, model FROM disabled_models")
@@ -158,16 +198,20 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		}
 	}
 	for i, s := range state.servers {
-		kind, managed := "remote", 0
+		kind, managed, paired := "remote", 0, 0
 		if s.local {
 			kind = "local"
 		}
 		if s.managed {
 			managed = 1
 		}
+		if s.paired {
+			paired = 1
+		}
 		statements = append(statements, sqlite.Statement{
-			SQL:  "INSERT INTO servers VALUES (?, ?, ?, ?, ?, ?, ?)",
-			Args: []any{s.id, s.name, kind, managed, s.url, s.password, i},
+			SQL: "INSERT INTO servers (id, name, kind, managed, url, password, paired, paired_at, position) " +
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			Args: []any{s.id, s.name, kind, managed, s.url, s.password, paired, s.pairedAt, i},
 		})
 	}
 	for key := range state.modelOff {

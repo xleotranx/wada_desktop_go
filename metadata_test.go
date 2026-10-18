@@ -25,6 +25,8 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		servers: []serverConn{
 			{id: localServerID, name: "Local server", local: true, managed: true, password: "key-1"},
 			{id: "srv-one", name: "Build box", url: "http://10.0.0.12:4096"},
+			{id: "srv-two", name: "Home box", url: "https://box.tailnet:4096", password: "token-1",
+				paired: true, pairedAt: 1792314306306},
 		},
 		active:   "srv-one",
 		modelOff: map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
@@ -94,6 +96,55 @@ func TestMetadataUpgradesFromVersionTwo(t *testing.T) {
 	}
 	if err := db.save(context.Background(), got); err != nil {
 		t.Fatalf("the upgraded schema did not take a save: %v", err)
+	}
+}
+
+// TestMetadataUpgradesFromVersionThree keeps a store that predates the
+// paired columns readable: the servers keep their passwords, and the
+// pairing a later save makes survives.
+func TestMetadataUpgradesFromVersionThree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.db")
+	db, err := openMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wind the schema back to what version 3 kept.
+	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
+		{SQL: "ALTER TABLE servers DROP COLUMN paired"},
+		{SQL: "ALTER TABLE servers DROP COLUMN paired_at"},
+		{SQL: "PRAGMA user_version = 3"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
+		{SQL: "INSERT INTO servers VALUES ('srv-old', 'Old box', 'remote', 0, 'http://10.0.0.9:4096', 'key', 0)"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	db, err = openMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	got, err := db.load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.servers) != 1 || got.servers[0].password != "key" || got.servers[0].paired || got.servers[0].pairedAt != 0 {
+		t.Fatalf("the upgrade lost the servers: %+v", got.servers)
+	}
+	got.servers[0].paired, got.servers[0].pairedAt = true, 1792314306306
+	if err := db.save(context.Background(), got); err != nil {
+		t.Fatalf("the upgraded schema did not take a save: %v", err)
+	}
+	back, err := db.load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.servers) != 1 || !back.servers[0].paired || back.servers[0].pairedAt != 1792314306306 {
+		t.Fatalf("the pairing did not survive: %+v", back.servers)
 	}
 }
 

@@ -151,8 +151,9 @@ type app struct {
 	pickFolder         func(done func(path string))
 	selectAddedProject bool
 	// probe tests one server connection in the background, stood in for
-	// in tests as pickFolder is.
+	// in tests as pickFolder is; pair redeems a pairing link the same way.
 	probe func(cfg serverConn)
+	pair  func(link string, done func(addr, token string, err error))
 
 	// The composer's attach drawer and the conversation rows' rename and
 	// delete dialogs: one state struct each, nil until its dialog opens.
@@ -188,6 +189,7 @@ type app struct {
 	servers       []serverConn
 	activeServer  string
 	serverHealth  map[string]serverHealth
+	serverFacts   map[string]serverFacts
 	serverEditor  *serverEditor
 	serverConfirm *confirmState
 	modelsQuery   string
@@ -227,6 +229,7 @@ func newApp() *app {
 		servers:      []serverConn{defaultLocalServer()},
 		activeServer: localServerID,
 		serverHealth: map[string]serverHealth{},
+		serverFacts:  map[string]serverFacts{},
 		scopes:       map[string]*serverScope{},
 		modelOff:     map[string]bool{},
 		pinsByServer: map[string][]string{},
@@ -243,6 +246,7 @@ func newApp() *app {
 	}
 	a.pickFolder = a.pickFolderDialog
 	a.probe = a.runProbe
+	a.pair = a.runPair
 	return a
 }
 

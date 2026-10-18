@@ -28,11 +28,12 @@ import (
 type agent struct {
 	base    string // like http://127.0.0.1:4096/api
 	pw      string // the password this app connects with
+	paired  bool   // that password is a pairing token, which lapses on its own
 	http    *http.Client
-	cmd     *exec.Cmd // the process the app started; nil for a dialed server
-	addr    string    // where it listens, for Settings to show
-	version string    // what its /info named
-	bodyCap int64     // how much of one response to keep; 0 for defaultBodyCap
+	cmd     *exec.Cmd   // the process the app started; nil for a dialed server
+	addr    string      // where it listens, for Settings to show
+	facts   serverFacts // what its /info said about itself
+	bodyCap int64       // how much of one response to keep; 0 for defaultBodyCap
 }
 
 // defaultBodyCap is how much of one API response the client keeps: a stored
@@ -54,7 +55,7 @@ func standaloneAgent(cfg serverConn) (*agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &agent{base: base, pw: cfg.password, http: httpClient(),
+	return &agent{base: base, pw: cfg.password, paired: cfg.paired, http: httpClient(),
 		addr: strings.TrimSuffix(base, "/api")}, nil
 }
 
@@ -69,11 +70,11 @@ func startAgentFor(ctx context.Context, cfg serverConn, dir string) (*agent, err
 	if err != nil {
 		return nil, err
 	}
-	version, err := a.waitReady(ctx, 8*time.Second)
+	facts, err := a.waitReady(ctx, 8*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	a.version = version
+	a.facts = facts
 	return a, nil
 }
 
@@ -112,12 +113,12 @@ func startLocalAgent(ctx context.Context, cfg serverConn, dir string) (*agent, e
 		http: httpClient(),
 		cmd:  cmd,
 	}
-	version, err := a.waitReady(ctx, 20*time.Second)
+	facts, err := a.waitReady(ctx, 20*time.Second)
 	if err != nil {
 		cmd.Process.Kill()
 		return nil, err
 	}
-	a.version = version
+	a.facts = facts
 	return a, nil
 }
 
@@ -131,23 +132,23 @@ func (a *agent) stop() {
 
 // waitReady polls /api/info until the server names its version, the
 // deadline passes or the app walks away.
-func (a *agent) waitReady(ctx context.Context, within time.Duration) (string, error) {
+func (a *agent) waitReady(ctx context.Context, within time.Duration) (serverFacts, error) {
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return serverFacts{}, ctx.Err()
 		default:
 		}
 		raw, err := a.call(ctx, "GET", "/info", nil)
 		if err == nil {
-			if v := infoVersion(raw); v != "" {
-				return v, nil
+			if facts := readInfo(raw); facts.version != "" {
+				return facts, nil
 			}
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return "", fmt.Errorf("the server did not come up in %s", within)
+	return serverFacts{}, fmt.Errorf("the server did not come up in %s", within)
 }
 
 // freePort finds a port for serve by reserving and releasing one.
@@ -199,7 +200,7 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 		return nil, fmt.Errorf("%s %s: the response is larger than %d MiB", method, path, limit>>20)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("the password was refused (401)")
+		return nil, fmt.Errorf("%s", refusedLine(a.paired))
 	}
 	if resp.StatusCode >= 300 {
 		var tagged struct {
@@ -822,7 +823,8 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		note = ""
 		last = ag
 		win.Update(func() {
-			a.setHealth(cfg.id, serverHealth{status: healthReady, detail: ag.version, addr: ag.addr})
+			a.setHealth(cfg.id, serverHealth{status: healthReady, detail: ag.facts.version, addr: ag.addr})
+			a.setFacts(cfg.id, ag.facts)
 		})
 		if reconnect > 0 {
 			say(cfg.id, cfg.name+" is back.")

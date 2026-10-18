@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -26,7 +27,12 @@ type serverEditor struct {
 	managed  bool
 	url      string
 	password string
+	// A pairing link redeemed by this save: its token and the moment it
+	// was issued become the connection's credential.
+	paired   bool
+	pairedAt int64
 	show     bool   // the password field is revealed
+	pairing  bool   // a pairing link is being redeemed
 	note     string // why the last save did not go through
 }
 
@@ -184,6 +190,17 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 				ui.Text(c, line).FontSize(12).TextColor(p.faint).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 			})
+			if h.status == healthReady {
+				// The addresses the server names for itself, when they are
+				// not the one the app already dialed.
+				if reach := serverFactsLine(a.serverFacts[s.id], s, h); reach != "" {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
+						ui.Icon(c, icGlobe).FontSize(11).TextColor(p.faint).Shrink(0)
+						ui.Text(c, reach).FontSize(12).TextColor(p.faint).
+							SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+					})
+				}
+			}
 		})
 	})
 }
@@ -240,6 +257,8 @@ func (a *app) editServer(s serverConn) {
 		managed:  s.managed,
 		url:      s.url,
 		password: s.password,
+		paired:   s.paired,
+		pairedAt: s.pairedAt,
 	}
 }
 
@@ -261,6 +280,27 @@ func (a *app) saveServerEditor() {
 	case st.managed:
 		url = "" // the app picks where its own server listens
 	default:
+		// A pairing link is not an address: redeem it first, and the save
+		// carries on with the token it hands back.
+		if _, _, ok := pairLink(url); ok && !st.pairing {
+			st.pairing = true
+			st.note = ""
+			a.pair(url, func(addr, token string, err error) {
+				st := a.serverEditor
+				if st == nil || !st.pairing {
+					return // the dialog closed, or another save moved on
+				}
+				st.pairing = false
+				if err != nil {
+					st.note = "The pairing link did not work: " + err.Error()
+					return
+				}
+				st.url, st.password = addr, token
+				st.paired, st.pairedAt = true, time.Now().UnixMilli()
+				a.saveServerEditor()
+			})
+			return
+		}
 		base, err := apiBase(url)
 		if err != nil {
 			st.note = err.Error()
@@ -272,7 +312,8 @@ func (a *app) saveServerEditor() {
 	}
 	a.serverEditor = nil
 	if st.id == "" {
-		s := serverConn{id: newServerID(), name: name, url: url, password: st.password}
+		s := serverConn{id: newServerID(), name: name, url: url, password: st.password,
+			paired: st.paired, pairedAt: st.pairedAt}
 		a.servers = append(a.servers, s)
 		a.saveState()
 		a.probe(s)
@@ -283,10 +324,24 @@ func (a *app) saveServerEditor() {
 		if a.servers[i].id != st.id {
 			continue
 		}
+		// The row keeps its pairing until a save replaces the credential:
+		// a link redeemed just now carries its own issue time, a password
+		// typed over the token takes its place, and an emptied field leaves
+		// nothing paired at all.
+		was := a.servers[i]
+		paired, pairedAt := was.paired, was.pairedAt
+		switch {
+		case st.paired && st.pairedAt != was.pairedAt:
+			paired, pairedAt = true, st.pairedAt
+		case was.paired && st.password != was.password, st.password == "":
+			paired, pairedAt = false, 0
+		}
 		a.servers[i].name = name
 		a.servers[i].managed = st.managed
 		a.servers[i].url = url
 		a.servers[i].password = st.password
+		a.servers[i].paired = paired
+		a.servers[i].pairedAt = pairedAt
 		edited = true
 		break
 	}
@@ -541,14 +596,16 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 				})
 			}
 			if !st.managed {
-				settingsField(c, p, "Address", "Where the server listens, e.g. http://127.0.0.1:4096.",
+				settingsField(c, p, "Address", "Where the server listens, e.g. http://127.0.0.1:4096 — or a pairing link from opencode pair.",
 					&st.url, "http://127.0.0.1:4096", false, nil)
 			}
 			settingsField(c, p, "Password", passwordHint(st), &st.password, passwordPlaceholder(st), !st.show, func() {
 				a.linkButton(c, p, "Generate a password", "Generate", func() { st.password = serverKey() })
 				ui.Checkbox(c, &st.show, "Show").MarginStart(6)
 			})
-			if st.note != "" {
+			if st.pairing {
+				ui.Text(c, "Pairing…").FontSize(12).TextColor(p.muted).SingleLine()
+			} else if st.note != "" {
 				ui.Text(c, st.note).FontSize(12).TextColor(p.danger).SingleLine()
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
@@ -600,7 +657,7 @@ func passwordHint(st *serverEditor) string {
 	case st.local:
 		return "The password the local server was started with."
 	default:
-		return "The password that server was started with. Leave it empty for a server that takes connections bare."
+		return "The password that server was started with, or the token a pairing link handed back. Leave it empty for a server that takes connections bare."
 	}
 }
 

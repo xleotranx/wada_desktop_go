@@ -186,9 +186,15 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 	ui.ScrollBoth(c).FillWidth().Grow(1).Children(func() {
 		ui.Column(c).Gap(0).Children(func() {
+			// Every line rides its own strip, the way a diff reads in a
+			// terminal: the pane's own color where nothing changed. Rows
+			// past the window cost nothing, so the whole patch stands.
 			for _, line := range strings.Split(strings.TrimSuffix(f.patch, "\n"), "\n") {
-				ui.Text(c, line).Font("monospace").FontSize(11.5).LineHeight(1.5).
-					TextColor(patchTint(p, line)).SingleLine().Shrink(0)
+				ui.Box(c).FillWidth().Shrink(0).Padding(0, 6).
+					Background(patchBg(p, line)).Children(func() {
+					ui.Text(c, clipLine(line)).Font("monospace").FontSize(11.5).LineHeight(1.5).
+						TextColor(patchTint(p, line)).SingleLine().Shrink(0)
+				})
 			}
 		})
 	})
@@ -257,6 +263,23 @@ func statusTint(p palette, status string) ui.Color {
 		return p.diffDel
 	}
 	return p.orange
+}
+
+// patchBg is the strip one line of a patch rides: the adding and removing
+// lines carry the pane's own washes, a hunk its quiet band, and everything
+// else the pane's own color.
+func patchBg(p palette, line string) ui.Color {
+	switch {
+	case strings.HasPrefix(line, "@@"):
+		return p.diffHunkBg
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		return p.bg
+	case strings.HasPrefix(line, "+"):
+		return p.diffAddBg
+	case strings.HasPrefix(line, "-"):
+		return p.diffDelBg
+	}
+	return p.bg
 }
 
 // patchTint colors one line of a patch: the adding and removing lines

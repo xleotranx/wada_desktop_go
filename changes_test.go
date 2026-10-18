@@ -229,6 +229,8 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 // the palette's diff slots, and the headers do not.
 func TestPatchTint(t *testing.T) {
 	p := palette{diffAdd: ui.Hex("#00ff00"), diffDel: ui.Hex("#ff0000"),
+		diffAddBg: ui.Hex("#00ff0018"), diffDelBg: ui.Hex("#ff000018"),
+		diffHunkBg: ui.Hex("#0000ff10"), bg: ui.Hex("#ffffff"),
 		link: ui.Hex("#0000ff"), muted: ui.Hex("#999999"), faint: ui.Hex("#cccccc")}
 	if got := patchTint(p, "+added"); got != p.diffAdd {
 		t.Fatalf("an added line reads %v", got)
@@ -250,5 +252,21 @@ func TestPatchTint(t *testing.T) {
 	}
 	if statusLetter("added") != "A" || statusLetter("deleted") != "D" || statusLetter("modified") != "M" {
 		t.Fatal("the status letters drifted")
+	}
+	// Each line rides its own strip: the washes for what moved, the pane's
+	// own color for what did not.
+	if got := patchBg(p, "+added"); got == p.bg || got == p.diffDelBg {
+		t.Fatalf("an added line rides %v", got)
+	}
+	if got := patchBg(p, "-removed"); got == p.bg || got == p.diffAddBg {
+		t.Fatalf("a removed line rides %v", got)
+	}
+	if got := patchBg(p, "@@ -1 +1 @@"); got != p.diffHunkBg {
+		t.Fatalf("a hunk rides %v", got)
+	}
+	for _, plain := range []string{"+++ b/x", "--- a/x", "diff --git a/x b/x", " context"} {
+		if got := patchBg(p, plain); got != p.bg {
+			t.Fatalf("%q rides %v, want the pane's own color", plain, got)
+		}
 	}
 }

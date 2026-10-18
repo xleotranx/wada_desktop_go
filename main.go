@@ -60,6 +60,23 @@ type confirmState struct {
 	what string
 }
 
+// serverScope is one server's slice of the app state: the conversations it
+// lists, the paging cursor, the models it offers. Scopes outlive switches,
+// so returning to a server shows its chats while the pipe dials it again;
+// the runner's own tests stand in for a server's freshness on dial. The
+// transcript and the picker stay on the app, since one conversation renders.
+type serverScope struct {
+	sessions       []agentSession
+	sessionsLoaded bool
+	nextCursor     string
+	moreLoading    bool
+	models         []agentModel
+	modelsLoaded   bool
+	// The folders the server works in, as its project list says them;
+	// empty until a dial reads it.
+	projects []string
+}
+
 // app is the state the window shows.
 type app struct {
 	selected    string
@@ -118,10 +135,8 @@ type app struct {
 	md      markdown.Options
 	mdTheme markdown.Theme
 
-	// Real conversations from the agent: what pinned rows and search results show and
-	// what the composer talks to.
-	sessions        []agentSession
-	sessionsLoaded  bool
+	// The open conversation and its streaming state; one transcript
+	// renders no matter which server owns it.
 	selectedSession string
 	busySession     string // the conversation whose turn is running
 	pending         map[string]*agentPerm
@@ -142,10 +157,9 @@ type app struct {
 	rename  *renameState
 	confirm *confirmState
 
-	// Where the older conversations pick up once the first page is
-	// through.
-	nextCursor  string
-	moreLoading bool
+	// Each server's conversations and catalog, keyed by server id; a
+	// new server's is empty until the first dial fills it.
+	scopes map[string]*serverScope
 
 	// The chats search: what the field shows, the results it last got
 	// and whether one is on.
@@ -158,11 +172,9 @@ type app struct {
 	// search shape.
 	focusSearch bool
 
-	// The model catalog and the picker's popover.
-	models       []agentModel
-	modelsLoaded bool
-	pickerOpen   bool
-	modelFilter  string
+	// The picker's popover over the active server's catalog.
+	pickerOpen  bool
+	modelFilter string
 
 	// The settings: the page itself, its tab, the server connections and
 	// health, the sketch of the server being edited or deleted, and the
@@ -211,6 +223,7 @@ func newApp() *app {
 		servers:      []serverConn{defaultLocalServer()},
 		activeServer: localServerID,
 		serverHealth: map[string]serverHealth{},
+		scopes:       map[string]*serverScope{},
 		modelOff:     map[string]bool{},
 		pinsByServer: map[string][]string{},
 
@@ -229,6 +242,17 @@ func newApp() *app {
 	return a
 }
 
+// scope is the active server's slice of the app state, made on first use,
+// so the view reads sessions and models straight from the reading side.
+func (a *app) scope() *serverScope {
+	s := a.scopes[a.activeServer]
+	if s == nil {
+		s = &serverScope{}
+		a.scopes[a.activeServer] = s
+	}
+	return s
+}
+
 // defaultModelRef is what a new conversation starts on: the app's free
 // default while the catalog still offers it, else the first model the
 // composer offers (free first, then by name), and the free default again
@@ -238,7 +262,7 @@ func (a *app) defaultModelRef() agentModelRef {
 	prov, name := sessionModel()
 	free := agentModelRef{providerID: prov, id: name}
 	best := -1
-	for i, m := range a.models {
+	for i, m := range a.scope().models {
 		if m.providerID == prov && m.id == name {
 			if !a.modelDisabled(m) {
 				return free
@@ -248,12 +272,12 @@ func (a *app) defaultModelRef() agentModelRef {
 		if a.modelDisabled(m) {
 			continue
 		}
-		if best < 0 || modelLess(m, a.models[best]) {
+		if best < 0 || modelLess(m, a.scope().models[best]) {
 			best = i
 		}
 	}
 	if best >= 0 {
-		return agentModelRef{providerID: a.models[best].providerID, id: a.models[best].id}
+		return agentModelRef{providerID: a.scope().models[best].providerID, id: a.scope().models[best].id}
 	}
 	return free
 }
@@ -532,7 +556,7 @@ func (a *app) chatDir() string {
 	if a.selectedSession == "" {
 		return a.draftProject
 	}
-	for _, s := range a.sessions {
+	for _, s := range a.scope().sessions {
 		if s.id == a.selectedSession {
 			return s.dir
 		}
@@ -687,7 +711,7 @@ func (a *app) saveRename() {
 
 // titleOf is one conversation's title as the list shows it now.
 func (a *app) titleOf(sid string) string {
-	for _, s := range a.sessions {
+	for _, s := range a.scope().sessions {
 		if s.id == sid {
 			return s.title
 		}
@@ -698,7 +722,7 @@ func (a *app) titleOf(sid string) string {
 // sessionModelOf is the model one conversation points at; a conversation
 // without one reads as what a new one would start on.
 func (a *app) sessionModelOf(sid string) agentModelRef {
-	for _, s := range a.sessions {
+	for _, s := range a.scope().sessions {
 		if s.id == sid {
 			if s.model.id != "" {
 				return s.model
@@ -713,7 +737,7 @@ func (a *app) sessionModelOf(sid string) agentModelRef {
 // ids read fine while the catalog has not loaded.
 func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
 	name = ref.id
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		if m.providerID == ref.providerID && m.id == ref.id {
 			name = m.name
 			variants = m.variants
@@ -736,7 +760,7 @@ func (a *app) chooseModel(m agentModel, variant string) {
 // effort.
 func (a *app) pickVariant(variant string) {
 	ref := a.sessionModelOf(a.selectedSession)
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		if m.providerID == ref.providerID && m.id == ref.id {
 			a.chooseModel(m, variant)
 			return
@@ -780,8 +804,8 @@ func (a *app) adoptSession(s agentSession) {
 // none, the transcript starts clean instead of showing the mock.
 func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 	if lerr == nil {
-		a.sessions = ls
-		a.nextCursor = next
+		a.scope().sessions = ls
+		a.scope().nextCursor = next
 	}
 	if lerr == nil && len(ls) > 0 {
 		a.adoptSession(ls[0])
@@ -792,7 +816,7 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 	} else {
 		a.freshTranscript()
 	}
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 }
 
 // startNewChat clears the view; the conversation itself comes into being

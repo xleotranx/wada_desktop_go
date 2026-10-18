@@ -262,9 +262,9 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	if len(a.projects) != 0 || a.projectPins[project] {
 		t.Fatal("project menu did not remove the folder and its pin")
 	}
-	a.sessions = []agentSession{{id: "b"}, {id: "a"}}
-	a.togglePin(a.sessions[1])
-	a.togglePin(a.sessions[0])
+	a.scope().sessions = []agentSession{{id: "b"}, {id: "a"}}
+	a.togglePin(a.scope().sessions[1])
+	a.togglePin(a.scope().sessions[0])
 	if pins := a.pinnedSessions(); len(pins) != 2 || pins[0].id != "a" {
 		t.Fatalf("pin order: %+v", pins)
 	}

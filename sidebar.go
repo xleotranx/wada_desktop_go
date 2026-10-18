@@ -154,10 +154,20 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 						}
 					}
 
-					a.sectionHeading(c, p, "Projects", func() { a.openProjectDialog() })
+					addProjects := a.openProjectDialog
+					if !a.localActive() {
+						// A remote server's projects come with its list;
+						// there is no folder of this machine to add.
+						addProjects = nil
+					}
+					a.sectionHeading(c, p, "Projects", addProjects)
 					projects := a.projectDirectories()
 					if len(projects) == 0 {
-						ui.Text(c, "Add a project to get started").FontSize(12).TextColor(p.faint).MarginStart(8)
+						hint := "Add a project to get started"
+						if !a.localActive() {
+							hint = "The server lists its projects here"
+						}
+						ui.Text(c, hint).FontSize(12).TextColor(p.faint).MarginStart(8)
 					}
 					visible := len(projects)
 					if !a.projectsExpanded && visible > 5 {
@@ -204,11 +214,44 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 			ui.Text(c, "Codex").FontSize(15.5).FontWeight(600).SingleLine()
 			ui.Icon(c, icChevDown).FontSize(11).MarginStart(5).TextColor(p.muted)
 		})
+		a.serverPill(c, p)
 
 		ui.Spacer(c)
 
 		a.bellButton(c, p)
 		a.navButton(c, p, "Search", icSearch, a.openChatSearch, p.text)
+	})
+}
+
+// serverPill is the server the app is talking to, its health dot and the
+// menu that switches to any other one without a trip through Settings.
+func (a *app) serverPill(c *ui.Context, p palette) {
+	s := a.activeServerConn()
+	h := a.serverHealth[s.id]
+	c.Key("server-pill")
+	pill := ui.ButtonBase(c).Label("Server menu, "+s.name).Height(26).Radius(8).Padding(0, 8).
+		Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
+			for _, other := range a.servers {
+				item := m.Item(other.name)
+				if other.id == a.activeServer {
+					item.Disabled(true)
+				} else if item.Chosen() {
+					a.useServer(other.id)
+				}
+			}
+			m.Separator()
+			if m.Item("Server settings…").Chosen() {
+				a.openSettings(tabServers)
+			}
+		})
+	if pill.Hovered() {
+		pill.Background(p.hover)
+	}
+	pill.Children(func() {
+		ui.Box(c).Width(7).Height(7).Radius(999).Background(healthTint(p, h.status)).Shrink(0)
+		ui.Text(c, s.name).MarginStart(6).FontSize(12).TextColor(p.muted).
+			SingleLine().Shrink(1).MinWidth(0)
+		ui.Icon(c, icChevDown).FontSize(10).MarginStart(5).TextColor(p.faint).Shrink(0)
 	})
 }
 
@@ -250,9 +293,9 @@ func (a *app) openAnAsk() {
 	}
 	sort.Strings(keys)
 	ask := a.pending[keys[0]]
-	for i := range a.sessions {
-		if a.sessions[i].id == ask.session {
-			a.adoptSession(a.sessions[i])
+	for i := range a.scope().sessions {
+		if a.scope().sessions[i].id == ask.session {
+			a.adoptSession(a.scope().sessions[i])
 			break
 		}
 	}
@@ -345,7 +388,7 @@ func (a *app) pinnedSessions() []agentSession {
 	for i, id := range a.pinOrder {
 		order[id] = i
 	}
-	for _, s := range a.sessions {
+	for _, s := range a.scope().sessions {
 		if a.pinned[s.id] {
 			out = append(out, s)
 		}
@@ -354,10 +397,35 @@ func (a *app) pinnedSessions() []agentSession {
 	return out
 }
 
+// projectDirectories is the folder list the sidebar and the picker offer,
+// pinned ones first. The local server's are the folders the user added;
+// a remote server's come with its project list on every dial.
 func (a *app) projectDirectories() []string {
 	projects := append([]string(nil), a.projects...)
+	if !a.localActive() {
+		projects = append([]string(nil), a.scope().projects...)
+	}
 	sort.SliceStable(projects, func(i, j int) bool { return a.projectPins[projects[i]] && !a.projectPins[projects[j]] })
 	return projects
+}
+
+// mergeFolderLists keeps one row per directory the two lists name: the
+// ones already kept stay in place, and the fresh list adds only what is
+// new, its own order.
+func mergeFolderLists(kept, fresh []string) []string {
+	seen := map[string]bool{}
+	for _, dir := range kept {
+		seen[filepath.Clean(dir)] = true
+	}
+	out := kept
+	for _, dir := range fresh {
+		if seen[filepath.Clean(dir)] {
+			continue
+		}
+		seen[filepath.Clean(dir)] = true
+		out = append(out, dir)
+	}
+	return out
 }
 
 func (a *app) addProject(dir string) {
@@ -489,7 +557,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 // newest first, the way the tree nests them.
 func (a *app) projectChats(dir string) []agentSession {
 	var chats []agentSession
-	for _, s := range a.sessions {
+	for _, s := range a.scope().sessions {
 		if sameDir(s.dir, dir) {
 			chats = append(chats, s)
 		}
@@ -651,7 +719,7 @@ func (a *app) togglePin(s agentSession) {
 	} else {
 		a.pinned[s.id] = true
 		a.pinOrder = append(a.pinOrder, s.id)
-		a.sessions = dedupeSessions(a.sessions, []agentSession{s})
+		a.scope().sessions = dedupeSessions(a.scope().sessions, []agentSession{s})
 	}
 	// The active server's pins live in both shapes: the map the sidebar
 	// draws from and the store's per-server list.

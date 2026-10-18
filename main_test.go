@@ -78,9 +78,9 @@ func TestChromeWash(t *testing.T) {
 // tools toggle at its end brings the right pane in and out.
 func TestTopBarChrome(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Plan project folder metadata storage"}}
-	a.adoptSession(a.sessions[0])
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Plan project folder metadata storage"}}
+	a.adoptSession(a.scope().sessions[0])
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	title, ok := tt.Find("Plan project folder metadata storage")
@@ -298,8 +298,8 @@ func TestSidebarSearchCentered(t *testing.T) {
 // and a blank field hands back to projects and pinned chats.
 func TestSidebarSearch(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Search"); err != nil {
@@ -383,8 +383,8 @@ func TestHeaderWiring(t *testing.T) {
 	}
 
 	// With an approval waiting, the bell names it and opens its chat.
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Wired turn"}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Wired turn"}}
 	a.pending["per_5"] = &agentPerm{id: "per_5", session: "ses_z", action: "shell"}
 	tt.Frame()
 	if !tt.HasText("1") || !tt.HasText("Notifications, 1 approvals waiting") {
@@ -421,8 +421,8 @@ func TestAttachDialog(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
 	tt := ui.NewTester(a.view, 1400, 920)
 

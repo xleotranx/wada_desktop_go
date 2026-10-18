@@ -9,10 +9,10 @@ import (
 
 func benchmarkApp(b *testing.B) *app {
 	a := newApp()
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	a.selectedSession = "review"
 	a.selected = "Performance review"
-	a.sessions = []agentSession{{id: "review", title: a.selected, dir: b.TempDir()}}
+	a.scope().sessions = []agentSession{{id: "review", title: a.selected, dir: b.TempDir()}}
 	return a
 }
 
@@ -40,11 +40,11 @@ func BenchmarkSidebar(b *testing.B) {
 		b.Run(fmt.Sprint(n), func(b *testing.B) {
 			a := benchmarkApp(b)
 			for i := range n {
-				a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Conversation %d", i)})
+				a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Conversation %d", i)})
 			}
 			a.searchOpen = true
 			a.searchText = "Conversation"
-			a.searchResults = a.sessions
+			a.searchResults = a.scope().sessions
 			tt := ui.NewTester(a.view, 1400, 920)
 			tt.Frame()
 			b.ReportAllocs()

@@ -21,7 +21,7 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	a.addFolder(t.TempDir())
 	dir := a.projects[0]
 	a.selectedSession = "old-chat"
-	a.sessions = []agentSession{{id: "old-chat", dir: a.home}}
+	a.scope().sessions = []agentSession{{id: "old-chat", dir: a.home}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	label := "New chat in " + dirBase(dir)
 	if tt.HasText(label) {
@@ -120,8 +120,8 @@ func TestProjectChatsNestUnderFolder(t *testing.T) {
 	a.addProject(picked)
 	dir := canonDir(picked)
 	other := canonDir(t.TempDir())
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{
 		{id: "ses_here", title: "Folder wiring", dir: dir},
 		{id: "ses_loose", title: "Loose wiring", dir: other},
 	}
@@ -184,9 +184,9 @@ func TestProjectChatsPreviewAndShowMore(t *testing.T) {
 	picked := t.TempDir()
 	a.addProject(picked)
 	dir := canonDir(picked)
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	for i := range 7 {
-		a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i),
+		a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i),
 			title: fmt.Sprintf("Chat %d", i), dir: dir})
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -213,9 +213,9 @@ func TestPinnedChatAlsoNests(t *testing.T) {
 	a := newApp()
 	picked := t.TempDir()
 	a.addProject(picked)
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_pin", title: "Pinned wiring", dir: canonDir(picked)}}
-	a.togglePin(a.sessions[0])
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_pin", title: "Pinned wiring", dir: canonDir(picked)}}
+	a.togglePin(a.scope().sessions[0])
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Pinned wiring") {
 		t.Fatalf("pinned chat missing: %v", tt.Texts())
@@ -256,7 +256,7 @@ func TestProjectRowKeepsItsColumns(t *testing.T) {
 	busy := t.TempDir()
 	a.addProject(empty)
 	a.addProject(busy)
-	a.sessions = []agentSession{{id: "ses_b", title: "Busy wiring", dir: canonDir(busy)}}
+	a.scope().sessions = []agentSession{{id: "ses_b", title: "Busy wiring", dir: canonDir(busy)}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	emptyRow, ok := tt.Find(dirBase(empty))
 	if !ok {
@@ -273,7 +273,7 @@ func TestProjectRowKeepsItsColumns(t *testing.T) {
 
 func TestProjectChatsMatchFolder(t *testing.T) {
 	a := newApp()
-	a.sessions = []agentSession{
+	a.scope().sessions = []agentSession{
 		{id: "a", dir: "/work/app/."},
 		{id: "b", dir: "/work/app"},
 		{id: "c", dir: "/work/other"},
@@ -322,5 +322,48 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 	defer db.Close()
 	if len(b.projects) != 1 {
 		t.Fatal("explicit project removed on next restart")
+	}
+}
+
+// TestRemoteServerListsItsProjects shows a remote server's folders as the
+// picker's and the sidebar's projects, with nothing of this machine to
+// add, while the local server keeps composing its list from the folders
+// the user adds.
+func TestRemoteServerListsItsProjects(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.activeServer = "srv-box"
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_remote", title: "Remote wiring", dir: "/srv/app"}}
+	a.scope().projects = []string{"/srv/app", "/srv/docs"}
+	a.projectPickerOpen = true
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Use project app") || !tt.HasText("Use project docs") {
+		t.Fatalf("the server's projects are not all offered: %v", tt.Texts())
+	}
+	if tt.HasText("New project…") {
+		t.Fatal("a remote server offered to browse this machine's folders")
+	}
+	if !tt.HasText("Remote wiring") {
+		t.Fatalf("the server chat is not nested under its folder: %v", tt.Texts())
+	}
+
+	// Before its first dial lands, the server has nothing to list.
+	a.scope().projects = nil
+	a.projectFilter = "app"
+	tt.Frame()
+	if !tt.HasText("No projects match") {
+		t.Fatalf("the empty picker read wrong: %v", tt.Texts())
+	}
+	if !tt.HasText("The server lists its projects here") {
+		t.Fatalf("the projects section read wrong: %v", tt.Texts())
+	}
+
+	// The local server composes its list out of added folders.
+	a.activeServer = localServerID
+	a.projectFilter = ""
+	tt.Frame()
+	if !tt.HasText("New project…") {
+		t.Fatalf("the local server lost the way to add a folder: %v", tt.Texts())
 	}
 }

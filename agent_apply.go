@@ -295,9 +295,9 @@ func (a *app) apply(ev agentEvent) {
 		if json.Unmarshal(ev.Data, &d) != nil {
 			return
 		}
-		for i := range a.sessions {
-			if a.sessions[i].id == d.SessionID {
-				a.sessions[i].model = agentModelRef{providerID: d.Model.ProviderID,
+		for i := range a.scope().sessions {
+			if a.scope().sessions[i].id == d.SessionID {
+				a.scope().sessions[i].model = agentModelRef{providerID: d.Model.ProviderID,
 					id: d.Model.ID, variant: d.Model.Variant}
 			}
 		}
@@ -309,9 +309,9 @@ func (a *app) apply(ev agentEvent) {
 		if json.Unmarshal(ev.Data, &d) != nil {
 			return
 		}
-		for i := range a.sessions {
-			if a.sessions[i].id == d.SessionID {
-				a.sessions[i].title = d.Title
+		for i := range a.scope().sessions {
+			if a.scope().sessions[i].id == d.SessionID {
+				a.scope().sessions[i].title = d.Title
 			}
 		}
 		// The conversation on show takes its new name at once.
@@ -358,9 +358,9 @@ func (a *app) dropSession(sid string) {
 	if a.pinned[sid] {
 		a.togglePin(agentSession{id: sid})
 	}
-	for i, s := range a.sessions {
+	for i, s := range a.scope().sessions {
 		if s.id == sid {
-			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+			a.scope().sessions = append(a.scope().sessions[:i], a.scope().sessions[i+1:]...)
 			break
 		}
 	}

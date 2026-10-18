@@ -211,6 +211,13 @@ func (a *app) activeServerConn() serverConn {
 	return defaultLocalServer()
 }
 
+// localActive says the server on show is the one the app runs itself,
+// which picks its projects out of the machine's own folders. A remote
+// server lists its projects the way its project report says them.
+func (a *app) localActive() bool {
+	return a.activeServerConn().local
+}
+
 // setHealth records how one server last answered.
 func (a *app) setHealth(id string, h serverHealth) {
 	if a.serverHealth == nil {
@@ -247,26 +254,24 @@ func (a *app) useServer(id string) {
 // reconnect dials the active server again, as its row's action and a
 // switch both do.
 func (a *app) reconnect() {
-	a.clearForServer()
+	a.clearForSwitch()
 	select {
 	case a.jobs <- agentJob{kind: jobServer, server: a.activeServerConn(), pins: slices.Clone(a.pinOrder)}:
 	default:
 	}
 }
 
-// clearForServer empties what belonged to the server the app is leaving:
-// its chats, the transcript, the catalog and whatever streamed.
-func (a *app) clearForServer() {
-	a.sessions = nil
-	a.sessionsLoaded = false
-	a.nextCursor = ""
-	a.moreLoading = false
+// clearForSwitch drops what renders over whatever server opens next: the
+// chosen chat, its transcript, the picker and the search, plus a mid-load
+// flag of the server coming up. Each server's conversations and catalog
+// stay in its scope, so a switch back to one shows its chats while the
+// pipe dials, and its dial refreshes the list.
+func (a *app) clearForSwitch() {
 	a.selected = ""
 	a.selectedSession = ""
 	a.freshTranscript()
-	a.models = nil
-	a.modelsLoaded = false
 	a.pickerOpen = false
+	a.scope().moreLoading = false
 	a.searchResults = nil
 	a.searchLoading = false
 	a.searchVersion++
@@ -286,6 +291,7 @@ func (a *app) dropServer(id string) {
 	}
 	a.servers = kept
 	delete(a.pinsByServer, id)
+	delete(a.scopes, id)
 	delete(a.serverHealth, id)
 	prefix := id + "\x00"
 	for key := range a.modelOff {

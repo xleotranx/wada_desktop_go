@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,8 +17,8 @@ import (
 // Escape, the close shape and any rail place all leave it behind.
 func TestSettingsOpenAndClose(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
 	a.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -174,18 +175,19 @@ func TestServerRowShowsState(t *testing.T) {
 	}
 }
 
-// TestServerUseSwitches queues the dial, clears what belonged to the old
-// server and hands the pins of the new one back.
+// TestServerUseSwitches queues the dial, clears what renders over the new
+// server and hands its pins back. The old server's conversations and
+// catalog stay in their scope, so a switch back shows them again.
 func TestServerUseSwitches(t *testing.T) {
 	a := newApp()
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.settingsOpen = true
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_local", title: "Local chat"}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_local", title: "Local chat"}}
 	a.selectedSession = "ses_local"
 	a.selected = "Local chat"
-	a.models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
-	a.modelsLoaded = true
+	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().modelsLoaded = true
 	a.pinned["ses_local"] = true
 	a.pinOrder = []string{"ses_local"}
 	a.pinsByServer["srv-box"] = []string{"ses_remote"}
@@ -197,8 +199,12 @@ func TestServerUseSwitches(t *testing.T) {
 	if a.activeServer != "srv-box" {
 		t.Fatalf("active server %q after the click", a.activeServer)
 	}
-	if a.selectedSession != "" || len(a.sessions) != 0 || len(a.models) != 0 || a.modelsLoaded {
-		t.Fatalf("the old server's view stayed: %q %v %v", a.selectedSession, a.sessions, a.models)
+	if a.selectedSession != "" || len(a.scope().sessions) != 0 || len(a.scope().models) != 0 || a.scope().modelsLoaded {
+		t.Fatalf("the opened server's view did not start fresh: %q %v %v", a.selectedSession, a.scope().sessions, a.scope().models)
+	}
+	local := a.scopes[localServerID]
+	if len(local.sessions) != 1 || !local.sessionsLoaded || len(local.models) != 1 || !local.modelsLoaded {
+		t.Fatalf("the local scope was thrown away: %+v", local)
 	}
 	if !a.pinned["ses_remote"] || len(a.pinOrder) != 1 || a.pinOrder[0] != "ses_remote" || a.pinned["ses_local"] {
 		t.Fatalf("pins did not follow the switch: %v %v", a.pinned, a.pinOrder)
@@ -232,6 +238,38 @@ func TestServerUseSwitches(t *testing.T) {
 		t.Fatalf("the active row's menu offers %v", menu)
 	}
 	tt.CloseMenu()
+}
+
+// TestServerMenuSwitches picks a server out of the sidebar's server menu,
+// the same road Settings' Use action takes.
+func TestServerMenuSwitches(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Server menu, Local server"); err != nil {
+		t.Fatalf("the server pill did not open: %v", err)
+	}
+	menu := tt.Menu()
+	if len(menu) < 3 || menu[0] != "Local server" || menu[1] != "Build box" || !slices.Contains(menu, "Server settings…") {
+		t.Fatalf("the server menu offers %v", menu)
+	}
+	if err := tt.ChooseMenuItem("Local server"); err == nil {
+		t.Fatal("the active server stayed choosable")
+	}
+	if err := tt.ChooseMenuItem("Build box"); err != nil {
+		t.Fatal(err)
+	}
+	if a.activeServer != "srv-box" {
+		t.Fatal("the menu did not switch servers")
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "server" || job.server.id != "srv-box" {
+			t.Fatalf("switch job %+v", job)
+		}
+	default:
+		t.Fatal("the switch queued no dial")
+	}
 }
 
 // TestServerEditorAddsRemote drives the add dialog: a nameless save stays
@@ -418,12 +456,12 @@ func TestDeleteServerConfirms(t *testing.T) {
 // switch, and the two bulk actions over the whole catalog.
 func TestModelsTabToggles(t *testing.T) {
 	a := newApp()
-	a.models = []agentModel{
+	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", variants: []string{"low", "high"}},
 		{providerID: "wada", id: "flash", name: "Flash", free: true},
 	}
-	a.modelsLoaded = true
+	a.scope().modelsLoaded = true
 	a.settingsOpen = true
 	a.settingsTab = tabModels
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -482,18 +520,22 @@ func TestModelsTabToggles(t *testing.T) {
 	a.modelsQuery = ""
 }
 
-// TestModelsFollowTheServer keeps each server's choices its own: turning a
-// model off on one leaves the other server's catalog alone.
+// TestModelsFollowTheServer keeps each server's choices its own: each lists
+// its own catalog, and turning a model off on one leaves the other's alone.
 func TestModelsFollowTheServer(t *testing.T) {
 	a := newApp()
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
-	a.models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
-	a.modelsLoaded = true
-	a.setModelEnabled(a.models[0], false)
+	// The local server's dial filled its catalog; the free default is off here.
+	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().modelsLoaded = true
+	a.setModelEnabled(a.scope().models[0], false)
 	if on, _ := a.enabledModelCount(); on != 0 {
 		t.Fatal("the switch did not take on the local server")
 	}
 	a.activeServer = "srv-box"
+	// The build box's scope starts empty and fills on its own dial.
+	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
+	a.scope().modelsLoaded = true
 	if on, _ := a.enabledModelCount(); on != 1 {
 		t.Fatal("the switch leaked across servers")
 	}
@@ -502,21 +544,43 @@ func TestModelsFollowTheServer(t *testing.T) {
 	}
 }
 
+// TestServerCardShowsItsScope lists what each server's dials have kept, so
+// a card tells its chats, folders and catalog whatever server is on show.
+func TestServerCardShowsItsScope(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.activeServer = "srv-box" // the build box stands alone, no pipe served it yet
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_a"}, {id: "ses_b"}, {id: "ses_c"}, {id: "ses_d"}}
+	a.scope().projects = []string{"/srv/app", "/srv/docs", "/srv/labs"}
+	a.scope().models = []agentModel{
+		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
+		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3"},
+	}
+	a.scope().modelsLoaded = true
+	a.modelOff[modelKey("srv-box", "opencode-go", "minimax-m3")] = true
+	a.settingsOpen = true
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("4 chats") || !tt.HasText("3 projects") || !tt.HasText("1 of 2 models on") {
+		t.Fatalf("the build box's card does not tell its scope: %v", tt.Texts())
+	}
+}
+
 // TestComposerPickerHidesDisabledModels drives the picker the settings
 // feed: turned-off models stay out, an empty offer says why, and Manage
 // models opens the tab behind it.
 func TestComposerPickerHidesDisabledModels(t *testing.T) {
 	a := newApp()
-	a.models = []agentModel{
+	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3"},
 	}
-	a.modelsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Free turn",
+	a.scope().modelsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Free turn",
 		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Free turn"
-	a.setModelEnabled(a.models[1], false)
+	a.setModelEnabled(a.scope().models[1], false)
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Model Beam Free"); err != nil {
@@ -551,8 +615,8 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 // enabled: the job names it, so the runner does not fall back on its own.
 func TestSendCarriesTheDefault(t *testing.T) {
 	a := newApp()
-	a.models = []agentModel{{providerID: "wada", id: "flash", name: "Flash", free: true}}
-	a.modelsLoaded = true
+	a.scope().models = []agentModel{{providerID: "wada", id: "flash", name: "Flash", free: true}}
+	a.scope().modelsLoaded = true
 	a.draft = "hello"
 	a.send()
 	select {

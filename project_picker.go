@@ -57,11 +57,13 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 				}
 			})
 			ui.Divider(c)
-			ui.Button(c, "New project…").OnClick(func() {
-				a.projectPickerOpen = false
-				a.selectAddedProject = true
-				a.openProjectDialog()
-			})
+			if a.localActive() {
+				ui.Button(c, "New project…").OnClick(func() {
+					a.projectPickerOpen = false
+					a.selectAddedProject = true
+					a.openProjectDialog()
+				})
+			}
 			ui.Button(c, "Don't work in a project").OnClick(func() { a.selectDraftProject("") })
 		})
 	})

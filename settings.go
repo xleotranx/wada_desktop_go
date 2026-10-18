@@ -167,12 +167,21 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 			})
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
 				ui.Icon(c, icKey).FontSize(11).TextColor(p.faint).Shrink(0)
-				passwordLine := serverPasswordLine(s)
-				if active && a.modelsLoaded {
-					on, total := a.enabledModelCount()
-					passwordLine += fmt.Sprintf("  ·  %d of %d models on", on, total)
+				line := serverPasswordLine(s)
+				// What the server's dials have kept: its listed chats and
+				// folders, its catalog and how much of it is on, whatever
+				// server is on show.
+				scope := a.scopes[s.id]
+				if scope != nil && scope.sessionsLoaded {
+					line += fmt.Sprintf("  ·  %d chats", len(scope.sessions))
 				}
-				ui.Text(c, passwordLine).FontSize(12).TextColor(p.faint).
+				if scope != nil && len(scope.projects) > 0 {
+					line += fmt.Sprintf("  ·  %d projects", len(scope.projects))
+				}
+				if on, total := a.modelsEnabled(s.id, scope); total > 0 {
+					line += fmt.Sprintf("  ·  %d of %d models on", on, total)
+				}
+				ui.Text(c, line).FontSize(12).TextColor(p.faint).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 			})
 		})
@@ -336,7 +345,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 					FontSize(12.5).TextColor(p.orange)
 			}
 			textField(c, p, &a.modelsQuery, "Search models")
-			if !a.modelsLoaded {
+			if !a.scope().modelsLoaded {
 				ui.Text(c, a.catalogNote(srv)).FontSize(13).TextColor(p.muted)
 			} else if total == 0 {
 				ui.Text(c, "The server reported no models.").FontSize(13).TextColor(p.muted)
@@ -389,7 +398,7 @@ func (a *app) catalogRows() []catalogRow {
 	query := strings.ToLower(strings.TrimSpace(a.modelsQuery))
 	byProvider := map[string][]agentModel{}
 	providers := []string{}
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		if query != "" && !strings.Contains(strings.ToLower(m.name), query) &&
 			!strings.Contains(strings.ToLower(m.providerID), query) &&
 			!strings.Contains(strings.ToLower(m.id), query) {
@@ -416,7 +425,7 @@ func (a *app) catalogRows() []catalogRow {
 // providerRow is the heading of one provider's models.
 func (a *app) providerRow(c *ui.Context, p palette, provider string) {
 	on, total := 0, 0
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		if m.providerID != provider {
 			continue
 		}
@@ -459,6 +468,21 @@ func (a *app) modelDisabled(m agentModel) bool {
 	return a.modelOff[modelKey(a.activeServer, m.providerID, m.id)]
 }
 
+// modelsEnabled counts one server's catalog, the models its user turned
+// off left out; the active server's count is what the picker offers.
+func (a *app) modelsEnabled(serverID string, scope *serverScope) (on, total int) {
+	if scope == nil || !scope.modelsLoaded {
+		return 0, 0
+	}
+	for _, m := range scope.models {
+		if !a.modelOff[modelKey(serverID, m.providerID, m.id)] {
+			on++
+		}
+		total++
+	}
+	return on, total
+}
+
 // setModelEnabled turns one model of the active server on or off; the
 // composer's picker follows at once.
 func (a *app) setModelEnabled(m agentModel, on bool) {
@@ -474,7 +498,7 @@ func (a *app) setModelEnabled(m agentModel, on bool) {
 // setAllModelsEnabled turns the whole catalog of the active server on or
 // off in one move.
 func (a *app) setAllModelsEnabled(on bool) {
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		key := modelKey(a.activeServer, m.providerID, m.id)
 		if on {
 			delete(a.modelOff, key)
@@ -487,12 +511,7 @@ func (a *app) setAllModelsEnabled(on bool) {
 
 // enabledModelCount is how many of the catalog's models the picker offers.
 func (a *app) enabledModelCount() (on, total int) {
-	for _, m := range a.models {
-		if !a.modelDisabled(m) {
-			on++
-		}
-	}
-	return on, len(a.models)
+	return a.modelsEnabled(a.activeServer, a.scope())
 }
 
 // settingsDialogs carries the dialogs opened by the settings: the server

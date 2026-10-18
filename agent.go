@@ -363,6 +363,35 @@ func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
 	return all, nil
 }
 
+// listProjects reads the folders the server works in: one directory per
+// project it knows, the way its project list says them, kept in the order
+// it reports.
+func (a *agent) listProjects(ctx context.Context) ([]string, error) {
+	raw, err := a.call(ctx, "GET", "/project", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			Canonical string `json:"canonical"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	dirs := []string{}
+	for _, p := range out.Data {
+		dir := canonDir(p.Canonical)
+		if dir == "" || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	return dirs, nil
+}
+
 // listSessions reads the conversations, newest first. The server pages
 // them; cursor "" starts at the newest page and a later page picks up
 // where the last one left off, with "" again when the list runs out. A
@@ -577,6 +606,18 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		})
 	}
 
+	// applyForServer applies one server's events while it is still the
+	// active one: a switch stops its stream short of writing over the
+	// server the app opened next.
+	applyForServer := func(srv serverConn) func(agentEvent) {
+		return func(ev agentEvent) {
+			if a.activeServer != srv.id {
+				return
+			}
+			a.apply(ev)
+		}
+	}
+
 	for {
 		if last != nil {
 			// The seat the server sat in frees itself for the next one,
@@ -679,7 +720,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// from the stored conversations while the loop runs.
 		done := make(chan error, 1)
 		go func() {
-			done <- agentUpdates(attemptCtx, ag.events, win.Update, a.apply)
+			done <- agentUpdates(attemptCtx, ag.events, win.Update, applyForServer(srv))
 		}()
 		go func() {
 			ls, nxt, lerr := ag.listSessions(ctx, "", "")
@@ -695,10 +736,10 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				// A refill keeps what the user was reading: the list
 				// lands, the transcript stays.
 				if lerr == nil {
-					a.sessions = dedupeSessions(a.sessions, ls)
-					a.nextCursor = nxt
+					a.scope().sessions = dedupeSessions(a.scope().sessions, ls)
+					a.scope().nextCursor = nxt
 				}
-				a.sessionsLoaded = true
+				a.scope().sessionsLoaded = true
 			})
 			if lerr == nil {
 				extra, err := loadPinnedSessions(attemptCtx, attemptPins, ls, nxt, ag.listSessions)
@@ -713,7 +754,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					// Ignore pins removed while the lookup was in flight.
 					for _, s := range extra {
 						if a.pinned[s.id] {
-							a.sessions = dedupeSessions(a.sessions, []agentSession{s})
+							a.scope().sessions = dedupeSessions(a.scope().sessions, []agentSession{s})
 						}
 					}
 				})
@@ -726,12 +767,21 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					return
 				}
 				if merr == nil {
-					a.models = ms
+					a.scope().models = ms
 				} else {
 					why := merr.Error()
 					a.streamLine("The model list did not load: " + why)
 				}
-				a.modelsLoaded = true
+				a.scope().modelsLoaded = true
+			})
+		}()
+		go func() {
+			ps, perr := ag.listProjects(ctx)
+			win.Update(func() {
+				if a.activeServer != srv.id || perr != nil {
+					return
+				}
+				a.scope().projects = mergeFolderLists(a.scope().projects, ps)
 			})
 		}()
 
@@ -783,7 +833,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				}
 				// The untitled row stands at the top; its title fills in
 				// over the stream once words run.
-				a.sessions = append([]agentSession{{id: nid, dir: home, model: ref}}, a.sessions...)
+				a.scope().sessions = append([]agentSession{{id: nid, dir: home, model: ref}}, a.scope().sessions...)
 			})
 			return true
 		}
@@ -849,12 +899,12 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 						return
 					}
 					if merr == nil {
-						a.sessions = dedupeSessions(a.sessions, rows)
-						a.nextCursor = cur
+						a.scope().sessions = dedupeSessions(a.scope().sessions, rows)
+						a.scope().nextCursor = cur
 					} else {
 						a.streamLine("The older chats did not load: " + merr.Error())
 					}
-					a.moreLoading = false
+					a.scope().moreLoading = false
 				})
 			case jobModel:
 				who := job.sid

@@ -86,7 +86,7 @@ func TestAgentUpdatesCancelWhileUIIsBlocked(t *testing.T) {
 
 func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
 		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
@@ -106,10 +106,10 @@ func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
 	a := newApp()
 	for i := range 400 {
-		a.models = append(a.models, agentModel{providerID: "opencode-go",
+		a.scope().models = append(a.scope().models, agentModel{providerID: "opencode-go",
 			id: fmt.Sprintf("m-%03d", i), name: fmt.Sprintf("Model %03d", i)})
 	}
-	a.modelsLoaded = true
+	a.scope().modelsLoaded = true
 	a.settingsOpen = true
 	a.settingsTab = tabModels
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -125,13 +125,13 @@ func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
 
 func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	for i := range 2000 {
-		a.sessions = append(a.sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
+		a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
 	}
 	a.searchOpen = true
 	a.searchText = "Chat"
-	a.searchResults = a.sessions
+	a.searchResults = a.scope().sessions
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Chat 0") || tt.HasText("Chat 1999") {
 		t.Fatal("sidebar did not limit construction to visible rows")
@@ -148,7 +148,7 @@ func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 
 func TestActivitySurvivesVirtualScrolling(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
 		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})

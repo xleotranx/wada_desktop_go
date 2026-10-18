@@ -210,7 +210,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref agent
 						ui.Text(c, a.noModelsNote()).FontSize(12).TextColor(p.muted)
 					}
 				})
-				if len(a.models) > 0 {
+				if len(a.scope().models) > 0 {
 					// The picker is where a missing model becomes a
 					// question; its answer lives in the settings.
 					ui.Divider(c)
@@ -266,7 +266,7 @@ func (a *app) enabledModels() []agentModel { return a.offerModels("") }
 func (a *app) offerModels(query string) []agentModel {
 	query = strings.ToLower(strings.TrimSpace(query))
 	out := []agentModel{}
-	for _, m := range a.models {
+	for _, m := range a.scope().models {
 		if a.modelDisabled(m) {
 			continue
 		}
@@ -284,9 +284,9 @@ func (a *app) offerModels(query string) []agentModel {
 // noModelsNote words why the picker lists nothing.
 func (a *app) noModelsNote() string {
 	switch {
-	case len(a.models) == 0 && !a.modelsLoaded:
+	case len(a.scope().models) == 0 && !a.scope().modelsLoaded:
 		return "The catalog is still loading."
-	case len(a.models) == 0:
+	case len(a.scope().models) == 0:
 		return "The server reported no models."
 	case len(a.enabledModels()) == 0:
 		return "Every model is off. Turn some on under Manage models…"

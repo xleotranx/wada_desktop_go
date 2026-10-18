@@ -261,7 +261,7 @@ func TestAgentModel(t *testing.T) {
 	a := newApp()
 	free := agentModel{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true}
 	other := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
-	a.models = []agentModel{other, free}
+	a.scope().models = []agentModel{other, free}
 	if ref := a.defaultModelRef(); ref.providerID != "opencode-go" || ref.id != "longcat-2.5-preview-free" {
 		t.Fatalf("default %+v, want the free default", ref)
 	}
@@ -302,6 +302,32 @@ func TestAgentSessions(t *testing.T) {
 		sessions[0].id != "ses_a" || sessions[0].title != "Grep wiring" || sessions[0].updated != 300 ||
 		sessions[1].id != "ses_b" {
 		t.Fatalf("sessions %+v", sessions)
+	}
+}
+
+// TestAgentProjects reads the folders a server works in: one row per
+// project it knows, and a directory named twice turns up once.
+func TestAgentProjects(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[` +
+			`{"id":"p1","canonical":"/srv/app"},` +
+			`{"id":"p2","canonical":"/srv/docs"},` +
+			`{"id":"p3","canonical":"/srv/app/"}` +
+			`]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dirs, err := a.listProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirs) != 2 || dirs[0] != "/srv/app" || dirs[1] != "/srv/docs" {
+		t.Fatalf("projects %+v", dirs)
 	}
 }
 
@@ -375,13 +401,13 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 
 	// Once the runner filled the list, real rows appear; an untitled
 	// conversation reads as a new chat row.
-	a.sessions = []agentSession{{id: "ses_z"}, {id: "ses_a", title: "Grep wiring", updated: 2}}
-	a.sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z"}, {id: "ses_a", title: "Grep wiring", updated: 2}}
+	a.scope().sessionsLoaded = true
 	tt.Frame()
 	if tt.HasText("Grep wiring") {
 		t.Fatal("unpinned chat shown outside search")
 	}
-	a.togglePin(a.sessions[1])
+	a.togglePin(a.scope().sessions[1])
 	tt.Frame()
 	if !tt.HasText("Grep wiring") {
 		t.Fatalf("pinned chat not listed: %v", tt.Texts())
@@ -407,10 +433,10 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 // and search rows, which stay put.
 func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
 	a := newApp()
-	a.sessionsLoaded = true
+	a.scope().sessionsLoaded = true
 	for i := range 40 {
 		s := agentSession{id: fmt.Sprintf("ses_%02d", i), title: fmt.Sprintf("Pinned %02d", i)}
-		a.sessions = append(a.sessions, s)
+		a.scope().sessions = append(a.scope().sessions, s)
 		a.togglePin(s)
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -765,14 +791,14 @@ func TestDedupeSessions(t *testing.T) {
 // kebab opens: the pills queue the two list jobs or leave things be.
 func TestSessionDialogs(t *testing.T) {
 	a := newApp()
-	a.sessions = []agentSession{{id: "ses_r", title: "Grep wiring", dir: "/tmp"}}
+	a.scope().sessions = []agentSession{{id: "ses_r", title: "Grep wiring", dir: "/tmp"}}
 	a.selectedSession = "ses_r"
 	a.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// Rename: the dialog pre-fills the title; saving queues the job and
 	// closes; an unedited save queues nothing.
-	a.requestRename(a.sessions[0])
+	a.requestRename(a.scope().sessions[0])
 	tt.Frame()
 	if !tt.HasText("Rename this chat") || a.rename == nil || a.rename.draft != "Grep wiring" {
 		t.Fatalf("rename dialog not drawn: %v", tt.Texts())
@@ -804,7 +830,7 @@ func TestSessionDialogs(t *testing.T) {
 
 	// Delete: a stock title conflict stands in; the dialog says what
 	// disappears and the pill queues it.
-	a.confirmDelete(a.sessions[0])
+	a.confirmDelete(a.scope().sessions[0])
 	tt.Frame()
 	if !tt.HasText("Delete “Grep wiring”?") {
 		t.Fatalf("confirm dialog not drawn: %v", tt.Texts())
@@ -826,23 +852,23 @@ func TestSessionDialogs(t *testing.T) {
 
 	// Once the server answers, the row goes and the open chat blanks.
 	a.dropSession("ses_r")
-	if len(a.sessions) != 0 || a.selectedSession != "" || len(a.blocks) != 0 {
+	if len(a.scope().sessions) != 0 || a.selectedSession != "" || len(a.blocks) != 0 {
 		t.Fatalf("after drop: %d rows, session %q, %d blocks",
-			len(a.sessions), a.selectedSession, len(a.blocks))
+			len(a.scope().sessions), a.selectedSession, len(a.blocks))
 	}
 }
 
 // Removing Recents also removes its pagination action.
 func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 	a := newApp()
-	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
-	a.sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessionsLoaded = true
 	tt := ui.NewTester(a.view, 1400, 920)
 	if tt.HasText("Show older chats") {
 		t.Fatalf("older-chats row shows with nothing to load: %v", tt.Texts())
 	}
 
-	a.nextCursor = "cur2"
+	a.scope().nextCursor = "cur2"
 	tt.Frame()
 	if tt.HasText("Show older chats") {
 		t.Fatal("recents pagination still visible")
@@ -858,10 +884,10 @@ func TestBootSettle(t *testing.T) {
 		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.blocks), a.selected)
 	}
 	a.settleBoot([]agentSession{{id: "ses_a", title: "Grep wiring"}}, "", nil)
-	if !a.sessionsLoaded || a.selectedSession != "ses_a" ||
+	if !a.scope().sessionsLoaded || a.selectedSession != "ses_a" ||
 		a.selected != "Grep wiring" || len(a.blocks) != 0 {
 		t.Fatalf("boot settle: loaded %v session %q label %q blocks %d",
-			a.sessionsLoaded, a.selectedSession, a.selected, len(a.blocks))
+			a.scope().sessionsLoaded, a.selectedSession, a.selected, len(a.blocks))
 	}
 	select {
 	case job := <-a.jobs:
@@ -875,8 +901,8 @@ func TestBootSettle(t *testing.T) {
 	// A startup without a server lands empty, not on the mock.
 	a2 := newApp()
 	a2.settleBoot(nil, "", fmt.Errorf("not connected"))
-	if len(a2.blocks) != 0 || !a2.sessionsLoaded {
-		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.blocks), a2.sessionsLoaded)
+	if len(a2.blocks) != 0 || !a2.scope().sessionsLoaded {
+		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.blocks), a2.scope().sessionsLoaded)
 	}
 
 	// An empty store reads the same: nothing mock survives the boot.
@@ -910,7 +936,7 @@ func TestFirstSendClean(t *testing.T) {
 // session on its own: one comes into being with the first words.
 func TestStartNewChat(t *testing.T) {
 	a := newApp()
-	a.sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
+	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
 	a.selected = "Grep wiring"
 	a.blocks = []block{{kind: "text", text: "leftover"}}
@@ -995,19 +1021,19 @@ func TestSetModelBody(t *testing.T) {
 // row, keeping the picker's chips in step with the server.
 func TestApplyModelEvent(t *testing.T) {
 	a := newApp()
-	a.models = []agentModel{{providerID: "opencode-go", id: "beam-free",
+	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free",
 		name: "Beam Free", variants: []string{"low", "medium", "high", "max"}, free: true}}
-	a.sessions = []agentSession{{id: "ses_z", title: "Weird turn",
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Weird turn",
 		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
 	a.apply(agentEvent{Type: "session.model.selected",
 		Data: json.RawMessage(`{"sessionID":"ses_z","model":{"id":"beam-free","providerID":"opencode-go","variant":"high"}}`)})
-	if a.sessions[0].model.variant != "high" ||
-		a.sessions[0].model.id != "beam-free" {
-		t.Fatalf("row model %+v", a.sessions[0].model)
+	if a.scope().sessions[0].model.variant != "high" ||
+		a.scope().sessions[0].model.id != "beam-free" {
+		t.Fatalf("row model %+v", a.scope().sessions[0].model)
 	}
-	name, variants := a.modelLabel(a.sessions[0].model)
+	name, variants := a.modelLabel(a.scope().sessions[0].model)
 	if name != "Beam Free" || len(variants) == 0 {
-		t.Fatalf("label %q has no variants; catalog %v", name, a.models)
+		t.Fatalf("label %q has no variants; catalog %v", name, a.scope().models)
 	}
 }
 
@@ -1016,13 +1042,13 @@ func TestApplyModelEvent(t *testing.T) {
 // filter narrows it, and the effort chips switch the variant.
 func TestModelPicker(t *testing.T) {
 	a := newApp()
-	a.models = []agentModel{
+	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", free: false},
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free",
 			variants: []string{"low", "medium", "high", "max"}, free: true},
 		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat 2.5 Preview Free", free: true},
 	}
-	a.sessions = []agentSession{{id: "ses_z", title: "Free turn",
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Free turn",
 		model: agentModelRef{providerID: "opencode-go", id: "beam-free"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Free turn"
@@ -1115,8 +1141,8 @@ func TestModelPickerScrolls(t *testing.T) {
 	models = append(models,
 		agentModel{providerID: "opencode-go", id: "zed-9000", name: "Zed 9000 Max", free: false},
 		agentModel{providerID: "opencode-go", id: "ado-1000", name: "Ado 1000 Pro New", free: false})
-	a.models = models
-	a.sessions = []agentSession{{id: "ses_z", title: "Turn",
+	a.scope().models = models
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn",
 		model: agentModelRef{providerID: "opencode-go", id: "wada-00"}}}
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
@@ -1210,8 +1236,8 @@ func TestAttachFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
 
 	// A missing file keeps the dialog open with a note.
@@ -1316,8 +1342,8 @@ func TestPermissionPill(t *testing.T) {
 	os.WriteFile(filepath.Join(tmp, "opencode.json"),
 		[]byte(`{"permission":{"bash":{"*":"ask"}}}`), 0644)
 	a := newApp()
-	a.sessionsLoaded = true
-	a.sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

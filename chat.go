@@ -13,7 +13,7 @@ import (
 // spacing, heading and code. The selection stays one across the message
 // blocks, as the wrapping scroll gives it.
 func (a *app) prepareMarkdown(p palette) {
-	a.mdTheme = markdown.Theme{
+	a.layout.mdTheme = markdown.Theme{
 		FontSize:            14,
 		Text:                p.text,
 		Muted:               p.muted,
@@ -28,8 +28,8 @@ func (a *app) prepareMarkdown(p palette) {
 		Rule:                p.hairline,
 		TableBorder:         p.hairline,
 	}
-	a.md.Theme = &a.mdTheme
-	a.md.ShareSelection = true
+	a.layout.md.Theme = &a.layout.mdTheme
+	a.layout.md.ShareSelection = true
 }
 
 // newFeed is the transcript's list: it opens at its end and keeps the
@@ -45,27 +45,27 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 		// the sidebar, as macOS 26 draws it.
 		area := ui.Box(c).Grow(1)
 		area.Children(func() {
-			if a.selectedSession == "" {
+			if a.conversation.target.isDraft() {
 				ui.Column(c).Fill().Center().Gap(8).Children(func() {
 					title := "What should we work on?"
-					if a.draftProject != "" {
-						title = "What should we build in " + dirBase(a.draftProject) + "?"
+					if a.conversation.draftProject != "" {
+						title = "What should we build in " + dirBase(a.conversation.draftProject) + "?"
 					}
 					ui.Text(c, title).FontSize(26).FontWeight(600).TextColor(p.text)
 					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
 				})
 			} else {
-				count := len(a.transcript.Rows())
+				count := len(a.conversation.transcript.Rows())
 				if a.turnWorking() {
 					count++
 				}
-				ui.List(c.Key(a.selectedSession), &a.feed, count).Fill().Selectable().
+				ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().
 					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
 					Rows(func(row ui.ListRow) {
-						if row.Index == len(a.transcript.Rows()) {
+						if row.Index == len(a.conversation.transcript.Rows()) {
 							a.blockRow(row.Context, p, chat.Block{Kind: chat.KindWorking, Text: "Working…"})
 						} else {
-							a.blockRow(row.Context, p, a.transcript.Rows()[row.Index])
+							a.blockRow(row.Context, p, a.conversation.transcript.Rows()[row.Index])
 						}
 					})
 			}
@@ -79,14 +79,14 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 
 // turnRunning reports the open chat's turn still going.
 func (a *app) turnRunning() bool {
-	return a.transcript.Busy() != "" && a.transcript.Busy() == a.selectedSession
+	return a.conversation.transcript.Busy() != "" && a.conversation.transcript.Busy() == a.conversation.target.session
 }
 
 // awaitingPerm reports an approval of the open chat's turn waiting on the
 // user.
 func (a *app) awaitingPerm() bool {
-	for _, perm := range a.transcript.Pending() {
-		if perm.Session == a.selectedSession {
+	for _, perm := range a.conversation.transcript.Pending() {
+		if perm.Session == a.conversation.target.session {
 			return true
 		}
 	}
@@ -104,9 +104,9 @@ func (a *app) turnWorking() bool {
 	// The newest stream row is the words landing: empty means there is
 	// nothing to read yet, and no stream row at all means the turn sits
 	// between steps.
-	for i := len(a.transcript.Rows()) - 1; i >= 0; i-- {
-		if a.transcript.Rows()[i].Kind == chat.KindStream {
-			return strings.TrimSpace(a.transcript.Rows()[i].Text) == ""
+	for i := len(a.conversation.transcript.Rows()) - 1; i >= 0; i-- {
+		if a.conversation.transcript.Rows()[i].Kind == chat.KindStream {
+			return strings.TrimSpace(a.conversation.transcript.Rows()[i].Text) == ""
 		}
 	}
 	return true
@@ -116,10 +116,10 @@ func (a *app) turnWorking() bool {
 // settles. IDs are assigned lazily, so opening history visits only what
 // the virtual list needs.
 func (a *app) blockIdentity(i int) any {
-	if i == len(a.transcript.Rows()) {
+	if i == len(a.conversation.transcript.Rows()) {
 		return "working"
 	}
-	return a.transcript.Identity(i)
+	return a.conversation.transcript.Identity(i)
 }
 
 // blockRow draws one block of the transcript: a paragraph, what the user
@@ -153,9 +153,9 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 			// Markdown still being written: the package parses the new
 			// words alone, shows half-written syntax as what it will
 			// become, and paces the words in.
-			markdown.Stream(c, b.Text, &a.md)
+			markdown.Stream(c, b.Text, &a.layout.md)
 		case chat.KindText:
-			markdown.View(c, b.Text, &a.md)
+			markdown.View(c, b.Text, &a.layout.md)
 			if line := usageLine(b.Cost, b.Tokens); line != "" {
 				ui.Text(c, line).FontSize(11.5).TextColor(p.faint).SingleLine()
 			}
@@ -165,7 +165,7 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 
 // activityRow is one line the agent ran, opening its detail below it.
 func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
-	open := a.expanded[b.Key]
+	open := a.layout.expanded[b.Key]
 	chev := icChevRight
 	if open {
 		chev = icChevDown
@@ -175,7 +175,7 @@ func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
 	if row.Hovered() {
 		row.Background(p.hover)
 	}
-	row.OnClick(func() { a.expanded[b.Key] = !a.expanded[b.Key] })
+	row.OnClick(func() { a.layout.expanded[b.Key] = !a.layout.expanded[b.Key] })
 	row.Children(func() {
 		ui.Icon(c, toolIcon(b.Icon)).FontSize(15).TextColor(p.muted)
 		ui.Text(c, b.Text).MarginStart(9).FontSize(13).TextColor(p.muted).SingleLine()

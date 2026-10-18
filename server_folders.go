@@ -41,13 +41,13 @@ func (st *browseState) dir() string {
 // sidebar starts a chat in the folder it lands on.
 func (a *app) browseServerFolders(forDraft bool) {
 	if a.localActive() {
-		a.selectAddedProject = forDraft
+		a.layout.selectAddedProject = forDraft
 		a.openProjectDialog()
 		return
 	}
 	a.closeBrowse()
 	st := &browseState{open: true, draft: forDraft, loading: true}
-	a.browse = st
+	a.layout.browse = st
 	// The chat's own folder is where the user already is; with none, the
 	// browse opens on the folder the server works in by default.
 	if start := a.chatDir(); start != "" {
@@ -65,7 +65,7 @@ func (a *app) browseServerFolders(forDraft bool) {
 		}
 		return ag.Location(ctx, "")
 	}, func(dir string, err error) {
-		if a.browse != st || !st.open {
+		if a.layout.browse != st || !st.open {
 			return
 		}
 		if err != nil {
@@ -81,7 +81,7 @@ func (a *app) browseServerFolders(forDraft bool) {
 // browseList reads the folder on show and fills the dialog with what the
 // server listed there.
 func (a *app) browseList() {
-	st := a.browse
+	st := a.layout.browse
 	if st == nil {
 		return
 	}
@@ -96,7 +96,7 @@ func (a *app) browseList() {
 		}
 		return ag.ListDir(ctx, location, rel)
 	}, func(entries []opencode.FileEntry, err error) {
-		if a.browse != st || !st.open {
+		if a.layout.browse != st || !st.open {
 			return
 		}
 		st.loading = false
@@ -112,7 +112,7 @@ func (a *app) browseList() {
 // browseGo reads the folder the path field names: an absolute path lands
 // where it says, a relative one under the browse's own.
 func (a *app) browseGo() {
-	st := a.browse
+	st := a.layout.browse
 	if st == nil {
 		return
 	}
@@ -136,7 +136,7 @@ func (a *app) browseGo() {
 
 // browseUp steps one folder up, past the browse's own root when asked.
 func (a *app) browseUp() {
-	st := a.browse
+	st := a.layout.browse
 	if st == nil {
 		return
 	}
@@ -147,7 +147,7 @@ func (a *app) browseUp() {
 // browsePick settles the folder on show: the draft works in it, or a chat
 // starts in it.
 func (a *app) browsePick() {
-	st := a.browse
+	st := a.layout.browse
 	if st == nil || st.loading || st.note != "" {
 		return
 	}
@@ -164,7 +164,7 @@ func (a *app) browsePick() {
 // and files the server listed there, and the one action the browse was
 // opened for.
 func (a *app) browseModal(c *ui.Context, p palette) {
-	st := a.browse
+	st := a.layout.browse
 	if st == nil || !st.open {
 		return
 	}
@@ -261,8 +261,8 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 }
 
 func (a *app) closeBrowse() {
-	if a.browse != nil {
-		a.browse.request.stop()
-		a.browse = nil
+	if a.layout.browse != nil {
+		a.layout.browse.request.stop()
+		a.layout.browse = nil
 	}
 }

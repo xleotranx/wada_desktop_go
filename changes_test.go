@@ -85,18 +85,19 @@ func TestAgentWorkspaceChanges(t *testing.T) {
 func TestChangesPane(t *testing.T) {
 	srv, asked := changesServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
-	a.selectedSession, a.selected = "ses_r", "Remote turn"
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.openTool("Changes")
-	if a.changes == nil || a.changes.loading {
-		t.Fatalf("the tool did not read: %+v", a.changes)
+	if a.workspace.changes == nil || a.workspace.changes.loading {
+		t.Fatalf("the tool did not read: %+v", a.workspace.changes)
 	}
-	if a.changes.dir != "/srv/app" || a.changes.mode != "working" || len(a.changes.files) != 2 {
-		t.Fatalf("the read landed on %+v", a.changes)
+	if a.workspace.changes.dir != "/srv/app" || a.workspace.changes.mode != "working" || len(a.workspace.changes.files) != 2 {
+		t.Fatalf("the read landed on %+v", a.workspace.changes)
 	}
 	tt.Frame()
 	if !tt.HasText("Review the files changed in this workspace.") ||
@@ -105,7 +106,7 @@ func TestChangesPane(t *testing.T) {
 		t.Fatalf("the pane is not drawn: %v", tt.Texts())
 	}
 	// The file on show is the first one's, and its patch draws.
-	if a.changes.diff.New == nil || !strings.Contains(a.changes.diff.New.String(), "// a new line") {
+	if a.workspace.changes.diff.New == nil || !strings.Contains(a.workspace.changes.diff.New.String(), "// a new line") {
 		t.Fatalf("the patch is not drawn: %v", tt.Texts())
 	}
 	// Asking for the other file shows its patch instead.
@@ -113,7 +114,7 @@ func TestChangesPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.changes.selected != 1 || a.changes.diff.New == nil || a.changes.diff.New.String() != "package main" {
+	if a.workspace.changes.selected != 1 || a.workspace.changes.diff.New == nil || a.workspace.changes.diff.New.String() != "package main" {
 		t.Fatalf("the second file's patch is not drawn: %v", tt.Texts())
 	}
 
@@ -122,8 +123,8 @@ func TestChangesPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.changes.mode != "branch" || len(a.changes.files) != 2 || a.changes.selected != 0 {
-		t.Fatalf("the branch read landed on %+v", a.changes)
+	if a.workspace.changes.mode != "branch" || len(a.workspace.changes.files) != 2 || a.workspace.changes.selected != 0 {
+		t.Fatalf("the branch read landed on %+v", a.workspace.changes)
 	}
 	if !tt.HasText("git · feature/remote against main") || !tt.HasText("docs/old.md") {
 		t.Fatalf("the branch pane is not drawn: %v", tt.Texts())
@@ -145,8 +146,8 @@ func TestChangesPane(t *testing.T) {
 	// Another chat's folder is another diff.
 	a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: "ses_other", Title: "Other", Directory: "/srv/other"})
 	a.adoptSession(a.scope().sessions[len(a.scope().sessions)-1])
-	if a.changes.dir != "/srv/other" {
-		t.Fatalf("the tool kept comparing %q", a.changes.dir)
+	if a.workspace.changes.dir != "/srv/other" {
+		t.Fatalf("the tool kept comparing %q", a.workspace.changes.dir)
 	}
 }
 
@@ -156,16 +157,17 @@ func TestChangesPane(t *testing.T) {
 func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 	srv, _ := changesServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
-	a.selectedSession, a.selected = "", ""
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
+	a.conversation.target.selectSession("")
+	a.conversation.selected = ""
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// A remote draft with no folder yet.
 	a.openTool("Changes")
 	tt.Frame()
-	if a.changes.note == "" || !strings.Contains(a.changes.note, "no folder on the server") {
-		t.Fatalf("a folderless remote reads %+v", a.changes)
+	if a.workspace.changes.note == "" || !strings.Contains(a.workspace.changes.note, "no folder on the server") {
+		t.Fatalf("a folderless remote reads %+v", a.workspace.changes)
 	}
 	if tt.HasText("src/app.go") {
 		t.Fatalf("the pane drew a diff it never read: %v", tt.Texts())
@@ -181,12 +183,13 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 	})
 	clean := httptest.NewServer(mux)
 	defer clean.Close()
-	a.servers[1].url = clean.URL
+	a.connections.servers[1].url = clean.URL
 	a.scope().sessions = []opencode.Session{{ID: "ses_clean", Title: "Clean turn", Directory: "/srv/clean"}}
-	a.selectedSession, a.selected = "ses_clean", "Clean turn"
+	a.conversation.target.selectSession("ses_clean")
+	a.conversation.selected = "Clean turn"
 	a.openChanges(changesWorking)
-	if a.changes.note != "" || len(a.changes.files) != 0 {
-		t.Fatalf("a clean read landed on %+v", a.changes)
+	if a.workspace.changes.note != "" || len(a.workspace.changes.files) != 0 {
+		t.Fatalf("a clean read landed on %+v", a.workspace.changes)
 	}
 	tt.Frame()
 	if !tt.HasText("Nothing changed here.") {
@@ -199,18 +202,18 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 		w.Write([]byte(`{"_tag":"InvalidRequestError","message":"not a repository"}`))
 	}))
 	defer bad.Close()
-	a.servers[1].url = bad.URL
+	a.connections.servers[1].url = bad.URL
 	a.openChanges(changesWorking)
-	if !strings.Contains(a.changes.note, "not a repository") {
-		t.Fatalf("a refused read landed on %+v", a.changes)
+	if !strings.Contains(a.workspace.changes.note, "not a repository") {
+		t.Fatalf("a refused read landed on %+v", a.workspace.changes)
 	}
 }
 
 func TestChangesPatchIsSelectableAndReadOnly(t *testing.T) {
 	a := newTestApp(t)
-	a.browserCollapsed, a.browserTool = false, "Changes"
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
 	line := strings.Repeat("x", 600)
-	a.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
 		{File: "long.txt", Patch: "@@ -1 +1 @@\n-old\n+" + line + "\n"},
 		{File: "other.txt", Patch: "@@ -1 +1 @@\n-before\n+after\n"},
 	}}
@@ -224,14 +227,14 @@ func TestChangesPatchIsSelectableAndReadOnly(t *testing.T) {
 		t.Fatal("the full patch line could not be copied")
 	}
 	tt.Type("an accidental edit")
-	if a.changes.diff.New.String() != line {
+	if a.workspace.changes.diff.New.String() != line {
 		t.Fatalf("the patch was clipped or edited: %v", tt.Texts())
 	}
 	if err := tt.Click("Show other.txt"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.changes.diff.New.String() != "after" {
+	if a.workspace.changes.diff.New.String() != "after" {
 		t.Fatalf("the selected patch did not change: %v", tt.Texts())
 	}
 	tt.SetDark(true)
@@ -246,8 +249,8 @@ func TestChangesRawPatch(t *testing.T) {
 	} {
 		t.Run(patch, func(t *testing.T) {
 			a := newTestApp(t)
-			a.browserCollapsed, a.browserTool = false, "Changes"
-			a.changes = &changesState{mode: changesWorking, files: []opencode.Change{{File: "x", Patch: patch}}}
+			a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+			a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{{File: "x", Patch: patch}}}
 			tt := ui.NewTester(a.view, 1400, 920)
 			if err := tt.Click("Raw patch"); err != nil {
 				t.Fatal(err)
@@ -258,7 +261,7 @@ func TestChangesRawPatch(t *testing.T) {
 				t.Fatal("the raw patch could not be copied")
 			}
 			tt.Type("an accidental edit")
-			if a.changes.patch != patch {
+			if a.workspace.changes.patch != patch {
 				t.Fatalf("the raw patch was lost or edited: %v", tt.Texts())
 			}
 		})

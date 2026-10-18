@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/runner"
 
 	"encoding/json"
 	"fmt"
@@ -222,7 +223,7 @@ func redeemPairLink(ctx context.Context, link string) (string, string, error) {
 // do for pickFolder.
 func (a *app) runPair(link string, done func(addr, token string, err error)) {
 	type pairing struct{ addr, token string }
-	runOwned(a, new(requestState), a.lifetime, func(ctx context.Context) (pairing, error) {
+	runOwned(a, new(requestState), a.runtime.lifetime, func(ctx context.Context) (pairing, error) {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		addr, token, err := redeemPairLink(ctx, link)
@@ -286,8 +287,8 @@ func mintPairLink(ctx context.Context, cfg serverConn, facts opencode.Facts) (st
 // clipboard back on the UI thread, so the answer lands through the window
 // the way the probes do; tests run it inline, as they do setAsk.
 func (a *app) copyPairLink(s serverConn) {
-	facts := a.serverFacts[s.id]
-	runOwned(a, a.registryRequest("mint:"+s.id), a.lifetime, func(ctx context.Context) (string, error) {
+	facts := a.connections.serverFacts[s.id]
+	runOwned(a, a.registryRequest("mint:"+s.id), a.runtime.lifetime, func(ctx context.Context) (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		return mintPairLink(ctx, s, facts)
@@ -299,13 +300,13 @@ func (a *app) copyPairLink(s serverConn) {
 			a.streamLine("The pairing link did not mint: " + err.Error())
 			return
 		}
-		if cerr := a.copy(link); cerr != nil {
+		if cerr := a.runtime.copy(link); cerr != nil {
 			a.streamLine("The pairing link could not reach the clipboard: " + cerr.Error())
 		}
-		if a.pairLinks == nil {
-			a.pairLinks = map[string]mintedLink{}
+		if a.connections.pairLinks == nil {
+			a.connections.pairLinks = map[string]mintedLink{}
 		}
-		a.pairLinks[s.id] = mintedLink{link: link, at: time.Now()}
+		a.connections.pairLinks[s.id] = mintedLink{link: link, at: time.Now()}
 	})
 }
 
@@ -317,7 +318,7 @@ func (a *app) copyToClipboard(text string) error {
 // activePairLink is one server's minted pairing link while it still works;
 // a link the clock has passed is nothing to show.
 func (a *app) activePairLink(serverID string) string {
-	m, ok := a.pairLinks[serverID]
+	m, ok := a.connections.pairLinks[serverID]
 	if !ok || time.Since(m.at) > pairLinkLife {
 		return ""
 	}
@@ -374,7 +375,7 @@ func probeServer(ctx context.Context, cfg serverConn) (opencode.Facts, error) {
 
 // serverByID finds one connection as it stands now.
 func (a *app) serverByID(id string) (serverConn, bool) {
-	for _, s := range a.servers {
+	for _, s := range a.connections.servers {
 		if s.id == id {
 			return s, true
 		}
@@ -385,7 +386,7 @@ func (a *app) serverByID(id string) (serverConn, bool) {
 // activeServerConn is the connection the pipe should be talking to; the
 // local one stands in when nothing else was chosen.
 func (a *app) activeServerConn() serverConn {
-	if s, ok := a.serverByID(a.activeServer); ok {
+	if s, ok := a.serverByID(a.connections.activeServer); ok {
 		return s
 	}
 	return defaultLocalServer()
@@ -400,37 +401,31 @@ func (a *app) localActive() bool {
 
 // setHealth records how one server last answered.
 func (a *app) setHealth(id string, h serverHealth) {
-	if a.serverHealth == nil {
-		a.serverHealth = map[string]serverHealth{}
+	if a.connections.serverHealth == nil {
+		a.connections.serverHealth = map[string]serverHealth{}
 	}
-	a.serverHealth[id] = h
+	a.connections.serverHealth[id] = h
 }
 
 // setFacts records what one server's /info said about itself.
 func (a *app) setFacts(id string, f opencode.Facts) {
-	if a.serverFacts == nil {
-		a.serverFacts = map[string]opencode.Facts{}
+	if a.connections.serverFacts == nil {
+		a.connections.serverFacts = map[string]opencode.Facts{}
 	}
-	a.serverFacts[id] = f
+	a.connections.serverFacts[id] = f
 }
 
 // useServer points the app at one connection: the pipe redials, the view
 // clears for the new server's chats, and its own pins come back.
 func (a *app) useServer(id string) {
-	if id == a.activeServer {
+	if id == a.connections.activeServer {
 		return
 	}
 	if _, ok := a.serverByID(id); !ok {
 		return
 	}
-	old := a.activeServer
-	a.activeServer = id
-	a.pinsByServer[old] = slices.Clone(a.pinOrder)
-	a.pinOrder = slices.Clone(a.pinsByServer[id])
-	a.pinned = map[string]bool{}
-	for _, sid := range a.pinOrder {
-		a.pinned[sid] = true
-	}
+	old := a.connections.activeServer
+	a.connections.activeServer = id
 	if last, ok := a.serverByID(old); ok && last.managed {
 		// The app runs its own server only while it is the active one.
 		a.setHealth(old, serverHealth{status: healthStopped})
@@ -438,8 +433,8 @@ func (a *app) useServer(id string) {
 	// The draft's folder and its model belong to the server's own world:
 	// carried over, they would speak for a folder the next server has
 	// never heard of, or a model it does not offer.
-	a.draftProject = ""
-	a.draftModel = opencode.ModelRef{}
+	a.conversation.draftProject = ""
+	a.conversation.draftModel = opencode.ModelRef{}
 	a.reconnect()
 	a.saveState()
 }
@@ -447,20 +442,15 @@ func (a *app) useServer(id string) {
 // reconnect dials the active server again, as its row's action and a
 // switch both do.
 func (a *app) reconnect() {
-	a.stopWork()
-	a.workCtx, a.stopWork = context.WithCancel(a.lifetime)
-	a.route++
+	a.runtime.stopWork()
+	a.runtime.workCtx, a.runtime.stopWork = context.WithCancel(a.runtime.lifetime)
+	a.connections.route++
 	a.clearForSwitch()
-	// Producers run on the UI thread. Emptying obsolete work reserves a
-	// slot for the switch; all requests for the new route follow it.
-	for {
-		select {
-		case <-a.jobs:
-		default:
-			a.jobs <- agentJob{kind: jobServer, route: a.route,
-				server: a.activeServerConn(), pins: slices.Clone(a.pinOrder)}
-			return
-		}
+	if a.runtime.connectTo != nil {
+		a.runtime.connectTo(runner.Generation(a.connections.route), a.runnerConnection())
+	}
+	if a.search.searchText != "" {
+		a.reviseSearch()
 	}
 }
 
@@ -470,32 +460,31 @@ func (a *app) reconnect() {
 // stay in its scope, so a switch back to one shows its chats while the
 // pipe dials, and its dial refreshes the list.
 func (a *app) clearForSwitch() {
-	a.selected = ""
-	a.selectedSession = ""
+	a.conversation.selected = ""
+	a.conversation.target.selectSession("")
 	a.freshTranscript()
-	a.pickerOpen = false
+	a.layout.pickerOpen = false
 	a.scope().moreLoading = false
-	a.searchResults = nil
-	a.searchLoading = false
-	a.searchVersion++
+	a.search.searchResults = nil
+	a.search.searchLoading = false
+	a.search.searchVersion++
 	a.workspaceChanged()
 }
 
 // dropServer forgets one connection and everything the app kept for it.
 // The local server and the active one are never dropped.
 func (a *app) dropServer(id string) {
-	if id == localServerID || id == a.activeServer {
+	if id == localServerID || id == a.connections.activeServer {
 		return
 	}
 	a.invalidateServerWork(id)
-	a.servers = slices.DeleteFunc(a.servers, func(s serverConn) bool { return s.id == id })
-	delete(a.pinsByServer, id)
-	delete(a.scopes, id)
-	delete(a.serverHealth, id)
-	delete(a.serverFacts, id)
-	delete(a.pairLinks, id)
+	a.connections.servers = slices.DeleteFunc(a.connections.servers, func(s serverConn) bool { return s.id == id })
+	delete(a.connections.scopes, id)
+	delete(a.connections.serverHealth, id)
+	delete(a.connections.serverFacts, id)
+	delete(a.connections.pairLinks, id)
 	prefix := id + "\x00"
-	maps.DeleteFunc(a.modelOff, func(key string, _ bool) bool { return strings.HasPrefix(key, prefix) })
+	maps.DeleteFunc(a.connections.modelOff, func(key string, _ bool) bool { return strings.HasPrefix(key, prefix) })
 	a.saveState()
 }
 
@@ -508,7 +497,7 @@ func (a *app) runProbe(cfg serverConn) {
 		return
 	}
 	request := a.registryRequest("probe:" + cfg.id)
-	runOwned(a, request, a.lifetime, func(ctx context.Context) (opencode.Facts, error) {
+	runOwned(a, request, a.runtime.lifetime, func(ctx context.Context) (opencode.Facts, error) {
 		ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
 		return probeServer(ctx, cfg)
@@ -528,21 +517,21 @@ func (a *app) runProbe(cfg serverConn) {
 }
 
 func (a *app) registryRequest(key string) *requestState {
-	if a.registryRequests == nil {
-		a.registryRequests = map[string]*requestState{}
+	if a.connections.registryRequests == nil {
+		a.connections.registryRequests = map[string]*requestState{}
 	}
-	if a.registryRequests[key] == nil {
-		a.registryRequests[key] = new(requestState)
+	if a.connections.registryRequests[key] == nil {
+		a.connections.registryRequests[key] = new(requestState)
 	}
-	return a.registryRequests[key]
+	return a.connections.registryRequests[key]
 }
 
 func (a *app) invalidateServerWork(id string) {
 	for _, prefix := range []string{"probe:", "mint:"} {
 		key := prefix + id
-		if request := a.registryRequests[key]; request != nil {
+		if request := a.connections.registryRequests[key]; request != nil {
 			request.stop()
-			delete(a.registryRequests, key)
+			delete(a.connections.registryRequests, key)
 		}
 	}
 }
@@ -550,12 +539,12 @@ func (a *app) invalidateServerWork(id string) {
 // probeUntried tests the connections nothing has reached for yet, so the
 // page tells the user something the moment they open it.
 func (a *app) probeUntried() {
-	for _, s := range a.servers {
-		if s.id == a.activeServer || s.managed {
+	for _, s := range a.connections.servers {
+		if s.id == a.connections.activeServer || s.managed {
 			continue
 		}
-		if a.serverHealth[s.id].status == healthUntested {
-			a.probe(s)
+		if a.connections.serverHealth[s.id].status == healthUntested {
+			a.runtime.probe(s)
 		}
 	}
 }

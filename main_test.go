@@ -21,8 +21,8 @@ func TestView(t *testing.T) {
 
 	// The interface starts clean, with Codex navigation and workspace
 	// tools around an empty transcript waiting for the boot.
-	if a.selected != "" || len(a.transcript.Rows()) != 0 {
-		t.Fatalf("initial state: selected %q, %d blocks", a.selected, len(a.transcript.Rows()))
+	if a.conversation.selected != "" || len(a.conversation.transcript.Rows()) != 0 {
+		t.Fatalf("initial state: selected %q, %d blocks", a.conversation.selected, len(a.conversation.transcript.Rows()))
 	}
 	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
 		!tt.HasText("Pinned") || !tt.HasText("Projects") || tt.HasText("Recents") ||
@@ -91,7 +91,7 @@ func TestTopBarChrome(t *testing.T) {
 	}
 	// It starts where the conversation does, past the rail and sidebar,
 	// and stands inside the strip.
-	if past := navRailWidth + a.sidebarW; title.X < past || title.X > past+24 {
+	if past := navRailWidth + a.layout.sidebarW; title.X < past || title.X > past+24 {
 		t.Fatalf("the title starts at %v, want just past the sidebar at %v", title.X, past)
 	}
 	if title.Y >= 48 {
@@ -102,13 +102,13 @@ func TestTopBarChrome(t *testing.T) {
 	if err := tt.Click("Show tools"); err != nil {
 		t.Fatalf("the tools toggle: %v", err)
 	}
-	if a.browserCollapsed || !tt.HasText("Suggested") {
+	if a.layout.browserCollapsed || !tt.HasText("Suggested") {
 		t.Fatal("the tools toggle did not bring the right pane in")
 	}
 	if err := tt.Click("Hide tools"); err != nil {
 		t.Fatalf("the tools toggle: %v", err)
 	}
-	if !a.browserCollapsed || tt.HasText("Suggested") {
+	if !a.layout.browserCollapsed || tt.HasText("Suggested") {
 		t.Fatal("the tools toggle did not fold the right pane away")
 	}
 
@@ -127,39 +127,39 @@ func TestTopBarChrome(t *testing.T) {
 // during it stays where they put the view.
 func TestStreamFollowsFeed(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.selected = "Turn"
-	a.transcript.Start("ses_z")
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Turn"
+	a.conversation.transcript.Start("ses_z")
 	for i := range 80 {
-		a.transcript.Append(chat.Block{Kind: "text", Text: fmt.Sprintf("line %d", i)})
+		a.conversation.transcript.Append(chat.Block{Kind: "text", Text: fmt.Sprintf("line %d", i)})
 	}
 
 	// A conversation opens at its foot, then follows newly appended rows.
 	tt := ui.NewTester(a.view, 1400, 920)
-	if !a.feed.AtEnd() {
+	if !a.layout.feed.AtEnd() {
 		t.Fatal("the transcript did not open at its end")
 	}
 	for i := range 40 {
-		a.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("more %d", i)})
+		a.conversation.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("more %d", i)})
 	}
 	tt.Frame()                  // the grown content starts the glide
 	tt.Advance(2 * time.Second) // which lands at the new foot
-	if !a.feed.AtEnd() || !tt.HasText("more 39") {
+	if !a.layout.feed.AtEnd() || !tt.HasText("more 39") {
 		t.Fatal("the feed did not follow the stream")
 	}
 
 	// A reader who scrolled up keeps their place while the answer grows.
 	tt.Scroll(1000, 300, 0, -10000)
-	first, _ := a.feed.Visible()
-	if a.feed.AtEnd() || first != 0 {
+	first, _ := a.layout.feed.Visible()
+	if a.layout.feed.AtEnd() || first != 0 {
 		t.Fatalf("scrolling up did not leave the foot: first %d", first)
 	}
 	for i := range 40 {
-		a.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("tail %d", i)})
+		a.conversation.transcript.Append(chat.Block{Kind: "stream", Text: fmt.Sprintf("tail %d", i)})
 	}
 	tt.Frame()
 	tt.Advance(2 * time.Second)
-	if now, _ := a.feed.Visible(); now != first || a.feed.AtEnd() {
+	if now, _ := a.layout.feed.Visible(); now != first || a.layout.feed.AtEnd() {
 		t.Fatalf("the feed dragged the reader from row %d to %d", first, now)
 	}
 	if tt.HasText("tail 39") {
@@ -172,13 +172,13 @@ func TestStreamFollowsFeed(t *testing.T) {
 // line wraps, not on every word.
 func TestStreamPinsInLineSteps(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.selected = "Turn"
-	a.transcript.Start("ses_z")
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Turn"
+	a.conversation.transcript.Start("ses_z")
 	for i := range 80 {
-		a.transcript.Append(chat.Block{Kind: chat.KindText, Text: fmt.Sprintf("line %d", i)})
+		a.conversation.transcript.Append(chat.Block{Kind: chat.KindText, Text: fmt.Sprintf("line %d", i)})
 	}
-	a.transcript.Append(chat.Block{Kind: chat.KindStream, Text: "start", Key: "stream:m:0", Message: "m"})
+	a.conversation.transcript.Append(chat.Block{Kind: chat.KindStream, Text: "start", Key: "stream:m:0", Message: "m"})
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.Advance(time.Second) // the words pace in
 
@@ -187,7 +187,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 		t.Fatalf("the row above the answer is not in view: %v", tt.Texts())
 	}
 	// Words that stay on the answer's first line leave the feed alone.
-	a.transcript.Rows()[len(a.transcript.Rows())-1].Text = "start with a few more words"
+	a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text = "start with a few more words"
 	for range 20 {
 		tt.Frame()
 		tt.Advance(16 * time.Millisecond)
@@ -197,7 +197,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 	}
 	// A wrapped line pins the bottom at once, lifting the rows above by
 	// that line rather than gliding over the next half second.
-	a.transcript.Rows()[len(a.transcript.Rows())-1].Text = strings.Repeat("word ", 40)
+	a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text = strings.Repeat("word ", 40)
 	tt.Frame()
 	tt.Advance(time.Second)
 	if after, _ := tt.Find("line 79"); after.Y >= before.Y {
@@ -211,11 +211,11 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 // words pace in rather than landing in bursts.
 func TestStreamMarkers(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.selected = "Turn"
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 	show := func(text string) *ui.Tester {
-		a.transcript.Replace([]chat.Block{{Kind: "stream", Text: text}})
+		a.conversation.transcript.Replace([]chat.Block{{Kind: "stream", Text: text}})
 		tt.Frame()
 		tt.Advance(time.Second) // the words pace in
 		return tt
@@ -270,9 +270,9 @@ func TestStreamMarkers(t *testing.T) {
 // approval waits on the user, and never for another chat's turn.
 func TestTranscriptLoader(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.selected = "Turn"
-	a.transcript.Start("ses_z")
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Turn"
+	a.conversation.transcript.Start("ses_z")
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Working…") {
 		t.Fatalf("the loader is missing: %v", tt.Texts())
@@ -280,29 +280,29 @@ func TestTranscriptLoader(t *testing.T) {
 
 	// Words landing take the loader's place, and an empty stream row --
 	// the next paragraph starting -- brings it back.
-	a.transcript.Replace([]chat.Block{{Kind: "stream", Text: "half an answer"}})
+	a.conversation.transcript.Replace([]chat.Block{{Kind: "stream", Text: "half an answer"}})
 	tt.Frame()
 	tt.Advance(time.Second) // the words pace in
 	if tt.HasText("Working…") || !tt.HasText("half an answer") {
 		t.Fatalf("wordy stream: %v", tt.Texts())
 	}
-	a.transcript.Append(chat.Block{Kind: "stream", Key: "stream:msg:1"})
+	a.conversation.transcript.Append(chat.Block{Kind: "stream", Key: "stream:msg:1"})
 	tt.Frame()
 	if !tt.HasText("Working…") {
 		t.Fatalf("a silent stream row drops the loader: %v", tt.Texts())
 	}
 
 	// An approval waiting leaves the decisions to the user, not the agent.
-	a.transcript.Replace(nil)
-	a.transcript.Ask(&chat.Permission{ID: "per_1", Session: "ses_z"})
+	a.conversation.transcript.Replace(nil)
+	a.conversation.transcript.Ask(&chat.Permission{ID: "per_1", Session: "ses_z"})
 	tt.Frame()
 	if tt.HasText("Working…") {
 		t.Fatalf("the loader runs while waiting on the user: %v", tt.Texts())
 	}
 
 	// Another chat's turn does not show here.
-	a.transcript.ClearPermissions()
-	a.selectedSession = "ses_other"
+	a.conversation.transcript.ClearPermissions()
+	a.conversation.target.selectSession("ses_other")
 	tt.Frame()
 	if tt.HasText("Working…") {
 		t.Fatalf("another chat's turn showed its loader: %v", tt.Texts())
@@ -314,7 +314,7 @@ func TestTranscriptLoader(t *testing.T) {
 // not AlignItems'.
 func TestSidebarSearchCentered(t *testing.T) {
 	a := newTestApp(t)
-	a.searchOpen = true
+	a.search.searchOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	row, ok := tt.Find("New chat")
@@ -346,18 +346,18 @@ func TestSidebarSearch(t *testing.T) {
 		t.Fatalf("focusing the search field: %v", err)
 	}
 	tt.Type("wire")
-	if a.searchText != "wire" {
-		t.Fatalf("search text %q after typing", a.searchText)
+	if a.search.searchText != "wire" {
+		t.Fatalf("search text %q after typing", a.search.searchText)
 	}
 	select {
-	case job := <-a.searches:
+	case job := <-a.search.searches:
 		if job.text != "wire" {
 			t.Fatalf("search job %+v", job)
 		}
 	default:
 		t.Fatal("typing did not queue a search job")
 	}
-	if !a.searchLoading {
+	if !a.search.searchLoading {
 		t.Fatal("the lookup does not show as running")
 	}
 
@@ -366,8 +366,8 @@ func TestSidebarSearch(t *testing.T) {
 	if !tt.HasText("Results") || !tt.HasText("Searching chats") {
 		t.Fatalf("search state not shown: %v", tt.Texts())
 	}
-	a.searchLoading = false
-	a.searchResults = []opencode.Session{{ID: "ses_b", Title: "Wiring the wings"}}
+	a.search.searchLoading = false
+	a.search.searchResults = []opencode.Session{{ID: "ses_b", Title: "Wiring the wings"}}
 	tt.Frame()
 	if !tt.HasText("Wiring the wings") || tt.HasText("Grep wiring") {
 		t.Fatalf("results not shown in place of the list: %v", tt.Texts())
@@ -375,11 +375,11 @@ func TestSidebarSearch(t *testing.T) {
 	if err := tt.Click("Wiring the wings"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selected != "Wiring the wings" || a.selectedSession != "ses_b" {
-		t.Fatalf("result not opened: %q %q", a.selected, a.selectedSession)
+	if a.conversation.selected != "Wiring the wings" || a.conversation.target.session != "ses_b" {
+		t.Fatalf("result not opened: %q %q", a.conversation.selected, a.conversation.target.session)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "open" || job.sid != "ses_b" {
 			t.Fatalf("open job %+v", job)
 		}
@@ -388,15 +388,15 @@ func TestSidebarSearch(t *testing.T) {
 	}
 
 	// Clearing the field hides results without showing recent chats.
-	a.searchText = ""
-	a.searchResults = nil
+	a.search.searchText = ""
+	a.search.searchResults = nil
 	a.reviseSearch()
 	tt.Frame()
 	if tt.HasText("Grep wiring") || tt.HasText("Results") || !tt.HasText("Projects") {
 		t.Fatalf("clearing did not restore projects: %v", tt.Texts())
 	}
 	select {
-	case <-a.jobs:
+	case <-commandsOf(a):
 		t.Fatal("a blank field queued a lookup")
 	default:
 	}
@@ -407,25 +407,25 @@ func TestSidebarSearch(t *testing.T) {
 // the field the way the product menu does.
 func TestHeaderWiring(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_seed"
-	a.selected = "Wired turn"
-	a.selectedSession = "ses_z"
-	a.transcript.Replace([]chat.Block{{Kind: "text", Text: "half a thought"}})
+	a.conversation.target.selectSession("ses_seed")
+	a.conversation.selected = "Wired turn"
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.transcript.Replace([]chat.Block{{Kind: "text", Text: "half a thought"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The search chip aims the field: the ask stands until a frame gives
 	// the field the keyboard, then it is gone, one ask at a time.
-	a.searchOpen = true
-	a.focusSearch = true
+	a.search.searchOpen = true
+	a.search.focusSearch = true
 	tt.Frame()
-	if a.focusSearch {
+	if a.search.focusSearch {
 		t.Fatal("the field did not take the focus")
 	}
 
 	// With an approval waiting, the bell names it and opens its chat.
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Wired turn"}}
-	a.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell"})
+	a.conversation.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell"})
 	tt.Frame()
 	if !tt.HasText("1") || !tt.HasText("Notifications, 1 approvals waiting") {
 		t.Fatalf("bell badge missing: %v", tt.Texts())
@@ -433,11 +433,11 @@ func TestHeaderWiring(t *testing.T) {
 	if err := tt.Click("Notifications, 1 approvals waiting"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selectedSession != "ses_z" || a.selected != "Wired turn" {
-		t.Fatalf("bell click landed on %q %q", a.selectedSession, a.selected)
+	if a.conversation.target.session != "ses_z" || a.conversation.selected != "Wired turn" {
+		t.Fatalf("bell click landed on %q %q", a.conversation.target.session, a.conversation.selected)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "open" || job.sid != "ses_z" {
 			t.Fatalf("bell job %+v", job)
 		}
@@ -446,7 +446,7 @@ func TestHeaderWiring(t *testing.T) {
 	}
 
 	// The quiet bell, nothing pending, shows no badge.
-	a.transcript.ClearPermissions()
+	a.conversation.transcript.ClearPermissions()
 	tt.Frame()
 	if !tt.HasText("Notifications") || tt.HasText("approvals waiting") {
 		t.Fatalf("badge stuck: %v", tt.Texts())
@@ -463,47 +463,47 @@ func TestAttachDialog(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
-	a.selectedSession = "ses_z"
+	a.conversation.target.selectSession("ses_z")
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Attach"); err != nil {
 		t.Fatalf("the + did not open the dialog: %v", err)
 	}
-	if a.attach == nil {
+	if a.layout.attach == nil {
 		t.Fatal("the dialog did not open")
 	}
 	tt.Frame()
 	if !tt.HasText("Quote a file") {
 		t.Fatalf("dialog missing: %v", tt.Texts())
 	}
-	a.attach.draft = "notes.md"
+	a.layout.attach.draft = "notes.md"
 	tt.Frame()
 	if err := tt.Click("Quote"); err != nil {
 		t.Fatal(err)
 	}
-	if a.attach != nil {
+	if a.layout.attach != nil {
 		t.Fatal("the dialog stayed open")
 	}
 	mark := "(file: " + filepath.Join(tmp, "notes.md") + ")"
-	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "# hello") {
-		t.Fatalf("draft %q", a.draft)
+	if !strings.Contains(a.conversation.draft, mark) || !strings.Contains(a.conversation.draft, "# hello") {
+		t.Fatalf("draft %q", a.conversation.draft)
 	}
 	// The cancelled drawer leaves the draft to itself.
-	a.attach = &attachState{open: true}
+	a.layout.attach = &attachState{open: true}
 	tt.Frame()
 	if err := tt.Click("Cancel"); err != nil {
 		t.Fatal(err)
 	}
-	if a.attach != nil || strings.Count(a.draft, mark) != 1 {
-		t.Fatalf("cancel fail: open %v draft %q", a.attach != nil, a.draft)
+	if a.layout.attach != nil || strings.Count(a.conversation.draft, mark) != 1 {
+		t.Fatalf("cancel fail: open %v draft %q", a.layout.attach != nil, a.conversation.draft)
 	}
 }
 
 func TestActivityExpands(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_seed"
-	a.selected = "Wired turn"
-	a.transcript.Replace([]chat.Block{
+	a.conversation.target.selectSession("ses_seed")
+	a.conversation.selected = "Wired turn"
+	a.conversation.transcript.Replace([]chat.Block{
 		{Kind: "activity", Text: "Ran command", Icon: "shell", Key: "activity:call_1",
 			Detail: []string{
 				"$ echo hi",
@@ -535,17 +535,17 @@ func TestComposerSends(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Type("Ship the boundary check")
-	if a.draft != "Ship the boundary check" {
-		t.Fatalf("draft %q after typing", a.draft)
+	if a.conversation.draft != "Ship the boundary check" {
+		t.Fatalf("draft %q after typing", a.conversation.draft)
 	}
 	tt.Key(0, ui.KeyEnter)
-	if a.draft != "" {
-		t.Fatalf("draft %q after Enter", a.draft)
+	if a.conversation.draft != "" {
+		t.Fatalf("draft %q after Enter", a.conversation.draft)
 	}
-	if len(a.transcript.Rows()) == 0 || a.transcript.Rows()[len(a.transcript.Rows())-1].Text != "Ship the boundary check" {
-		t.Fatalf("last block %v", a.transcript.Rows()[len(a.transcript.Rows())-1])
+	if len(a.conversation.transcript.Rows()) == 0 || a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text != "Ship the boundary check" {
+		t.Fatalf("last block %v", a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1])
 	}
-	if a.transcript.Rows()[len(a.transcript.Rows())-1].Kind != "user" {
+	if a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Kind != "user" {
 		t.Fatal("the sent block is not the user's")
 	}
 
@@ -557,17 +557,17 @@ func TestComposerSends(t *testing.T) {
 	if !tt.HasText("Send message") {
 		t.Fatalf("send button not shown; texts %q", tt.Texts())
 	}
-	if a.draft != "One more" {
-		t.Fatalf("draft %q", a.draft)
+	if a.conversation.draft != "One more" {
+		t.Fatalf("draft %q", a.conversation.draft)
 	}
 	if err := tt.Click("Send message"); err != nil {
 		t.Fatal(err)
 	}
-	if a.draft != "" {
-		t.Fatalf("draft %q after the send button", a.draft)
+	if a.conversation.draft != "" {
+		t.Fatalf("draft %q after the send button", a.conversation.draft)
 	}
-	if n := len(a.transcript.Rows()); n == 0 || a.transcript.Rows()[n-1].Text != "One more" {
-		t.Fatalf("last block %v", a.transcript.Rows()[n-1])
+	if n := len(a.conversation.transcript.Rows()); n == 0 || a.conversation.transcript.Rows()[n-1].Text != "One more" {
+		t.Fatalf("last block %v", a.conversation.transcript.Rows()[n-1])
 	}
 	if tt.HasText("Send message") {
 		t.Fatal("send button stayed after sending")

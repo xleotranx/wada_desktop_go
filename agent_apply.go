@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"wada-desktop-go/internal/chat"
@@ -71,11 +70,8 @@ func restoreBlocks(messages []opencode.Message) []chat.Block {
 					if id == "" {
 						id = fmt.Sprintf("part-%d", i)
 					}
-					var cmd struct {
-						Command string `json:"command"`
-					}
-					json.Unmarshal(part.State.Input, &cmd)
-					run := toolRun{command: cmd.Command,
+
+					run := toolRun{command: part.State.Input.Command,
 						exit: part.State.Metadata.Exit, truncated: part.State.Metadata.Truncated}
 					run.out = textOf(part.State.Content)
 					out = append(out, chat.Block{Kind: chat.KindActivity, Text: label, Icon: icon,
@@ -106,160 +102,62 @@ func textOf(content []opencode.ToolOutput) []string {
 
 // finishCutTurns settles what still streamed when the pipe tears: the
 // partial words stand as the answer they were, asks and spins release.
-func (a *app) finishCutTurns() { a.transcript.Cut() }
+func (a *app) finishCutTurns() { a.conversation.transcript.Cut() }
 
 // streamLine appends a faint note to the transcript for engine trouble
 // worth showing in place.
 func (a *app) streamLine(text string) {
-	a.transcript.Append(chat.Block{Kind: chat.KindNote, Text: text})
-	a.feed.ScrollToEnd()
-}
-
-// evTextData is the payload of the session.text.* events: one running text
-// block inside an assistant message, addressed by message and ordinal.
-type evTextData struct {
-	SessionID string `json:"sessionID"`
-	MessageID string `json:"assistantMessageID"`
-	Ordinal   int    `json:"ordinal"`
-	Delta     string `json:"delta"`
-	Text      string `json:"text"`
-}
-
-// evToolData is the payload of the session.tool.* events: one tool call,
-// addressed by its id, whose name, input and output fill in progressively.
-type evToolData struct {
-	SessionID string                `json:"sessionID"`
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	Input     json.RawMessage       `json:"input"`
-	Content   []opencode.ToolOutput `json:"content"`
-	Metadata  struct {
-		Status    string `json:"status"`
-		Truncated bool   `json:"truncated"`
-		Exit      int    `json:"exit"`
-	} `json:"metadata"`
-}
-
-// evPermissionData is the payload of permission.asked: one approval the
-// agent needs before acting, with what it wants and what "always" saves.
-type evPermissionData struct {
-	SessionID string   `json:"sessionID"`
-	ID        string   `json:"id"`
-	Action    string   `json:"action"`
-	Resources []string `json:"resources"`
-	Save      []string `json:"save"`
+	a.conversation.transcript.Append(chat.Block{Kind: chat.KindNote, Text: text})
+	a.layout.feed.ScrollToEnd()
 }
 
 // apply folds one agent event into the transcript. Kinds reuse the
 // design's vocabulary: assistant words stream into the answer as it
 // lands, and each tool call is an activity row that gains its detail
 // once something ran.
-func (a *app) apply(ev opencode.Event) {
-	switch ev.Type {
-	case "session.text.started":
-		var d evTextData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
+func (a *app) applyUpdate(ev opencode.Update) {
+	if ev.Kind != opencode.ModelSelected && ev.Kind != opencode.SessionRenamed && !a.belongs(ev.SessionID) {
+		return
+	}
+	switch ev.Kind {
+	case opencode.TextStarted:
+		a.conversation.transcript.StartText(ev.Text.MessageID, ev.Text.Ordinal)
+	case opencode.TextDelta:
+		a.conversation.transcript.Delta(ev.Text.MessageID, ev.Text.Ordinal, ev.Text.Delta)
+	case opencode.TextEnded:
+		a.conversation.transcript.EndText(ev.Text.MessageID, ev.Text.Ordinal, ev.Text.Text)
+	case opencode.ToolStarted:
+		a.conversation.transcript.ToolStarted(ev.Tool.ID, ev.Tool.Name)
+	case opencode.ToolCalled:
+		a.conversation.transcript.ToolCalled(ev.Tool.ID, ev.Tool.Command)
+	case opencode.ToolSucceeded:
+		d := ev.Tool
+		run := toolRun{command: a.conversation.transcript.ToolCommand(d.ID), exit: d.Metadata.Exit, truncated: d.Metadata.Truncated, out: textOf(d.Content)}
+		a.conversation.transcript.ToolFinished(d.ID, toolDetailLines(run))
+	case opencode.PermissionAsked:
+		d := ev.Permission
+		a.conversation.transcript.Ask(&chat.Permission{ID: d.ID, Session: d.SessionID, Action: d.Action, Resources: d.Resources, Save: d.Save})
+	case opencode.ExecutionStarted:
+		a.conversation.transcript.Start(ev.SessionID)
+	case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
+		if a.conversation.transcript.Finish() {
+			a.refreshSessions()
+			a.refreshUsage(ev.SessionID)
 		}
-		a.transcript.StartText(d.MessageID, d.Ordinal)
-	case "session.text.delta":
-		var d evTextData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		a.transcript.Delta(d.MessageID, d.Ordinal, d.Delta)
-	case "session.text.ended":
-		var d evTextData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		a.transcript.EndText(d.MessageID, d.Ordinal, d.Text)
-	case "session.tool.input.started":
-		var d evToolData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		a.transcript.ToolStarted(d.ID, d.Name)
-	case "session.tool.called":
-		var d evToolData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		var in struct {
-			Command string `json:"command"`
-		}
-		json.Unmarshal(d.Input, &in)
-		a.transcript.ToolCalled(d.ID, in.Command)
-	case "session.tool.success":
-		var d evToolData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		run := toolRun{command: a.transcript.ToolCommand(d.ID), exit: d.Metadata.Exit, truncated: d.Metadata.Truncated, out: textOf(d.Content)}
-		a.transcript.ToolFinished(d.ID, toolDetailLines(run))
-	case "permission.asked":
-		var d evPermissionData
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		a.transcript.Ask(&chat.Permission{ID: d.ID, Session: d.SessionID, Action: d.Action, Resources: d.Resources, Save: d.Save})
-	case "session.execution.started":
-		var d struct {
-			SessionID string `json:"sessionID"`
-		}
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		a.transcript.Start(d.SessionID)
-	case "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted":
-		var d struct {
-			SessionID string `json:"sessionID"`
-		}
-		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
-			return
-		}
-		if !a.transcript.Finish() {
-			return
-		}
-		// The turn moved the chat's place in the list and what it has
-		// spent: read the newest page again, and ask the store what the
-		// answer that just ended cost.
-		a.refreshSessions()
-		a.refreshUsage(d.SessionID)
-	case "session.model.selected":
-		var d struct {
-			SessionID string `json:"sessionID"`
-			Model     struct {
-				ID         string `json:"id"`
-				ProviderID string `json:"providerID"`
-				Variant    string `json:"variant"`
-			} `json:"model"`
-		}
-		if json.Unmarshal(ev.Data, &d) != nil {
-			return
-		}
+	case opencode.ModelSelected:
 		for i := range a.scope().sessions {
-			if a.scope().sessions[i].ID == d.SessionID {
-				a.scope().sessions[i].Model = opencode.ModelRef{ProviderID: d.Model.ProviderID,
-					ID: d.Model.ID, Variant: d.Model.Variant}
+			if a.scope().sessions[i].ID == ev.SessionID {
+				a.scope().sessions[i].Model = ev.Model
 			}
 		}
-	case "session.renamed":
-		var d struct {
-			SessionID string `json:"sessionID"`
-			Title     string `json:"title"`
-		}
-		if json.Unmarshal(ev.Data, &d) != nil {
-			return
-		}
+	case opencode.SessionRenamed:
 		for i := range a.scope().sessions {
-			if a.scope().sessions[i].ID == d.SessionID {
-				a.scope().sessions[i].Title = d.Title
+			if a.scope().sessions[i].ID == ev.SessionID {
+				a.scope().sessions[i].Title = ev.Title
 			}
 		}
-		// The conversation on show takes its new name at once.
-		if d.SessionID == a.selectedSession {
-			a.selected = d.Title
+		if ev.SessionID == a.conversation.target.session {
+			a.conversation.selected = ev.Title
 		}
 	}
 }
@@ -267,17 +165,17 @@ func (a *app) apply(ev opencode.Event) {
 // belongs reports whether a session's stream belongs to the conversation
 // on show. A draft accepts no stream until its server session is adopted.
 func (a *app) belongs(sid string) bool {
-	return a.selectedSession != "" && sid == a.selectedSession
+	return !a.conversation.target.isDraft() && sid == a.conversation.target.session
 }
 
 // dropPerm takes an approval card out of the transcript once its reply
 // has landed; the tool row below it carries the story from there.
-func (a *app) dropPerm(requestID string) { a.transcript.DropPermission(requestID) }
+func (a *app) dropPerm(requestID string) { a.conversation.transcript.DropPermission(requestID) }
 
 // dropSession takes one conversation out of the list and, when it was
 // the one on show, leaves a fresh transcript behind.
 func (a *app) dropSession(sid string) {
-	if a.pinned[sid] {
+	if a.scope().pinned[sid] {
 		a.togglePin(opencode.Session{ID: sid})
 	}
 	for i, s := range a.scope().sessions {
@@ -286,12 +184,12 @@ func (a *app) dropSession(sid string) {
 			break
 		}
 	}
-	a.transcript.DropSession(sid)
-	if a.selectedSession != sid {
+	a.conversation.transcript.DropSession(sid)
+	if a.conversation.target.session != sid {
 		return
 	}
-	a.selectedSession = ""
-	a.selected = ""
+	a.conversation.target.selectSession("")
+	a.conversation.selected = ""
 	a.freshTranscript()
 	a.workspaceChanged()
 }

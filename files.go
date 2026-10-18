@@ -47,11 +47,11 @@ type filesState struct {
 // without a folder says so rather than naming the server a folder of this
 // machine's.
 func (a *app) openFiles() {
-	st := a.files
+	st := a.workspace.files
 	if st == nil {
 		st = &filesState{open: map[string]bool{}, entries: map[string][]opencode.FileEntry{},
 			loading: map[string]bool{}}
-		a.files = st
+		a.workspace.files = st
 	}
 	dir := a.chatDir()
 	if dir == "" {
@@ -59,7 +59,7 @@ func (a *app) openFiles() {
 			st.note = "This chat has no folder on the server yet — start it in one with Choose project."
 			return
 		}
-		dir = a.home
+		dir = a.preferences.home
 	}
 	if st.location == dir {
 		// The same folder: the tree and the file on show are read again for
@@ -79,7 +79,7 @@ func (a *app) openFiles() {
 // root and every folder listed, or the search when one is on, and the file
 // on show either way.
 func (a *app) filesRefresh() {
-	st := a.files
+	st := a.workspace.files
 	if st == nil || st.location == "" {
 		return
 	}
@@ -104,7 +104,7 @@ func (a *app) filesRefresh() {
 // filesList reads one folder of the tree, the location's own root when the
 // folder is ".".
 func (a *app) filesList(rel string) {
-	st := a.files
+	st := a.workspace.files
 	if st == nil || st.location == "" || st.loading[rel] {
 		return
 	}
@@ -126,7 +126,7 @@ func (a *app) filesList(rel string) {
 		}
 		return ag.ListDir(ctx, location, rel)
 	}, func(entries []opencode.FileEntry, err error) {
-		if a.files != st || st.location != location {
+		if a.workspace.files != st || st.location != location {
 			return
 		}
 		st.loading[rel] = false
@@ -142,7 +142,7 @@ func (a *app) filesList(rel string) {
 // whose paths match stand in for the tree while a query is named, and an
 // emptied field brings the tree back.
 func (a *app) filesFind() {
-	st := a.files
+	st := a.workspace.files
 	if st == nil || st.location == "" {
 		return
 	}
@@ -163,7 +163,7 @@ func (a *app) filesFind() {
 		}
 		return ag.FindFiles(ctx, location, query, filesFound)
 	}, func(entries []opencode.FileEntry, err error) {
-		if a.files != st || st.location != location || st.query != query {
+		if a.workspace.files != st || st.location != location || st.query != query {
 			return // another search moved on
 		}
 		st.finding = false
@@ -177,7 +177,7 @@ func (a *app) filesFind() {
 
 // filesRead puts one file's text in the viewer, cut at what the pane shows.
 func (a *app) filesRead(rel string) {
-	st := a.files
+	st := a.workspace.files
 	if st == nil || st.location == "" {
 		return
 	}
@@ -193,7 +193,7 @@ func (a *app) filesRead(rel string) {
 		}
 		return ag.ReadWorkspaceFile(ctx, location, rel)
 	}, func(data []byte, err error) {
-		if a.files != st || st.location != location || st.path != rel {
+		if a.workspace.files != st || st.location != location || st.path != rel {
 			return
 		}
 		if err != nil {
@@ -217,7 +217,7 @@ func (a *app) filesRead(rel string) {
 // filesBody draws the Files tool: the tree of the chat's folder, and the
 // file on show under it.
 func (a *app) filesBody(c *ui.Context, p palette) {
-	st := a.files
+	st := a.workspace.files
 	if st == nil || st.location == "" {
 		if st == nil || st.location == "" {
 			// Nothing to grow a tree from; the note says why.
@@ -253,7 +253,7 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 // filesField is the pane's search: what is typed narrows the workspace to
 // the files whose paths match it, and Enter runs it.
 func (a *app) filesField(c *ui.Context, p palette) {
-	st := a.files
+	st := a.workspace.files
 	field := ui.Box(c).FillWidth().Height(32).Radius(999).Padding(0, 10).
 		Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
 	if field.FocusWithin() {
@@ -278,7 +278,7 @@ func (a *app) filesField(c *ui.Context, p palette) {
 // filesResults draws what the search found in place of the tree: the
 // files' names, the folders they sit in beside them.
 func (a *app) filesResults(c *ui.Context, p palette) {
-	st := a.files
+	st := a.workspace.files
 	if st.finding {
 		ui.Text(c, "Searching…").FontSize(12.5).TextColor(p.muted)
 		return
@@ -322,7 +322,7 @@ func (a *app) filesResults(c *ui.Context, p palette) {
 // filesViewer draws the file on show: its path, what the viewer cut off it,
 // and its text.
 func (a *app) filesViewer(c *ui.Context, p palette) {
-	st := a.files
+	st := a.workspace.files
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 	if st.path == "" {
 		ui.Text(c, "Pick a file to read it.").FontSize(12.5).TextColor(p.muted)
@@ -348,7 +348,7 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 // filesRows draws one folder's children, the unfolded folders' own under
 // them, the way the tree nests.
 func (a *app) filesRows(c *ui.Context, p palette, rel string, depth int) {
-	st := a.files
+	st := a.workspace.files
 	for _, e := range st.entries[rel] {
 		indent := float32(depth) * 13
 		if !e.Directory {

@@ -171,7 +171,7 @@ func TestAgentEventsStream(t *testing.T) {
 	}
 	select {
 	case ev := <-evs:
-		var d evTextData
+		var d opencode.TextData
 		if json.Unmarshal(ev.Data, &d) != nil || d.Delta != "PONG" {
 			t.Fatalf("delta event %s", ev.Data)
 		}
@@ -190,47 +190,47 @@ func TestAgentEventsStream(t *testing.T) {
 // activity row per tool call with its detail.
 func TestApplyTurn(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "s"
-	upTo := len(a.transcript.Rows())
+	a.conversation.target.selectSession("s")
+	upTo := len(a.conversation.transcript.Rows())
 	step := func(typ, data string) {
 		a.apply(opencode.Event{Type: typ, Data: json.RawMessage(data)})
 	}
 
 	step("session.text.started", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0}`)
-	last := a.transcript.Rows()[len(a.transcript.Rows())-1]
+	last := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]
 	if last.Kind != "stream" || last.Text != "" {
 		t.Fatalf("preview row kind %q text %q", last.Kind, last.Text)
 	}
 	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":"PONG"}`)
 	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":" now"}`)
-	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Text != "PONG now" {
+	if last := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]; last.Text != "PONG now" {
 		t.Fatalf("preview text %q", last.Text)
 	}
 	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"text":"PONG now"}`)
-	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Kind != "text" || last.Text != "PONG now" {
+	if last := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]; last.Kind != "text" || last.Text != "PONG now" {
 		t.Fatalf("settled block kind %q text %q", last.Kind, last.Text)
 	}
 	// A second paragraph of the same answer is its own row.
 	step("session.text.started", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1}`)
 	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1,"text":"Also, hi again."}`)
-	if last := a.transcript.Rows()[len(a.transcript.Rows())-1]; last.Kind != "text" || last.Text != "Also, hi again." {
+	if last := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]; last.Kind != "text" || last.Text != "Also, hi again." {
 		t.Fatalf("second block kind %q text %q", last.Kind, last.Text)
 	}
 
 	step("session.tool.input.started", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","name":"shell"}`)
 	step("session.tool.called", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","input":{"command":"echo hi"}}`)
-	if row := a.transcript.Rows()[len(a.transcript.Rows())-1]; row.Kind != "activity" || row.Text != "Ran command" {
+	if row := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]; row.Kind != "activity" || row.Text != "Ran command" {
 		t.Fatalf("activity row %+v", row)
 	}
 	step("session.tool.success", `{"sessionID":"s","assistantMessageID":"msg_a","id":"call_1","content":[{"type":"text","text":"hi\n"}],"metadata":{"status":"completed","exit":0}}`)
 
 	// The whole turn rendered: the agent's words and the expanded detail
 	// of what its tool printed.
-	a.selectedSession = "ses_seed"
-	a.selected = "Wired turn"
-	a.expanded["activity:call_1"] = true
+	a.conversation.target.selectSession("ses_seed")
+	a.conversation.selected = "Wired turn"
+	a.layout.expanded["activity:call_1"] = true
 	tt := ui.NewTester(a.view, 1400, 920)
-	if got := len(a.transcript.Rows()) - upTo; got < 3 {
+	if got := len(a.conversation.transcript.Rows()) - upTo; got < 3 {
 		t.Fatalf("turn added %d rows", got)
 	}
 	if !tt.HasText("Ran command") || !tt.HasText("$ echo hi") || !tt.HasText("hi") {
@@ -548,14 +548,14 @@ func TestFreshSessionsPrepend(t *testing.T) {
 // sidebar's order and the chat's spending catch up without a redial.
 func TestRefreshAfterATurn(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.transcript.Start("ses_z")
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.transcript.Start("ses_z")
 	a.apply(opencode.Event{Type: "session.execution.succeeded", Data: []byte(`{"sessionID":"ses_z"}`)})
-	if a.transcript.Busy() != "" {
-		t.Fatalf("the turn is still busy: %q", a.transcript.Busy())
+	if a.conversation.transcript.Busy() != "" {
+		t.Fatalf("the turn is still busy: %q", a.conversation.transcript.Busy())
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "refresh" {
 			t.Fatalf("the turn queued %+v", job)
 		}
@@ -569,14 +569,14 @@ func TestRefreshAfterATurn(t *testing.T) {
 // what comes back lands under that answer alone.
 func TestUsageFollowsTheTurn(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.transcript.Replace([]chat.Block{
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.transcript.Replace([]chat.Block{
 		{Kind: chat.KindUser, Text: "run the checks"},
 		{Kind: chat.KindText, Text: "Running them.", Message: "msg_z"},
 	})
 	a.refreshUsage("ses_z")
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "usage" || job.sid != "ses_z" || job.msg != "msg_z" {
 			t.Fatalf("the turn queued %+v", job)
 		}
@@ -586,38 +586,38 @@ func TestUsageFollowsTheTurn(t *testing.T) {
 
 	// The words of one answer may stand as several rows: the spending
 	// lands under the last of them.
-	a.transcript.Append(chat.Block{Kind: chat.KindText, Text: "One more word.", Message: "msg_z"})
+	a.conversation.transcript.Append(chat.Block{Kind: chat.KindText, Text: "One more word.", Message: "msg_z"})
 	a.acceptUsage(opencode.Message{ID: "msg_z", Cost: 0.031,
 		Tokens: opencode.TokenSpend{Output: 3000, Reasoning: 500}})
-	if a.transcript.Rows()[1].Cost != 0 || a.transcript.Rows()[1].Tokens != 0 {
-		t.Fatalf("an earlier row took the spending: %+v", a.transcript.Rows()[1])
+	if a.conversation.transcript.Rows()[1].Cost != 0 || a.conversation.transcript.Rows()[1].Tokens != 0 {
+		t.Fatalf("an earlier row took the spending: %+v", a.conversation.transcript.Rows()[1])
 	}
-	if a.transcript.Rows()[2].Cost != 0.031 || a.transcript.Rows()[2].Tokens != 3500 {
-		t.Fatalf("the last row reads %+v", a.transcript.Rows()[2])
+	if a.conversation.transcript.Rows()[2].Cost != 0.031 || a.conversation.transcript.Rows()[2].Tokens != 3500 {
+		t.Fatalf("the last row reads %+v", a.conversation.transcript.Rows()[2])
 	}
 
 	// A streamed row knows its turn the moment the words start.
 	c := newTestApp(t)
-	c.selectedSession = "ses_live"
+	c.conversation.target.selectSession("ses_live")
 	c.apply(opencode.Event{Type: "session.text.started",
 		Data: []byte(`{"sessionID":"ses_live","assistantMessageID":"msg_l","ordinal":0}`)})
-	if len(c.transcript.Rows()) != 1 || c.transcript.Rows()[0].Message != "msg_l" || c.transcript.Rows()[0].Kind != "stream" {
-		t.Fatalf("a streamed row reads %+v", c.transcript.Rows())
+	if len(c.conversation.transcript.Rows()) != 1 || c.conversation.transcript.Rows()[0].Message != "msg_l" || c.conversation.transcript.Rows()[0].Kind != "stream" {
+		t.Fatalf("a streamed row reads %+v", c.conversation.transcript.Rows())
 	}
 
 	// Nothing to ask when no answer of this app's stands, or when the
 	// conversation on show is another one.
 	b := newTestApp(t)
-	b.selectedSession = "ses_z"
+	b.conversation.target.selectSession("ses_z")
 	b.refreshUsage("ses_z")
 	select {
-	case job := <-b.jobs:
+	case job := <-commandsOf(b):
 		t.Fatalf("a turn with no answer asked anyway: %+v", job)
 	default:
 	}
 	b.refreshUsage("ses_other")
 	select {
-	case job := <-b.jobs:
+	case job := <-commandsOf(b):
 		t.Fatalf("a switched-away conversation asked: %+v", job)
 	default:
 	}
@@ -698,10 +698,10 @@ func TestRestoreBlocks(t *testing.T) {
 	}
 	// The tool row expands like a live one does.
 	a2 := newTestApp(t)
-	a2.transcript.Replace(blocks)
-	a2.selectedSession = "ses_seed"
-	a2.selected = "Wiring check"
-	a2.expanded["activity:call_9"] = true
+	a2.conversation.transcript.Replace(blocks)
+	a2.conversation.target.selectSession("ses_seed")
+	a2.conversation.selected = "Wiring check"
+	a2.layout.expanded["activity:call_9"] = true
 	tt := ui.NewTester(a2.view, 1400, 920)
 	if !tt.HasText("$ go test ./wire") || !tt.HasText("ok") {
 		t.Fatalf("stored tool detail not drawn: %v", tt.Texts())
@@ -735,11 +735,11 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 	if err := tt.Click("Grep wiring"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selected != "Grep wiring" || a.selectedSession != "ses_a" || len(a.transcript.Rows()) != 0 {
-		t.Fatalf("after choosing a session: %q %q %d", a.selected, a.selectedSession, len(a.transcript.Rows()))
+	if a.conversation.selected != "Grep wiring" || a.conversation.target.session != "ses_a" || len(a.conversation.transcript.Rows()) != 0 {
+		t.Fatalf("after choosing a session: %q %q %d", a.conversation.selected, a.conversation.target.session, len(a.conversation.transcript.Rows()))
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "open" || job.sid != "ses_a" {
 			t.Fatalf("queued %+v", job)
 		}
@@ -780,8 +780,8 @@ func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
 	if err := tt.Click("Pinned 39"); err != nil {
 		t.Fatalf("the scrolled row did not open: %v", err)
 	}
-	if a.selectedSession != "ses_39" {
-		t.Fatalf("the scrolled row opened %q", a.selectedSession)
+	if a.conversation.target.session != "ses_39" {
+		t.Fatalf("the scrolled row opened %q", a.conversation.target.session)
 	}
 
 	// What sits above the scroll keeps its place.
@@ -833,35 +833,35 @@ func TestAgentInterruptAndReply(t *testing.T) {
 // does once its reply lands.
 func TestApplyPermission(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "s"
-	upTo := len(a.transcript.Rows())
+	a.conversation.target.selectSession("s")
+	upTo := len(a.conversation.transcript.Rows())
 	step := func(typ, data string) {
 		a.apply(opencode.Event{Type: typ, Data: json.RawMessage(data)})
 	}
 
 	step("session.execution.started", `{"sessionID":"s"}`)
-	if a.transcript.Busy() != "s" {
-		t.Fatalf("busy after start %q", a.transcript.Busy())
+	if a.conversation.transcript.Busy() != "s" {
+		t.Fatalf("busy after start %q", a.conversation.transcript.Busy())
 	}
 	step("permission.asked", `{"sessionID":"s","id":"per_1","action":"shell",`+
 		`"resources":["echo asked-probe"],"save":["echo *"]}`)
-	if len(a.transcript.Rows()) != upTo+1 || a.transcript.Rows()[len(a.transcript.Rows())-1].Kind != "permission" {
-		t.Fatalf("card not added: %+v", a.transcript.Rows()[len(a.transcript.Rows())-1])
+	if len(a.conversation.transcript.Rows()) != upTo+1 || a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Kind != "permission" {
+		t.Fatalf("card not added: %+v", a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1])
 	}
-	card := a.transcript.Rows()[len(a.transcript.Rows())-1]
+	card := a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1]
 	if card.Key != "permission:per_1" || card.Request == nil ||
 		card.Request.Action != "shell" || card.Request.Session != "s" ||
 		len(card.Request.Resources) != 1 || card.Request.Resources[0] != "echo asked-probe" {
 		t.Fatalf("card payload %+v", card)
 	}
-	if _, ok := a.transcript.Pending()["per_1"]; !ok {
+	if _, ok := a.conversation.transcript.Pending()["per_1"]; !ok {
 		t.Fatal("the request is not held as pending")
 	}
 
 	// Answering queues the runner job addressed to the request.
 	a.answerPerm(card.Request, "once")
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "answer" || job.sid != "s" || job.request != "per_1" || job.decision != "once" {
 			t.Fatalf("answer job %+v", job)
 		}
@@ -871,24 +871,24 @@ func TestApplyPermission(t *testing.T) {
 
 	// The reply landing takes the card back out.
 	a.dropPerm("per_1")
-	if len(a.transcript.Rows()) != upTo {
-		t.Fatalf("card still drawn: %+v", a.transcript.Rows())
+	if len(a.conversation.transcript.Rows()) != upTo {
+		t.Fatalf("card still drawn: %+v", a.conversation.transcript.Rows())
 	}
-	if _, ok := a.transcript.Pending()["per_1"]; ok {
+	if _, ok := a.conversation.transcript.Pending()["per_1"]; ok {
 		t.Fatal("the request is still pending")
 	}
 
 	// Interrupting clears the busy state the stop button feeds on.
 	step("session.execution.interrupted", `{"sessionID":"s"}`)
-	if a.transcript.Busy() != "" {
-		t.Fatalf("busy after interrupt %q", a.transcript.Busy())
+	if a.conversation.transcript.Busy() != "" {
+		t.Fatalf("busy after interrupt %q", a.conversation.transcript.Busy())
 	}
 
 	// Switching conversations forgets everything outstanding.
 	step("session.execution.started", `{"sessionID":"s"}`)
 	a.freshTranscript()
-	if a.transcript.Busy() != "" || len(a.transcript.Pending()) != 0 {
-		t.Fatalf("stale turn state after switch: %q %d", a.transcript.Busy(), len(a.transcript.Pending()))
+	if a.conversation.transcript.Busy() != "" || len(a.conversation.transcript.Pending()) != 0 {
+		t.Fatalf("stale turn state after switch: %q %d", a.conversation.transcript.Busy(), len(a.conversation.transcript.Pending()))
 	}
 }
 
@@ -897,7 +897,7 @@ func TestApplyPermission(t *testing.T) {
 // clicking the card's pill answers it.
 func TestStopAndAnswerButtons(t *testing.T) {
 	a := newTestApp(t)
-	a.transcript.Start("ses_z")
+	a.conversation.transcript.Start("ses_z")
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Stop the agent") {
 		t.Fatalf("no stop button while busy: %v", tt.Texts())
@@ -906,7 +906,7 @@ func TestStopAndAnswerButtons(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "stop" || job.sid != "ses_z" {
 			t.Fatalf("stop job %+v", job)
 		}
@@ -916,11 +916,11 @@ func TestStopAndAnswerButtons(t *testing.T) {
 
 	// The approval card renders what the agent asked for and answers
 	// through its pills.
-	a.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell",
+	a.conversation.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell",
 		Resources: []string{"rm -rf /tmp/scratch"}, Save: []string{"rm *"}})
-	a.transcript.Replace([]chat.Block{{Kind: "permission", Key: "permission:per_5", Request: a.transcript.Pending()["per_5"]}})
-	a.selectedSession = "ses_seed"
-	a.selected = "Approval turn"
+	a.conversation.transcript.Replace([]chat.Block{{Kind: "permission", Key: "permission:per_5", Request: a.conversation.transcript.Pending()["per_5"]}})
+	a.conversation.target.selectSession("ses_seed")
+	a.conversation.selected = "Approval turn"
 	tt.Frame()
 	if !tt.HasText("Approval needed — run a shell command") ||
 		!tt.HasText("$ rm -rf /tmp/scratch") ||
@@ -931,7 +931,7 @@ func TestStopAndAnswerButtons(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "answer" || job.sid != "ses_z" || job.request != "per_5" || job.decision != "once" {
 			t.Fatalf("answer job %+v", job)
 		}
@@ -1027,15 +1027,15 @@ func TestExpandPath(t *testing.T) {
 func TestStartChatInFolder(t *testing.T) {
 	a := newTestApp(t)
 	a.startChatIn("/does/not/exist/wada")
-	if a.draftProject != "" || len(a.projects) != 0 {
-		t.Fatalf("missing folder landed a draft: %q, %v", a.draftProject, a.projects)
+	if a.conversation.draftProject != "" || len(a.preferences.projects) != 0 {
+		t.Fatalf("missing folder landed a draft: %q, %v", a.conversation.draftProject, a.preferences.projects)
 	}
-	if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != "note" ||
-		!strings.Contains(a.transcript.Rows()[0].Text, "that folder does not exist") {
-		t.Fatalf("missing folder left no note: %v", a.transcript.Rows())
+	if len(a.conversation.transcript.Rows()) != 1 || a.conversation.transcript.Rows()[0].Kind != "note" ||
+		!strings.Contains(a.conversation.transcript.Rows()[0].Text, "that folder does not exist") {
+		t.Fatalf("missing folder left no note: %v", a.conversation.transcript.Rows())
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		t.Fatalf("queued a job for a missing folder: %+v", job)
 	default:
 	}
@@ -1046,17 +1046,17 @@ func TestStartChatInFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.chatDir() != want || a.selectedSession != "" {
+	if a.chatDir() != want || a.conversation.target.session != "" {
 		t.Fatalf("draft directory %q, want %q", a.chatDir(), want)
 	}
-	if len(a.projects) != 1 || a.projects[0] != want {
-		t.Fatalf("folders after starting: %v", a.projects)
+	if len(a.preferences.projects) != 1 || a.preferences.projects[0] != want {
+		t.Fatalf("folders after starting: %v", a.preferences.projects)
 	}
-	if len(a.transcript.Rows()) != 0 {
-		t.Fatalf("starting a chat left the old note: %v", a.transcript.Rows())
+	if len(a.conversation.transcript.Rows()) != 0 {
+		t.Fatalf("starting a chat left the old note: %v", a.conversation.transcript.Rows())
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		t.Fatalf("created an empty chat: %+v", job)
 	default:
 	}
@@ -1113,35 +1113,35 @@ func TestDedupeSessions(t *testing.T) {
 func TestSessionDialogs(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Grep wiring", Directory: "/tmp"}}
-	a.selectedSession = "ses_r"
-	a.selected = "Grep wiring"
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// Rename: the dialog pre-fills the title; saving queues the job and
 	// closes; an unedited save queues nothing.
 	a.requestRename(a.scope().sessions[0])
 	tt.Frame()
-	if !tt.HasText("Rename this chat") || a.rename == nil || a.rename.draft != "Grep wiring" {
+	if !tt.HasText("Rename this chat") || a.layout.rename == nil || a.layout.rename.draft != "Grep wiring" {
 		t.Fatalf("rename dialog not drawn: %v", tt.Texts())
 	}
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		t.Fatalf("unchanged title queued %+v", job)
 	default:
 	}
-	if a.rename != nil {
+	if a.layout.rename != nil {
 		t.Fatal("the rename dialog stays open")
 	}
-	a.rename = &renameState{open: true, sid: "ses_r", draft: "Sharper wiring"}
+	a.layout.rename = &renameState{open: true, sid: "ses_r", draft: "Sharper wiring"}
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "rename" || job.sid != "ses_r" || job.text != "Sharper wiring" {
 			t.Fatalf("rename job %+v", job)
 		}
@@ -1160,22 +1160,22 @@ func TestSessionDialogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "delete" || job.sid != "ses_r" {
 			t.Fatalf("delete job %+v", job)
 		}
 	default:
 		t.Fatal("confirming the delete did not queue a job")
 	}
-	if a.confirm != nil {
+	if a.layout.confirm != nil {
 		t.Fatal("the confirm dialog stays open")
 	}
 
 	// Once the server answers, the row goes and the open chat blanks.
 	a.dropSession("ses_r")
-	if len(a.scope().sessions) != 0 || a.selectedSession != "" || len(a.transcript.Rows()) != 0 {
+	if len(a.scope().sessions) != 0 || a.conversation.target.session != "" || len(a.conversation.transcript.Rows()) != 0 {
 		t.Fatalf("after drop: %d rows, session %q, %d blocks",
-			len(a.scope().sessions), a.selectedSession, len(a.transcript.Rows()))
+			len(a.scope().sessions), a.conversation.target.session, len(a.conversation.transcript.Rows()))
 	}
 }
 
@@ -1201,17 +1201,17 @@ func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 // transcript where the mock used to sit.
 func TestBootSettle(t *testing.T) {
 	a := newTestApp(t)
-	if len(a.transcript.Rows()) != 0 || a.selected != "" {
-		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.transcript.Rows()), a.selected)
+	if len(a.conversation.transcript.Rows()) != 0 || a.conversation.selected != "" {
+		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.conversation.transcript.Rows()), a.conversation.selected)
 	}
 	a.settleBoot([]opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}, "", nil)
-	if !a.scope().sessionsLoaded || a.selectedSession != "ses_a" ||
-		a.selected != "Grep wiring" || len(a.transcript.Rows()) != 0 {
+	if !a.scope().sessionsLoaded || a.conversation.target.session != "ses_a" ||
+		a.conversation.selected != "Grep wiring" || len(a.conversation.transcript.Rows()) != 0 {
 		t.Fatalf("boot settle: loaded %v session %q label %q blocks %d",
-			a.scope().sessionsLoaded, a.selectedSession, a.selected, len(a.transcript.Rows()))
+			a.scope().sessionsLoaded, a.conversation.target.session, a.conversation.selected, len(a.conversation.transcript.Rows()))
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "open" || job.sid != "ses_a" {
 			t.Fatalf("boot job %+v", job)
 		}
@@ -1222,15 +1222,15 @@ func TestBootSettle(t *testing.T) {
 	// A startup without a server lands empty, not on the mock.
 	a2 := newTestApp(t)
 	a2.settleBoot(nil, "", fmt.Errorf("not connected"))
-	if len(a2.transcript.Rows()) != 0 || !a2.scope().sessionsLoaded {
-		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.transcript.Rows()), a2.scope().sessionsLoaded)
+	if len(a2.conversation.transcript.Rows()) != 0 || !a2.scope().sessionsLoaded {
+		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.conversation.transcript.Rows()), a2.scope().sessionsLoaded)
 	}
 
 	// An empty store reads the same: nothing mock survives the boot.
 	a3 := newTestApp(t)
 	a3.settleBoot(nil, "", nil)
-	if len(a3.transcript.Rows()) != 0 || a3.selectedSession != "" {
-		t.Fatalf("empty boot: session %q, %d blocks", a3.selectedSession, len(a3.transcript.Rows()))
+	if len(a3.conversation.transcript.Rows()) != 0 || a3.conversation.target.session != "" {
+		t.Fatalf("empty boot: session %q, %d blocks", a3.conversation.target.session, len(a3.conversation.transcript.Rows()))
 	}
 }
 
@@ -1238,18 +1238,18 @@ func TestBootSettle(t *testing.T) {
 // user starts from a fresh view: the first words append to nothing else.
 func TestFirstSendClean(t *testing.T) {
 	a := newTestApp(t)
-	a.draft = "hello"
+	a.conversation.draft = "hello"
 	a.send()
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "prompt" || job.sid != "" {
 			t.Fatalf("first-send job %+v", job)
 		}
 	default:
 		t.Fatal("the first send did not queue a job")
 	}
-	if len(a.transcript.Rows()) != 1 || a.transcript.Rows()[0].Kind != "user" || a.transcript.Rows()[0].Text != "hello" {
-		t.Fatalf("first send blocks %+v", a.transcript.Rows())
+	if len(a.conversation.transcript.Rows()) != 1 || a.conversation.transcript.Rows()[0].Kind != "user" || a.conversation.transcript.Rows()[0].Text != "hello" {
+		t.Fatalf("first send blocks %+v", a.conversation.transcript.Rows())
 	}
 }
 
@@ -1258,16 +1258,16 @@ func TestFirstSendClean(t *testing.T) {
 func TestStartNewChat(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
-	a.selectedSession = "ses_a"
-	a.selected = "Grep wiring"
-	a.transcript.Replace([]chat.Block{{Kind: "text", Text: "leftover"}})
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.selected = "Grep wiring"
+	a.conversation.transcript.Replace([]chat.Block{{Kind: "text", Text: "leftover"}})
 	a.startNewChat()
-	if a.selectedSession != "" || a.selected != "" || len(a.transcript.Rows()) != 0 {
+	if a.conversation.target.session != "" || a.conversation.selected != "" || len(a.conversation.transcript.Rows()) != 0 {
 		t.Fatalf("after new chat: session %q label %q blocks %d",
-			a.selectedSession, a.selected, len(a.transcript.Rows()))
+			a.conversation.target.session, a.conversation.selected, len(a.conversation.transcript.Rows()))
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		t.Fatalf("new chat created something eagerly: %+v", job)
 	default:
 	}
@@ -1371,18 +1371,18 @@ func TestModelPicker(t *testing.T) {
 	}
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Free turn",
 		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "beam-free"}}}
-	a.selectedSession = "ses_z"
-	a.selected = "Free turn"
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Free turn"
 	// The catalog rows carry the fancy names, so the button reads
-	// "opencode.Model Beam Free" and the effort chips sit ready beside the list.
+	// "Model Beam Free" and the effort chips sit ready beside the list.
 	tt := ui.NewTester(a.view, 1400, 920)
-	if !tt.HasText("opencode.Model Beam Free") {
+	if !tt.HasText("Model Beam Free") {
 		t.Fatalf("button label missing: %v", tt.Texts())
 	}
-	if err := tt.Click("opencode.Model Beam Free"); err != nil {
+	if err := tt.Click("Model Beam Free"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
-	if !a.pickerOpen {
+	if !a.layout.pickerOpen {
 		t.Fatal("the picker did not open")
 	}
 	tt.Frame()
@@ -1414,7 +1414,7 @@ func TestModelPicker(t *testing.T) {
 	}
 
 	// The filter narrows the rows to what matches.
-	a.modelFilter = "beam"
+	a.layout.modelFilter = "beam"
 	tt.Frame()
 	if tt.HasText("MiniMax-M3") || !tt.HasText("Beam Free") {
 		t.Fatalf("filter left noise: %v", tt.Texts())
@@ -1423,7 +1423,7 @@ func TestModelPicker(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "model" || job.provider != "opencode-go" ||
 			job.model != "beam-free" || job.variant != "" {
 			t.Fatalf("pick job %+v", job)
@@ -1433,14 +1433,14 @@ func TestModelPicker(t *testing.T) {
 	}
 
 	// The effort chips of the chat's model switch the variant.
-	a.pickerOpen = true
-	a.modelFilter = ""
+	a.layout.pickerOpen = true
+	a.layout.modelFilter = ""
 	tt.Frame()
 	if err := tt.Click("Reasoning high"); err != nil {
 		t.Fatalf("chips missing: %v", err)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "model" || job.model != "beam-free" || job.variant != "high" {
 			t.Fatalf("variant job %+v", job)
 		}
@@ -1457,7 +1457,7 @@ func TestModelPickerScrolls(t *testing.T) {
 	models := []opencode.Model{}
 	for i := range 28 {
 		models = append(models, opencode.Model{ProviderID: "opencode-go",
-			ID: fmt.Sprintf("wada-%02d", i), Name: fmt.Sprintf("Wada opencode.Model %02d", i), Free: true})
+			ID: fmt.Sprintf("wada-%02d", i), Name: fmt.Sprintf("Wada Model %02d", i), Free: true})
 	}
 	models = append(models,
 		opencode.Model{ProviderID: "opencode-go", ID: "zed-9000", Name: "Zed 9000 Max", Free: false},
@@ -1465,13 +1465,13 @@ func TestModelPickerScrolls(t *testing.T) {
 	a.scope().models = models
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn",
 		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "wada-00"}}}
-	a.selectedSession = "ses_z"
-	a.selected = "Turn"
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
-	if err := tt.Click("opencode.Model Wada opencode.Model 00"); err != nil {
+	if err := tt.Click("Model Wada Model 00"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
-	if !a.pickerOpen {
+	if !a.layout.pickerOpen {
 		t.Fatal("the picker did not open")
 	}
 	tt.Frame()
@@ -1479,16 +1479,16 @@ func TestModelPickerScrolls(t *testing.T) {
 	// Every row that paints stays in the panel, above the model button it
 	// hangs off: field, chips and the rounded box bound the drawn list,
 	// and nothing spills over the composer.
-	btn, ok := tt.Find("opencode.Model Wada opencode.Model 00")
+	btn, ok := tt.Find("Model Wada Model 00")
 	if !ok {
 		t.Fatalf("model button missing: %v", tt.Texts())
 	}
-	row, ok := tt.Find("Pick Wada opencode.Model 00")
+	row, ok := tt.Find("Pick Wada Model 00")
 	if !ok {
 		t.Fatalf("row missing: %v", tt.Texts())
 	}
 	rowX := row.X + row.W/2
-	for _, name := range []string{"Pick Wada opencode.Model 00", "Wada opencode.Model 13", "Wada opencode.Model 27"} {
+	for _, name := range []string{"Pick Wada Model 00", "Wada Model 13", "Wada Model 27"} {
 		r, ok := tt.Find(name)
 		if !ok {
 			t.Fatalf("row %q missing: %v", name, tt.Texts())
@@ -1517,11 +1517,11 @@ func TestModelPickerScrolls(t *testing.T) {
 	if err := tt.Click("Zed 9000 Max"); err != nil {
 		t.Fatalf("the scrolled tail did not open a row: %v", err)
 	}
-	if a.pickerOpen {
+	if a.layout.pickerOpen {
 		t.Fatal("the picker stayed open")
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "model" || job.model != "zed-9000" || job.variant != "" {
 			t.Fatalf("pick job %+v", job)
 		}
@@ -1530,8 +1530,8 @@ func TestModelPickerScrolls(t *testing.T) {
 	}
 
 	// A filter that nothing matches says so inside the panel.
-	a.pickerOpen = true
-	a.modelFilter = "no such model"
+	a.layout.pickerOpen = true
+	a.layout.modelFilter = "no such model"
 	tt.Frame()
 	if !tt.HasText("No models in the catalog match.") {
 		t.Fatalf("empty note missing: %v", tt.Texts())
@@ -1559,37 +1559,37 @@ func TestAttachFile(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
-	a.selectedSession = "ses_z"
+	a.conversation.target.selectSession("ses_z")
 
 	// A missing file keeps the dialog open with a note.
-	a.attach = &attachState{open: true, draft: "nothere.go"}
+	a.layout.attach = &attachState{open: true, draft: "nothere.go"}
 	a.attachFile()
-	if a.attach == nil || a.attach.note == "" {
+	if a.layout.attach == nil || a.layout.attach.note == "" {
 		t.Fatalf("missing file %+v", a)
 	}
 
 	// A real file lands fenced in the draft, the dialog closed.
-	a.attach.draft = "sample.go"
+	a.layout.attach.draft = "sample.go"
 	a.attachFile()
-	if a.attach != nil {
+	if a.layout.attach != nil {
 		t.Fatalf("attach state %+v", a)
 	}
 	mark := "(file: " + filepath.Join(tmp, "sample.go") + ")"
-	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "```go") ||
-		!strings.Contains(a.draft, "package main") {
-		t.Fatalf("draft %q", a.draft)
+	if !strings.Contains(a.conversation.draft, mark) || !strings.Contains(a.conversation.draft, "```go") ||
+		!strings.Contains(a.conversation.draft, "package main") {
+		t.Fatalf("draft %q", a.conversation.draft)
 	}
 
 	// Asking again does not repeat it; a folder refuses politely.
-	a.attach = &attachState{open: true, draft: "sample.go"}
+	a.layout.attach = &attachState{open: true, draft: "sample.go"}
 	a.attachFile()
-	if !strings.Contains(a.attach.note, "already") {
-		t.Fatalf("note %q", a.attach.note)
+	if !strings.Contains(a.layout.attach.note, "already") {
+		t.Fatalf("note %q", a.layout.attach.note)
 	}
-	a.attach.draft, a.draft = ".", ""
+	a.layout.attach.draft, a.conversation.draft = ".", ""
 	a.attachFile()
-	if !strings.Contains(a.attach.note, "not a file") {
-		t.Fatalf("folder note %q", a.attach.note)
+	if !strings.Contains(a.layout.attach.note, "not a file") {
+		t.Fatalf("folder note %q", a.layout.attach.note)
 	}
 }
 
@@ -1611,37 +1611,37 @@ func TestRemoteAttachFile(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "test"})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "test"})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
-	a.selectedSession = "ses_r"
+	a.conversation.target.selectSession("ses_r")
 
 	// A file that is not there keeps the dialog open with a note.
-	a.attach = &attachState{open: true, draft: "missing.md"}
+	a.layout.attach = &attachState{open: true, draft: "missing.md"}
 	a.attachFile()
-	if a.attach == nil || a.attach.note != "that file is not there" {
-		t.Fatalf("missing file %+v", a.attach)
+	if a.layout.attach == nil || a.layout.attach.note != "that file is not there" {
+		t.Fatalf("missing file %+v", a.layout.attach)
 	}
 
 	// A real file lands fenced in the draft, the dialog closed, the mark
 	// naming the server folder.
-	a.attach.draft = "docs/readme.md"
+	a.layout.attach.draft = "docs/readme.md"
 	a.attachFile()
-	if a.attach != nil {
+	if a.layout.attach != nil {
 		t.Fatalf("attach state %+v", a)
 	}
 	mark := "(file: " + filepath.Join("/srv/app", "docs/readme.md") + ")"
-	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "from the server") ||
-		!strings.Contains(a.draft, "```md") {
-		t.Fatalf("draft %q", a.draft)
+	if !strings.Contains(a.conversation.draft, mark) || !strings.Contains(a.conversation.draft, "from the server") ||
+		!strings.Contains(a.conversation.draft, "```md") {
+		t.Fatalf("draft %q", a.conversation.draft)
 	}
 
 	// An absolute name at home in the folder reads through the same call.
-	a.attach = &attachState{open: true, draft: "/srv/app/docs/readme.md"}
+	a.layout.attach = &attachState{open: true, draft: "/srv/app/docs/readme.md"}
 	a.attachFile()
-	if a.attach == nil || !strings.Contains(a.attach.note, "already") {
-		t.Fatalf("dedup missed the server folder: %+v", a.attach)
+	if a.layout.attach == nil || !strings.Contains(a.layout.attach.note, "already") {
+		t.Fatalf("dedup missed the server folder: %+v", a.layout.attach)
 	}
 }
 
@@ -1917,11 +1917,11 @@ func TestPermissionPill(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Turn", Directory: tmp}}
-	a.selectedSession = "ses_z"
+	a.conversation.target.selectSession("ses_z")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	updates := make(chan policyResult, 8)
-	go watchPolicy(ctx, a.policyDirs, a.policyWrites, func(result policyResult) { updates <- result })
+	go watchPolicy(ctx, a.workspace.policyDirs, a.workspace.policyWrites, func(result policyResult) { updates <- result })
 	settle := func() {
 		t.Helper()
 		select {
@@ -1974,11 +1974,11 @@ func TestPermissionPillRemote(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
-	a.selectedSession = "ses_r"
+	a.conversation.target.selectSession("ses_r")
 	a.refreshWorkspacePolicy()
 	tt := ui.NewTester(a.view, 1400, 920)
 	settle := func(want string) {
@@ -2016,21 +2016,22 @@ func TestPermissionPillRemote(t *testing.T) {
 func TestTopBarShowsWhatTheChatSpent(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessions = []opencode.Session{{ID: "ses_paid", Title: "Reviewing the wiring", Cost: 0.3196}}
-	a.selectedSession, a.selected = "ses_paid", "Reviewing the wiring"
+	a.conversation.target.selectSession("ses_paid")
+	a.conversation.selected = "Reviewing the wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Reviewing the wiring") || !tt.HasText("$0.32") {
 		t.Fatalf("the spending is not beside the title: %v", tt.Texts())
 	}
 
 	a.scope().sessions = []opencode.Session{{ID: "ses_free", Title: "Reviewing the wiring"}}
-	a.selectedSession = "ses_free"
+	a.conversation.target.selectSession("ses_free")
 	tt.Frame()
 	if tt.HasText("$0.00") || tt.HasText("$0.0000") {
 		t.Fatalf("a chat that spent nothing shows spending: %v", tt.Texts())
 	}
 
 	a.scope().sessions = []opencode.Session{{ID: "ses_free", Title: "Reviewing the wiring", Cost: 1.5}}
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	tt.Frame()
 	if tt.HasText("$1.50") {
 		t.Fatal("the settings page shows a chat's spending")
@@ -2049,9 +2050,9 @@ func TestNewChatLiveRenders(t *testing.T) {
 	a := newTestApp(t)
 	// The state right after the runner opened a fresh conversation: a
 	// real session id, no title yet.
-	a.selectedSession = "ses_fresh"
-	a.selected = "New chat"
-	a.transcript.Replace([]chat.Block{{Kind: "user", Text: "run the checks"},
+	a.conversation.target.selectSession("ses_fresh")
+	a.conversation.selected = "New chat"
+	a.conversation.transcript.Replace([]chat.Block{{Kind: "user", Text: "run the checks"},
 		{Kind: "stream", Text: "On it — this is half of an answer"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.Advance(time.Second) // the reply's words pace in
@@ -2062,8 +2063,8 @@ func TestNewChatLiveRenders(t *testing.T) {
 	// The auto-title folds onto the conversation on show.
 	a.apply(opencode.Event{Type: "session.renamed",
 		Data: []byte(`{"sessionID":"ses_fresh","title":"Check runner"}`)})
-	if a.selected != "Check runner" {
-		t.Fatalf("the open chat did not take its rename: %q", a.selected)
+	if a.conversation.selected != "Check runner" {
+		t.Fatalf("the open chat did not take its rename: %q", a.conversation.selected)
 	}
 	tt.Frame()
 	if !tt.HasText("run the checks") {
@@ -2073,8 +2074,8 @@ func TestNewChatLiveRenders(t *testing.T) {
 	// A session the user is not looking at renames silently.
 	a.apply(opencode.Event{Type: "session.renamed",
 		Data: []byte(`{"sessionID":"ses_fresh2","title":"Other"}`)})
-	if a.selected != "Check runner" {
-		t.Fatalf("another chat's rename stole the bar: %q", a.selected)
+	if a.conversation.selected != "Check runner" {
+		t.Fatalf("another chat's rename stole the bar: %q", a.conversation.selected)
 	}
 }
 
@@ -2082,21 +2083,21 @@ func TestNewChatLiveRenders(t *testing.T) {
 // answers stand as their words, asks and the spinning stop release.
 func TestFinishCutTurns(t *testing.T) {
 	a := newTestApp(t)
-	a.selectedSession = "ses_z"
-	a.transcript.Start("ses_z")
-	a.transcript.Replace([]chat.Block{
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.transcript.Start("ses_z")
+	a.conversation.transcript.Replace([]chat.Block{
 		{Kind: "text", Text: "Earlier answer"},
 		{Kind: "stream", Text: "half of an answer"},
 		{Kind: "stream", Text: ""},
 	})
 
-	a.transcript.Ask(&chat.Permission{})
+	a.conversation.transcript.Ask(&chat.Permission{})
 	a.finishCutTurns()
 
 	var text []string
-	for _, b := range a.transcript.Rows() {
+	for _, b := range a.conversation.transcript.Rows() {
 		if b.Kind == "stream" {
-			t.Fatalf("a line still streams: %+v", a.transcript.Rows())
+			t.Fatalf("a line still streams: %+v", a.conversation.transcript.Rows())
 		}
 		if b.Kind == "text" {
 			text = append(text, b.Text)
@@ -2105,8 +2106,8 @@ func TestFinishCutTurns(t *testing.T) {
 	if strings.Join(text, "|") != "Earlier answer|half of an answer|(the answer was cut short)" {
 		t.Fatalf("settled %q", text)
 	}
-	if a.transcript.Busy() != "" || len(a.transcript.Streaming()) != 0 || len(a.transcript.Pending()) != 0 {
-		t.Fatalf("state stuck: busy %q live %v pend %v", a.transcript.Busy(), a.transcript.Streaming(), a.transcript.Pending())
+	if a.conversation.transcript.Busy() != "" || len(a.conversation.transcript.Streaming()) != 0 || len(a.conversation.transcript.Pending()) != 0 {
+		t.Fatalf("state stuck: busy %q live %v pend %v", a.conversation.transcript.Busy(), a.conversation.transcript.Streaming(), a.conversation.transcript.Pending())
 	}
 }
 
@@ -2142,7 +2143,7 @@ func TestLiveAgent(t *testing.T) {
 		case ev := <-evs:
 			switch ev.Type {
 			case "session.text.ended":
-				var d evTextData
+				var d opencode.TextData
 				if json.Unmarshal(ev.Data, &d) == nil {
 					text = d.Text
 				}
@@ -2321,7 +2322,7 @@ func TestLivePermission(t *testing.T) {
 		case ev := <-evs:
 			switch ev.Type {
 			case "permission.asked":
-				var d evPermissionData
+				var d opencode.PermissionData
 				if json.Unmarshal(ev.Data, &d) != nil || d.SessionID != sid {
 					continue
 				}
@@ -2410,7 +2411,7 @@ func TestLiveLocation(t *testing.T) {
 				kinds = append(kinds, ev.Type)
 			}
 			if ev.Type == "session.text.ended" {
-				var d evTextData
+				var d opencode.TextData
 				if json.Unmarshal(ev.Data, &d) == nil && d.SessionID == sid {
 					said = d.Text
 				}
@@ -2421,7 +2422,7 @@ func TestLiveLocation(t *testing.T) {
 			if ev.Type != "session.tool.success" {
 				continue
 			}
-			var d evToolData
+			var d opencode.ToolData
 			if err := json.Unmarshal(ev.Data, &d); err != nil || d.SessionID != sid {
 				continue
 			}

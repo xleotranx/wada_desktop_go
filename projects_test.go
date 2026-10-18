@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -12,17 +11,17 @@ import (
 
 func TestProjectsStartEmpty(t *testing.T) {
 	a := newTestApp(t)
-	if len(a.projects) != 0 {
-		t.Fatalf("unexpected discovered projects: %v", a.projects)
+	if len(a.preferences.projects) != 0 {
+		t.Fatalf("unexpected discovered projects: %v", a.preferences.projects)
 	}
 }
 
 func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	a := newTestApp(t)
 	a.addFolder(t.TempDir())
-	dir := a.projects[0]
-	a.selectedSession = "old-chat"
-	a.scope().sessions = []opencode.Session{{ID: "old-chat", Directory: a.home}}
+	dir := a.preferences.projects[0]
+	a.conversation.target.selectSession("old-chat")
+	a.scope().sessions = []opencode.Session{{ID: "old-chat", Directory: a.preferences.home}}
 	tt := ui.NewTester(a.view, 1400, 920)
 	label := "New chat in " + dirBase(dir)
 	if tt.HasText(label) {
@@ -36,12 +35,12 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	if err := tt.Click(label); err != nil {
 		t.Fatal(err)
 	}
-	if a.selectedSession != "" || a.chatDir() != dir {
-		t.Fatalf("quick chat opened in %q with session %q", a.chatDir(), a.selectedSession)
+	if a.conversation.target.session != "" || a.chatDir() != dir {
+		t.Fatalf("quick chat opened in %q with session %q", a.chatDir(), a.conversation.target.session)
 	}
-	a.draft = "work here"
+	a.conversation.draft = "work here"
 	a.send()
-	job := <-a.jobs
+	job := <-commandsOf(a)
 	if job.dir != dir || job.sid != "" || job.text != "work here" {
 		t.Fatalf("wrong prompt target: %+v", job)
 	}
@@ -53,8 +52,8 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 // list stays out of it.
 func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box"})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().projects = []string{"/srv/app"}
 	dir := a.projectDirectories()[0]
@@ -67,18 +66,18 @@ func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
 	if err := tt.Click("New chat in app"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selectedSession != "" || a.chatDir() != dir {
-		t.Fatalf("quick chat opened in %q with session %q", a.chatDir(), a.selectedSession)
+	if a.conversation.target.session != "" || a.chatDir() != dir {
+		t.Fatalf("quick chat opened in %q with session %q", a.chatDir(), a.conversation.target.session)
 	}
-	if len(a.projects) != 0 {
-		t.Fatalf("the server folder landed in this machine's list: %v", a.projects)
+	if len(a.preferences.projects) != 0 {
+		t.Fatalf("the server folder landed in this machine's list: %v", a.preferences.projects)
 	}
 	if !tt.HasText("What should we build in app?") {
 		t.Fatalf("the draft did not name its folder: %v", tt.Texts())
 	}
-	a.draft = "work there"
+	a.conversation.draft = "work there"
 	a.send()
-	job := <-a.jobs
+	job := <-commandsOf(a)
 	if job.dir != dir || job.sid != "" || job.text != "work there" {
 		t.Fatalf("wrong prompt target: %+v", job)
 	}
@@ -89,8 +88,8 @@ func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
 // rows — and leaves an unlisted folder out of the draft.
 func TestNewChatCarriesItsProject(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box"})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().projects = []string{"/srv/app"}
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote wiring", Directory: "/srv/app"}}
@@ -99,7 +98,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 	if a.chatDir() != "/srv/app" {
 		t.Fatalf("the new draft lost the server project: %q", a.chatDir())
 	}
-	if a.draftVersion == 0 {
+	if a.conversation.target.revision == 0 {
 		t.Fatal("new draft would reuse the previous server chat")
 	}
 
@@ -108,7 +107,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 	b.scope().sessions = []opencode.Session{{ID: "ses_l", Title: "Local wiring", Directory: canonDir(t.TempDir())}}
 	b.adoptSession(b.scope().sessions[0])
 	b.startNewChat()
-	if b.chatDir() != "" || b.selectedSession != "" {
+	if b.chatDir() != "" || b.conversation.target.session != "" {
 		t.Fatalf("an unlisted folder carried into a local draft: %q", b.chatDir())
 	}
 }
@@ -116,7 +115,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 func TestNewChatProjectPicker(t *testing.T) {
 	a := newTestApp(t)
 	a.addFolder(t.TempDir())
-	dir := a.projects[0]
+	dir := a.preferences.projects[0]
 	a.startNewChat()
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Choose project"); err != nil {
@@ -125,7 +124,7 @@ func TestNewChatProjectPicker(t *testing.T) {
 	if err := tt.Click("Use project " + dirBase(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if a.chatDir() != dir || a.selectedSession != "" {
+	if a.chatDir() != dir || a.conversation.target.session != "" {
 		t.Fatal("project selection did not configure the draft")
 	}
 	if !tt.HasText("What should we build in " + dirBase(dir) + "?") {
@@ -140,9 +139,9 @@ func TestNewChatProjectPicker(t *testing.T) {
 	if a.chatDir() != "" {
 		t.Fatal("project could not be cleared")
 	}
-	first := a.draftVersion
+	first := a.conversation.target.revision
 	a.startNewChat()
-	if a.draftVersion == first {
+	if a.conversation.target.revision == first {
 		t.Fatal("new draft would reuse the previous server chat")
 	}
 }
@@ -151,15 +150,15 @@ func TestProjectPickerFiltersAndAddsFolder(t *testing.T) {
 	a := newTestApp(t)
 	a.addProject(filepath.Join(t.TempDir(), "alpha"))
 	a.addProject(filepath.Join(t.TempDir(), "beta"))
-	a.projectPickerOpen = true
-	a.projectFilter = "beta"
-	a.draft = "keep my draft"
+	a.layout.projectPickerOpen = true
+	a.layout.projectFilter = "beta"
+	a.conversation.draft = "keep my draft"
 	tt := ui.NewTester(a.view, 1400, 920)
 	if tt.HasText("Use project alpha") || !tt.HasText("Use project beta") {
 		t.Fatal("project filter did not narrow the list")
 	}
 	picked := t.TempDir()
-	a.pickFolder = func(done func(path string)) { done(picked) }
+	a.runtime.pickFolder = func(done func(path string)) { done(picked) }
 	if err := tt.Click("New project…"); err != nil {
 		t.Fatal(err)
 	}
@@ -167,13 +166,13 @@ func TestProjectPickerFiltersAndAddsFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.draftProject != want || a.draft != "keep my draft" {
-		t.Fatalf("adding a project did not preserve and configure the draft, %q %q", a.draftProject, a.draft)
+	if a.conversation.draftProject != want || a.conversation.draft != "keep my draft" {
+		t.Fatalf("adding a project did not preserve and configure the draft, %q %q", a.conversation.draftProject, a.conversation.draft)
 	}
-	if a.projectPickerOpen {
+	if a.layout.projectPickerOpen {
 		t.Fatal("the project picker stayed open")
 	}
-	if got := a.projects[len(a.projects)-1]; got != want {
+	if got := a.preferences.projects[len(a.preferences.projects)-1]; got != want {
 		t.Fatalf("new project landed as %q, want %q", got, want)
 	}
 }
@@ -204,11 +203,11 @@ func TestProjectChatsNestUnderFolder(t *testing.T) {
 	if err := tt.Click("Folder wiring"); err != nil {
 		t.Fatal(err)
 	}
-	if a.selectedSession != "ses_here" {
-		t.Fatalf("nested chat did not open: %q", a.selectedSession)
+	if a.conversation.target.session != "ses_here" {
+		t.Fatalf("nested chat did not open: %q", a.conversation.target.session)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "open" || job.sid != "ses_here" {
 			t.Fatalf("nested chat job %+v", job)
 		}
@@ -355,56 +354,19 @@ func TestProjectChatsMatchFolder(t *testing.T) {
 	}
 }
 
-func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "metadata.db")
-	db, err := openMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.save(context.Background(), appMetadata{projects: []string{"/imported"}, pins: map[string][]string{localServerID: {"keep-chat"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Execute(context.Background(), "PRAGMA user_version = 1"); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	a := newTestApp(t)
-	db, err = a.loadState(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(a.projects) != 0 || !a.pinned["keep-chat"] {
-		t.Fatal("migration must clear project imports while keeping chat pins")
-	}
-	a.addFolder(t.TempDir())
-	if err := db.save(context.Background(), a.stateSnapshot()); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	b := newTestApp(t)
-	db, err = b.loadState(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if len(b.projects) != 1 {
-		t.Fatal("explicit project removed on next restart")
-	}
-}
-
 // TestSwitchServerDropsTheDraftFolder: a draft pointed at one server's
 // folder does not carry it to the next — the folder belongs to the lists
 // of one server, and the next has never heard of it; naming it there
 // would file it a phantom project.
 func TestSwitchServerDropsTheDraftFolder(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://127.0.0.1:4096"})
-	a.activeServer = localServerID
-	a.projects = []string{"/Users/me/app"}
-	a.draftProject = "/Users/me/app"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://127.0.0.1:4096"})
+	a.connections.activeServer = localServerID
+	a.preferences.projects = []string{"/Users/me/app"}
+	a.conversation.draftProject = "/Users/me/app"
 	a.useServer("srv-box")
-	if a.draftProject != "" {
-		t.Fatalf("the draft's folder crossed the switch: %q", a.draftProject)
+	if a.conversation.draftProject != "" {
+		t.Fatalf("the draft's folder crossed the switch: %q", a.conversation.draftProject)
 	}
 }
 
@@ -414,8 +376,8 @@ func TestSwitchServerDropsTheDraftFolder(t *testing.T) {
 // the user adds.
 func TestRemoteServerListsItsProjects(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.activeServer = "srv-box"
 	// A folder of this machine the user added while the local server was
 	// on stays out of the remote lists: the picker offers nothing to
 	// start a server chat in, and the sidebar carries no dead row.
@@ -423,7 +385,7 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_remote", Title: "Remote wiring", Directory: "/srv/app"}}
 	a.scope().projects = []string{"/srv/app", "/srv/docs"}
-	a.projectPickerOpen = true
+	a.layout.projectPickerOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Use project app") || !tt.HasText("Use project docs") {
 		t.Fatalf("the server's projects are not all offered: %v", tt.Texts())
@@ -441,7 +403,7 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 	// The server's list dropped a folder its chats still work in: the
 	// chat's own folder steps up as the row, here and in the picker.
 	a.scope().projects = nil
-	a.projectFilter = "app"
+	a.layout.projectFilter = "app"
 	tt.Frame()
 	if !tt.HasText("Use project app") {
 		t.Fatalf("the chat's folder did not offer itself: %v", tt.Texts())
@@ -452,7 +414,7 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 
 	// Before its first dial lands, the server has nothing to list.
 	a.scope().sessions = nil
-	a.projectFilter = ""
+	a.layout.projectFilter = ""
 	tt.Frame()
 	if !tt.HasText("No projects match") {
 		t.Fatalf("the empty picker read wrong: %v", tt.Texts())
@@ -463,8 +425,8 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 
 	// The local server composes its list out of added folders, and the
 	// folder this machine keeps comes back into both lists.
-	a.activeServer = localServerID
-	a.projectFilter = ""
+	a.connections.activeServer = localServerID
+	a.layout.projectFilter = ""
 	tt.Frame()
 	if !tt.HasText("New project…") {
 		t.Fatalf("the local server lost the way to add a folder: %v", tt.Texts())

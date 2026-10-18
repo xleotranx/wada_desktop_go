@@ -15,8 +15,8 @@ func TestWorkspaceToolsFollowDraftProject(t *testing.T) {
 				srv, _ = changesServer(t)
 			}
 			a := newTestApp(t)
-			a.servers = append(a.servers, serverConn{id: "box", name: "Box", url: srv.URL})
-			a.activeServer = "box"
+			a.connections.servers = append(a.connections.servers, serverConn{id: "box", name: "Box", url: srv.URL})
+			a.connections.activeServer = "box"
 			a.scope().projects = []string{"/srv/app", "/srv/app/src"}
 			a.startChatIn("/srv/app")
 			a.openTool(tool)
@@ -30,10 +30,10 @@ func TestWorkspaceToolsFollowDraftProject(t *testing.T) {
 			assertDir := func(want string) {
 				t.Helper()
 				got := ""
-				if tool == "Files" && a.files != nil {
-					got = a.files.location
-				} else if tool == "Changes" && a.changes != nil {
-					got = a.changes.dir
+				if tool == "Files" && a.workspace.files != nil {
+					got = a.workspace.files.location
+				} else if tool == "Changes" && a.workspace.changes != nil {
+					got = a.workspace.changes.dir
 				}
 				if got != want {
 					t.Fatalf("%s reads %q, want %q", tool, got, want)
@@ -50,7 +50,7 @@ func TestWorkspaceToolsFollowDraftProject(t *testing.T) {
 			}
 			a.startChatIn("/srv/app")
 			assertDir("/srv/app")
-			a.servers = append(a.servers, serverConn{id: "other", name: "Other", url: srv.URL})
+			a.connections.servers = append(a.connections.servers, serverConn{id: "other", name: "Other", url: srv.URL})
 			a.useServer("other")
 			tt.Frame()
 			assertDir("")

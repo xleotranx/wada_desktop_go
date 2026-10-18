@@ -22,8 +22,8 @@ func TestSettingsOpenAndClose(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
-	a.selectedSession = "ses_a"
-	a.selected = "Grep wiring"
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.selected = "Grep wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if tt.HasText("Add server") {
@@ -32,7 +32,7 @@ func TestSettingsOpenAndClose(t *testing.T) {
 	if err := tt.Click("Settings"); err != nil {
 		t.Fatalf("the rail gear: %v", err)
 	}
-	if !a.settingsOpen {
+	if !a.layout.settingsOpen {
 		t.Fatal("the gear did not open the settings")
 	}
 	tt.Frame()
@@ -52,21 +52,21 @@ func TestSettingsOpenAndClose(t *testing.T) {
 	if err := tt.Click("Settings Models"); err != nil {
 		t.Fatalf("the Models item: %v", err)
 	}
-	if a.settingsTab != tabModels {
-		t.Fatalf("tab %q after the click", a.settingsTab)
+	if a.layout.settingsTab != tabModels {
+		t.Fatalf("tab %q after the click", a.layout.settingsTab)
 	}
 	tt.Frame()
 	if err := tt.Click("Settings Servers"); err != nil {
 		t.Fatalf("the Servers item: %v", err)
 	}
-	if a.settingsTab != tabServers {
-		t.Fatalf("tab %q after the click back", a.settingsTab)
+	if a.layout.settingsTab != tabServers {
+		t.Fatalf("tab %q after the click back", a.layout.settingsTab)
 	}
 
 	// Escape closes the page.
 	tt.Frame()
 	tt.Key(0, ui.KeyEscape)
-	if a.settingsOpen {
+	if a.layout.settingsOpen {
 		t.Fatal("Escape did not close the settings")
 	}
 	tt.Frame()
@@ -83,7 +83,7 @@ func TestSettingsOpenAndClose(t *testing.T) {
 	if err := tt.Click("Close settings"); err != nil {
 		t.Fatal(err)
 	}
-	if a.settingsOpen {
+	if a.layout.settingsOpen {
 		t.Fatal("the close shape did not close the settings")
 	}
 	if err := tt.Click("Settings"); err != nil {
@@ -92,7 +92,7 @@ func TestSettingsOpenAndClose(t *testing.T) {
 	if err := tt.Click("Home"); err != nil {
 		t.Fatal(err)
 	}
-	if a.settingsOpen {
+	if a.layout.settingsOpen {
 		t.Fatal("a rail place did not leave the settings")
 	}
 }
@@ -102,8 +102,8 @@ func TestSettingsOpenAndClose(t *testing.T) {
 // take; the headless tester does not model that, so it stays untested.)
 func TestServerMenuKeepsThePage(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
-	a.settingsOpen = true
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Server options, Build box"); err != nil {
@@ -115,8 +115,8 @@ func TestServerMenuKeepsThePage(t *testing.T) {
 	if err := tt.ChooseMenuItem("Test connection"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.settingsOpen || a.settingsTab != tabServers {
-		t.Fatalf("the menu disturbed the page: open %v tab %q", a.settingsOpen, a.settingsTab)
+	if !a.layout.settingsOpen || a.layout.settingsTab != tabServers {
+		t.Fatalf("the menu disturbed the page: open %v tab %q", a.layout.settingsOpen, a.layout.settingsTab)
 	}
 	tt.CloseMenu()
 	tt.Frame()
@@ -162,10 +162,10 @@ func TestServerRowShowsState(t *testing.T) {
 
 	// The card draws the active badge and the state dot.
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.setHealth("srv-box", serverHealth{status: healthDown, detail: "no answer"})
-	a.settingsOpen = true
-	a.settingsTab = tabServers
+	a.layout.settingsOpen = true
+	a.layout.settingsTab = tabServers
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Active") || !tt.HasText("Local server") || !tt.HasText("Build box") {
 		t.Fatalf("the rows are off: %v", tt.Texts())
@@ -183,40 +183,40 @@ func TestServerRowShowsState(t *testing.T) {
 // catalog stay in their scope, so a switch back shows them again.
 func TestServerUseSwitches(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
-	a.settingsOpen = true
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.layout.settingsOpen = true
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_local", Title: "Local chat"}}
-	a.selectedSession = "ses_local"
-	a.selected = "Local chat"
+	a.conversation.target.selectSession("ses_local")
+	a.conversation.selected = "Local chat"
 	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
-	a.pinned["ses_local"] = true
-	a.pinOrder = []string{"ses_local"}
-	a.pinsByServer["srv-box"] = []string{"ses_remote"}
+	a.scope().pinned["ses_local"] = true
+	a.scope().pinOrder = []string{"ses_local"}
+	a.scopeFor("srv-box").setPins([]string{"ses_remote"})
 
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Use Build box"); err != nil {
 		t.Fatalf("the Use action: %v", err)
 	}
-	if a.activeServer != "srv-box" {
-		t.Fatalf("active server %q after the click", a.activeServer)
+	if a.connections.activeServer != "srv-box" {
+		t.Fatalf("active server %q after the click", a.connections.activeServer)
 	}
-	if a.selectedSession != "" || len(a.scope().sessions) != 0 || len(a.scope().models) != 0 || a.scope().modelsLoaded {
-		t.Fatalf("the opened server's view did not start fresh: %q %v %v", a.selectedSession, a.scope().sessions, a.scope().models)
+	if a.conversation.target.session != "" || len(a.scope().sessions) != 0 || len(a.scope().models) != 0 || a.scope().modelsLoaded {
+		t.Fatalf("the opened server's view did not start fresh: %q %v %v", a.conversation.target.session, a.scope().sessions, a.scope().models)
 	}
-	local := a.scopes[localServerID]
+	local := a.connections.scopes[localServerID]
 	if len(local.sessions) != 1 || !local.sessionsLoaded || len(local.models) != 1 || !local.modelsLoaded {
 		t.Fatalf("the local scope was thrown away: %+v", local)
 	}
-	if !a.pinned["ses_remote"] || len(a.pinOrder) != 1 || a.pinOrder[0] != "ses_remote" || a.pinned["ses_local"] {
-		t.Fatalf("pins did not follow the switch: %v %v", a.pinned, a.pinOrder)
+	if !a.scope().pinned["ses_remote"] || len(a.scope().pinOrder) != 1 || a.scope().pinOrder[0] != "ses_remote" || a.scope().pinned["ses_local"] {
+		t.Fatalf("pins did not follow the switch: %v %v", a.scope().pinned, a.scope().pinOrder)
 	}
-	if got := a.pinsByServer[localServerID]; len(got) != 1 || got[0] != "ses_local" {
-		t.Fatalf("the local pins were not kept: %v", a.pinsByServer)
+	if got := a.scopeFor(localServerID).pinOrder; len(got) != 1 || got[0] != "ses_local" {
+		t.Fatalf("the local pins were not kept: %v", a.connections.scopes)
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "server" || job.server.id != "srv-box" || len(job.pins) != 1 || job.pins[0] != "ses_remote" {
 			t.Fatalf("switch job %+v", job)
 		}
@@ -224,7 +224,7 @@ func TestServerUseSwitches(t *testing.T) {
 		t.Fatal("the switch queued no dial")
 	}
 	// The local server is only run while it is active.
-	if h := a.serverHealth[localServerID]; h.status != healthStopped {
+	if h := a.connections.serverHealth[localServerID]; h.status != healthStopped {
 		t.Fatalf("the local server's health says %+v", h)
 	}
 	tt.Frame()
@@ -247,7 +247,7 @@ func TestServerUseSwitches(t *testing.T) {
 // the same road Settings' Use action takes.
 func TestServerMenuSwitches(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Server menu, Local server"); err != nil {
 		t.Fatalf("the server pill did not open: %v", err)
@@ -262,11 +262,11 @@ func TestServerMenuSwitches(t *testing.T) {
 	if err := tt.ChooseMenuItem("Build box"); err != nil {
 		t.Fatal(err)
 	}
-	if a.activeServer != "srv-box" {
+	if a.connections.activeServer != "srv-box" {
 		t.Fatal("the menu did not switch servers")
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "server" || job.server.id != "srv-box" {
 			t.Fatalf("switch job %+v", job)
 		}
@@ -280,14 +280,14 @@ func TestServerMenuSwitches(t *testing.T) {
 func TestServerEditorAddsRemote(t *testing.T) {
 	a := newTestApp(t)
 	probed := []string{}
-	a.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
-	a.settingsOpen = true
+	a.runtime.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Add server"); err != nil {
 		t.Fatalf("the Add server action: %v", err)
 	}
-	if a.serverEditor == nil || !a.serverEditor.open {
+	if a.layout.serverEditor == nil || !a.layout.serverEditor.open {
 		t.Fatal("the editor did not open")
 	}
 	tt.Frame()
@@ -297,31 +297,31 @@ func TestServerEditorAddsRemote(t *testing.T) {
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverEditor == nil || !strings.Contains(a.serverEditor.note, "name") {
-		t.Fatalf("a nameless server saved anyway: %+v", a.serverEditor)
+	if a.layout.serverEditor == nil || !strings.Contains(a.layout.serverEditor.note, "name") {
+		t.Fatalf("a nameless server saved anyway: %+v", a.layout.serverEditor)
 	}
-	a.serverEditor.name = "Build box"
-	a.serverEditor.url = "not an address"
+	a.layout.serverEditor.name = "Build box"
+	a.layout.serverEditor.url = "not an address"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverEditor == nil || a.serverEditor.note == "" {
+	if a.layout.serverEditor == nil || a.layout.serverEditor.note == "" {
 		t.Fatal("a bad address saved anyway")
 	}
-	a.serverEditor.url = "10.0.0.12:4096"
-	a.serverEditor.password = "s3cret"
+	a.layout.serverEditor.url = "10.0.0.12:4096"
+	a.layout.serverEditor.password = "s3cret"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverEditor != nil {
+	if a.layout.serverEditor != nil {
 		t.Fatal("the editor stayed open after a save")
 	}
-	if len(a.servers) != 2 {
-		t.Fatalf("servers after the add: %+v", a.servers)
+	if len(a.connections.servers) != 2 {
+		t.Fatalf("servers after the add: %+v", a.connections.servers)
 	}
-	added := a.servers[1]
+	added := a.connections.servers[1]
 	if added.name != "Build box" || added.url != "http://10.0.0.12:4096" || added.password != "s3cret" || added.local {
 		t.Fatalf("the added server reads %+v", added)
 	}
@@ -340,7 +340,7 @@ func TestServerEditorAddsRemote(t *testing.T) {
 // the password travels with the server the app starts.
 func TestServerEditorEditsLocalPassword(t *testing.T) {
 	a := newTestApp(t)
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Edit Local server"); err != nil {
@@ -353,16 +353,16 @@ func TestServerEditorEditsLocalPassword(t *testing.T) {
 	if tt.HasText("Address") {
 		t.Fatalf("the managed server asks for an address: %v", tt.Texts())
 	}
-	a.serverEditor.password = "chosen-key"
+	a.layout.serverEditor.password = "chosen-key"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.servers[0].password != "chosen-key" || a.servers[0].managed != true || a.servers[0].url != "" {
-		t.Fatalf("the local server reads %+v", a.servers[0])
+	if a.connections.servers[0].password != "chosen-key" || a.connections.servers[0].managed != true || a.connections.servers[0].url != "" {
+		t.Fatalf("the local server reads %+v", a.connections.servers[0])
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "server" || job.server.password != "chosen-key" {
 			t.Fatalf("the redial job %+v", job)
 		}
@@ -372,26 +372,26 @@ func TestServerEditorEditsLocalPassword(t *testing.T) {
 
 	// Pointing the local row at a server the user runs themselves needs an
 	// address, and dials it instead of starting one.
-	a.servers[0].password = ""
+	a.connections.servers[0].password = ""
 	if err := tt.Click("Edit Local server"); err != nil {
 		t.Fatal(err)
 	}
-	a.serverEditor.name = "Local server"
-	a.serverEditor.managed = false
+	a.layout.serverEditor.name = "Local server"
+	a.layout.serverEditor.managed = false
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverEditor == nil || a.serverEditor.note == "" {
+	if a.layout.serverEditor == nil || a.layout.serverEditor.note == "" {
 		t.Fatal("an addressless self-run server saved")
 	}
-	a.serverEditor.url = "http://127.0.0.1:4096"
+	a.layout.serverEditor.url = "http://127.0.0.1:4096"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.servers[0].managed || a.servers[0].url != "http://127.0.0.1:4096" {
-		t.Fatalf("the self-run local server reads %+v", a.servers[0])
+	if a.connections.servers[0].managed || a.connections.servers[0].url != "http://127.0.0.1:4096" {
+		t.Fatalf("the self-run local server reads %+v", a.connections.servers[0])
 	}
 }
 
@@ -399,14 +399,14 @@ func TestServerEditorEditsLocalPassword(t *testing.T) {
 // harm's way, and takes a menu Delete through its dialog.
 func TestDeleteServerConfirms(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers,
+	a.connections.servers = append(a.connections.servers,
 		serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"},
 		serverConn{id: "srv-lab", name: "Lab", url: "http://10.0.0.13:4096", password: "k"},
 	)
-	a.pinsByServer["srv-box"] = []string{"ses_x"}
-	a.modelOff[modelKey("srv-box", "opencode-go", "beam-free")] = true
+	a.scopeFor("srv-box").setPins([]string{"ses_x"})
+	a.connections.modelOff[modelKey("srv-box", "opencode-go", "beam-free")] = true
 	a.setHealth("srv-box", serverHealth{status: healthReady, detail: "0.5.5"})
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The local row offers no Delete at all: reconnecting is all it has.
@@ -424,7 +424,7 @@ func TestDeleteServerConfirms(t *testing.T) {
 	if err := tt.ChooseMenuItem("Delete…"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverConfirm == nil || !a.serverConfirm.open {
+	if a.layout.serverConfirm == nil || !a.layout.serverConfirm.open {
 		t.Fatal("no confirmation was asked for")
 	}
 	tt.Frame()
@@ -434,23 +434,23 @@ func TestDeleteServerConfirms(t *testing.T) {
 	if err := tt.Click("Delete"); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.servers) != 2 || a.servers[1].id != "srv-lab" {
-		t.Fatalf("servers after the delete: %+v", a.servers)
+	if len(a.connections.servers) != 2 || a.connections.servers[1].id != "srv-lab" {
+		t.Fatalf("servers after the delete: %+v", a.connections.servers)
 	}
-	if _, ok := a.pinsByServer["srv-box"]; ok {
-		t.Fatalf("the deleted server kept its pins: %v", a.pinsByServer)
+	if _, ok := a.connections.scopes["srv-box"]; ok {
+		t.Fatalf("the deleted server kept its pins: %v", a.connections.scopes)
 	}
-	if a.modelOff[modelKey("srv-box", "opencode-go", "beam-free")] {
-		t.Fatalf("the deleted server kept its model choices: %v", a.modelOff)
+	if a.connections.modelOff[modelKey("srv-box", "opencode-go", "beam-free")] {
+		t.Fatalf("the deleted server kept its model choices: %v", a.connections.modelOff)
 	}
-	if _, ok := a.serverHealth["srv-box"]; ok {
+	if _, ok := a.connections.serverHealth["srv-box"]; ok {
 		t.Fatal("the deleted server kept its health")
 	}
 
 	// The active row refuses the delete outright.
-	a.activeServer = "srv-lab"
-	a.requestDeleteServer(a.servers[1])
-	if a.serverConfirm != nil {
+	a.connections.activeServer = "srv-lab"
+	a.requestDeleteServer(a.connections.servers[1])
+	if a.layout.serverConfirm != nil {
 		t.Fatal("the active server asked for a delete confirmation")
 	}
 }
@@ -465,8 +465,8 @@ func TestModelsTabToggles(t *testing.T) {
 		{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true},
 	}
 	a.scope().modelsLoaded = true
-	a.settingsOpen = true
-	a.settingsTab = tabModels
+	a.layout.settingsOpen = true
+	a.layout.settingsTab = tabModels
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if !tt.HasText("3 of 3 on") || !tt.HasText("Beam Free") || !tt.HasText("Flash") {
@@ -482,8 +482,8 @@ func TestModelsTabToggles(t *testing.T) {
 	if err := tt.Click("Keep MiniMax-M3 in the composer's picker"); err != nil {
 		t.Fatalf("the switch: %v", err)
 	}
-	if !a.modelOff[modelKey(localServerID, "opencode-go", "minimax-m3")] {
-		t.Fatalf("the switch did not take: %v", a.modelOff)
+	if !a.connections.modelOff[modelKey(localServerID, "opencode-go", "minimax-m3")] {
+		t.Fatalf("the switch did not take: %v", a.connections.modelOff)
 	}
 	tt.Frame()
 	if !tt.HasText("2 of 3 on") {
@@ -515,19 +515,19 @@ func TestModelsTabToggles(t *testing.T) {
 	}
 
 	// The search narrows the rows without changing what is on.
-	a.modelsQuery = "wada"
+	a.layout.modelsQuery = "wada"
 	tt.Frame()
 	if tt.HasText("Beam Free") || !tt.HasText("Flash") {
 		t.Fatalf("the search did not narrow: %v", tt.Texts())
 	}
-	a.modelsQuery = ""
+	a.layout.modelsQuery = ""
 }
 
 // TestModelsFollowTheServer keeps each server's choices its own: each lists
 // its own catalog, and turning a model off on one leaves the other's alone.
 func TestModelsFollowTheServer(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	// The local server's dial filled its catalog; the free default is off here.
 	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
@@ -535,7 +535,7 @@ func TestModelsFollowTheServer(t *testing.T) {
 	if on, _ := a.enabledModelCount(); on != 0 {
 		t.Fatal("the switch did not take on the local server")
 	}
-	a.activeServer = "srv-box"
+	a.connections.activeServer = "srv-box"
 	// The build box's scope starts empty and fills on its own dial.
 	a.scope().models = []opencode.Model{{ProviderID: "opencode-go", ID: "beam-free", Name: "Beam Free", Free: true}}
 	a.scope().modelsLoaded = true
@@ -551,8 +551,8 @@ func TestModelsFollowTheServer(t *testing.T) {
 // a card tells its chats, folders and catalog whatever server is on show.
 func TestServerCardShowsItsScope(t *testing.T) {
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
-	a.activeServer = "srv-box" // the build box stands alone, no pipe served it yet
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.activeServer = "srv-box" // the build box stands alone, no pipe served it yet
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_a"}, {ID: "ses_b"}, {ID: "ses_c"}, {ID: "ses_d"}}
 	a.scope().projects = []string{"/srv/app", "/srv/docs", "/srv/labs"}
@@ -561,8 +561,8 @@ func TestServerCardShowsItsScope(t *testing.T) {
 		{ProviderID: "opencode-go", ID: "minimax-m3", Name: "MiniMax-M3"},
 	}
 	a.scope().modelsLoaded = true
-	a.modelOff[modelKey("srv-box", "opencode-go", "minimax-m3")] = true
-	a.settingsOpen = true
+	a.connections.modelOff[modelKey("srv-box", "opencode-go", "minimax-m3")] = true
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("4 chats") || !tt.HasText("3 projects") || !tt.HasText("1 of 2 models on") {
 		t.Fatalf("the build box's card does not tell its scope: %v", tt.Texts())
@@ -581,12 +581,12 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 	a.scope().modelsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Free turn",
 		Model: opencode.ModelRef{ProviderID: "opencode-go", ID: "beam-free"}}}
-	a.selectedSession = "ses_z"
-	a.selected = "Free turn"
+	a.conversation.target.selectSession("ses_z")
+	a.conversation.selected = "Free turn"
 	a.setModelEnabled(a.scope().models[1], false)
 	tt := ui.NewTester(a.view, 1400, 920)
 
-	if err := tt.Click("opencode.Model Beam Free"); err != nil {
+	if err := tt.Click("Model Beam Free"); err != nil {
 		t.Fatalf("opening the picker: %v", err)
 	}
 	tt.Frame()
@@ -596,15 +596,15 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 	if err := tt.Click("Manage models…"); err != nil {
 		t.Fatalf("the manage row: %v", err)
 	}
-	if a.pickerOpen || !a.settingsOpen || a.settingsTab != tabModels {
+	if a.layout.pickerOpen || !a.layout.settingsOpen || a.layout.settingsTab != tabModels {
 		t.Fatalf("manage did not land on the Models tab: picker %v settings %v tab %q",
-			a.pickerOpen, a.settingsOpen, a.settingsTab)
+			a.layout.pickerOpen, a.layout.settingsOpen, a.layout.settingsTab)
 	}
 
 	// Everything off: the picker says so and still offers the way out.
-	a.settingsOpen = false
+	a.layout.settingsOpen = false
 	a.setAllModelsEnabled(false)
-	a.pickerOpen = true
+	a.layout.pickerOpen = true
 	tt.Frame()
 	if !tt.HasText("Every model is off") {
 		t.Fatalf("the empty offer is unexplained: %v", tt.Texts())
@@ -636,10 +636,10 @@ func TestDraftModelChoiceSticks(t *testing.T) {
 		t.Fatalf("the button does not show the draft's model: %v", tt.Texts())
 	}
 
-	a.draft = "hello"
+	a.conversation.draft = "hello"
 	a.send()
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "prompt" || job.provider != "opencode" || job.model != "glm-5.3-flash-free" ||
 			job.variant != "max" {
 			t.Fatalf("the send carried %+v", job)
@@ -660,10 +660,10 @@ func TestSendCarriesTheDefault(t *testing.T) {
 	a := newTestApp(t)
 	a.scope().models = []opencode.Model{{ProviderID: "wada", ID: "flash", Name: "Flash", Free: true}}
 	a.scope().modelsLoaded = true
-	a.draft = "hello"
+	a.conversation.draft = "hello"
 	a.send()
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		if job.kind != "prompt" || job.provider != "wada" || job.model != "flash" {
 			t.Fatalf("send job %+v", job)
 		}
@@ -757,18 +757,18 @@ func TestRedeemPairLink(t *testing.T) {
 // — is what the connection is saved with.
 func TestServerEditorPairsALink(t *testing.T) {
 	a := newTestApp(t)
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	probed := []string{}
-	a.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
+	a.runtime.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Add server"); err != nil {
 		t.Fatalf("the Add server action: %v", err)
 	}
-	a.serverEditor.name = "Build box"
-	a.serverEditor.url = "http://10.0.0.12:49374/auth/connect/abc"
+	a.layout.serverEditor.name = "Build box"
+	a.layout.serverEditor.url = "http://10.0.0.12:49374/auth/connect/abc"
 	link := ""
 	paired := false
-	a.pair = func(got string, done func(addr, token string, err error)) {
+	a.runtime.pair = func(got string, done func(addr, token string, err error)) {
 		link = got
 		paired = true
 		done("http://10.0.0.12:49374", "paired-token", nil)
@@ -780,13 +780,13 @@ func TestServerEditorPairsALink(t *testing.T) {
 	if !paired || link != "http://10.0.0.12:49374/auth/connect/abc" {
 		t.Fatalf("the save handed the pairing %q (paired %v)", link, paired)
 	}
-	if a.serverEditor != nil {
-		t.Fatalf("the editor stayed open after a paired save: %+v", a.serverEditor)
+	if a.layout.serverEditor != nil {
+		t.Fatalf("the editor stayed open after a paired save: %+v", a.layout.serverEditor)
 	}
-	if len(a.servers) != 2 {
-		t.Fatalf("servers after the paired add: %+v", a.servers)
+	if len(a.connections.servers) != 2 {
+		t.Fatalf("servers after the paired add: %+v", a.connections.servers)
 	}
-	added := a.servers[1]
+	added := a.connections.servers[1]
 	if added.url != "http://10.0.0.12:49374" || added.password != "paired-token" {
 		t.Fatalf("the paired server reads %+v", added)
 	}
@@ -799,20 +799,20 @@ func TestServerEditorPairsALink(t *testing.T) {
 	if err := tt.Click("Add server"); err != nil {
 		t.Fatal(err)
 	}
-	a.serverEditor.name = "Stale box"
-	a.serverEditor.url = "http://10.0.0.12:49374/auth/connect/spent"
-	a.pair = func(_ string, done func(addr, token string, err error)) {
+	a.layout.serverEditor.name = "Stale box"
+	a.layout.serverEditor.url = "http://10.0.0.12:49374/auth/connect/spent"
+	a.runtime.pair = func(_ string, done func(addr, token string, err error)) {
 		done("", "", errors.New("Pairing link expired or already used"))
 	}
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if a.serverEditor == nil || !strings.Contains(a.serverEditor.note, "Pairing link expired") {
-		t.Fatalf("a refused link reads %+v", a.serverEditor)
+	if a.layout.serverEditor == nil || !strings.Contains(a.layout.serverEditor.note, "Pairing link expired") {
+		t.Fatalf("a refused link reads %+v", a.layout.serverEditor)
 	}
-	if len(a.servers) != 2 {
-		t.Fatalf("a refused link added a server: %+v", a.servers)
+	if len(a.connections.servers) != 2 {
+		t.Fatalf("a refused link added a server: %+v", a.connections.servers)
 	}
 }
 
@@ -849,9 +849,9 @@ func TestAPIBaseNormalizes(t *testing.T) {
 // over it takes its place, and the row says which credential it holds.
 func TestServerEditorKeepsThePairing(t *testing.T) {
 	a := newTestApp(t)
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	issued := time.Now().Add(-3 * 24 * time.Hour).UnixMilli()
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box",
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box",
 		url: "http://10.0.0.12:4096", password: "token-1", paired: true, pairedAt: issued})
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.Frame()
@@ -862,12 +862,12 @@ func TestServerEditorKeepsThePairing(t *testing.T) {
 	if err := tt.Click("Edit Build box"); err != nil {
 		t.Fatal(err)
 	}
-	a.serverEditor.name = "Build box 2"
+	a.layout.serverEditor.name = "Build box 2"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	got := a.servers[1]
+	got := a.connections.servers[1]
 	if !got.paired || got.pairedAt != issued || got.password != "token-1" {
 		t.Fatalf("editing dropped the pairing: %+v", got)
 	}
@@ -876,12 +876,12 @@ func TestServerEditorKeepsThePairing(t *testing.T) {
 	if err := tt.Click("Edit Build box 2"); err != nil {
 		t.Fatal(err)
 	}
-	a.serverEditor.password = "typed-key"
+	a.layout.serverEditor.password = "typed-key"
 	tt.Frame()
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.servers[1]; got.paired || got.pairedAt != 0 || got.password != "typed-key" {
+	if got := a.connections.servers[1]; got.paired || got.pairedAt != 0 || got.password != "typed-key" {
 		t.Fatalf("a typed password kept a pairing: %+v", got)
 	}
 	if !tt.HasText("Password set") {
@@ -942,12 +942,12 @@ func TestCopyPairLink(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "key"})
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "key"})
 	a.setHealth("srv-box", serverHealth{status: healthReady, detail: "2.0.32", addr: srv.URL})
 	a.setFacts("srv-box", opencode.Facts{URLs: []string{srv.URL}})
 	copied := ""
-	a.copy = func(text string) error { copied = text; return nil }
-	a.settingsOpen = true
+	a.runtime.copy = func(text string) error { copied = text; return nil }
+	a.layout.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	if err := tt.Click("Server options, Build box"); err != nil {
@@ -968,26 +968,26 @@ func TestCopyPairLink(t *testing.T) {
 
 	// A link the clock has passed is nothing to show, and a server that
 	// answered nothing never got one.
-	a.pairLinks["srv-box"] = mintedLink{link: want, at: time.Now().Add(-6 * time.Minute)}
+	a.connections.pairLinks["srv-box"] = mintedLink{link: want, at: time.Now().Add(-6 * time.Minute)}
 	tt.Frame()
 	if tt.HasText("Pairing link") {
 		t.Fatal("a lapsed link is still shown")
 	}
 
 	// A clipboard that refuses says so in the transcript instead.
-	a.copy = func(string) error { return errors.New("no clipboard") }
-	a.copyPairLink(a.servers[1])
+	a.runtime.copy = func(string) error { return errors.New("no clipboard") }
+	a.copyPairLink(a.connections.servers[1])
 	if a.activePairLink("srv-box") != want {
 		t.Fatal("the link did not land despite the clipboard's refusal")
 	}
 	found := false
-	for _, b := range a.transcript.Rows() {
+	for _, b := range a.conversation.transcript.Rows() {
 		if strings.Contains(b.Text, "could not reach the clipboard") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("the refusal is not in the transcript: %+v", a.transcript.Rows())
+		t.Fatalf("the refusal is not in the transcript: %+v", a.conversation.transcript.Rows())
 	}
 }
 
@@ -1079,14 +1079,14 @@ func TestBootOnAStoredRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.metadata = startMetadataWriter(db, func(_ uint64, err error) {
+	a.preferences.metadata = startMetadataWriter(db, func(_ uint64, err error) {
 		if err != nil {
 			t.Error(err)
 		}
 	})
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096", password: "k"})
-	a.pinsByServer["srv-box"] = []string{"ses_box"}
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096", password: "k"})
+	a.scopeFor("srv-box").setPins([]string{"ses_box"})
+	a.connections.activeServer = "srv-box"
 	a.saveState()
 	a.closeMetadata()
 
@@ -1096,16 +1096,16 @@ func TestBootOnAStoredRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if b.activeServer != "srv-box" || b.activeServerConn().id != "srv-box" {
+	if b.connections.activeServer != "srv-box" || b.activeServerConn().id != "srv-box" {
 		t.Fatalf("the app would dial %+v", b.activeServerConn())
 	}
-	if len(b.servers) != 2 || b.servers[1].name != "Build box" || b.servers[1].password != "k" {
-		t.Fatalf("servers %+v", b.servers)
+	if len(b.connections.servers) != 2 || b.connections.servers[1].name != "Build box" || b.connections.servers[1].password != "k" {
+		t.Fatalf("servers %+v", b.connections.servers)
 	}
-	if len(b.pinOrder) != 1 || b.pinOrder[0] != "ses_box" || !b.pinned["ses_box"] {
-		t.Fatalf("pins %+v %v", b.pinOrder, b.pinned)
+	if len(b.scope().pinOrder) != 1 || b.scope().pinOrder[0] != "ses_box" || !b.scope().pinned["ses_box"] {
+		t.Fatalf("pins %+v %v", b.scope().pinOrder, b.scope().pinned)
 	}
-	if h := b.serverHealth[localServerID]; h.status != healthStopped {
+	if h := b.connections.serverHealth[localServerID]; h.status != healthStopped {
 		t.Fatalf("the idle local server reads %+v", h)
 	}
 }

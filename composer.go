@@ -12,10 +12,10 @@ import (
 // transcript's foot.
 func (a *app) composer(c *ui.Context, p palette) {
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
-		if a.commandError != "" {
-			ui.Text(c, a.commandError).FontSize(12).TextColor(p.danger)
+		if a.conversation.commandError != "" {
+			ui.Text(c, a.conversation.commandError).FontSize(12).TextColor(p.danger)
 		}
-		if a.selectedSession == "" {
+		if a.conversation.target.isDraft() {
 			ui.Row(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
 		}
 		card := ui.Column(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().
@@ -24,7 +24,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 			Shadow(0, 2, 10, 0, p.cardShadow)
 		card.Children(func() {
 			// The draft itself: Enter sends, Shift+Enter breaks the line.
-			ui.TextAreaBase(c, &a.draft).Label("Compose").
+			ui.TextAreaBase(c, &a.conversation.draft).Label("Compose").
 				Placeholder("Work with Codex").FontSize(14).LineHeight(1.5).
 				Padding(4, 8).Lines(1, 7).
 				OnTextKey(func(k ui.TextKey) bool {
@@ -92,7 +92,7 @@ func (a *app) composeIconButton(c *ui.Context, p palette, label string, icon *ui
 // attachModal quotes a workspace file into the draft, so the agent reads
 // the text the user asked about along with the message.
 func (a *app) attachModal(c *ui.Context, p palette) {
-	st := a.attach
+	st := a.layout.attach
 	if st == nil || !st.open {
 		return
 	}
@@ -102,7 +102,7 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 		textField(c, p, &st.draft, "src/main.go")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.attach = nil })
+			cancel.OnClick(func() { a.layout.attach = nil })
 			cancel.Children(func() {
 				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
@@ -121,7 +121,7 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	dir := a.chatDir()
 	label := "Full access"
-	if a.policyLevel != "full" {
+	if a.workspace.policyLevel != "full" {
 		// A policy not yet read, or unreadable, leans to the safe name.
 		label = "Asks first"
 	}
@@ -148,14 +148,14 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 // modelButton names what the chat runs on: the model's fancy name and
 // its reasoning effort, opening the picker over the catalog.
 func (a *app) modelButton(c *ui.Context, p palette) {
-	ref := a.sessionModelOf(a.selectedSession)
+	ref := a.sessionModelOf(a.conversation.target.session)
 	name, variants := a.modelLabel(ref)
-	b := ui.ButtonBase(c).Label("opencode.Model " + name).Height(28).Radius(999).PaddingX(8).
+	b := ui.ButtonBase(c).Label("Model " + name).Height(28).Radius(999).PaddingX(8).
 		MinWidth(80).Shrink(1).
 		Cursor(ui.CursorPointer).Tooltip("Choose a model")
 	b.OnClick(func() {
-		a.modelFilter = ""
-		a.pickerOpen = true
+		a.layout.modelFilter = ""
+		a.layout.pickerOpen = true
 	})
 	b.Children(func() {
 		ui.Icon(c, icLoad).FontSize(13).TextColor(p.muted).Shrink(0)
@@ -176,11 +176,11 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 // the content height of the whole catalog and spill past the panel
 // instead of handing the spare room to the list that scrolls.
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
-	ui.Popover(c, anchor, &a.pickerOpen, func() {
+	ui.Popover(c, anchor, &a.layout.pickerOpen, func() {
 		ui.Box(c).Width(320).MaxHeight(420).Radius(14).Padding(10).Gap(8).
 			Background(p.bg).Border(1, p.hairline).Shadow(0, 10, 30, 0, p.shadow).
 			Children(func() {
-				textField(c, p, &a.modelFilter, "Search models")
+				textField(c, p, &a.layout.modelFilter, "Search models")
 				models := a.filteredModels()
 				ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
 					for _, m := range models {
@@ -221,7 +221,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref openc
 						manage.Background(p.hover)
 					}
 					manage.OnClick(func() {
-						a.pickerOpen = false
+						a.layout.pickerOpen = false
 						a.openSettings(tabModels)
 					})
 					manage.Children(func() {
@@ -255,7 +255,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref openc
 
 // filteredModels is the catalog narrowed by the pick filter, with the
 // free models first and, within each group, names alphabetically.
-func (a *app) filteredModels() []opencode.Model { return a.offerModels(a.modelFilter) }
+func (a *app) filteredModels() []opencode.Model { return a.offerModels(a.layout.modelFilter) }
 
 // enabledModels is everything the picker offers with no filter at all:
 // the model a new conversation falls back to comes from here.
@@ -302,18 +302,18 @@ func (a *app) noModelsNote() string {
 func (a *app) voiceButton(c *ui.Context, p palette) {
 	bg, icon, label := p.voiceBg, icWaves, "Voice session"
 	switch {
-	case a.transcript.Busy() != "":
+	case a.conversation.transcript.Busy() != "":
 		bg, icon, label = p.accent, icStop, "Stop the agent"
-	case strings.TrimSpace(a.draft) != "":
+	case strings.TrimSpace(a.conversation.draft) != "":
 		bg, icon, label = p.accent, icSend, "Send message"
 	}
 	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().Shrink(0).
 		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)
 	b.OnClick(func() {
 		switch {
-		case a.transcript.Busy() != "":
+		case a.conversation.transcript.Busy() != "":
 			a.stopTurn()
-		case strings.TrimSpace(a.draft) != "":
+		case strings.TrimSpace(a.conversation.draft) != "":
 			a.send()
 		}
 	})

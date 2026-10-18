@@ -80,15 +80,16 @@ func appendString(list *[]string, item string) *[]string {
 func TestFilesPane(t *testing.T) {
 	srv, asked := filesServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
-	a.selectedSession, a.selected = "ses_r", "Remote turn"
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.openTool("Files")
-	if a.files == nil || len(a.files.entries["."]) != 2 || a.files.location != "/srv/app" {
-		t.Fatalf("the tool did not read the folder: %+v", a.files)
+	if a.workspace.files == nil || len(a.workspace.files.entries["."]) != 2 || a.workspace.files.location != "/srv/app" {
+		t.Fatalf("the tool did not read the folder: %+v", a.workspace.files)
 	}
 	tt.Frame()
 	if !tt.HasText("Browse the files in the current project.") || !tt.HasText("Workspace  ·  app") ||
@@ -101,8 +102,8 @@ func TestFilesPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if len(a.files.entries["src"]) != 2 || !tt.HasText("main.go") || !tt.HasText("deep") {
-		t.Fatalf("the folder did not unfold: %+v / %v", a.files.entries["src"], tt.Texts())
+	if len(a.workspace.files.entries["src"]) != 2 || !tt.HasText("main.go") || !tt.HasText("deep") {
+		t.Fatalf("the folder did not unfold: %+v / %v", a.workspace.files.entries["src"], tt.Texts())
 	}
 	if got := (*asked)[len(*asked)-1]; got != "list /srv/app src" {
 		t.Fatalf("the unfold asked %q", got)
@@ -128,19 +129,19 @@ func TestFilesPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.files.path != "README.md" || !strings.Contains(a.files.content, "Chats run here.") {
-		t.Fatalf("the file did not read: %+v", a.files)
+	if a.workspace.files.path != "README.md" || !strings.Contains(a.workspace.files.content, "Chats run here.") {
+		t.Fatalf("the file did not read: %+v", a.workspace.files)
 	}
 	if err := tt.Click("File preview"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(ui.Cmd, ui.KeyA)
 	tt.Key(ui.Cmd, ui.KeyC)
-	if tt.Clipboard() != a.files.content {
+	if tt.Clipboard() != a.workspace.files.content {
 		t.Fatal("the preview could not be copied")
 	}
 	tt.Type("an accidental edit")
-	if a.files.viewer.Buffer.String() != a.files.content {
+	if a.workspace.files.viewer.Buffer.String() != a.workspace.files.content {
 		t.Fatal("the read-only preview changed")
 	}
 
@@ -157,8 +158,8 @@ func TestFilesPane(t *testing.T) {
 	// Another chat's folder is another tree.
 	a.scope().sessions = append(a.scope().sessions, opencode.Session{ID: "ses_other", Title: "Other", Directory: "/srv/app/src"})
 	a.adoptSession(a.scope().sessions[len(a.scope().sessions)-1])
-	if a.files.location != "/srv/app/src" || a.files.path != "" {
-		t.Fatalf("the tool kept reading %+v", a.files)
+	if a.workspace.files.location != "/srv/app/src" || a.workspace.files.path != "" {
+		t.Fatalf("the tool kept reading %+v", a.workspace.files)
 	}
 }
 
@@ -168,10 +169,11 @@ func TestFilesPane(t *testing.T) {
 func TestFilesSearch(t *testing.T) {
 	srv, asked := filesServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
 	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
-	a.selectedSession, a.selected = "ses_r", "Remote turn"
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Remote turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.openTool("Files")
@@ -185,11 +187,11 @@ func TestFilesSearch(t *testing.T) {
 	}
 	tt.Type("notes")
 	tt.Key(0, ui.KeyEnter)
-	if a.files.query != "notes" || a.files.finding {
-		t.Fatalf("the search reads %+v", a.files)
+	if a.workspace.files.query != "notes" || a.workspace.files.finding {
+		t.Fatalf("the search reads %+v", a.workspace.files)
 	}
-	if len(a.files.results) != 2 {
-		t.Fatalf("the results read %+v", a.files.results)
+	if len(a.workspace.files.results) != 2 {
+		t.Fatalf("the results read %+v", a.workspace.files.results)
 	}
 	if got := (*asked)[len(*asked)-1]; got != "find /srv/app notes file 50" {
 		t.Fatalf("the search asked %q", got)
@@ -207,24 +209,24 @@ func TestFilesSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.files.path != "src/deep/notes.txt" || !strings.Contains(a.files.content, "a long line") {
-		t.Fatalf("the match did not open: %+v", a.files)
+	if a.workspace.files.path != "src/deep/notes.txt" || !strings.Contains(a.workspace.files.content, "a long line") {
+		t.Fatalf("the match did not open: %+v", a.workspace.files)
 	}
 	if !tt.HasText("notes.txt") {
 		t.Fatalf("the results left with the read: %v", tt.Texts())
 	}
 
 	// Emptying the field puts the tree back; a query with no matches says so.
-	a.files.query = ""
+	a.workspace.files.query = ""
 	tt.Frame()
 	if err := tt.Click("Search files"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(0, ui.KeyEnter)
-	if a.files.query != "" || !tt.HasText("Workspace  ·") {
-		t.Fatalf("the tree did not come back: %+v / %v", a.files, tt.Texts())
+	if a.workspace.files.query != "" || !tt.HasText("Workspace  ·") {
+		t.Fatalf("the tree did not come back: %+v / %v", a.workspace.files, tt.Texts())
 	}
-	a.files.query = "zzz"
+	a.workspace.files.query = "zzz"
 	a.filesFind()
 	tt.Frame()
 	if !tt.HasText("No files match zzz.") {
@@ -245,14 +247,14 @@ func TestFilesSearch(t *testing.T) {
 func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	srv, _ := filesServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.openTool("Files")
 	tt.Frame()
-	if a.files.note == "" || !strings.Contains(a.files.note, "no folder on the server") {
-		t.Fatalf("a folderless remote reads %+v", a.files)
+	if a.workspace.files.note == "" || !strings.Contains(a.workspace.files.note, "no folder on the server") {
+		t.Fatalf("a folderless remote reads %+v", a.workspace.files)
 	}
 	if !tt.HasText("Choose project") || tt.HasText("Workspace  ·") {
 		t.Fatalf("the pane drew a tree it never read: %v", tt.Texts())
@@ -260,21 +262,22 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 
 	// A folder on the server, with a file past the viewer's cap.
 	a.scope().sessions = []opencode.Session{{ID: "ses_big", Title: "Big", Directory: "/srv/app"}}
-	a.selectedSession, a.selected = "ses_big", "Big"
+	a.conversation.target.selectSession("ses_big")
+	a.conversation.selected = "Big"
 	a.openFiles()
-	if len(a.files.entries["."]) != 2 {
-		t.Fatalf("the tree did not land: %+v", a.files)
+	if len(a.workspace.files.entries["."]) != 2 {
+		t.Fatalf("the tree did not land: %+v", a.workspace.files)
 	}
 	a.filesRead("src/deep/notes.txt")
-	if a.files.clipped {
+	if a.workspace.files.clipped {
 		t.Fatal("a small file read as clipped")
 	}
-	if !strings.Contains(a.files.content, "a long line for the viewer") {
-		t.Fatalf("the file did not read: %+v", a.files)
+	if !strings.Contains(a.workspace.files.content, "a long line for the viewer") {
+		t.Fatalf("the file did not read: %+v", a.workspace.files)
 	}
 
 	// The viewer cuts what runs past its window, and says so.
-	st := a.files
+	st := a.workspace.files
 	st.location, st.entries["."] = "/srv/big", []opencode.FileEntry{{Path: "huge.txt", Name: "huge.txt"}}
 	big := strings.Repeat("x\n", filesShown/2+8)
 	mux := http.NewServeMux()
@@ -283,7 +286,7 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	})
 	bigSrv := httptest.NewServer(mux)
 	defer bigSrv.Close()
-	a.servers[1].url = bigSrv.URL
+	a.connections.servers[1].url = bigSrv.URL
 	a.filesRead("huge.txt")
 	if !st.clipped || len(st.content) != filesShown {
 		t.Fatalf("the big file read %d bytes, clipped %v", len(st.content), st.clipped)
@@ -295,7 +298,7 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 
 	// A file the server refuses keeps the tree and explains itself.
 	st.location = "/srv/app"
-	a.servers[1].url = srv.URL
+	a.connections.servers[1].url = srv.URL
 	a.filesList(".")
 	a.filesRead("README.md")
 	if st.fileErr != "" {

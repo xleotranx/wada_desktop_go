@@ -24,47 +24,21 @@ type appMetadata struct {
 
 type metadataStore struct{ *sqlite.DB }
 
-// serverTables is the version 3 schema: the connections and the models
-// the user turned off, one row each. The creates tolerate a database
-// whose tables are already there, as a hand-wound version number makes.
-func serverTables() []sqlite.Statement {
-	return []sqlite.Statement{
-		{SQL: "CREATE TABLE IF NOT EXISTS servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, managed INTEGER NOT NULL DEFAULT 0, url TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL)"},
-		{SQL: "CREATE TABLE IF NOT EXISTS disabled_models (server_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, PRIMARY KEY (server_id, provider, model))"},
-	}
-}
+const metadataSchema = 5
 
-// pairedTables is the version 4 step: a connection whose password is the
-// token a pairing link handed back keeps the token's own life, so the row
-// can say when it lapses. A table already carrying a column — a hand-wound
-// version number jumps the ladder — only steps over it.
-func pairedTables(has func(column string) bool) []sqlite.Statement {
-	out := []sqlite.Statement{}
-	if !has("paired") {
-		out = append(out, sqlite.Statement{SQL: "ALTER TABLE servers ADD COLUMN paired INTEGER NOT NULL DEFAULT 0"})
+func metadataPath() (string, error) {
+	if dir := os.Getenv("WADA_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "metadata.db"), nil
 	}
-	if !has("paired_at") {
-		out = append(out, sqlite.Statement{SQL: "ALTER TABLE servers ADD COLUMN paired_at INTEGER NOT NULL DEFAULT 0"})
-	}
-	return out
-}
-
-// hasColumn says whether one table already carries a column.
-func hasColumn(db *sqlite.DB, table, column string) bool {
-	rows, err := db.Query(context.Background(), "PRAGMA table_info("+table+")")
+	dir, err := os.UserConfigDir()
 	if err != nil {
-		return false
+		return "", err
 	}
-	for _, row := range rows.Values {
-		if len(row) > 1 && row[1] == column {
-			return true
-		}
-	}
-	return false
+	return filepath.Join(dir, "wada-desktop-go", "metadata.db"), nil
 }
 
 func openMetadata(path string) (*metadataStore, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
 	db, err := sqlite.Open(context.Background(), path, sqlite.OpenOptions{})
@@ -77,49 +51,58 @@ func openMetadata(path string) (*metadataStore, error) {
 		return fail(err)
 	}
 	version := rows.Values[0][0].(int64)
-	if version > 4 {
-		return fail(fmt.Errorf("metadata database version %d is newer than this app supports", version))
-	}
-	if version == 0 {
-		statements := []sqlite.Statement{
-			{SQL: "CREATE TABLE projects (directory TEXT PRIMARY KEY, position INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)"},
-			{SQL: "CREATE TABLE session_pins (server_key TEXT NOT NULL, session_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(server_key, session_id))"},
-			{SQL: "CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)"},
-		}
-		statements = append(statements, serverTables()...)
-		statements = append(statements, pairedTables(func(column string) bool { return hasColumn(db, "servers", column) })...)
-		statements = append(statements, sqlite.Statement{SQL: "PRAGMA user_version = 4"})
-		if _, err := db.Transaction(context.Background(), statements); err != nil {
-			return fail(err)
-		}
+	if version == metadataSchema {
 		return &metadataStore{db}, nil
 	}
-	if version == 1 {
-		// The first schema seeded projects from neighboring repositories.
-		// Reset that legacy list once; chat pins belong to a separate table.
-		if _, err := db.Transaction(context.Background(), []sqlite.Statement{
-			{SQL: "DELETE FROM projects"},
-			{SQL: "PRAGMA user_version = 2"},
-		}); err != nil {
-			return fail(err)
-		}
-		version = 2
+	if version != 0 {
+		return fail(fmt.Errorf("metadata schema %d is unsupported; run go run . --reset-metadata to discard development settings", version))
 	}
-	if version == 2 {
-		statements := append(serverTables(), sqlite.Statement{SQL: "PRAGMA user_version = 3"})
-		if _, err := db.Transaction(context.Background(), statements); err != nil {
-			return fail(err)
-		}
-		version = 3
+	// An unversioned database with tables is not an empty application store.
+	tables, err := db.Query(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		return fail(err)
 	}
-	if version == 3 {
-		statements := append(pairedTables(func(column string) bool { return hasColumn(db, "servers", column) }),
-			sqlite.Statement{SQL: "PRAGMA user_version = 4"})
-		if _, err := db.Transaction(context.Background(), statements); err != nil {
-			return fail(err)
-		}
+	if len(tables.Values) > 0 {
+		return fail(fmt.Errorf("unversioned metadata is unsupported; run go run . --reset-metadata"))
+	}
+	statements := []sqlite.Statement{
+		{SQL: "CREATE TABLE projects (directory TEXT PRIMARY KEY, position INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)"},
+		{SQL: "CREATE TABLE session_pins (server_key TEXT NOT NULL, session_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(server_key,session_id))"},
+		{SQL: "CREATE TABLE preferences (key TEXT PRIMARY KEY,value TEXT NOT NULL)"},
+		{SQL: "CREATE TABLE servers (id TEXT PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL,managed INTEGER NOT NULL DEFAULT 0,url TEXT NOT NULL DEFAULT '',password TEXT NOT NULL DEFAULT '',position INTEGER NOT NULL,paired INTEGER NOT NULL DEFAULT 0,paired_at INTEGER NOT NULL DEFAULT 0)"},
+		{SQL: "CREATE TABLE disabled_models (server_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,PRIMARY KEY(server_id,provider,model))"},
+		{SQL: "PRAGMA user_version = 5"},
+	}
+	if _, err := db.Transaction(context.Background(), statements); err != nil {
+		return fail(err)
 	}
 	return &metadataStore{db}, nil
+}
+
+// resetMetadata is an explicit development action, never an open-error fallback.
+func resetMetadata(path string) error {
+	if filepath.Base(path) != "metadata.db" {
+		return fmt.Errorf("reset requires the app's metadata.db path")
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		target := path + suffix
+		info, err := os.Lstat(target)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to reset non-regular metadata file %s", target)
+		}
+	}
+	for _, suffix := range []string{"-wal", "-shm", ""} {
+		if err := os.Remove(path + suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
@@ -186,7 +169,6 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
-		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_initialized', '1')"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 	}
 	for i, dir := range state.projects {
@@ -246,87 +228,78 @@ func startMetadataWriter(db *metadataStore, publish func(uint64, error)) *metada
 
 func (a *app) stateSnapshot() appMetadata {
 	state := appMetadata{
-		projects:    slices.Clone(a.projects),
+		projects:    slices.Clone(a.preferences.projects),
 		projectPins: map[string]bool{},
 		pins:        map[string][]string{},
-		servers:     slices.Clone(a.servers),
-		active:      a.activeServer,
+		servers:     slices.Clone(a.connections.servers),
+		active:      a.connections.activeServer,
 		modelOff:    map[string]bool{},
 	}
-	for dir, pinned := range a.projectPins {
+	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
 	}
 	// Entries hold chats or nothing: the store rewrites every list whole,
 	// and an empty one simply has no rows.
-	for key, ids := range a.pinsByServer {
-		if len(ids) > 0 {
-			state.pins[key] = slices.Clone(ids)
+	for key, scope := range a.connections.scopes {
+		if len(scope.pinOrder) > 0 {
+			state.pins[key] = slices.Clone(scope.pinOrder)
 		}
 	}
-	if len(a.pinOrder) > 0 {
-		state.pins[a.activeServer] = slices.Clone(a.pinOrder)
-	}
-	for key := range a.modelOff {
+	for key := range a.connections.modelOff {
 		state.modelOff[key] = true
 	}
 	return state
 }
 
 func (a *app) saveState() {
-	if a.metadata == nil {
+	if a.preferences.metadata == nil {
 		return
 	}
-	a.metadataVersion++
-	a.metadataSaving = true
+	a.preferences.metadataVersion++
+	a.preferences.metadataSaving = true
 	select {
-	case <-a.metadata.queue:
+	case <-a.preferences.metadata.queue:
 	default:
 	}
-	a.metadata.queue <- metadataWrite{state: a.stateSnapshot(), version: a.metadataVersion}
+	a.preferences.metadata.queue <- metadataWrite{state: a.stateSnapshot(), version: a.preferences.metadataVersion}
 }
 
 func (a *app) acceptMetadataWrite(version uint64, err error) {
-	if version != a.metadataVersion {
+	if version != a.preferences.metadataVersion {
 		return
 	}
-	a.metadataSaving = false
-	a.metadataError = ""
+	a.preferences.metadataSaving = false
+	a.preferences.metadataError = ""
 	if err != nil {
-		a.metadataError = "Changes are not saved: " + err.Error()
+		a.preferences.metadataError = "Changes are not saved: " + err.Error()
 	}
 }
 
 func (a *app) restoreState(state appMetadata) {
-	a.projects, a.projectPins = state.projects, state.projectPins
-	if a.projectPins == nil {
-		a.projectPins = map[string]bool{}
+	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
+	if a.preferences.projectPins == nil {
+		a.preferences.projectPins = map[string]bool{}
 	}
-	a.servers = state.servers
+	a.connections.servers = state.servers
 	if !a.hasServer(localServerID) {
-		a.servers = append([]serverConn{defaultLocalServer()}, a.servers...)
+		a.connections.servers = append([]serverConn{defaultLocalServer()}, a.connections.servers...)
 	}
-	a.activeServer = state.active
-	if !a.hasServer(a.activeServer) {
-		a.activeServer = localServerID
+	a.connections.activeServer = state.active
+	if !a.hasServer(a.connections.activeServer) {
+		a.connections.activeServer = localServerID
 	}
 	// A server the app runs itself is stopped until it is the active one.
-	for _, s := range a.servers {
-		if s.managed && s.id != a.activeServer {
+	for _, s := range a.connections.servers {
+		if s.managed && s.id != a.connections.activeServer {
 			a.setHealth(s.id, serverHealth{status: healthStopped})
 		}
 	}
-	a.pinsByServer = state.pins
-	if a.pinsByServer == nil {
-		a.pinsByServer = map[string][]string{}
+	for id, pins := range state.pins {
+		a.scopeFor(id).setPins(pins)
 	}
-	a.pinOrder = slices.Clone(a.pinsByServer[a.activeServer])
-	a.pinned = map[string]bool{}
-	for _, id := range a.pinOrder {
-		a.pinned[id] = true
-	}
-	a.modelOff = state.modelOff
-	if a.modelOff == nil {
-		a.modelOff = map[string]bool{}
+	a.connections.modelOff = state.modelOff
+	if a.connections.modelOff == nil {
+		a.connections.modelOff = map[string]bool{}
 	}
 }
 
@@ -341,32 +314,25 @@ func (a *app) loadState(path string) (*metadataStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(context.Background(), "SELECT value FROM preferences WHERE key = 'sidebar_initialized'")
-	if err == nil && len(rows.Values) == 0 {
-		err = db.save(context.Background(), a.stateSnapshot())
-	}
-	var state appMetadata
-	if err == nil {
-		state, err = db.load(context.Background())
-	}
+	state, err := db.load(context.Background())
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
 	a.restoreState(state)
-	for _, dir := range a.projects {
+	for _, dir := range a.preferences.projects {
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
-			a.unavailableProjects[dir] = true
+			a.preferences.unavailableProjects[dir] = true
 		}
 	}
 	return db, nil
 }
 
 func (a *app) closeMetadata() {
-	if a.metadata == nil {
+	if a.preferences.metadata == nil {
 		return
 	}
-	close(a.metadata.queue)
-	<-a.metadata.done
+	close(a.preferences.metadata.queue)
+	<-a.preferences.metadata.done
 }

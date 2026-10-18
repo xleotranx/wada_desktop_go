@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 )
 
 // Find saved pins beyond page one without changing the Recents cursor.
-func loadPinnedSessions(ctx context.Context, ids []string, first []opencode.Session, next string,
+func LoadPinnedSessions(ctx context.Context, ids []string, first []opencode.Session, next string,
 	list func(context.Context, string, string) ([]opencode.Session, string, error)) ([]opencode.Session, error) {
 	missing := map[string]bool{}
 	for _, id := range ids {

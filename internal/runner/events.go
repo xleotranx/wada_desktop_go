@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -6,30 +6,27 @@ import (
 	"wada-desktop-go/internal/opencode"
 )
 
-func renderedEvent(kind string) bool {
-	switch kind {
-	case "session.text.started", "session.text.delta", "session.text.ended",
-		"session.tool.input.started", "session.tool.called", "session.tool.success",
-		"permission.asked", "session.execution.started", "session.execution.succeeded",
-		"session.execution.failed", "session.execution.interrupted",
-		"session.model.selected", "session.renamed":
-		return true
-	}
-	return false
-}
-
 // agentUpdates publishes ordered batches at most one pending UI callback
 // at a time. The unbuffered pipe gives a busy UI backpressure instead of
 // retaining an unbounded queue of event payloads.
-func agentUpdates(ctx context.Context, source func(context.Context, func(opencode.Event)) error,
-	post func(func()), apply func(opencode.Event)) error {
+func batchUpdates(ctx context.Context, source func(context.Context, func(opencode.Event)) error,
+	post func(func()), apply func([]opencode.Update), notice func(string)) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	queue := make(chan opencode.Event)
+	queue := make(chan opencode.Update)
 	done := make(chan error, 1)
 	go func() {
-		done <- source(ctx, func(ev opencode.Event) {
-			if !renderedEvent(ev.Type) {
+		warned := false
+		done <- source(ctx, func(wire opencode.Event) {
+			ev, known, err := opencode.DecodeEvent(wire)
+			if err != nil {
+				if !warned {
+					warned = true
+					notice(err.Error())
+				}
+				return
+			}
+			if !known {
 				return
 			}
 			select {
@@ -40,7 +37,7 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(opencod
 		close(queue)
 	}()
 	for {
-		var first opencode.Event
+		var first opencode.Update
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -50,8 +47,8 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(opencod
 			}
 			first = ev
 		}
-		batch := []opencode.Event{first}
-		bytes := len(first.Data)
+		batch := []opencode.Update{first}
+		bytes := first.Bytes
 		timer := time.NewTimer(time.Second / 60)
 	collect:
 		for len(batch) < 64 && bytes < 256<<10 {
@@ -61,7 +58,7 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(opencod
 					break collect
 				}
 				batch = append(batch, ev)
-				bytes += len(ev.Data)
+				bytes += ev.Bytes
 			case <-timer.C:
 				break collect
 			case <-ctx.Done():
@@ -73,9 +70,7 @@ func agentUpdates(ctx context.Context, source func(context.Context, func(opencod
 		applied := make(chan struct{})
 		post(func() {
 			if ctx.Err() == nil {
-				for _, ev := range batch {
-					apply(ev)
-				}
+				apply(batch)
 			}
 			close(applied)
 		})

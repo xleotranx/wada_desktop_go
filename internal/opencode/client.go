@@ -26,6 +26,8 @@ import (
 // HTTP surface and streams its /api/event SSE feed into the transcript, so
 // the real agent answers where the demo copy used to.
 type Client struct {
+	stopOnce sync.Once
+
 	Base     string // like http://127.0.0.1:4096/api
 	Password string // the password this app connects with
 	Paired   bool   // that password is a pairing token, which lapses on its own
@@ -116,6 +118,7 @@ func startLocalClient(ctx context.Context, cfg Config, dir string) (*Client, err
 	facts, err := a.WaitReady(ctx, 20*time.Second)
 	if err != nil {
 		cmd.Process.Kill()
+		cmd.Wait()
 		return nil, err
 	}
 	a.Facts = facts
@@ -125,9 +128,15 @@ func startLocalClient(ctx context.Context, cfg Config, dir string) (*Client, err
 // stop ends the server the app started; a server it was only pointed at
 // keeps running.
 func (a *Client) Stop() {
-	if a.Cmd != nil && a.Cmd.Process != nil {
-		a.Cmd.Process.Kill()
-	}
+	a.stopOnce.Do(func() {
+		if a.Cmd != nil && a.Cmd.Process != nil {
+			a.Cmd.Process.Kill()
+			a.Cmd.Wait()
+		}
+		if a.HTTP != nil {
+			a.HTTP.CloseIdleConnections()
+		}
+	})
 }
 
 // waitReady polls /api/info until the server names its version, the
@@ -146,7 +155,11 @@ func (a *Client) WaitReady(ctx context.Context, within time.Duration) (Facts, er
 				return facts, nil
 			}
 		}
-		time.Sleep(300 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return Facts{}, ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
 	}
 	return Facts{}, fmt.Errorf("the server did not come up in %s", within)
 }
@@ -808,9 +821,11 @@ type Part struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	State struct {
-		Status   string          `json:"status"`
-		Input    json.RawMessage `json:"input"`
-		Content  []ToolOutput    `json:"content"`
+		Status string `json:"status"`
+		Input  struct {
+			Command string `json:"command"`
+		} `json:"input"`
+		Content  []ToolOutput `json:"content"`
 		Metadata struct {
 			Exit      int  `json:"exit"`
 			Truncated bool `json:"truncated"`
@@ -894,3 +909,6 @@ func remoteDir(dir string) string {
 	}
 	return path.Clean(dir)
 }
+
+func (a *Client) Info() Facts      { return a.Facts }
+func (a *Client) Endpoint() string { return a.Address }

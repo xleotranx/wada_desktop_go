@@ -1,48 +1,26 @@
 package main
 
-// queueJob binds a request to the connection on show. A later switch
-// cannot replay it against another server, even after an A-B-A switch.
-type admission uint8
+import "wada-desktop-go/internal/runner"
 
-const (
-	admissionAccepted admission = iota
-	admissionBusy
-	admissionClosed
-)
-
-func (a *app) queueJob(job agentJob) admission {
-	if a.closed {
-		a.commandError = "The connection is closed."
-		return admissionClosed
+// queueCommand makes admission visible before the UI advances its state.
+func (a *app) queueCommand(command runner.Command) runner.Admission {
+	result := runner.Closed
+	if !a.runtime.closed && a.runtime.submitCommand != nil {
+		result = a.runtime.submitCommand(runner.Generation(a.connections.route), command)
 	}
-	job.route = a.route
-	select {
-	case a.jobs <- job:
-		a.commandError = ""
-		return admissionAccepted
-	default:
-		a.commandError = "The connection is busy. Try again."
-		return admissionBusy
+	switch result {
+	case runner.Accepted:
+		a.conversation.commandError = ""
+	case runner.Busy:
+		a.conversation.commandError = "The connection is busy. Try again."
+	case runner.Closed:
+		a.conversation.commandError = "The connection is closed."
+	case runner.Invalid:
+		a.conversation.commandError = "That action has no valid target."
 	}
+	return result
 }
-
-// pollAgentJob checks fresh control work before replaying retry work.
-// A switch replaces the queued jobs, so it is always at the channel's
-// head; ordinary jobs retain their order behind the retry stash.
-func pollAgentJob(jobs <-chan agentJob, stash *[]agentJob) (agentJob, bool) {
-	select {
-	case job := <-jobs:
-		if job.kind == jobServer {
-			return job, true
-		}
-		*stash = append(*stash, job)
-	default:
-	}
-	if len(*stash) == 0 {
-		return agentJob{}, false
-	}
-	job := (*stash)[0]
-	(*stash)[0] = agentJob{}
-	*stash = (*stash)[1:]
-	return job, true
+func (a *app) runnerConnection() runner.Connection {
+	cfg := a.activeServerConn()
+	return runner.Connection{ID: cfg.id, Name: cfg.name, Directory: a.preferences.home, Config: cfg.transport(), Pins: a.scope().pinOrder}
 }

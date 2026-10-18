@@ -10,21 +10,29 @@ import (
 	"wada-desktop-go/internal/opencode"
 )
 
+type policyTarget struct {
+	dir      string
+	revision uint64
+}
+
 type policyChange struct {
-	dir string
-	ask bool
+	revision uint64
+	dir      string
+	ask      bool
 }
 
 type policyResult struct {
+	revision   uint64
 	dir, level string
 	err        error
 }
 
 // watchPolicy keeps filesystem work away from rendering. Polling also
 // notices edits made outside the app, including a newly created config.
-func watchPolicy(ctx context.Context, dirs <-chan string, writes <-chan policyChange, publish func(policyResult)) {
+func watchPolicy(ctx context.Context, dirs <-chan policyTarget, writes <-chan policyChange, publish func(policyResult)) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
+	var target policyTarget
 	var dir, lastDir, lastLevel string
 	var lastInfo os.FileInfo
 	var lastMissing bool
@@ -46,7 +54,7 @@ func watchPolicy(ctx context.Context, dirs <-chan string, writes <-chan policyCh
 			level = "ask"
 		}
 		if force || dir != lastDir || level != lastLevel {
-			publish(policyResult{dir: dir, level: level})
+			publish(policyResult{dir: dir, level: level, revision: target.revision})
 		}
 		lastDir, lastLevel = dir, level
 		lastInfo, lastMissing = info, os.IsNotExist(statErr)
@@ -55,11 +63,12 @@ func watchPolicy(ctx context.Context, dirs <-chan string, writes <-chan policyCh
 		select {
 		case <-ctx.Done():
 			return
-		case dir = <-dirs:
+		case target = <-dirs:
+			dir = target.dir
 			refresh(true) // a returning workspace has reset its UI cache
 		case change := <-writes:
 			if err := setPermissionAsk(change.dir, change.ask); err != nil {
-				publish(policyResult{dir: change.dir, err: err})
+				publish(policyResult{dir: change.dir, err: err, revision: change.revision})
 			}
 			refresh(true)
 		case <-tick.C:
@@ -69,28 +78,31 @@ func watchPolicy(ctx context.Context, dirs <-chan string, writes <-chan policyCh
 }
 
 func (a *app) watchWorkspacePolicy(dir string) {
-	if a.policyDir == dir {
+	if a.workspace.policyDir == dir && a.workspace.policyRoute == a.connections.route && a.workspace.policyRemote == !a.localActive() {
 		return
 	}
-	a.policyRequest.stop()
-	a.policyDir, a.policyLevel = dir, "ask"
+	a.workspace.policyRequest.stop()
+	a.workspace.policyVersion++
+	a.workspace.policyRoute = a.connections.route
+	a.workspace.policyRemote = !a.localActive()
+	a.workspace.policyDir, a.workspace.policyLevel = dir, "ask"
 	select {
-	case <-a.policyDirs:
+	case <-a.workspace.policyDirs:
 	default:
 	}
-	a.policyDirs <- dir
+	a.workspace.policyDirs <- policyTarget{dir: dir, revision: a.workspace.policyVersion}
 }
 
 func (a *app) acceptPolicy(result policyResult) {
-	if result.dir != a.policyDir {
+	if a.runtime.closed || result.revision != a.workspace.policyVersion || result.dir != a.workspace.policyDir {
 		return
 	}
 	if result.err != nil {
 		a.streamLine("The shell policy did not change: " + result.err.Error())
 		return
 	}
-	if result.dir == a.policyDir {
-		a.policyLevel = result.level
+	if result.dir == a.workspace.policyDir {
+		a.workspace.policyLevel = result.level
 	}
 }
 
@@ -98,19 +110,30 @@ func (a *app) acceptPolicy(result policyResult) {
 // over its API: nothing of this machine to watch, so the pill leans ask
 // until the server answers, and a fresh ask lands when the chat moves.
 func (a *app) watchServerPolicy(dir string) {
-	if a.policyDir == dir {
+	if a.workspace.policyDir == dir && a.workspace.policyRoute == a.connections.route && a.workspace.policyRemote == !a.localActive() {
 		return
 	}
-	a.policyRequest.stop()
-	a.policyDir, a.policyLevel = dir, "ask"
+	a.workspace.policyRequest.stop()
+	a.workspace.policyVersion++
+	a.workspace.policyRoute = a.connections.route
+	a.workspace.policyRemote = !a.localActive()
+	a.workspace.policyDir, a.workspace.policyLevel = dir, "ask"
+	select {
+	case <-a.workspace.policyDirs:
+	default:
+	}
+	a.workspace.policyDirs <- policyTarget{revision: a.workspace.policyVersion}
+	if dir == "" {
+		return
+	}
 	cfg := a.activeServerConn()
-	runRequest(a, &a.policyRequest, func(ctx context.Context) (string, error) {
+	runRequest(a, &a.workspace.policyRequest, func(ctx context.Context) (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		return remotePermissionLevel(ctx, cfg, dir)
 	}, func(level string, err error) {
-		if err == nil && a.policyDir == dir {
-			a.policyLevel = level
+		if err == nil && a.workspace.policyDir == dir {
+			a.workspace.policyLevel = level
 		}
 	})
 }

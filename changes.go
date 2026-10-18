@@ -68,8 +68,8 @@ func readChanges(ctx context.Context, cfg serverConn, dir, mode string) (changes
 // changesMode is the read the Changes tool is on, the working tree until
 // another one was chosen.
 func (a *app) changesMode() string {
-	if a.changes != nil && a.changes.mode != "" {
-		return a.changes.mode
+	if a.workspace.changes != nil && a.workspace.changes.mode != "" {
+		return a.workspace.changes.mode
 	}
 	return changesWorking
 }
@@ -79,10 +79,10 @@ func (a *app) changesMode() string {
 // to compare — and naming this machine's folder to the server would file
 // the server a project it does not have.
 func (a *app) openChanges(mode string) {
-	st := a.changes
+	st := a.workspace.changes
 	if st == nil {
 		st = &changesState{}
-		a.changes = st
+		a.workspace.changes = st
 	}
 	dir := a.chatDir()
 	if dir == "" {
@@ -90,7 +90,7 @@ func (a *app) openChanges(mode string) {
 			st.loading, st.note = false, "This chat has no folder on the server yet, so there is nothing to compare."
 			return
 		}
-		dir = a.home
+		dir = a.preferences.home
 	}
 	st.loading, st.note, st.dir, st.mode = true, "", dir, mode
 	st.files, st.selected = nil, 0
@@ -100,7 +100,7 @@ func (a *app) openChanges(mode string) {
 		defer cancel()
 		return readChanges(ctx, cfg, dir, mode)
 	}, func(read changesRead, err error) {
-		if a.changes != st || st.dir != read.dir || st.mode != read.mode {
+		if a.workspace.changes != st || st.dir != read.dir || st.mode != read.mode {
 			return // another read moved on
 		}
 		st.loading = false
@@ -116,7 +116,7 @@ func (a *app) openChanges(mode string) {
 // modes, the files touched with their counts, and the patch of the file on
 // show.
 func (a *app) changesBody(c *ui.Context, p palette) {
-	st := a.changes
+	st := a.workspace.changes
 	if st == nil {
 		return
 	}

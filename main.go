@@ -12,10 +12,10 @@ import (
 	"time"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/runner"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 )
 
 // attachState is the file-attach dialog, quoting a workspace file into
@@ -48,6 +48,9 @@ type confirmState struct {
 // the runner's own tests stand in for a server's freshness on dial. The
 // transcript and the picker stay on the app, since one conversation renders.
 type serverScope struct {
+	pinOrder []string
+	pinned   map[string]bool
+
 	sessions       []opencode.Session
 	sessionsLoaded bool
 	nextCursor     string
@@ -64,214 +67,77 @@ type serverScope struct {
 
 // app is the state the window shows.
 type app struct {
-	transcript chat.State
-
-	registryRequests map[string]*requestState
-	policyRequest    requestState
-
-	commandError string
-
-	lifetime     context.Context
-	stopLifetime context.CancelFunc
-	workCtx      context.Context
-	stopWork     context.CancelFunc
-
-	background func(work func() func())
-	closed     bool
-
-	selected    string
-	sidebarW    float32
-	home        string
-	projects    []string
-	projectPins map[string]bool
-	pinOrder    []string
-	// win is the window the view draws in; the folder chooser lands its
-	// answer through it, as the agent pipe does.
-	win                 *mygo.Window
-	metadata            *metadataWriter
-	metadataVersion     uint64
-	metadataSaving      bool
-	metadataError       string
-	unavailableProjects map[string]bool
-
-	// Navigation and pinned chats belong to the Codex sidebar, while the
-	// browser history and active tool belong to the native right pane.
-	sidebarCollapsed bool
-	browserCollapsed bool
-	selectedRail     string
-	projectsExpanded bool
-	// The project tree: folders fold their chats away, and a folder with
-	// many chats previews a few before showing the rest.
-	projectCollapsed  map[string]bool
-	projectChatsShown map[string]bool
-	pinned            map[string]bool
-	searchOpen        bool
-	browserAddress    string
-	browserPage       string
-	browserTool       string
-	// changes is the workspace diff the Changes tool holds; files is the
-	// tree the Files tool holds. Both nil until their tool opens.
-	changes          *changesState
-	files            *filesState
-	browserHistory   []string
-	browserHistoryAt int
-
-	policyDir, policyLevel string
-	policyDirs             chan string
-	policyWrites           chan policyChange
-
-	// expanded holds collapsible lines ("activity:…").
-	expanded map[string]bool
-
-	draft        string
-	draftProject string
-	// draftModel is what a conversation born here runs on once the
-	// composer's picker has chosen one: a draft has no session yet, so its
-	// pick waits here until the first words open one.
-	draftModel        opencode.ModelRef
-	draftVersion      uint64
-	projectPickerOpen bool
-	projectFilter     string
-
-	feed        ui.ListState
-	resultsList ui.ListState
-
-	// md draws the transcript's markdown, one set of options shared by
-	// every message, tuned to the palette each frame.
-	md      markdown.Options
-	mdTheme markdown.Theme
-
-	// The open conversation and its streaming state; one transcript
-	// renders no matter which server owns it.
-	selectedSession string
-
-	// The folder chooser behind "Add folder" and "New project…": the
-	// system's own panel, stood in for in tests. selectAddedProject hands
-	// a picked folder to the draft the composer asked for.
-	pickFolder         func(done func(path string))
-	selectAddedProject bool
-	// probe tests one server connection in the background, stood in for
-	// in tests as pickFolder is; pair redeems a pairing link the same way.
-	probe func(cfg serverConn)
-	pair  func(link string, done func(addr, token string, err error))
-	// copy puts a minted pairing link on the system clipboard, stood in for
-	// in tests as probe is; the links it made wait in pairLinks.
-	copy      func(text string) error
-	pairLinks map[string]mintedLink
-
-	// The composer's attach drawer and the conversation rows' rename and
-	// delete dialogs: one state struct each, nil until its dialog opens.
-	// open is DialogBase's own switch, which the backdrop and Escape clear.
-	attach  *attachState
-	rename  *renameState
-	confirm *confirmState
-	// browse is the server-folder dialog a remote draft's picker and the
-	// sidebar's Add folder open.
-	browse *browseState
-
-	// Each server's conversations and catalog, keyed by server id; a
-	// new server's is empty until the first dial fills it.
-	scopes map[string]*serverScope
-
-	// The chats search: what the field shows, the results it last got
-	// and whether one is on.
-	searchText    string
-	searchResults []opencode.Session
-	searchLoading bool
-	searchVersion uint64
-	searches      chan searchRequest
-	// focusSearch hands the field the keyboard once, from the header's
-	// search shape.
-	focusSearch bool
-
-	// The picker's popover over the active server's catalog.
-	pickerOpen  bool
-	modelFilter string
-
-	// The settings: the page itself, its tab, the server connections and
-	// health, the sketch of the server being edited or deleted, and the
-	// models the composer's picker leaves out.
-	settingsOpen  bool
-	settingsTab   string
-	servers       []serverConn
-	activeServer  string
-	serverHealth  map[string]serverHealth
-	serverFacts   map[string]opencode.Facts
-	serverEditor  *serverEditor
-	serverConfirm *confirmState
-	modelsQuery   string
-	modelsList    ui.ListState
-	modelOff      map[string]bool // modelKey of every model turned off
-	// The pins are the active server's; every server's list is kept so a
-	// switch hands them back.
-	pinsByServer map[string][]string
-
-	// The agent runner feeds the jobs; the rest is its bookkeeping of
-	// what is streaming where.
-	route uint64 // UI-owned generation of the active connection
-	jobs  chan agentJob
+	runtime      runtimeState
+	connections  connectionsState
+	conversation conversationState
+	workspace    workspaceState
+	preferences  preferencesState
+	search       searchState
+	layout       viewState
 }
 
 func newApp() *app {
 	home := workdir()
 	lifetime, stopLifetime := context.WithCancel(context.Background())
 	workCtx, stopWork := context.WithCancel(lifetime)
-	a := &app{
-		lifetime: lifetime, stopLifetime: stopLifetime, workCtx: workCtx, stopWork: stopWork,
-		sidebarW:            320,
-		home:                home,
-		registryRequests:    map[string]*requestState{},
-		selectedRail:        "home",
-		browserCollapsed:    true,
-		pinned:              map[string]bool{},
-		projectPins:         map[string]bool{},
-		projectCollapsed:    map[string]bool{},
-		projectChatsShown:   map[string]bool{},
-		unavailableProjects: map[string]bool{},
-		browserHistoryAt:    -1,
-		expanded:            map[string]bool{},
-
-		feed: newFeed(),
-
-		settingsTab:  tabServers,
-		servers:      []serverConn{defaultLocalServer()},
-		activeServer: localServerID,
-		serverHealth: map[string]serverHealth{},
-		serverFacts:  map[string]opencode.Facts{},
-		scopes:       map[string]*serverScope{},
-		modelOff:     map[string]bool{},
-		pinsByServer: map[string][]string{},
-
-		jobs: make(chan agentJob, 16),
-
-		searches:     make(chan searchRequest, 1),
-		policyDirs:   make(chan string, 1),
-		policyWrites: make(chan policyChange, 16),
-	}
-	a.pickFolder = a.pickFolderDialog
-	a.probe = a.runProbe
-	a.pair = a.runPair
-	a.copy = a.copyToClipboard
-	a.pairLinks = map[string]mintedLink{}
+	a := &app{runtime: runtimeState{lifetime: lifetime,
+		stopLifetime: stopLifetime,
+		workCtx:      workCtx,
+		stopWork:     stopWork},
+		connections: connectionsState{registryRequests: map[string]*requestState{},
+			servers:      []serverConn{defaultLocalServer()},
+			activeServer: localServerID,
+			serverHealth: map[string]serverHealth{},
+			serverFacts:  map[string]opencode.Facts{},
+			scopes:       map[string]*serverScope{},
+			modelOff:     map[string]bool{}},
+		workspace: workspaceState{policyDirs: make(chan policyTarget, 1),
+			policyWrites: make(chan policyChange, 16)},
+		preferences: preferencesState{home: home,
+			projectPins:         map[string]bool{},
+			unavailableProjects: map[string]bool{}},
+		search: searchState{searches: make(chan searchRequest, 1)},
+		layout: viewState{sidebarW: 320,
+			selectedRail:      "home",
+			browserCollapsed:  true,
+			projectCollapsed:  map[string]bool{},
+			projectChatsShown: map[string]bool{},
+			browserHistoryAt:  -1,
+			expanded:          map[string]bool{},
+			feed:              newFeed(),
+			settingsTab:       tabServers}}
+	a.runtime.pickFolder = a.pickFolderDialog
+	a.runtime.probe = a.runProbe
+	a.runtime.pair = a.runPair
+	a.runtime.copy = a.copyToClipboard
+	a.connections.pairLinks = map[string]mintedLink{}
 	return a
 }
 
 // scope is the active server's slice of the app state, made on first use,
 // so the view reads sessions and models straight from the reading side.
-func (a *app) scope() *serverScope {
-	s := a.scopes[a.activeServer]
+func (a *app) scope() *serverScope { return a.scopeFor(a.connections.activeServer) }
+func (a *app) scopeFor(id string) *serverScope {
+	s := a.connections.scopes[id]
 	if s == nil {
-		s = &serverScope{}
-		a.scopes[a.activeServer] = s
+		s = &serverScope{pinned: map[string]bool{}}
+		a.connections.scopes[id] = s
 	}
 	return s
+}
+func (s *serverScope) setPins(ids []string) {
+	s.pinOrder = slices.Clone(ids)
+	s.pinned = map[string]bool{}
+	for _, id := range s.pinOrder {
+		s.pinned[id] = true
+	}
 }
 
 // draftModelRef is what a conversation born here would run on: the model
 // the composer's picker chose for the draft, else the app's default.
 func (a *app) draftModelRef() opencode.ModelRef {
-	if a.draftModel.ID != "" {
-		return a.draftModel
+	if a.conversation.draftModel.ID != "" {
+		return a.conversation.draftModel
 	}
 	return a.defaultModelRef()
 }
@@ -314,7 +180,7 @@ func (a *app) defaultModelRef() opencode.ModelRef {
 	if freeOffered != nil {
 		return opencode.ModelRef{ProviderID: freeOffered.ProviderID, ID: freeOffered.ID}
 	}
-	if def.ID != "" && !a.modelOff[modelKey(a.activeServer, def.ProviderID, def.ID)] {
+	if def.ID != "" && !a.connections.modelOff[modelKey(a.connections.activeServer, def.ProviderID, def.ID)] {
 		return def
 	}
 	if paidOffered != nil {
@@ -336,17 +202,17 @@ func modelLess(one, two opencode.Model) bool {
 // in the store, and an empty one drops back to the ordinary list at
 // once.
 func (a *app) reviseSearch() {
-	a.searchVersion++
-	a.searchLoading = a.searchText != ""
-	if !a.searchLoading {
-		a.searchResults = nil
+	a.search.searchVersion++
+	a.search.searchLoading = a.search.searchText != ""
+	if !a.search.searchLoading {
+		a.search.searchResults = nil
 	}
 	// Only the newest query matters. Searches never fill the control queue.
 	select {
-	case <-a.searches:
+	case <-a.search.searches:
 	default:
 	}
-	a.searches <- searchRequest{text: a.searchText, version: a.searchVersion}
+	a.search.searches <- searchRequest{text: a.search.searchText, version: a.search.searchVersion, config: a.activeServerConn().transport(), route: a.connections.route}
 }
 
 // The window controls center in a strip of these: the close button is
@@ -385,16 +251,16 @@ func (a *app) view(c *ui.Context) {
 			// corners follow the window's, so the material frames them.
 			ui.Row(c).Grow(1).AlignItems(ui.Stretch).
 				Background(p.bg).Radius(cardRadius, cardRadius, 0, 0).Clip().Children(func() {
-				if a.settingsOpen {
+				if a.layout.settingsOpen {
 					a.settingsPane(c, p, headerH)
 					return
 				}
-				if !a.sidebarCollapsed {
+				if !a.layout.sidebarCollapsed {
 					a.sidebarPane(c, p, headerH)
 					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 				}
 				a.contentPane(c, p)
-				if !a.browserCollapsed {
+				if !a.layout.browserCollapsed {
 					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 					a.browserPane(c, p, headerH)
 				}
@@ -418,44 +284,44 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 	// The title starts where the conversation does, past the sidebar, and
 	// follows it in when the sidebar folds away.
 	titleStart := float32(navRailWidth) + 12
-	if !a.sidebarCollapsed {
-		titleStart += a.sidebarW
+	if !a.layout.sidebarCollapsed {
+		titleStart += a.layout.sidebarW
 	}
 	// Back and forward are 28 wide, the sidebar toggle 30, and four gaps
 	// of the row's 2 stand between them and the title.
 	titleGap := max(float32(8), titleStart-(barLeft+8+28+28+30+4*2))
 	toolsLabel := "Show tools"
-	if !a.browserCollapsed {
+	if !a.layout.browserCollapsed {
 		toolsLabel = "Hide tools"
 	}
 
 	ui.Row(c).FillWidth().Height(headerH).DragWindow().AlignItems(ui.Center).
 		Padding(0, 12, 0, barLeft+8).Gap(2).Children(func() {
-		a.browserIconButton(c, p, "Back", icBack, a.browserBack, a.browserHistoryAt <= 0)
+		a.browserIconButton(c, p, "Back", icBack, a.browserBack, a.layout.browserHistoryAt <= 0)
 		a.browserIconButton(c, p, "Forward", icForward, a.browserForward,
-			a.browserHistoryAt < 0 || a.browserHistoryAt >= len(a.browserHistory)-1)
+			a.layout.browserHistoryAt < 0 || a.layout.browserHistoryAt >= len(a.layout.browserHistory)-1)
 
 		label := "Hide sidebar"
-		if a.sidebarCollapsed {
+		if a.layout.sidebarCollapsed {
 			label = "Show sidebar"
 		}
 		a.navButton(c, p, label, icPanel, func() {
-			a.sidebarCollapsed = !a.sidebarCollapsed
+			a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed
 		}, p.text)
 
 		ui.Box(c).Width(titleGap)
 		// The title appears once the conversation has one, and names the
 		// page while the settings are up. What the chat has spent rides
 		// beside it, quiet for the free models the app runs by default.
-		title := a.selected
-		if a.settingsOpen {
+		title := a.conversation.selected
+		if a.layout.settingsOpen {
 			title = "Settings"
 		}
 		if title != "" {
 			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).
 				Shrink(1).MinWidth(0).SingleLine()
-			if !a.settingsOpen {
-				if cost := a.spentOf(a.selectedSession); cost > 0 {
+			if !a.layout.settingsOpen {
+				if cost := a.spentOf(a.conversation.target.session); cost > 0 {
 					ui.Text(c, spentLine(cost)).FontSize(12.5).TextColor(p.muted).
 						MarginStart(8).Shrink(0).SingleLine()
 				}
@@ -464,22 +330,34 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 		ui.Spacer(c)
 
 		a.navButton(c, p, toolsLabel, icPanelRight, func() {
-			a.browserCollapsed = !a.browserCollapsed
+			a.layout.browserCollapsed = !a.layout.browserCollapsed
 		}, p.text)
 	})
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--reset-metadata" {
+		path, err := metadataPath()
+		if err == nil {
+			err = resetMetadata(path)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Reset application metadata at %s", path)
+		return
+	}
 	a := newApp()
+	mygo.App.OnQuit(a.closeWork)
 	mygo.App.WhenReady(func() {
 		// A fixed app directory is shared by plain, dev and packaged builds.
 		var db *metadataStore
-		dir, err := os.UserConfigDir()
+		path, err := metadataPath()
 		if err == nil {
-			db, err = a.loadState(filepath.Join(dir, "wada-desktop-go", "metadata.db"))
+			db, err = a.loadState(path)
 		}
 		if err != nil {
-			a.metadataError = "Settings storage is unavailable: " + err.Error()
+			a.preferences.metadataError = "Settings storage is unavailable: " + err.Error()
 			log.Printf("metadata: %v", err)
 		}
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -498,14 +376,14 @@ func main() {
 			StateKey:             "main",
 			Content:              ui.View(a.view),
 		})
-		a.win = win
-		a.background = func(work func() func()) {
+		a.runtime.win = win
+		a.runtime.background = func(work func() func()) {
 			go func() { win.Update(work()) }()
 		}
 		win.OnClosed(a.closeWork)
 		a.refreshWorkspacePolicy()
 		if db != nil {
-			a.metadata = startMetadataWriter(db, func(version uint64, err error) {
+			a.preferences.metadata = startMetadataWriter(db, func(version uint64, err error) {
 				if err != nil {
 					log.Printf("metadata: %v", err)
 				}
@@ -514,10 +392,19 @@ func main() {
 			mygo.App.OnQuit(a.closeMetadata)
 		}
 
-		// The agent pipe lives in the background; it dials the active
-		// server and publishes what it streams back into the view through
-		// Window.Update.
-		go a.connect(win, a.jobs, a.activeServerConn(), append([]string(nil), a.pinOrder...))
+		engine := runner.New(a.runtime.lifetime, win.Update, runnerSink{a}, runner.Options{})
+		a.runtime.submitCommand = engine.Submit
+		a.runtime.connectTo = engine.Select
+		a.runtime.connectTo(runner.Generation(a.connections.route), a.runnerConnection())
+		go watchPolicy(a.runtime.lifetime, a.workspace.policyDirs, a.workspace.policyWrites, func(result policyResult) { win.Update(func() { a.acceptPolicy(result) }) })
+		go searchChats(a.runtime.lifetime, a.search.searches, func(ctx context.Context, query searchRequest) ([]opencode.Session, error) {
+			client, err := opencode.NewClient(query.config)
+			if err != nil {
+				return nil, err
+			}
+			rows, _, err := client.ListSessions(ctx, "", query.text, "")
+			return rows, err
+		}, win.Update, a.acceptSearch)
 
 		// WADA_CAPTURE=/path/out.png writes a PNG of the window and quits:
 		// a way to see the interface without clicking through it. The wait
@@ -555,16 +442,20 @@ func main() {
 // send appends the draft to the transcript as the user's own words and
 // brings the latest block in view.
 func (a *app) send() bool {
-	text := strings.TrimSpace(a.draft)
+	text := strings.TrimSpace(a.conversation.draft)
 	if text == "" || !a.agentSend(text) {
 		return false
 	}
-	if a.selectedSession == "" {
+	if a.conversation.target.isDraft() {
 		a.freshTranscript()
 	}
-	a.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.draft})
-	a.draft = ""
-	a.feed.ScrollToEnd()
+	a.conversation.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.conversation.draft})
+	a.conversation.draft = ""
+	if a.layout.attach != nil {
+		a.layout.attach.request.stop()
+		a.layout.attach = nil
+	}
+	a.layout.feed.ScrollToEnd()
 	return true
 }
 
@@ -574,13 +465,12 @@ func (a *app) send() bool {
 // settings enabled.
 func (a *app) agentSend(text string) bool {
 	def := a.draftModelRef()
-	return a.queueJob(agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
-		draft: a.draftVersion, provider: def.ProviderID, model: def.ID, variant: def.Variant}) == admissionAccepted
+	return a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
 }
 
 // stopTurn asks the runner to interrupt the running conversation.
 func (a *app) stopTurn() {
-	a.queueJob(agentJob{kind: jobStop, sid: a.transcript.Busy()})
+	a.queueCommand(runner.Stop{Session: a.conversation.transcript.Busy()})
 }
 
 // answerPerm sends the decision for one approval request; the runner
@@ -589,16 +479,16 @@ func (a *app) answerPerm(perm *chat.Permission, decision string) {
 	if perm == nil {
 		return
 	}
-	a.queueJob(agentJob{kind: jobAnswer, sid: perm.Session, request: perm.ID, decision: decision})
+	a.queueCommand(runner.Answer{Session: perm.Session, Request: perm.ID, Decision: runner.Decision(decision)})
 }
 
 // chatDir is the directory the open conversation works in.
 func (a *app) chatDir() string {
-	if a.selectedSession == "" {
-		return a.draftProject
+	if a.conversation.target.isDraft() {
+		return a.conversation.draftProject
 	}
 	for _, s := range a.scope().sessions {
-		if s.ID == a.selectedSession {
+		if s.ID == a.conversation.target.session {
 			return s.Directory
 		}
 	}
@@ -611,7 +501,7 @@ func (a *app) chatDir() string {
 func (a *app) pickFolderDialog(done func(path string)) {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Parent:                     a.win,
+			Parent:                     a.runtime.win,
 			Title:                      "Choose a folder",
 			Message:                    "The folder becomes a project in the sidebar.",
 			ButtonLabel:                "Add folder",
@@ -628,20 +518,20 @@ func (a *app) pickFolderDialog(done func(path string)) {
 				done(paths[0])
 			}
 		}
-		if a.win == nil { // headless, as tests run the view
+		if a.runtime.win == nil { // headless, as tests run the view
 			mygo.RunOnMain(land)
 			return
 		}
-		a.win.Update(land)
+		a.runtime.win.Update(land)
 	}()
 }
 
 // openProjectDialog asks the system for a folder and saves it in the
 // sidebar; a draft that asked for a new project starts working there.
 func (a *app) openProjectDialog() {
-	wantsDraft := a.selectAddedProject
-	a.selectAddedProject = false
-	a.pickFolder(func(path string) {
+	wantsDraft := a.layout.selectAddedProject
+	a.layout.selectAddedProject = false
+	a.runtime.pickFolder(func(path string) {
 		clean, err := a.addFolder(path)
 		if err != nil {
 			a.streamLine("The folder was not added: " + err.Error())
@@ -679,12 +569,12 @@ func (a *app) startChatIn(path string) {
 		path = clean
 	}
 	a.startDraft(path)
-	delete(a.projectCollapsed, path)
+	delete(a.layout.projectCollapsed, path)
 }
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.
 func (a *app) openAttachDialog() {
-	a.attach = &attachState{open: true}
+	a.layout.attach = &attachState{open: true}
 }
 
 // attachFile quotes a workspace file into the draft, as a fenced block
@@ -692,7 +582,7 @@ func (a *app) openAttachDialog() {
 // On a local server the file is this machine's to read; a remote server
 // names the file its API streams from its own folders.
 func (a *app) attachFile() {
-	st := a.attach
+	st := a.layout.attach
 	if st == nil {
 		return
 	}
@@ -709,7 +599,7 @@ func (a *app) attachFile() {
 	if !strings.HasPrefix(rel, "~") && !filepath.IsAbs(rel) {
 		pth = filepath.Join(a.chatDir(), rel)
 	}
-	draft, dir := a.draftVersion, a.chatDir()
+	draft, dir := a.conversation.target.revision, a.chatDir()
 	type quote struct {
 		path string
 		data []byte
@@ -718,7 +608,7 @@ func (a *app) attachFile() {
 		abs, data, err := expandFile(pth)
 		return quote{abs, data}, err
 	}, func(q quote, err error) {
-		if a.attach != st || a.draftVersion != draft || a.chatDir() != dir {
+		if a.layout.attach != st || !st.open || a.conversation.target.revision != draft || a.chatDir() != dir {
 			return
 		}
 		if err != nil {
@@ -747,7 +637,7 @@ func (a *app) attachRemote(st *attachState, rel string) {
 	if !filepath.IsAbs(trimmed) {
 		abs = filepath.Join(dir, trimmed)
 	}
-	cfg, draft := a.activeServerConn(), a.draftVersion
+	cfg, draft := a.activeServerConn(), a.conversation.target.revision
 	runRequest(a, &st.request, func(ctx context.Context) ([]byte, error) {
 		ag, err := opencode.NewClient(cfg.transport())
 		if err != nil {
@@ -757,7 +647,7 @@ func (a *app) attachRemote(st *attachState, rel string) {
 		defer cancel()
 		return ag.ReadWorkspaceFile(ctx, dir, trimmed)
 	}, func(data []byte, err error) {
-		if a.attach != st || a.draftVersion != draft || a.chatDir() != dir {
+		if a.layout.attach != st || !st.open || a.conversation.target.revision != draft || a.chatDir() != dir {
 			return
 		}
 		if err != nil {
@@ -779,12 +669,12 @@ func (a *app) attachRemote(st *attachState, rel string) {
 // attachQuote marks the file into the draft and closes the dialog.
 func (a *app) attachQuote(st *attachState, abs string, data []byte) {
 	mark := "(file: " + abs + ")"
-	if strings.Contains(a.draft, mark) {
+	if strings.Contains(a.conversation.draft, mark) {
 		st.note = "That file is already in the draft."
 		return
 	}
-	a.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
-	a.attach = nil
+	a.conversation.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
+	a.layout.attach = nil
 }
 
 // setAsk moves the shell policy of the chat's folder in the workspace
@@ -801,21 +691,37 @@ func (a *app) setAsk(ask bool) {
 			a.streamLine("The chat has no folder on the server yet, so the shell rule has nowhere to go.")
 			return
 		}
-		cfg := a.activeServerConn()
+		a.workspace.policyRequest.stop()
+		cfg, version := a.activeServerConn(), a.workspace.policyVersion
+		previous := a.workspace.policyTail
+		finished := make(chan struct{})
+		a.workspace.policyTail = finished
+		a.workspace.policyWriteRevision++
+		revision := a.workspace.policyWriteRevision
 		inBackground(a, func(ctx context.Context) (string, error) {
+			defer close(finished)
+			if previous != nil {
+				select {
+				case <-previous:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
 			ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
 			return remoteSetPermissionAsk(ctx, cfg, dir, ask)
 		}, func(level string, err error) {
-			a.acceptPolicy(policyResult{dir: dir, level: level, err: err})
+			if a.workspace.policyWriteRevision == revision {
+				a.acceptPolicy(policyResult{dir: dir, level: level, err: err, revision: version})
+			}
 		})
 		return
 	}
 	if dir == "" {
-		dir = a.home
+		dir = a.preferences.home
 	}
 	select {
-	case a.policyWrites <- policyChange{dir: dir, ask: ask}:
+	case a.workspace.policyWrites <- policyChange{dir: dir, ask: ask, revision: a.workspace.policyVersion}:
 	default:
 		a.streamLine("The shell policy is still being updated. Try again shortly.")
 	}
@@ -823,23 +729,23 @@ func (a *app) setAsk(ask bool) {
 
 // requestRename opens the rename dialog for one conversation.
 func (a *app) requestRename(s opencode.Session) {
-	a.rename = &renameState{open: true, sid: s.ID, draft: s.Title}
+	a.layout.rename = &renameState{open: true, sid: s.ID, draft: s.Title}
 }
 
 // saveRename queues the new title; the sidebar row itself updates when
 // the rename event comes back over the stream.
 func (a *app) saveRename() {
-	st := a.rename
+	st := a.layout.rename
 	if st == nil {
 		return
 	}
 	title := strings.TrimSpace(st.draft)
 	if st.sid == "" || title == "" || title == a.titleOf(st.sid) {
-		a.rename = nil
+		a.layout.rename = nil
 		return
 	}
-	if a.queueJob(agentJob{kind: jobRename, sid: st.sid, text: title}) == admissionAccepted {
-		a.rename = nil
+	if a.queueCommand(runner.Rename{Session: st.sid, Title: title}) == runner.Accepted {
+		a.layout.rename = nil
 	}
 }
 
@@ -847,34 +753,34 @@ func (a *app) saveRename() {
 // the words may stand as several rows, and the line belongs under the last
 // of them.
 func (a *app) acceptUsage(m opencode.Message) {
-	a.transcript.Usage(m.ID, m.Cost, m.Tokens.Output+m.Tokens.Reasoning)
+	a.conversation.transcript.Usage(m.ID, m.Cost, m.Tokens.Output+m.Tokens.Reasoning)
 }
 
 // refreshUsage asks the pipe for the stored form of the answer a turn just
 // ended on: what it spent is only in the store. Nothing is asked when no
 // answer of this app's stands to spend anything.
 func (a *app) refreshUsage(sid string) {
-	if sid == "" || sid != a.selectedSession {
+	if sid == "" || sid != a.conversation.target.session {
 		return
 	}
 	msg := ""
-	for i := len(a.transcript.Rows()) - 1; i >= 0; i-- {
-		if a.transcript.Rows()[i].Message != "" {
-			msg = a.transcript.Rows()[i].Message
+	for i := len(a.conversation.transcript.Rows()) - 1; i >= 0; i-- {
+		if a.conversation.transcript.Rows()[i].Message != "" {
+			msg = a.conversation.transcript.Rows()[i].Message
 			break
 		}
 	}
 	if msg == "" {
 		return
 	}
-	a.queueJob(agentJob{kind: jobUsage, sid: sid, msg: msg})
+	a.queueCommand(runner.Usage{Session: sid, Message: msg})
 }
 
 // refreshSessions asks the pipe for the newest page of conversations
 // again, after a turn: the list's order and the chat's spending moved, and
 // another client may have written a chat of its own meanwhile.
 func (a *app) refreshSessions() {
-	a.queueJob(agentJob{kind: jobRefresh})
+	a.queueCommand(runner.Refresh{})
 }
 
 // usageLine words what one answer spent: the money it cost and the tokens
@@ -966,19 +872,18 @@ func (a *app) modelLabel(ref opencode.ModelRef) (name string, variants []string)
 // — keeps its pick where the composer can show it, and the first words hand
 // it to the chat the server opens.
 func (a *app) chooseModel(m opencode.Model, variant string) {
-	a.pickerOpen = false
-	if a.selectedSession == "" {
-		a.draftModel = opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}
+	a.layout.pickerOpen = false
+	if a.conversation.target.isDraft() {
+		a.conversation.draftModel = opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}
 		return
 	}
-	a.queueJob(agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
-		provider: m.ProviderID, model: m.ID, variant: variant})
+	a.queueCommand(runner.SelectModel{Session: a.conversation.target.session, Model: opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}})
 }
 
 // pickVariant keeps the conversation's model and changes its reasoning
 // effort.
 func (a *app) pickVariant(variant string) {
-	ref := a.sessionModelOf(a.selectedSession)
+	ref := a.sessionModelOf(a.conversation.target.session)
 	for _, m := range a.scope().models {
 		if m.ProviderID == ref.ProviderID && m.ID == ref.ID {
 			a.chooseModel(m, variant)
@@ -990,17 +895,17 @@ func (a *app) pickVariant(variant string) {
 // confirmDelete shows the dialog that stands between a click and a
 // conversation gone for good.
 func (a *app) confirmDelete(s opencode.Session) {
-	a.confirm = &confirmState{open: true, sid: s.ID, what: s.Title}
+	a.layout.confirm = &confirmState{open: true, sid: s.ID, what: s.Title}
 }
 
 // deleteConfirmed queues the deletion after the dialog's say-so.
 func (a *app) deleteConfirmed() {
-	st := a.confirm
+	st := a.layout.confirm
 	if st == nil || st.sid == "" {
 		return
 	}
-	if a.queueJob(agentJob{kind: jobDelete, sid: st.sid}) == admissionAccepted {
-		a.confirm = nil
+	if a.queueCommand(runner.Delete{Session: st.sid}) == runner.Accepted {
+		a.layout.confirm = nil
 	}
 }
 
@@ -1011,8 +916,8 @@ func (a *app) adoptSession(s opencode.Session) {
 	if label == "" {
 		label = "New chat"
 	}
-	a.selected = label
-	a.selectedSession = s.ID
+	a.conversation.selected = label
+	a.conversation.target.selectSession(s.ID)
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
@@ -1028,8 +933,7 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		a.scope().nextCursor = next
 	}
 	if lerr == nil && len(ls) > 0 {
-		a.adoptSession(ls[0])
-		a.queueJob(agentJob{kind: jobOpen, sid: ls[0].ID})
+		a.openConversation(ls[0])
 	} else {
 		a.freshTranscript()
 	}
@@ -1051,18 +955,17 @@ func (a *app) startNewChat() {
 
 // startDraft opens an empty composer in one workspace.
 func (a *app) startDraft(dir string) {
-	a.settingsOpen = false
-	a.draftProject = dir
-	a.draftVersion++
-	a.projectPickerOpen = false
-	a.selected = ""
-	a.selectedSession = ""
-	a.draft = ""
-	a.draftModel = opencode.ModelRef{}
+	a.layout.settingsOpen = false
+	a.conversation.draftProject = dir
+	a.layout.projectPickerOpen = false
+	a.conversation.selected = ""
+	a.conversation.target.selectSession("")
+	a.conversation.draft = ""
+	a.conversation.draftModel = opencode.ModelRef{}
 	a.freshTranscript()
 	a.workspaceChanged()
 }
 
 // freshTranscript empties the transcript for another conversation,
 // forgetting what was streaming and what tools ran.
-func (a *app) freshTranscript() { a.transcript.Reset(); a.feed = newFeed() }
+func (a *app) freshTranscript() { a.conversation.transcript.Reset(); a.layout.feed = newFeed() }

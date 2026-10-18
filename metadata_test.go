@@ -9,7 +9,6 @@ import (
 	"testing"
 	"wada-desktop-go/internal/opencode"
 
-	"github.com/egoist/mygo/plugins/sqlite"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -57,113 +56,21 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestMetadataUpgradesFromVersionTwo keeps the store that predates
-// servers readable: its projects and pins survive the tables the settings
-// arrived with.
-func TestMetadataUpgradesFromVersionTwo(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "metadata.db")
-	db, err := openMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Wind the schema back to what version 2 kept.
-	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
-		{SQL: "DROP TABLE servers"},
-		{SQL: "DROP TABLE disabled_models"},
-		{SQL: "PRAGMA user_version = 2"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
-		{SQL: "INSERT INTO projects VALUES ('/kept', 0, 1)"},
-		{SQL: "INSERT INTO session_pins VALUES (?, 'ses_kept', 0)", Args: []any{localServerID}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-
-	db, err = openMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	got, err := db.load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.projects) != 1 || got.projects[0] != "/kept" || !got.projectPins["/kept"] ||
-		len(got.pins[localServerID]) != 1 || got.pins[localServerID][0] != "ses_kept" {
-		t.Fatalf("the upgrade lost the sidebar: %+v", got)
-	}
-	if err := db.save(context.Background(), got); err != nil {
-		t.Fatalf("the upgraded schema did not take a save: %v", err)
-	}
-}
-
-// TestMetadataUpgradesFromVersionThree keeps a store that predates the
-// paired columns readable: the servers keep their passwords, and the
-// pairing a later save makes survives.
-func TestMetadataUpgradesFromVersionThree(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "metadata.db")
-	db, err := openMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Wind the schema back to what version 3 kept.
-	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
-		{SQL: "ALTER TABLE servers DROP COLUMN paired"},
-		{SQL: "ALTER TABLE servers DROP COLUMN paired_at"},
-		{SQL: "PRAGMA user_version = 3"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Transaction(context.Background(), []sqlite.Statement{
-		{SQL: "INSERT INTO servers VALUES ('srv-old', 'Old box', 'remote', 0, 'http://10.0.0.9:4096', 'key', 0)"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-
-	db, err = openMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	got, err := db.load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.servers) != 1 || got.servers[0].password != "key" || got.servers[0].paired || got.servers[0].pairedAt != 0 {
-		t.Fatalf("the upgrade lost the servers: %+v", got.servers)
-	}
-	got.servers[0].paired, got.servers[0].pairedAt = true, 1792314306306
-	if err := db.save(context.Background(), got); err != nil {
-		t.Fatalf("the upgraded schema did not take a save: %v", err)
-	}
-	back, err := db.load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(back.servers) != 1 || !back.servers[0].paired || back.servers[0].pairedAt != 1792314306306 {
-		t.Fatalf("the pairing did not survive: %+v", back.servers)
-	}
-}
-
 func TestSidebarProjectActions(t *testing.T) {
 	a := newTestApp(t)
-	a.projects = nil
+	a.preferences.projects = nil
 	if len(a.projectDirectories()) != 0 {
 		t.Fatal("empty list resurrected a project")
 	}
 	dir := t.TempDir()
 	a.addProject(dir)
 	a.addProject(filepath.Join(dir, "."))
-	if len(a.projects) != 1 {
-		t.Fatalf("duplicate projects: %v", a.projects)
+	if len(a.preferences.projects) != 1 {
+		t.Fatalf("duplicate projects: %v", a.preferences.projects)
 	}
 	a.removeProject(dir)
-	if len(a.projects) != 0 {
-		t.Fatalf("removed project remains: %v", a.projects)
+	if len(a.preferences.projects) != 0 {
+		t.Fatalf("removed project remains: %v", a.preferences.projects)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal("removing a project touched its folder:", err)
@@ -188,7 +95,7 @@ func TestSidebarStartupDoesNotRediscoverRemovedFolders(t *testing.T) {
 	}
 	defer db.Close()
 	if len(b.projectDirectories()) != 0 {
-		t.Fatalf("removed folders reappeared: %v", b.projects)
+		t.Fatalf("removed folders reappeared: %v", b.preferences.projects)
 	}
 }
 
@@ -234,13 +141,13 @@ func TestMetadataWriterDrainsLatestSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.metadata = startMetadataWriter(db, func(_ uint64, err error) {
+	a.preferences.metadata = startMetadataWriter(db, func(_ uint64, err error) {
 		if err != nil {
 			t.Error(err)
 		}
 	})
 	for i := range 100 {
-		a.projects = []string{filepath.Join("/work", string(rune('a'+i)))}
+		a.preferences.projects = []string{filepath.Join("/work", string(rune('a'+i)))}
 		a.saveState()
 	}
 	want := a.stateSnapshot()
@@ -258,40 +165,40 @@ func TestMetadataWriterDrainsLatestSnapshot(t *testing.T) {
 
 func TestSidebarSaveFailureIsVisibleAndStaleResultsIgnored(t *testing.T) {
 	a := newTestApp(t)
-	a.metadataVersion = 2
+	a.preferences.metadataVersion = 2
 	a.acceptMetadataWrite(2, errors.New("disk full"))
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Changes are not saved: disk full") {
 		t.Fatal("save failure is hidden")
 	}
 	a.acceptMetadataWrite(1, nil)
-	if a.metadataError == "" {
+	if a.preferences.metadataError == "" {
 		t.Fatal("stale save cleared the failure")
 	}
 	a.acceptMetadataWrite(2, nil)
-	if a.metadataError != "" {
+	if a.preferences.metadataError != "" {
 		t.Fatal("successful retry left an error")
 	}
 }
 
 func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	a := newTestApp(t)
-	a.projects = nil
+	a.preferences.projects = nil
 	picked := t.TempDir()
-	a.pickFolder = func(done func(path string)) { done(picked) }
+	a.runtime.pickFolder = func(done func(path string)) { done(picked) }
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Add Projects"); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.projects) != 1 {
+	if len(a.preferences.projects) != 1 {
 		t.Fatal("project was not added")
 	}
 	select {
-	case job := <-a.jobs:
+	case job := <-commandsOf(a):
 		t.Fatalf("adding a folder created a chat: %+v", job)
 	default:
 	}
-	project := a.projects[0]
+	project := a.preferences.projects[0]
 	if want, err := filepath.EvalSymlinks(picked); err != nil || project != want {
 		t.Fatalf("project %q, want %q (%v)", project, want, err)
 	}
@@ -302,7 +209,7 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	if err := tt.ChooseMenuItem("Pin project"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.projectPins[project] {
+	if !a.preferences.projectPins[project] {
 		t.Fatal("project menu did not pin the folder")
 	}
 	if err := tt.Click("Project options, " + dirBase(project)); err != nil {
@@ -311,7 +218,7 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 	if err := tt.ChooseMenuItem("Remove project"); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.projects) != 0 || a.projectPins[project] {
+	if len(a.preferences.projects) != 0 || a.preferences.projectPins[project] {
 		t.Fatal("project menu did not remove the folder and its pin")
 	}
 	a.scope().sessions = []opencode.Session{{ID: "b"}, {ID: "a"}}
@@ -321,7 +228,7 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 		t.Fatalf("pin order: %+v", pins)
 	}
 	a.dropSession("a")
-	if a.pinned["a"] {
+	if a.scope().pinned["a"] {
 		t.Fatal("deleted session kept its pin")
 	}
 }
@@ -330,14 +237,14 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 // changes nothing.
 func TestAddProjectCancelKeepsSidebar(t *testing.T) {
 	a := newTestApp(t)
-	a.projects = nil
-	a.pickFolder = func(func(path string)) {}
+	a.preferences.projects = nil
+	a.runtime.pickFolder = func(func(path string)) {}
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Add Projects"); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.projects) != 0 {
-		t.Fatalf("cancel added a project: %v", a.projects)
+	if len(a.preferences.projects) != 0 {
+		t.Fatalf("cancel added a project: %v", a.preferences.projects)
 	}
 }
 
@@ -348,14 +255,14 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.metadata = startMetadataWriter(db, func(_ uint64, err error) {
+	a.preferences.metadata = startMetadataWriter(db, func(_ uint64, err error) {
 		if err != nil {
 			t.Error(err)
 		}
 	})
-	a.projects = nil
+	a.preferences.projects = nil
 	a.addFolder(t.TempDir())
-	project := a.projects[0]
+	project := a.preferences.projects[0]
 	a.toggleProjectPin(project)
 	a.togglePin(opencode.Session{ID: "saved-chat"})
 	a.togglePin(opencode.Session{ID: "unpin-me"})
@@ -367,7 +274,7 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if len(b.projects) != 1 || b.projects[0] != project || !b.projectPins[project] || !b.pinned["saved-chat"] || b.pinned["unpin-me"] {
+	if len(b.preferences.projects) != 1 || b.preferences.projects[0] != project || !b.preferences.projectPins[project] || !b.scope().pinned["saved-chat"] || b.scope().pinned["unpin-me"] {
 		t.Fatalf("sidebar did not restore actions: %+v", b.stateSnapshot())
 	}
 }

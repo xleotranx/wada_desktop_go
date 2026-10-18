@@ -47,11 +47,11 @@ func (a *app) navRail(c *ui.Context, p palette) {
 					a.openSettings("")
 				}
 				label := "Hide sidebar"
-				if a.sidebarCollapsed {
+				if a.layout.sidebarCollapsed {
 					label = "Show sidebar"
 				}
 				if m.Item(label).Chosen() {
-					a.sidebarCollapsed = !a.sidebarCollapsed
+					a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed
 				}
 			})
 			more.Children(func() { ui.Icon(c, icEllipsis).FontSize(18).TextColor(p.muted) })
@@ -73,18 +73,18 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 		Cursor(ui.CursorPointer).Tooltip(label)
 	if b.Hovered() {
 		b.Background(p.hover)
-	} else if a.selectedRail == key {
+	} else if a.layout.selectedRail == key {
 		b.Background(p.selected)
 	}
 	b.OnClick(func() {
 		// Anything the rail navigates to leaves the settings page.
-		a.settingsOpen = false
-		a.selectedRail = key
+		a.layout.settingsOpen = false
+		a.layout.selectedRail = key
 		on()
 	})
 	b.Children(func() {
 		tint := p.muted
-		if a.selectedRail == key {
+		if a.layout.selectedRail == key {
 			tint = p.text
 		}
 		ui.Icon(c, icon).FontSize(18).TextColor(tint)
@@ -99,13 +99,13 @@ func (a *app) settingsButton(c *ui.Context, p palette) {
 		Cursor(ui.CursorPointer).Tooltip("Settings")
 	if b.Hovered() {
 		b.Background(p.hover)
-	} else if a.settingsOpen {
+	} else if a.layout.settingsOpen {
 		b.Background(p.selected)
 	}
 	b.OnClick(func() { a.openSettings("") })
 	b.Children(func() {
 		tint := p.muted
-		if a.settingsOpen {
+		if a.layout.settingsOpen {
 			tint = p.text
 		}
 		ui.Icon(c, icGear).FontSize(18).TextColor(tint)
@@ -115,31 +115,31 @@ func (a *app) settingsButton(c *ui.Context, p palette) {
 // openChatSearch aims the sidebar's search field and leaves the settings
 // page behind.
 func (a *app) openChatSearch() {
-	a.settingsOpen = false
-	a.searchOpen = true
-	a.focusSearch = true
+	a.layout.settingsOpen = false
+	a.search.searchOpen = true
+	a.search.focusSearch = true
 }
 
 // sidebarPane holds the workspace switcher, pinned chats and projects.
 func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
-	ui.Column(c).Width(a.sidebarW).Background(p.sidebarBg).Children(func() {
+	ui.Column(c).Width(a.layout.sidebarW).Background(p.sidebarBg).Children(func() {
 		a.headerRow(c, p, headerH)
 
 		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {
-			if a.metadataError != "" {
-				ui.Text(c, a.metadataError).FontSize(12).TextColor(p.orange)
-				if a.metadata != nil {
+			if a.preferences.metadataError != "" {
+				ui.Text(c, a.preferences.metadataError).FontSize(12).TextColor(p.orange)
+				if a.preferences.metadata != nil {
 					ui.Button(c, "Retry saving").OnClick(a.saveState)
 				}
-			} else if a.metadataSaving {
+			} else if a.preferences.metadataSaving {
 				ui.Text(c, "Saving…").FontSize(12).TextColor(p.muted)
 			}
 			a.newChatRow(c, p)
-			if a.searchOpen {
+			if a.search.searchOpen {
 				a.searchField(c, p)
 			}
 
-			if a.searchText == "" {
+			if a.search.searchText == "" {
 				// The lists scroll once they outgrow the pane, under the
 				// New chat and search rows, which stay put.
 				ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
@@ -171,20 +171,20 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 						ui.Text(c, hint).FontSize(12).TextColor(p.faint).MarginStart(8)
 					}
 					visible := len(projects)
-					if !a.projectsExpanded && visible > 5 {
+					if !a.layout.projectsExpanded && visible > 5 {
 						visible = 5
 					}
 					ui.Column(c).FillWidth().Gap(2).Children(func() {
 						for _, dir := range projects[:visible] {
 							a.projectRow(c, p, dir)
 						}
-						if visible < len(projects) || a.projectsExpanded {
+						if visible < len(projects) || a.layout.projectsExpanded {
 							a.moreProjectsRow(c, p, len(projects)-visible)
 						}
 					})
 				})
 			}
-			if a.searchText != "" {
+			if a.search.searchText != "" {
 				a.searchResultsPane(c, p)
 			}
 		})
@@ -228,13 +228,13 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 // menu that switches to any other one without a trip through Settings.
 func (a *app) serverPill(c *ui.Context, p palette) {
 	s := a.activeServerConn()
-	h := a.serverHealth[s.id]
+	h := a.connections.serverHealth[s.id]
 	c.Key("server-pill")
 	pill := ui.ButtonBase(c).Label("Server menu, "+s.name).Height(26).Radius(8).Padding(0, 8).
 		Cursor(ui.CursorPointer).Menu(func(m *ui.Menu) {
-		for _, other := range a.servers {
+		for _, other := range a.connections.servers {
 			item := m.Item(other.name)
-			if other.id == a.activeServer {
+			if other.id == a.connections.activeServer {
 				item.Disabled(true)
 			} else if item.Chosen() {
 				a.useServer(other.id)
@@ -259,7 +259,7 @@ func (a *app) serverPill(c *ui.Context, p palette) {
 // bellButton shows the approvals waiting: its badge counts them, and a
 // click takes the user to the chat that asked.
 func (a *app) bellButton(c *ui.Context, p palette) {
-	asks := len(a.transcript.Pending())
+	asks := len(a.conversation.transcript.Pending())
 	label := "Notifications"
 	if asks > 0 {
 		label = fmt.Sprintf("Notifications, %d approvals waiting", asks)
@@ -287,27 +287,20 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 // openAnAsk takes the user to a chat with an approval waiting, the one
 // the store lists first.
 func (a *app) openAnAsk() {
-	a.settingsOpen = false
-	keys := make([]string, 0, len(a.transcript.Pending()))
-	for k := range a.transcript.Pending() {
+	a.layout.settingsOpen = false
+	keys := make([]string, 0, len(a.conversation.transcript.Pending()))
+	for k := range a.conversation.transcript.Pending() {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	ask := a.transcript.Pending()[keys[0]]
-	for i := range a.scope().sessions {
-		if a.scope().sessions[i].ID == ask.Session {
-			a.adoptSession(a.scope().sessions[i])
-			break
+	ask := a.conversation.transcript.Pending()[keys[0]]
+	for _, session := range a.scope().sessions {
+		if session.ID == ask.Session {
+			a.openConversation(session)
+			return
 		}
 	}
-	if a.selectedSession != ask.Session {
-		// The conversation sits past the list's first page; open it by
-		// hand and let the restore name it.
-		a.selectedSession = ask.Session
-		a.selected = ""
-		a.freshTranscript()
-	}
-	a.queueJob(agentJob{kind: jobOpen, sid: ask.Session})
+	a.openConversation(opencode.Session{ID: ask.Session})
 }
 
 // newChatRow starts a fresh chat.
@@ -333,14 +326,14 @@ func (a *app) searchField(c *ui.Context, p palette) {
 	box.Children(func() {
 		ui.Row(c).Gap(5).AlignItems(ui.Center).FillWidth().Children(func() {
 			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
-			in := ui.TextInputBase(c, &a.searchText).FontSize(13).
+			in := ui.TextInputBase(c, &a.search.searchText).FontSize(13).
 				Placeholder("Search chats").FillWidth().Label("Search chats")
 			if in.Changed() {
 				a.reviseSearch()
 			}
-			if a.focusSearch {
+			if a.search.focusSearch {
 				in.Focus()
-				a.focusSearch = false
+				a.search.focusSearch = false
 			}
 			close := ui.ButtonBase(c).Label("Close search").Size(22, 22).Radius(6).Center().
 				Tooltip("Close search")
@@ -356,10 +349,10 @@ func (a *app) searchField(c *ui.Context, p palette) {
 }
 
 func (a *app) closeChatSearch() {
-	a.searchOpen = false
-	a.focusSearch = false
-	if a.searchText != "" {
-		a.searchText = ""
+	a.search.searchOpen = false
+	a.search.focusSearch = false
+	if a.search.searchText != "" {
+		a.search.searchText = ""
 		a.reviseSearch()
 	}
 }
@@ -381,13 +374,13 @@ func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func())
 }
 
 func (a *app) pinnedSessions() []opencode.Session {
-	out := make([]opencode.Session, 0, len(a.pinned))
-	order := make(map[string]int, len(a.pinOrder))
-	for i, id := range a.pinOrder {
+	out := make([]opencode.Session, 0, len(a.scope().pinned))
+	order := make(map[string]int, len(a.scope().pinOrder))
+	for i, id := range a.scope().pinOrder {
 		order[id] = i
 	}
 	for _, s := range a.scope().sessions {
-		if a.pinned[s.ID] {
+		if a.scope().pinned[s.ID] {
 			out = append(out, s)
 		}
 	}
@@ -402,9 +395,9 @@ func (a *app) pinnedSessions() []opencode.Session {
 // folder it dropped. A remote chat has no business starting in one of
 // this machine's folders, and the server has nothing to say about them.
 func (a *app) projectDirectories() []string {
-	projects := make([]string, 0, len(a.projects)+len(a.scope().projects))
+	projects := make([]string, 0, len(a.preferences.projects)+len(a.scope().projects))
 	if a.localActive() {
-		projects = append(projects, a.projects...)
+		projects = append(projects, a.preferences.projects...)
 	} else {
 		projects = append(projects, a.scope().projects...)
 		seen := map[string]bool{}
@@ -419,32 +412,34 @@ func (a *app) projectDirectories() []string {
 			projects = append(projects, s.Directory)
 		}
 	}
-	sort.SliceStable(projects, func(i, j int) bool { return a.projectPins[projects[i]] && !a.projectPins[projects[j]] })
+	sort.SliceStable(projects, func(i, j int) bool {
+		return a.preferences.projectPins[projects[i]] && !a.preferences.projectPins[projects[j]]
+	})
 	return projects
 }
 
 func (a *app) addProject(dir string) {
 	dir = canonDir(dir)
-	for _, project := range a.projects {
+	for _, project := range a.preferences.projects {
 		if filepath.Clean(project) == dir {
-			delete(a.unavailableProjects, dir)
+			delete(a.preferences.unavailableProjects, dir)
 			return
 		}
 	}
-	a.projects = append(a.projects, dir)
-	delete(a.unavailableProjects, dir)
+	a.preferences.projects = append(a.preferences.projects, dir)
+	delete(a.preferences.unavailableProjects, dir)
 	a.saveState()
 }
 
 func (a *app) removeProject(dir string) {
 	dir = canonDir(dir)
-	for i, project := range a.projects {
+	for i, project := range a.preferences.projects {
 		if project == dir {
-			a.projects = append(a.projects[:i], a.projects[i+1:]...)
-			delete(a.projectPins, dir)
-			delete(a.unavailableProjects, dir)
-			delete(a.projectCollapsed, dir)
-			delete(a.projectChatsShown, dir)
+			a.preferences.projects = append(a.preferences.projects[:i], a.preferences.projects[i+1:]...)
+			delete(a.preferences.projectPins, dir)
+			delete(a.preferences.unavailableProjects, dir)
+			delete(a.layout.projectCollapsed, dir)
+			delete(a.layout.projectChatsShown, dir)
 			a.saveState()
 			return
 		}
@@ -452,13 +447,13 @@ func (a *app) removeProject(dir string) {
 }
 
 func (a *app) toggleProjectPin(dir string) {
-	if a.projectPins == nil {
-		a.projectPins = map[string]bool{}
+	if a.preferences.projectPins == nil {
+		a.preferences.projectPins = map[string]bool{}
 	}
-	if a.projectPins[dir] {
-		delete(a.projectPins, dir)
+	if a.preferences.projectPins[dir] {
+		delete(a.preferences.projectPins, dir)
 	} else {
-		a.projectPins[dir] = true
+		a.preferences.projectPins[dir] = true
 	}
 	a.saveState()
 }
@@ -473,7 +468,7 @@ const projectChatPreview = 5
 func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	name := dirBase(dir)
 	chats := a.projectChats(dir)
-	open := !a.projectCollapsed[dir]
+	open := !a.layout.projectCollapsed[dir]
 	label := "Show chats in " + name
 	if open {
 		label = "Hide chats in " + name
@@ -495,10 +490,10 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		}
 		ui.Icon(c, icFolder).FontSize(14).MarginStart(5).TextColor(p.muted)
 		ui.Text(c, name).MarginStart(7).FontSize(13.5).Grow(1).SingleLine()
-		if a.unavailableProjects[dir] {
+		if a.preferences.unavailableProjects[dir] {
 			ui.Text(c, "Unavailable").FontSize(11).TextColor(p.muted)
 		}
-		if a.projectPins[dir] {
+		if a.preferences.projectPins[dir] {
 			ui.Text(c, "Pinned").FontSize(11).TextColor(p.muted)
 		}
 		if hovered {
@@ -518,7 +513,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 			}
 			m.Separator()
 			label := "Pin project"
-			if a.projectPins[dir] {
+			if a.preferences.projectPins[dir] {
 				label = "Unpin project"
 			}
 			if m.Item(label).Chosen() {
@@ -535,7 +530,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		return
 	}
 	visible := len(chats)
-	if !a.projectChatsShown[dir] && visible > projectChatPreview {
+	if !a.layout.projectChatsShown[dir] && visible > projectChatPreview {
 		visible = projectChatPreview
 	}
 	ui.Column(c).FillWidth().Gap(1).Children(func() {
@@ -566,26 +561,26 @@ func sameDir(one, two string) bool {
 }
 
 func (a *app) toggleProjectOpen(dir string) {
-	if a.projectCollapsed == nil {
-		a.projectCollapsed = map[string]bool{}
+	if a.layout.projectCollapsed == nil {
+		a.layout.projectCollapsed = map[string]bool{}
 	}
-	a.projectCollapsed[dir] = !a.projectCollapsed[dir]
+	a.layout.projectCollapsed[dir] = !a.layout.projectCollapsed[dir]
 }
 
 // moreProjectChatsRow folds the rest of a folder's chats in or out.
 func (a *app) moreProjectChatsRow(c *ui.Context, p palette, dir string, remaining int) {
 	c.Key("projectchats:more:" + dir)
 	label := fmt.Sprintf("Show %d more chats", remaining)
-	if a.projectChatsShown[dir] {
+	if a.layout.projectChatsShown[dir] {
 		label = "Show fewer chats"
 	}
 	b := a.row(c, p, label, false)
 	b.Height(26).PaddingStart(30)
 	b.OnClick(func() {
-		if a.projectChatsShown == nil {
-			a.projectChatsShown = map[string]bool{}
+		if a.layout.projectChatsShown == nil {
+			a.layout.projectChatsShown = map[string]bool{}
 		}
-		a.projectChatsShown[dir] = !a.projectChatsShown[dir]
+		a.layout.projectChatsShown[dir] = !a.layout.projectChatsShown[dir]
 	})
 	b.Children(func() {
 		ui.Text(c, label).FontSize(12.5).TextColor(p.muted).SingleLine()
@@ -595,12 +590,12 @@ func (a *app) moreProjectChatsRow(c *ui.Context, p palette, dir string, remainin
 func (a *app) moreProjectsRow(c *ui.Context, p palette, remaining int) {
 	c.Key("projects:more")
 	label := fmt.Sprintf("Show %d more projects", remaining)
-	if a.projectsExpanded {
+	if a.layout.projectsExpanded {
 		label = "Show fewer projects"
 	}
 	b := a.row(c, p, label, false)
 	b.Height(28)
-	b.OnClick(func() { a.projectsExpanded = !a.projectsExpanded })
+	b.OnClick(func() { a.layout.projectsExpanded = !a.layout.projectsExpanded })
 	b.Children(func() {
 		ui.Icon(c, icEllipsis).FontSize(14).TextColor(p.muted)
 		ui.Text(c, label).MarginStart(9).FontSize(12.5).TextColor(p.muted).SingleLine()
@@ -612,17 +607,17 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().Height(24).Margin(8, 0, 0, 0).Padding(0, 8).Children(func() {
 		ui.Text(c, "Results").FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
 		ui.Spacer(c)
-		if a.searchLoading {
+		if a.search.searchLoading {
 			ui.Spinner(c).Size(11, 11).Label("Searching chats")
 		}
 	})
-	rows := a.searchResults
-	empty := len(rows) == 0 && !a.searchLoading
+	rows := a.search.searchResults
+	empty := len(rows) == 0 && !a.search.searchLoading
 	count := len(rows)
 	if empty {
 		count++
 	}
-	ui.List(c, &a.resultsList, count).Grow(1).FillWidth().Gap(2).
+	ui.List(c, &a.search.resultsList, count).Grow(1).FillWidth().Gap(2).
 		ItemKey(func(i int) any {
 			if i == len(rows) {
 				return "footer"
@@ -659,11 +654,10 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		label = "New chat"
 	}
 	c.Key(key + s.ID)
-	b := a.row(c, p, label, s.ID == a.selectedSession)
+	b := a.row(c, p, label, s.ID == a.conversation.target.session)
 	b.PaddingStart(indent)
 	b.OnClick(func() {
-		a.adoptSession(s)
-		a.queueJob(agentJob{kind: jobOpen, sid: s.ID})
+		a.openConversation(s)
 	})
 	tint := p.faint
 	if b.Hovered() {
@@ -671,7 +665,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 	}
 	b.Children(func() {
 		a.textRow(c, p, label)
-		if s.ID == a.transcript.Busy() {
+		if s.ID == a.conversation.transcript.Busy() {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
 		c.Key(key + "menu:" + s.ID)
@@ -682,7 +676,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 				a.requestRename(s)
 			}
 			pinLabel := "Pin chat"
-			if a.pinned[s.ID] {
+			if a.scope().pinned[s.ID] {
 				pinLabel = "Unpin from Pinned"
 			}
 			if m.Item(pinLabel).Chosen() {
@@ -702,26 +696,21 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 }
 
 func (a *app) togglePin(s opencode.Session) {
-	if a.pinned == nil {
-		a.pinned = map[string]bool{}
-	}
-	if a.pinned[s.ID] {
-		delete(a.pinned, s.ID)
-		a.pinOrder = slices.DeleteFunc(a.pinOrder, func(id string) bool { return id == s.ID })
+	scope := a.scope()
+	pins := scope.pinOrder
+	if scope.pinned[s.ID] {
+		pins = slices.DeleteFunc(pins, func(id string) bool { return id == s.ID })
 	} else {
-		a.pinned[s.ID] = true
-		a.pinOrder = append(a.pinOrder, s.ID)
-		a.scope().sessions = dedupeSessions(a.scope().sessions, []opencode.Session{s})
+		pins = append(pins, s.ID)
+		scope.sessions = dedupeSessions(scope.sessions, []opencode.Session{s})
 	}
-	// The active server's pins live in both shapes: the map the sidebar
-	// draws from and the store's per-server list.
-	a.pinsByServer[a.activeServer] = slices.Clone(a.pinOrder)
+	scope.setPins(pins)
 	a.saveState()
 }
 
 // sessionDialogs carries the dialogs opened by conversation rows.
 func (a *app) sessionDialogs(c *ui.Context, p palette) {
-	if st := a.confirm; st != nil && st.open {
+	if st := a.layout.confirm; st != nil && st.open {
 		title := st.what
 		if title == "" {
 			title = "New chat"
@@ -735,7 +724,7 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 				FontSize(12.5).TextColor(p.muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.confirm = nil })
+				cancel.OnClick(func() { a.layout.confirm = nil })
 				cancel.Children(func() {
 					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 				})
@@ -749,13 +738,13 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 		})
 	}
 
-	if st := a.rename; st != nil && st.open {
+	if st := a.layout.rename; st != nil && st.open {
 		dialog(c, p, &st.open, 340, func() {
 			ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
 			textField(c, p, &st.draft, "")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.rename = nil })
+				cancel.OnClick(func() { a.layout.rename = nil })
 				cancel.Children(func() {
 					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 				})

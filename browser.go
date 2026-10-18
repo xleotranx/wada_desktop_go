@@ -19,7 +19,7 @@ func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).Grow(1.12).FillHeight().Background(p.bg).Children(func() {
 		a.browserToolbar(c, p, headerH)
 		ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-		if a.browserTool == "" && a.browserPage == "" {
+		if a.layout.browserTool == "" && a.layout.browserPage == "" {
 			a.browserHome(c, p)
 		} else {
 			a.browserDestination(c, p)
@@ -29,7 +29,7 @@ func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 
 func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 	ui.Row(c).Height(headerH).FillWidth().AlignItems(ui.Center).Gap(3).Padding(0, 8).Children(func() {
-		a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.browserPage == "")
+		a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.layout.browserPage == "")
 
 		address := ui.Box(c).Grow(1).Height(32).Radius(999).Padding(0, 10).
 			Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
@@ -39,7 +39,7 @@ func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 		address.Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
 				ui.Icon(c, icGlobe).FontSize(13).TextColor(p.muted)
-				ui.TextInputBase(c, &a.browserAddress).FontSize(12.5).
+				ui.TextInputBase(c, &a.layout.browserAddress).FontSize(12.5).
 					Placeholder("Search or enter a URL").FillWidth().Label("Search or enter a URL").
 					OnTextKey(func(k ui.TextKey) bool {
 						if k.Key == ui.KeyEnter && k.Mods == 0 {
@@ -174,9 +174,9 @@ func (a *app) suggestionCard(c *ui.Context, p palette, index int, suggestion bro
 }
 
 func (a *app) browserDestination(c *ui.Context, p palette) {
-	title := a.browserTool
+	title := a.layout.browserTool
 	if title == "" {
-		title = a.browserPage
+		title = a.layout.browserPage
 	}
 	ui.Column(c).Fill().Padding(28, 22).Gap(12).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
@@ -191,25 +191,25 @@ func (a *app) browserDestination(c *ui.Context, p palette) {
 			close.Children(func() { ui.Icon(c, icClose).FontSize(14).TextColor(p.muted) })
 		})
 
-		if a.browserTool != "" {
+		if a.layout.browserTool != "" {
 			ui.Text(c, a.toolDescription()).FontSize(13).LineHeight(1.5).TextColor(p.muted)
-			if a.browserTool == "Changes" {
+			if a.layout.browserTool == "Changes" {
 				a.changesBody(c, p)
 				return
 			}
-			if a.browserTool == "Files" {
+			if a.layout.browserTool == "Files" {
 				a.filesBody(c, p)
 				return
 			}
 		} else {
 			ui.Icon(c, icGlobe).FontSize(28).TextColor(p.faint).Margin(18, 0, 0, 0)
 			ui.Text(c, "Page preview").FontSize(14).FontWeight(500).TextColor(p.text)
-			ui.Text(c, a.browserPage).FontSize(12).TextColor(p.muted).SingleLine()
+			ui.Text(c, a.layout.browserPage).FontSize(12).TextColor(p.muted).SingleLine()
 			ui.Text(c, "This native pane keeps the address and navigation local.").
 				FontSize(12).TextColor(p.faint).Margin(4, 0, 0, 0)
-			if ui.SafeToOpen(a.browserPage) {
+			if ui.SafeToOpen(a.layout.browserPage) {
 				services := c.Services()
-				address := a.browserPage
+				address := a.layout.browserPage
 				open := ui.ButtonBase(c).Label("Open in browser").Height(30).Radius(9).
 					PaddingX(11).Cursor(ui.CursorPointer).Margin(12, 0, 0, 0)
 				if open.Hovered() {
@@ -225,7 +225,7 @@ func (a *app) browserDestination(c *ui.Context, p palette) {
 }
 
 func (a *app) toolDescription() string {
-	switch a.browserTool {
+	switch a.layout.browserTool {
 	case "Changes":
 		return "Review the files changed in this workspace."
 	case "Terminal":
@@ -242,20 +242,20 @@ func (a *app) toolDescription() string {
 func (a *app) openTool(name string) {
 	// Opening a tool is asking to see it, so the pane comes back and the
 	// settings page steps aside.
-	a.settingsOpen = false
-	a.browserCollapsed = false
+	a.layout.settingsOpen = false
+	a.layout.browserCollapsed = false
 	if name == "" {
-		a.browserTool = ""
-		a.browserPage = ""
-		a.browserAddress = ""
+		a.layout.browserTool = ""
+		a.layout.browserPage = ""
+		a.layout.browserAddress = ""
 		return
 	}
-	a.browserTool = name
-	a.browserPage = ""
+	a.layout.browserTool = name
+	a.layout.browserPage = ""
 	if name == "New page" {
-		a.browserAddress = ""
+		a.layout.browserAddress = ""
 	} else {
-		a.browserAddress = "codex://tools/" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		a.layout.browserAddress = "codex://tools/" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	}
 	// The pane's first look at the workspace it is open over.
 	if name == "Changes" {
@@ -267,7 +267,7 @@ func (a *app) openTool(name string) {
 }
 
 func (a *app) openBrowserAddress() {
-	a.navigateToAddress(a.browserAddress)
+	a.navigateToAddress(a.layout.browserAddress)
 }
 
 func (a *app) navigateToAddress(address string) {
@@ -282,48 +282,48 @@ func (a *app) navigateToAddress(address string) {
 			address = "https://www.google.com/search?q=" + url.QueryEscape(address)
 		}
 	}
-	if a.browserHistoryAt+1 < len(a.browserHistory) {
-		a.browserHistory = a.browserHistory[:a.browserHistoryAt+1]
+	if a.layout.browserHistoryAt+1 < len(a.layout.browserHistory) {
+		a.layout.browserHistory = a.layout.browserHistory[:a.layout.browserHistoryAt+1]
 	}
-	a.browserHistory = append(a.browserHistory, address)
-	a.browserHistoryAt = len(a.browserHistory) - 1
-	a.browserAddress = address
-	a.browserPage = address
-	a.browserTool = ""
+	a.layout.browserHistory = append(a.layout.browserHistory, address)
+	a.layout.browserHistoryAt = len(a.layout.browserHistory) - 1
+	a.layout.browserAddress = address
+	a.layout.browserPage = address
+	a.layout.browserTool = ""
 }
 
 func (a *app) browserBack() {
-	if a.browserHistoryAt <= 0 {
+	if a.layout.browserHistoryAt <= 0 {
 		return
 	}
-	a.browserHistoryAt--
-	a.browserAddress = a.browserHistory[a.browserHistoryAt]
-	a.browserPage = a.browserAddress
-	a.browserTool = ""
+	a.layout.browserHistoryAt--
+	a.layout.browserAddress = a.layout.browserHistory[a.layout.browserHistoryAt]
+	a.layout.browserPage = a.layout.browserAddress
+	a.layout.browserTool = ""
 }
 
 func (a *app) browserForward() {
-	if a.browserHistoryAt < 0 || a.browserHistoryAt >= len(a.browserHistory)-1 {
+	if a.layout.browserHistoryAt < 0 || a.layout.browserHistoryAt >= len(a.layout.browserHistory)-1 {
 		return
 	}
-	a.browserHistoryAt++
-	a.browserAddress = a.browserHistory[a.browserHistoryAt]
-	a.browserPage = a.browserAddress
-	a.browserTool = ""
+	a.layout.browserHistoryAt++
+	a.layout.browserAddress = a.layout.browserHistory[a.layout.browserHistoryAt]
+	a.layout.browserPage = a.layout.browserAddress
+	a.layout.browserTool = ""
 }
 
 // reloadBrowserPage reads a page again, or the workspace the tools pane is
 // open over when one of its tools is the page on show.
 func (a *app) reloadBrowserPage() {
-	if a.browserTool == "Changes" {
+	if a.layout.browserTool == "Changes" {
 		a.openChanges(a.changesMode())
 		return
 	}
-	if a.browserTool == "Files" {
+	if a.layout.browserTool == "Files" {
 		a.filesRefresh()
 		return
 	}
-	if a.browserAddress != "" {
-		a.browserPage = a.browserAddress
+	if a.layout.browserAddress != "" {
+		a.layout.browserPage = a.layout.browserAddress
 	}
 }

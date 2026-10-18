@@ -286,3 +286,25 @@ background, request ownership, policy action and transcript-presentation changes
 install an immediate executor; ordering regressions install a manual executor.
 Connection-result guarding is in place; runner extraction will complete
 control cancellation and its dedicated deterministic attempt tests.
+
+## Implementation evidence: package integration
+
+The native app now uses internal/chat, internal/opencode and internal/runner.
+Typed command entry points replace the wide job struct. A Sink interface makes
+every runner publication explicit and keeps it on the injected UI dispatcher.
+Independent runner tests cover blocked startup/prompt cancellation, concurrent
+stop, queue pressure, obsolete attempts, non-replay of uncertain prompts, and
+worker shutdown. Independent decoder tests cover all thirteen supported kinds,
+malformed input, bounded diagnostics and HTTP/SSE cancellation.
+
+Race verification found bootstrap's posted page capturing an error variable
+subsequently reused by pinned lookup; publication now captures an immutable
+page. Policy writes serialize and carry target revisions, including equal-path
+server switches. Per-server scopes now own their pins. Native root state has
+seven named owners, and conversation targets distinguish draft/session with a
+navigation revision. Metadata schema 5 is created directly and unsupported or
+corrupt stores are never reset automatically. No developer database was reset.
+
+Integrated `make check` passed (lint 0 issues, root race 10.156s, root no-cgo
+3.489s, and all three internal packages). Final boundary checks, performance
+comparison, native captures and documentation cleanup remain.

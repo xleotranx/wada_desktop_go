@@ -1,0 +1,352 @@
+package runner_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/runner"
+)
+
+type fakeClient struct {
+	*opencode.Client
+	address       string
+	eventsStarted chan struct{}
+	eventsEnd     <-chan struct{}
+	prompt        func(context.Context, string, string) error
+	interrupt     func(context.Context, string) error
+	opened        chan string
+	stopped       atomic.Bool
+}
+
+func client(address string) *fakeClient {
+	return &fakeClient{address: address, eventsStarted: make(chan struct{}), opened: make(chan string, 8)}
+}
+func (c *fakeClient) Stop()                { c.stopped.Store(true) }
+func (c *fakeClient) Info() opencode.Facts { return opencode.Facts{} }
+func (c *fakeClient) Endpoint() string     { return c.address }
+func (c *fakeClient) Events(ctx context.Context, _ func(opencode.Event)) error {
+	close(c.eventsStarted)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.eventsEnd:
+		return errors.New("event stream disconnected")
+	}
+}
+func (c *fakeClient) ListSessions(context.Context, string, string, string) ([]opencode.Session, string, error) {
+	return []opencode.Session{{ID: c.address}}, "", nil
+}
+func (c *fakeClient) ListModels(context.Context) ([]opencode.Model, error) { return nil, nil }
+func (c *fakeClient) DefaultModel(context.Context) (opencode.ModelRef, error) {
+	return opencode.ModelRef{}, nil
+}
+func (c *fakeClient) ListProjects(context.Context) ([]string, error) { return []string{c.address}, nil }
+func (c *fakeClient) Prompt(ctx context.Context, session, text string) error {
+	if c.prompt != nil {
+		return c.prompt(ctx, session, text)
+	}
+	return nil
+}
+func (c *fakeClient) Interrupt(ctx context.Context, session string) error {
+	if c.interrupt != nil {
+		return c.interrupt(ctx, session)
+	}
+	return nil
+}
+func (c *fakeClient) SessionMessages(_ context.Context, session string) ([]opencode.Message, error) {
+	c.opened <- session
+	return nil, nil
+}
+
+type recordingSink struct {
+	statuses []runner.Status
+	pages    []runner.Page
+	notices  []string
+}
+
+func (s *recordingSink) Status(v runner.Status)  { s.statuses = append(s.statuses, v) }
+func (s *recordingSink) Sessions(v runner.Page)  { s.pages = append(s.pages, v) }
+func (*recordingSink) Catalog(runner.Catalog)    {}
+func (*recordingSink) Projects([]string)         {}
+func (*recordingSink) Updates([]opencode.Update) {}
+func (*recordingSink) Opened(runner.Opened)      {}
+func (*recordingSink) Created(runner.Created)    {}
+func (*recordingSink) Answered(string)           {}
+func (*recordingSink) Deleted(string)            {}
+func (*recordingSink) Usage(opencode.Message)    {}
+func (s *recordingSink) Notice(v string)         { s.notices = append(s.notices, v) }
+
+type dispatcher struct{ callbacks chan func() }
+
+func newDispatcher() *dispatcher     { return &dispatcher{callbacks: make(chan func(), 128)} }
+func (d *dispatcher) post(fn func()) { d.callbacks <- fn }
+func (d *dispatcher) drain() {
+	for {
+		select {
+		case fn := <-d.callbacks:
+			fn()
+		default:
+			return
+		}
+	}
+}
+func (d *dispatcher) until(t *testing.T, ready func() bool) {
+	t.Helper()
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	for !ready() {
+		select {
+		case fn := <-d.callbacks:
+			fn()
+		case <-deadline.C:
+			t.Fatal("runner did not publish the expected result")
+		}
+	}
+}
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner did not reach the expected barrier")
+		var zero T
+		return zero
+	}
+}
+func await(t *testing.T, ch <-chan struct{}) { t.Helper(); receive(t, ch) }
+func newRunner(t *testing.T, d *dispatcher, sink *recordingSink, options runner.Options) *runner.Runner {
+	t.Helper()
+	r := runner.New(context.Background(), d.post, sink, options)
+	t.Cleanup(func() { r.Close(); await(t, r.Done()) })
+	return r
+}
+func connection(id string) runner.Connection {
+	return runner.Connection{ID: id, Config: opencode.Config{URL: id}}
+}
+
+func TestSelectCancelsBlockedStartupAndRejectsOldPublication(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	oldStarted := make(chan context.Context, 1)
+	next := client("new")
+	r := newRunner(t, d, sink, runner.Options{Start: func(ctx context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
+		if cfg.URL == "old" {
+			oldStarted <- ctx
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return next, nil
+	}})
+	r.Select(1, connection("old"))
+	oldContext := receive(t, oldStarted)
+	r.Select(2, connection("new"))
+	await(t, next.eventsStarted)
+	if oldContext.Err() != context.Canceled {
+		t.Fatal("selection did not cancel blocked startup")
+	}
+	d.drain()
+	ready := false
+	for _, status := range sink.statuses {
+		if status.Address == "old" {
+			t.Fatalf("obsolete startup published %+v", status)
+		}
+		ready = ready || status.State == "ready" && status.Address == "new"
+	}
+	if !ready {
+		t.Fatal("replacement startup did not publish ready")
+	}
+}
+
+func TestSelectCancelsBlockedPrompt(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	old, next := client("old"), client("new")
+	started := make(chan context.Context, 1)
+	old.prompt = func(ctx context.Context, _, _ string) error { started <- ctx; <-ctx.Done(); return ctx.Err() }
+	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
+		if cfg.URL == "old" {
+			return old, nil
+		}
+		return next, nil
+	}})
+	r.Select(1, connection("old"))
+	await(t, old.eventsStarted)
+	if r.Submit(1, runner.Prompt{Session: "session", Text: "question"}) != runner.Accepted {
+		t.Fatal("prompt rejected")
+	}
+	ctx := receive(t, started)
+	r.Select(2, connection("new"))
+	await(t, next.eventsStarted)
+	if ctx.Err() != context.Canceled {
+		t.Fatal("selection left blocked prompt running")
+	}
+	d.drain()
+	for _, notice := range sink.notices {
+		if strings.Contains(notice, "prompt") {
+			t.Fatalf("obsolete prompt published %q", notice)
+		}
+	}
+}
+
+func TestStopInterruptsWhilePromptBlocks(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	started, interrupted := make(chan context.Context, 1), make(chan string, 1)
+	c.prompt = func(ctx context.Context, _, _ string) error { started <- ctx; <-ctx.Done(); return ctx.Err() }
+	c.interrupt = func(_ context.Context, session string) error { interrupted <- session; return nil }
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r.Select(1, connection("server"))
+	await(t, c.eventsStarted)
+	if r.Submit(1, runner.Prompt{Session: "session", Text: "question"}) != runner.Accepted {
+		t.Fatal("prompt rejected")
+	}
+	ctx := receive(t, started)
+	if r.Submit(1, runner.Stop{Session: "session"}) != runner.Accepted {
+		t.Fatal("stop rejected behind a blocked prompt")
+	}
+	if got := receive(t, interrupted); got != "session" {
+		t.Fatalf("interrupted %q", got)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("stop canceled the connection instead of issuing an interrupt")
+	}
+}
+
+func TestFullQueueReportsBusyAndReservesControl(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	started := make(chan struct{})
+	r := newRunner(t, d, sink, runner.Options{Capacity: 1, Start: func(ctx context.Context, _ opencode.Config, _ string) (runner.Client, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}})
+	r.Select(1, connection("server"))
+	await(t, started)
+	if got := r.Submit(1, runner.Prompt{Session: "session", Text: "first"}); got != runner.Accepted {
+		t.Fatalf("first admission=%v", got)
+	}
+	if got := r.Submit(1, runner.Prompt{Session: "session", Text: "second"}); got != runner.Busy {
+		t.Fatalf("full admission=%v, want busy", got)
+	}
+	if got := r.Submit(1, runner.Stop{Session: "session"}); got != runner.Accepted {
+		t.Fatalf("control admission=%v", got)
+	}
+	if got := r.Submit(0, runner.Refresh{}); got != runner.Invalid {
+		t.Fatalf("obsolete generation admission=%v", got)
+	}
+	r.Close()
+	await(t, r.Done())
+	if got := r.Submit(1, runner.Refresh{}); got != runner.Closed {
+		t.Fatalf("closed admission=%v", got)
+	}
+}
+
+func TestRetryRejectsPostedCallbacksFromPreviousAttempt(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	old, next := client("attempt-1"), client("attempt-2")
+	end := make(chan struct{})
+	old.eventsEnd = end
+	tick := make(chan time.Time)
+	after := make(chan time.Duration, 1)
+	var starts atomic.Int32
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) {
+		if starts.Add(1) == 1 {
+			return old, nil
+		}
+		return next, nil
+	}, After: func(delay time.Duration) <-chan time.Time { after <- delay; return tick }})
+	r.Select(1, connection("server"))
+	await(t, old.eventsStarted)
+	close(end)
+	if delay := receive(t, after); delay != time.Second {
+		t.Fatalf("retry delay=%s", delay)
+	}
+	tick <- time.Time{}
+	await(t, next.eventsStarted)
+	d.drain()
+	for _, status := range sink.statuses {
+		if status.Address == "attempt-1" {
+			t.Fatalf("old attempt published %+v", status)
+		}
+	}
+	for _, page := range sink.pages {
+		for _, session := range page.Sessions {
+			if session.ID == "attempt-1" {
+				t.Fatal("old bootstrap published after a new attempt started")
+			}
+		}
+	}
+	ready := false
+	for _, status := range sink.statuses {
+		ready = ready || status.State == "ready" && status.Address == "attempt-2"
+	}
+	if !ready {
+		t.Fatal("new attempt did not publish ready")
+	}
+}
+
+func TestUncertainPromptOutcomeIsNeverReplayed(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	first, next := client("attempt-1"), client("attempt-2")
+	var prompts atomic.Int32
+	prompt := func(context.Context, string, string) error { prompts.Add(1); return errors.New("response lost") }
+	first.prompt, next.prompt = prompt, prompt
+	end := make(chan struct{})
+	first.eventsEnd = end
+	tick := make(chan time.Time)
+	after := make(chan time.Duration, 1)
+	var starts atomic.Int32
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) {
+		if starts.Add(1) == 1 {
+			return first, nil
+		}
+		return next, nil
+	}, After: func(delay time.Duration) <-chan time.Time { after <- delay; return tick }})
+	r.Select(1, connection("server"))
+	await(t, first.eventsStarted)
+	if r.Submit(1, runner.Prompt{Session: "session", Text: "mutating prompt"}) != runner.Accepted {
+		t.Fatal("prompt rejected")
+	}
+	d.until(t, func() bool {
+		for _, notice := range sink.notices {
+			if strings.Contains(notice, "uncertain") {
+				return true
+			}
+		}
+		return false
+	})
+	close(end)
+	receive(t, after)
+	tick <- time.Time{}
+	await(t, next.eventsStarted)
+	if r.Submit(1, runner.Open{Session: "barrier"}) != runner.Accepted {
+		t.Fatal("read barrier rejected")
+	}
+	if receive(t, next.opened) != "barrier" {
+		t.Fatal("read barrier did not run")
+	}
+	if got := prompts.Load(); got != 1 {
+		t.Fatalf("uncertain mutation was sent %d times", got)
+	}
+}
+
+func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r.Select(1, connection("server"))
+	await(t, c.eventsStarted)
+	r.Close()
+	await(t, r.Done())
+	if !c.stopped.Load() {
+		t.Fatal("Done closed before stopping the client")
+	}
+	d.drain()
+	if len(sink.statuses) != 0 || len(sink.pages) != 0 {
+		t.Fatal("shutdown accepted already-posted callbacks")
+	}
+}

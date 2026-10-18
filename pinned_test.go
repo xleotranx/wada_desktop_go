@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/runner"
 )
 
 func TestPinnedSessionsBeyondFirstPage(t *testing.T) {
 	calls := 0
-	rows, err := loadPinnedSessions(context.Background(), []string{"new", "old"}, []opencode.Session{{ID: "new"}}, "page2",
+	rows, err := runner.LoadPinnedSessions(context.Background(), []string{"new", "old"}, []opencode.Session{{ID: "new"}}, "page2",
 		func(_ context.Context, cursor, search string) ([]opencode.Session, string, error) {
 			calls++
 			if cursor != "page2" || search != "" {
@@ -25,7 +26,7 @@ func TestPinnedSessionsBeyondFirstPage(t *testing.T) {
 func TestPinnedSessionLookupErrorsAndMissingPins(t *testing.T) {
 	for _, scenario := range []string{"missing", "error", "repeated cursor"} {
 		t.Run(scenario, func(t *testing.T) {
-			_, err := loadPinnedSessions(context.Background(), []string{"gone"}, nil, "next",
+			_, err := runner.LoadPinnedSessions(context.Background(), []string{"gone"}, nil, "next",
 				func(context.Context, string, string) ([]opencode.Session, string, error) {
 					if scenario == "error" {
 						return nil, "", errors.New("offline")

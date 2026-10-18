@@ -40,25 +40,25 @@ type serverEditor struct {
 // openSettings shows the settings page; tab names the page when the
 // caller has one in mind.
 func (a *app) openSettings(tab string) {
-	a.settingsOpen = true
+	a.layout.settingsOpen = true
 	if tab != "" {
-		a.settingsTab = tab
+		a.layout.settingsTab = tab
 	}
 	a.probeUntried()
 }
 
 // closeSettings returns to the view the rail had selected.
 func (a *app) closeSettings() {
-	a.settingsOpen = false
-	a.serverEditor = nil
-	a.serverConfirm = nil
+	a.layout.settingsOpen = false
+	a.layout.serverEditor = nil
+	a.layout.serverConfirm = nil
 }
 
 // settingsDialogOpen reports a settings dialog working: the guard that
 // leaves Escape to the dialog itself.
 func (a *app) settingsDialogOpen() bool {
-	return (a.serverEditor != nil && a.serverEditor.open) ||
-		(a.serverConfirm != nil && a.serverConfirm.open)
+	return (a.layout.serverEditor != nil && a.layout.serverEditor.open) ||
+		(a.layout.serverConfirm != nil && a.layout.serverConfirm.open)
 }
 
 // settingsPane is the settings surface in the window's card: the page's
@@ -70,7 +70,7 @@ func (a *app) settingsPane(c *ui.Context, p palette, headerH float32) {
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 		a.settingsNav(c, p, headerH)
 		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-		if a.settingsTab == tabModels {
+		if a.layout.settingsTab == tabModels {
 			a.settingsModels(c, p)
 		} else {
 			a.settingsServers(c, p)
@@ -96,11 +96,11 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 }
 
 func (a *app) settingsNavItem(c *ui.Context, p palette, tab, label string, icon *ui.SVG) {
-	chosen := a.settingsTab == tab
+	chosen := a.layout.settingsTab == tab
 	c.Key("settings:" + tab)
 	b := a.row(c, p, "Settings "+label, chosen)
 	b.Height(34)
-	b.OnClick(func() { a.settingsTab = tab })
+	b.OnClick(func() { a.layout.settingsTab = tab })
 	b.Children(func() {
 		tint := p.muted
 		if chosen {
@@ -135,7 +135,7 @@ func (a *app) settingsServers(c *ui.Context, p palette) {
 			a.settingsHeading(c, p, "Servers",
 				"Chats, models and history come from the active server. The app runs its own opencode server by default; point it at another one when your work lives there.",
 				"Add server", a.addServer)
-			for _, s := range a.servers {
+			for _, s := range a.connections.servers {
 				a.serverCard(c, p, s)
 			}
 		})
@@ -145,8 +145,8 @@ func (a *app) settingsServers(c *ui.Context, p palette) {
 // serverCard is one connection: its name and state, its password, and the
 // actions the app and the user have on it.
 func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
-	h := a.serverHealth[s.id]
-	active := s.id == a.activeServer
+	h := a.connections.serverHealth[s.id]
+	active := s.id == a.connections.activeServer
 	c.Key("server:" + s.id)
 	ui.Box(c).FillWidth().Radius(14).Padding(14, 16).
 		Background(p.bg).Border(1, p.hairline).Children(func() {
@@ -178,7 +178,7 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 				// What the server's dials have kept: its listed chats and
 				// folders, its catalog and how much of it is on, whatever
 				// server is on show.
-				scope := a.scopes[s.id]
+				scope := a.connections.scopes[s.id]
 				if scope != nil && scope.sessionsLoaded {
 					line += fmt.Sprintf("  ·  %d chats", len(scope.sessions))
 				}
@@ -194,7 +194,7 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 			if h.status == healthReady {
 				// The addresses the server names for itself, when they are
 				// not the one the app already dialed.
-				if reach := serverFactsLine(a.serverFacts[s.id], s, h); reach != "" {
+				if reach := serverFactsLine(a.connections.serverFacts[s.id], s, h); reach != "" {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
 						ui.Icon(c, icGlobe).FontSize(11).TextColor(p.faint).Shrink(0)
 						ui.Text(c, reach).FontSize(12).TextColor(p.faint).
@@ -219,7 +219,7 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 // A server the app runs itself has no menu while it is stopped: Use is the
 // only thing to do with it.
 func (a *app) serverMenu(c *ui.Context, p palette, s serverConn) {
-	active := s.id == a.activeServer
+	active := s.id == a.connections.activeServer
 	if s.local && s.managed && !active {
 		return
 	}
@@ -236,10 +236,10 @@ func (a *app) serverMenu(c *ui.Context, p palette, s serverConn) {
 			}
 		} else if !s.managed {
 			if m.Item("Test connection").Chosen() {
-				a.probe(s)
+				a.runtime.probe(s)
 			}
 		}
-		if a.serverHealth[s.id].status == healthReady {
+		if a.connections.serverHealth[s.id].status == healthReady {
 			if m.Item("Copy pairing link").Chosen() {
 				a.copyPairLink(s)
 			}
@@ -258,13 +258,13 @@ func (a *app) serverMenu(c *ui.Context, p palette, s serverConn) {
 
 // addServer opens the editor on a blank remote connection.
 func (a *app) addServer() {
-	a.serverEditor = &serverEditor{open: true}
+	a.layout.serverEditor = &serverEditor{open: true}
 }
 
 // editServer opens the editor on one connection, its password shown as the
 // fields carry it.
 func (a *app) editServer(s serverConn) {
-	a.serverEditor = &serverEditor{
+	a.layout.serverEditor = &serverEditor{
 		open:     true,
 		id:       s.id,
 		name:     s.name,
@@ -281,7 +281,7 @@ func (a *app) editServer(s serverConn) {
 // validating them first; the active server dials again with the new
 // details, any other is probed so the list tells the truth at once.
 func (a *app) saveServerEditor() {
-	st := a.serverEditor
+	st := a.layout.serverEditor
 	if st == nil {
 		return
 	}
@@ -300,8 +300,8 @@ func (a *app) saveServerEditor() {
 		if _, _, ok := pairLink(url); ok && !st.pairing {
 			st.pairing = true
 			st.note = ""
-			a.pair(url, func(addr, token string, err error) {
-				if a.serverEditor != st || !st.pairing || st.url != url {
+			a.runtime.pair(url, func(addr, token string, err error) {
+				if a.layout.serverEditor != st || !st.pairing || st.url != url {
 					return // the dialog closed, or another save moved on
 				}
 				st.pairing = false
@@ -324,18 +324,18 @@ func (a *app) saveServerEditor() {
 		// the dial all show and use the same spelling.
 		url = strings.TrimSuffix(base, "/api")
 	}
-	a.serverEditor = nil
+	a.layout.serverEditor = nil
 	if st.id == "" {
 		s := serverConn{id: newServerID(), name: name, url: url, password: st.password,
 			paired: st.paired, pairedAt: st.pairedAt}
-		a.servers = append(a.servers, s)
+		a.connections.servers = append(a.connections.servers, s)
 		a.saveState()
-		a.probe(s)
+		a.runtime.probe(s)
 		return
 	}
 	edited := false
-	for i := range a.servers {
-		if a.servers[i].id != st.id {
+	for i := range a.connections.servers {
+		if a.connections.servers[i].id != st.id {
 			continue
 		}
 		// The row keeps its pairing until a save replaces the credential:
@@ -343,7 +343,7 @@ func (a *app) saveServerEditor() {
 		// typed over the token takes its place, and an emptied field leaves
 		// nothing paired at all.
 		a.invalidateServerWork(st.id)
-		was := a.servers[i]
+		was := a.connections.servers[i]
 		paired, pairedAt := was.paired, was.pairedAt
 		switch {
 		case st.paired && st.pairedAt != was.pairedAt:
@@ -351,12 +351,12 @@ func (a *app) saveServerEditor() {
 		case was.paired && st.password != was.password, st.password == "":
 			paired, pairedAt = false, 0
 		}
-		a.servers[i].name = name
-		a.servers[i].managed = st.managed
-		a.servers[i].url = url
-		a.servers[i].password = st.password
-		a.servers[i].paired = paired
-		a.servers[i].pairedAt = pairedAt
+		a.connections.servers[i].name = name
+		a.connections.servers[i].managed = st.managed
+		a.connections.servers[i].url = url
+		a.connections.servers[i].password = st.password
+		a.connections.servers[i].paired = paired
+		a.connections.servers[i].pairedAt = pairedAt
 		edited = true
 		break
 	}
@@ -364,28 +364,28 @@ func (a *app) saveServerEditor() {
 		return
 	}
 	a.saveState()
-	if st.id == a.activeServer {
+	if st.id == a.connections.activeServer {
 		a.reconnect()
 		return
 	}
 	if s, ok := a.serverByID(st.id); ok {
-		a.probe(s)
+		a.runtime.probe(s)
 	}
 }
 
 // requestDeleteServer shows the dialog that stands between a click and a
 // connection gone for good. The local and active rows are never dropped.
 func (a *app) requestDeleteServer(s serverConn) {
-	if s.local || s.id == a.activeServer {
+	if s.local || s.id == a.connections.activeServer {
 		return
 	}
-	a.serverConfirm = &confirmState{open: true, sid: s.id, what: s.name}
+	a.layout.serverConfirm = &confirmState{open: true, sid: s.id, what: s.name}
 }
 
 // deleteServerConfirmed drops the connection after the dialog's say-so.
 func (a *app) deleteServerConfirmed() {
-	st := a.serverConfirm
-	a.serverConfirm = nil
+	st := a.layout.serverConfirm
+	a.layout.serverConfirm = nil
 	if st == nil || st.sid == "" {
 		return
 	}
@@ -414,7 +414,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 				ui.Text(c, "Every model is off — the composer's picker is empty. Turn at least one back on.").
 					FontSize(12.5).TextColor(p.orange)
 			}
-			textField(c, p, &a.modelsQuery, "Search models")
+			textField(c, p, &a.layout.modelsQuery, "Search models")
 			if !a.scope().modelsLoaded {
 				ui.Text(c, a.catalogNote(srv)).FontSize(13).TextColor(p.muted)
 			} else if total == 0 {
@@ -422,7 +422,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 			} else if len(rows) == 0 {
 				ui.Text(c, "No models match.").FontSize(13).TextColor(p.muted)
 			}
-			ui.List(c.Key("settings-models"), &a.modelsList, len(rows)).Grow(1).FillWidth().Gap(1).
+			ui.List(c.Key("settings-models"), &a.layout.modelsList, len(rows)).Grow(1).FillWidth().Gap(1).
 				ItemKey(func(i int) any { return rows[i].key() }).
 				Rows(func(row ui.ListRow) {
 					r := rows[row.Index]
@@ -438,7 +438,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 
 // catalogNote words why the Models tab has nothing to show yet.
 func (a *app) catalogNote(srv serverConn) string {
-	h := a.serverHealth[srv.id]
+	h := a.connections.serverHealth[srv.id]
 	if h.status == healthDown {
 		if h.detail != "" {
 			return srv.name + " did not answer — " + h.detail
@@ -465,7 +465,7 @@ func (r catalogRow) key() string {
 // catalogRows is the Models tab's lines: one heading per provider with its
 // models under it, narrowed by the search field.
 func (a *app) catalogRows() []catalogRow {
-	query := strings.ToLower(strings.TrimSpace(a.modelsQuery))
+	query := strings.ToLower(strings.TrimSpace(a.layout.modelsQuery))
 	byProvider := map[string][]opencode.Model{}
 	providers := []string{}
 	for _, m := range a.scope().models {
@@ -535,7 +535,7 @@ func (a *app) modelRow(c *ui.Context, p palette, m opencode.Model) {
 
 // modelDisabled reports one model of the active server turned off.
 func (a *app) modelDisabled(m opencode.Model) bool {
-	return a.modelOff[modelKey(a.activeServer, m.ProviderID, m.ID)]
+	return a.connections.modelOff[modelKey(a.connections.activeServer, m.ProviderID, m.ID)]
 }
 
 // modelsEnabled counts one server's catalog, the models its user turned
@@ -545,7 +545,7 @@ func (a *app) modelsEnabled(serverID string, scope *serverScope) (on, total int)
 		return 0, 0
 	}
 	for _, m := range scope.models {
-		if !a.modelOff[modelKey(serverID, m.ProviderID, m.ID)] {
+		if !a.connections.modelOff[modelKey(serverID, m.ProviderID, m.ID)] {
 			on++
 		}
 		total++
@@ -556,11 +556,11 @@ func (a *app) modelsEnabled(serverID string, scope *serverScope) (on, total int)
 // setModelEnabled turns one model of the active server on or off; the
 // composer's picker follows at once.
 func (a *app) setModelEnabled(m opencode.Model, on bool) {
-	key := modelKey(a.activeServer, m.ProviderID, m.ID)
+	key := modelKey(a.connections.activeServer, m.ProviderID, m.ID)
 	if on {
-		delete(a.modelOff, key)
+		delete(a.connections.modelOff, key)
 	} else {
-		a.modelOff[key] = true
+		a.connections.modelOff[key] = true
 	}
 	a.saveState()
 }
@@ -569,11 +569,11 @@ func (a *app) setModelEnabled(m opencode.Model, on bool) {
 // off in one move.
 func (a *app) setAllModelsEnabled(on bool) {
 	for _, m := range a.scope().models {
-		key := modelKey(a.activeServer, m.ProviderID, m.ID)
+		key := modelKey(a.connections.activeServer, m.ProviderID, m.ID)
 		if on {
-			delete(a.modelOff, key)
+			delete(a.connections.modelOff, key)
 		} else {
-			a.modelOff[key] = true
+			a.connections.modelOff[key] = true
 		}
 	}
 	a.saveState()
@@ -581,13 +581,13 @@ func (a *app) setAllModelsEnabled(on bool) {
 
 // enabledModelCount is how many of the catalog's models the picker offers.
 func (a *app) enabledModelCount() (on, total int) {
-	return a.modelsEnabled(a.activeServer, a.scope())
+	return a.modelsEnabled(a.connections.activeServer, a.scope())
 }
 
 // settingsDialogs carries the dialogs opened by the settings: the server
 // editor and the delete confirmation.
 func (a *app) settingsDialogs(c *ui.Context, p palette) {
-	if st := a.serverEditor; st != nil && st.open {
+	if st := a.layout.serverEditor; st != nil && st.open {
 		title := "Add a server"
 		if st.id != "" {
 			title = "Edit " + st.name
@@ -625,7 +625,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.serverEditor = nil })
+				cancel.OnClick(func() { a.layout.serverEditor = nil })
 				cancel.Children(func() {
 					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 				})
@@ -635,7 +635,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 		})
 	}
 
-	if st := a.serverConfirm; st != nil && st.open {
+	if st := a.layout.serverConfirm; st != nil && st.open {
 		title := st.what
 		if title == "" {
 			title = "this server"
@@ -649,7 +649,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 				FontSize(12.5).TextColor(p.muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.serverConfirm = nil })
+				cancel.OnClick(func() { a.layout.serverConfirm = nil })
 				cancel.Children(func() {
 					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 				})

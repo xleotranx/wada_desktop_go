@@ -7,6 +7,9 @@ import (
 )
 
 type searchRequest struct {
+	config opencode.Config
+	route  uint64
+
 	text    string
 	version uint64
 }
@@ -15,7 +18,7 @@ type searchRequest struct {
 // A new query cancels the old lookup; revisions also reject replies that
 // were already posted when the query changed, including an A-B-A edit.
 func searchChats(ctx context.Context, queries <-chan searchRequest,
-	lookup func(context.Context, string) ([]opencode.Session, error),
+	lookup func(context.Context, searchRequest) ([]opencode.Session, error),
 	post func(func()), accept func(searchRequest, []opencode.Session, error)) {
 	var pending searchRequest
 	var cancel context.CancelFunc
@@ -46,7 +49,7 @@ func searchChats(ctx context.Context, queries <-chan searchRequest,
 			query := pending
 			go func() {
 				defer stop()
-				rows, err := lookup(requestCtx, query.text)
+				rows, err := lookup(requestCtx, query)
 				if requestCtx.Err() == context.Canceled {
 					return
 				}
@@ -61,13 +64,13 @@ func searchChats(ctx context.Context, queries <-chan searchRequest,
 }
 
 func (a *app) acceptSearch(query searchRequest, rows []opencode.Session, err error) {
-	if a.searchVersion != query.version {
+	if a.runtime.closed || a.connections.route != query.route || a.search.searchVersion != query.version {
 		return
 	}
-	a.searchLoading = false
-	a.searchResults = rows
+	a.search.searchLoading = false
+	a.search.searchResults = rows
 	if err != nil {
-		a.searchResults = nil
+		a.search.searchResults = nil
 		a.streamLine("The search did not run: " + err.Error())
 	}
 }

@@ -92,17 +92,17 @@ func TestListDir(t *testing.T) {
 func TestBrowseTheServersFolders(t *testing.T) {
 	srv, listed := browseServer(t)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
-	a.activeServer = "srv-box"
-	a.settingsOpen = false
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
+	a.layout.settingsOpen = false
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	a.browseServerFolders(true)
-	if a.browse == nil || !a.browse.open {
+	if a.layout.browse == nil || !a.layout.browse.open {
 		t.Fatal("the browse did not open")
 	}
-	if a.browse.location != "/srv/work" || a.browse.path != "/srv/work" || len(a.browse.entries) != 3 {
-		t.Fatalf("the browse opened on %+v", a.browse)
+	if a.layout.browse.location != "/srv/work" || a.layout.browse.path != "/srv/work" || len(a.layout.browse.entries) != 3 {
+		t.Fatalf("the browse opened on %+v", a.layout.browse)
 	}
 	tt.Frame()
 	if !tt.HasText("Browse the server") || !tt.HasText("proj") || !tt.HasText("notes.md") {
@@ -111,29 +111,29 @@ func TestBrowseTheServersFolders(t *testing.T) {
 	if err := tt.Click("Open proj"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse.path != "/srv/work/proj" || len(a.browse.entries) != 2 {
-		t.Fatalf("the folder did not open: %+v", a.browse)
+	if a.layout.browse.path != "/srv/work/proj" || len(a.layout.browse.entries) != 2 {
+		t.Fatalf("the folder did not open: %+v", a.layout.browse)
 	}
 	if err := tt.Click("Up one folder"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse.path != "/srv/work" || len(a.browse.entries) != 3 {
-		t.Fatalf("stepping up landed on %+v", a.browse)
+	if a.layout.browse.path != "/srv/work" || len(a.layout.browse.entries) != 3 {
+		t.Fatalf("stepping up landed on %+v", a.layout.browse)
 	}
-	a.browse.path = "/srv/work/other"
+	a.layout.browse.path = "/srv/work/other"
 	tt.Frame()
 	if err := tt.Click("Go to the folder"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse.path != "/srv/work/other" || a.browse.location != "/srv/work" {
-		t.Fatalf("the typed path landed on %+v", a.browse)
+	if a.layout.browse.path != "/srv/work/other" || a.layout.browse.location != "/srv/work" {
+		t.Fatalf("the typed path landed on %+v", a.layout.browse)
 	}
 	tt.Frame()
 	if err := tt.Click("Work here"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse != nil || a.draftProject != "/srv/work/other" {
-		t.Fatalf("the draft landed in %q (browse %+v)", a.draftProject, a.browse)
+	if a.layout.browse != nil || a.conversation.draftProject != "/srv/work/other" {
+		t.Fatalf("the draft landed in %q (browse %+v)", a.conversation.draftProject, a.layout.browse)
 	}
 	for _, ask := range *listed {
 		if !strings.HasPrefix(ask, "/srv/work | ") {
@@ -144,30 +144,30 @@ func TestBrowseTheServersFolders(t *testing.T) {
 	// The sidebar's Add folder opens where the user already is — the
 	// draft's folder — and its pick starts a chat there.
 	a.browseServerFolders(false)
-	if a.browse.path != "/srv/work/other" {
-		t.Fatalf("the sidebar browse opened on %+v", a.browse)
+	if a.layout.browse.path != "/srv/work/other" {
+		t.Fatalf("the sidebar browse opened on %+v", a.layout.browse)
 	}
-	version := a.draftVersion
+	version := a.conversation.target.revision
 	tt.Frame()
 	if err := tt.Click("Start a chat here"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse != nil || a.draftProject != "/srv/work/other" || a.draftVersion != version+1 {
-		t.Fatalf("the sidebar's pick left %q / version %d", a.draftProject, a.draftVersion)
+	if a.layout.browse != nil || a.conversation.draftProject != "/srv/work/other" || a.conversation.target.revision != version+1 {
+		t.Fatalf("the sidebar's pick left %q / version %d", a.conversation.draftProject, a.conversation.target.revision)
 	}
 
 	// A folder the server does not have says so and refuses the pick.
 	a.browseServerFolders(false)
-	a.browse.path = "/srv/nowhere"
+	a.layout.browse.path = "/srv/nowhere"
 	tt.Frame()
 	if err := tt.Click("Go to the folder"); err != nil {
 		t.Fatal(err)
 	}
-	if a.browse.note == "" || a.browse.entries != nil {
-		t.Fatalf("a missing folder reads %+v", a.browse)
+	if a.layout.browse.note == "" || a.layout.browse.entries != nil {
+		t.Fatalf("a missing folder reads %+v", a.layout.browse)
 	}
 	tt.Frame()
-	if err := tt.Click("Start a chat here"); err == nil && a.browse == nil {
+	if err := tt.Click("Start a chat here"); err == nil && a.layout.browse == nil {
 		t.Fatal("a folder that did not open was picked anyway")
 	}
 }
@@ -180,18 +180,18 @@ func TestBrowseOnTheLocalServerUsesThePanel(t *testing.T) {
 	a := newTestApp(t)
 	dir := t.TempDir()
 	picked := false
-	a.pickFolder = func(done func(path string)) {
+	a.runtime.pickFolder = func(done func(path string)) {
 		picked = true
 		done(dir)
 	}
 	a.browseServerFolders(true)
-	if !picked || a.browse != nil {
-		t.Fatalf("the local browse read %v / %+v", picked, a.browse)
+	if !picked || a.layout.browse != nil {
+		t.Fatalf("the local browse read %v / %+v", picked, a.layout.browse)
 	}
-	if a.selectAddedProject {
+	if a.layout.selectAddedProject {
 		t.Fatal("the panel's pick left the draft flag set")
 	}
-	if a.draftProject != canonDir(dir) {
-		t.Fatalf("the draft landed in %q, want %q", a.draftProject, canonDir(dir))
+	if a.conversation.draftProject != canonDir(dir) {
+		t.Fatalf("the draft landed in %q, want %q", a.conversation.draftProject, canonDir(dir))
 	}
 }

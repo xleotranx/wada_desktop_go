@@ -4,24 +4,24 @@ package main
 // reads, then opens the active tool over the conversation or draft on show.
 func (a *app) workspaceChanged() {
 	a.closeBrowse()
-	if a.attach != nil {
-		a.attach.request.stop()
-		a.attach = nil
+	if a.layout.attach != nil {
+		a.layout.attach.request.stop()
+		a.layout.attach = nil
 	}
 	a.refreshWorkspacePolicy()
 	mode := a.changesMode()
-	if a.files != nil {
-		a.files.readRequest.stop()
-		a.files.findRequest.stop()
-		for _, request := range a.files.listRequests {
+	if a.workspace.files != nil {
+		a.workspace.files.readRequest.stop()
+		a.workspace.files.findRequest.stop()
+		for _, request := range a.workspace.files.listRequests {
 			request.stop()
 		}
 	}
-	if a.changes != nil {
-		a.changes.request.stop()
+	if a.workspace.changes != nil {
+		a.workspace.changes.request.stop()
 	}
-	a.files, a.changes = nil, nil
-	switch a.browserTool {
+	a.workspace.files, a.workspace.changes = nil, nil
+	switch a.layout.browserTool {
 	case "Files":
 		a.openFiles()
 	case "Changes":
@@ -34,12 +34,12 @@ func (a *app) refreshWorkspacePolicy() {
 	dir := a.chatDir()
 	if a.localActive() {
 		if dir == "" {
-			dir = a.home
+			dir = a.preferences.home
 		}
 		a.watchWorkspacePolicy(dir)
 	} else if dir != "" {
 		a.watchServerPolicy(dir)
 	} else {
-		a.policyDir, a.policyLevel = "", "ask"
+		a.watchServerPolicy("")
 	}
 }

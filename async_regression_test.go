@@ -46,10 +46,10 @@ func regressionApp(t *testing.T, handler http.HandlerFunc) (*app, *manualBackgro
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	a := newTestApp(t)
-	a.servers = append(a.servers, serverConn{id: "srv-regression", name: "Regression server", url: srv.URL})
-	a.activeServer = "srv-regression"
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-regression", name: "Regression server", url: srv.URL})
+	a.connections.activeServer = "srv-regression"
 	m := &manualBackground{}
-	a.background = m.submit
+	a.runtime.background = m.submit
 	return a, m
 }
 
@@ -63,12 +63,12 @@ func TestBrowseLocationRejectsClosedDialogResult(t *testing.T) {
 	})
 	a.browseServerFolders(true)
 	m.finish(t, 0)
-	a.browse = nil
+	a.layout.browse = nil
 	a.browseServerFolders(true)
-	current := a.browse
+	current := a.layout.browse
 	m.publish(t, 0)
-	if a.browse != current || current.location != "" || !current.loading {
-		t.Fatalf("closed dialog's location changed its replacement: %+v", a.browse)
+	if a.layout.browse != current || current.location != "" || !current.loading {
+		t.Fatalf("closed dialog's location changed its replacement: %+v", a.layout.browse)
 	}
 }
 
@@ -76,15 +76,15 @@ func TestBrowseListingRejectsClosedDialogResult(t *testing.T) {
 	a, m := regressionApp(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"data":[{"path":"old-dialog.txt","type":"file"}]}`)
 	})
-	a.draftProject = "/srv/app"
+	a.conversation.draftProject = "/srv/app"
 	a.browseServerFolders(true)
 	m.finish(t, 0)
-	a.browse = nil
+	a.layout.browse = nil
 	a.browseServerFolders(true)
-	current := a.browse
+	current := a.layout.browse
 	m.publish(t, 0)
-	if a.browse != current || len(current.entries) != 0 || !current.loading {
-		t.Fatalf("closed dialog's listing changed its replacement: %+v", a.browse)
+	if a.layout.browse != current || len(current.entries) != 0 || !current.loading {
+		t.Fatalf("closed dialog's listing changed its replacement: %+v", a.layout.browse)
 	}
 }
 
@@ -93,18 +93,18 @@ func TestBrowseListingRejectsRepeatedPathResult(t *testing.T) {
 	a, m := regressionApp(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"data":[{"path":%q,"type":"file"}]}`, entry)
 	})
-	a.draftProject = "/srv/app"
+	a.conversation.draftProject = "/srv/app"
 	a.browseServerFolders(true)
 	m.finish(t, 0)
-	a.browse.path = "/srv/app/other"
+	a.layout.browse.path = "/srv/app/other"
 	a.browseGo()
-	a.browse.path = "/srv/app"
+	a.layout.browse.path = "/srv/app"
 	a.browseGo()
 	entry = "current.txt"
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.browse.entries; len(got) != 1 || got[0].Name != "current.txt" {
+	if got := a.layout.browse.entries; len(got) != 1 || got[0].Name != "current.txt" {
 		t.Fatalf("first visit replaced the latest visit to the same folder: %+v", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestFilesReadRejectsRepeatedPathResult(t *testing.T) {
 	a, m := regressionApp(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, content)
 	})
-	a.files = &filesState{location: "/srv/app"}
+	a.workspace.files = &filesState{location: "/srv/app"}
 	a.filesRead("a.txt")
 	m.finish(t, 0)
 	a.filesRead("b.txt")
@@ -123,8 +123,8 @@ func TestFilesReadRejectsRepeatedPathResult(t *testing.T) {
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if a.files.content != "current contents" {
-		t.Fatalf("first visit replaced the latest file contents: %q", a.files.content)
+	if a.workspace.files.content != "current contents" {
+		t.Fatalf("first visit replaced the latest file contents: %q", a.workspace.files.content)
 	}
 }
 
@@ -133,18 +133,18 @@ func TestFilesFindRejectsRepeatedQueryResult(t *testing.T) {
 	a, m := regressionApp(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"data":[{"path":%q,"type":"file"}]}`, entry)
 	})
-	a.files = &filesState{location: "/srv/app", query: "a"}
+	a.workspace.files = &filesState{location: "/srv/app", query: "a"}
 	a.filesFind()
 	m.finish(t, 0)
-	a.files.query = "b"
+	a.workspace.files.query = "b"
 	a.filesFind()
-	a.files.query = "a"
+	a.workspace.files.query = "a"
 	a.filesFind()
 	entry = "current.txt"
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.files.results; len(got) != 1 || got[0].Name != "current.txt" {
+	if got := a.workspace.files.results; len(got) != 1 || got[0].Name != "current.txt" {
 		t.Fatalf("first search replaced the latest search for the same query: %+v", got)
 	}
 }
@@ -158,7 +158,7 @@ func TestChangesRejectsRepeatedModeResult(t *testing.T) {
 		}
 		fmt.Fprintf(w, `{"data":[{"file":%q,"status":"modified","patch":"old","additions":1}]}`, file)
 	})
-	a.draftProject = "/srv/app"
+	a.conversation.draftProject = "/srv/app"
 	a.openChanges(changesWorking)
 	m.finish(t, 0)
 	a.openChanges(changesBranch)
@@ -167,7 +167,7 @@ func TestChangesRejectsRepeatedModeResult(t *testing.T) {
 	m.finish(t, 2)
 	m.publish(t, 2)
 	m.publish(t, 0)
-	if got := a.changes.files; len(got) != 1 || got[0].File != "current.go" {
+	if got := a.workspace.changes.files; len(got) != 1 || got[0].File != "current.go" {
 		t.Fatalf("first read replaced the latest changes in the same mode: %+v", got)
 	}
 }
@@ -175,7 +175,7 @@ func TestChangesRejectsRepeatedModeResult(t *testing.T) {
 func TestReplacingRequestCancelsWorkerBeforePublication(t *testing.T) {
 	a := newTestApp(t)
 	m := &manualBackground{}
-	a.background = m.submit
+	a.runtime.background = m.submit
 	var request requestState
 	var firstContext context.Context
 	value := 0
@@ -201,7 +201,7 @@ func TestReplacingRequestCancelsWorkerBeforePublication(t *testing.T) {
 func TestShutdownCancelsWorkAndRejectsPostedResult(t *testing.T) {
 	a := newTestApp(t)
 	m := &manualBackground{}
-	a.background = m.submit
+	a.runtime.background = m.submit
 	var workerContext context.Context
 	applied := false
 	inBackground(a, func(ctx context.Context) (int, error) {
@@ -222,7 +222,7 @@ func TestShutdownCancelsWorkAndRejectsPostedResult(t *testing.T) {
 func TestReconnectCancelsActiveWorkButKeepsRegistryWork(t *testing.T) {
 	a := newTestApp(t)
 	m := &manualBackground{}
-	a.background = m.submit
+	a.runtime.background = m.submit
 	var activeContext, registryContext context.Context
 	activeApplied, registryApplied := false, false
 	inBackground(a, func(ctx context.Context) (int, error) {
@@ -230,7 +230,7 @@ func TestReconnectCancelsActiveWorkButKeepsRegistryWork(t *testing.T) {
 		return 1, nil
 	}, func(int, error) { activeApplied = true })
 	var probe requestState
-	runOwned(a, &probe, a.lifetime, func(ctx context.Context) (int, error) {
+	runOwned(a, &probe, a.runtime.lifetime, func(ctx context.Context) (int, error) {
 		registryContext = ctx
 		return 1, nil
 	}, func(int, error) { registryApplied = true })
@@ -256,14 +256,14 @@ func TestWorkspaceToolRebuildDoesNotSubmitReads(t *testing.T) {
 			t.Run(tool+"/"+state, func(t *testing.T) {
 				a := newTestApp(t)
 				m := &manualBackground{}
-				a.background = m.submit
-				a.servers = append(a.servers, serverConn{id: "box", name: "Box", url: "http://127.0.0.1:1"})
-				a.activeServer = "box"
+				a.runtime.background = m.submit
+				a.connections.servers = append(a.connections.servers, serverConn{id: "box", name: "Box", url: "http://127.0.0.1:1"})
+				a.connections.activeServer = "box"
 				if state != "folderless" {
-					a.draftProject = "/srv/app"
+					a.conversation.draftProject = "/srv/app"
 				}
 				if state == "unopened" {
-					a.browserCollapsed, a.browserTool = false, tool
+					a.layout.browserCollapsed, a.layout.browserTool = false, tool
 				} else {
 					a.openTool(tool)
 				}

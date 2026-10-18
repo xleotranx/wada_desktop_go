@@ -22,9 +22,9 @@ func inBackground[T any](a *app, work func(context.Context) (T, error), done fun
 }
 
 func runRequest[T any](a *app, request *requestState, work func(context.Context) (T, error), done func(T, error)) {
-	route := a.route
-	runOwned(a, request, a.workCtx, work, func(value T, err error) {
-		if a.route == route {
+	route := a.connections.route
+	runOwned(a, request, a.runtime.workCtx, work, func(value T, err error) {
+		if a.connections.route == route {
 			done(value, err)
 		}
 	})
@@ -36,11 +36,11 @@ func runOwned[T any](a *app, request *requestState, parent context.Context, work
 	revision := request.revision
 	ctx, cancel := context.WithCancel(parent)
 	request.cancel = cancel
-	a.background(func() func() {
+	a.runtime.background(func() func() {
 		value, err := work(ctx)
 		return func() {
 			defer cancel()
-			if !a.closed && ctx.Err() == nil && request.revision == revision {
+			if !a.runtime.closed && ctx.Err() == nil && request.revision == revision {
 				done(value, err)
 			}
 		}
@@ -48,7 +48,7 @@ func runOwned[T any](a *app, request *requestState, parent context.Context, work
 }
 
 func (a *app) closeWork() {
-	a.closed = true
-	a.stopWork()
-	a.stopLifetime()
+	a.runtime.closed = true
+	a.runtime.stopWork()
+	a.runtime.stopLifetime()
 }

@@ -377,6 +377,30 @@ func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
 	return all, nil
 }
 
+// defaultModel reads the model the server itself would run, for a client
+// whose own pick has no home in the catalog: a remote server's default
+// belongs to that box the way its providers do.
+func (a *agent) defaultModel(ctx context.Context) (agentModelRef, error) {
+	raw, err := a.call(ctx, "GET", "/model/default", nil)
+	if err != nil {
+		return agentModelRef{}, err
+	}
+	var out struct {
+		Data struct {
+			ID         string `json:"id"`
+			ProviderID string `json:"providerID"`
+			Variant    string `json:"variant"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return agentModelRef{}, err
+	}
+	if out.Data.ID == "" || out.Data.ProviderID == "" {
+		return agentModelRef{}, fmt.Errorf("the server named no default model")
+	}
+	return agentModelRef{providerID: out.Data.ProviderID, id: out.Data.ID, variant: out.Data.Variant}, nil
+}
+
 // listProjects reads the folders the server works in: one directory per
 // project it knows, the way its project list says them, kept in the order
 // it reports. opencode answers the list behind its data envelope or as a
@@ -865,6 +889,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		}()
 		go func() {
 			ms, merr := ag.listModels(ctx)
+			def, derr := ag.defaultModel(ctx)
 			win.Update(func() {
 				if a.activeServer != srv.id {
 					return
@@ -874,6 +899,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				} else {
 					why := merr.Error()
 					a.streamLine("The model list did not load: " + why)
+				}
+				if derr == nil {
+					a.scope().serverDefault = def
 				}
 				a.scope().modelsLoaded = true
 			})

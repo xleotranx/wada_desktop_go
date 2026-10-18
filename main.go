@@ -73,6 +73,9 @@ type serverScope struct {
 	moreLoading    bool
 	models         []agentModel
 	modelsLoaded   bool
+	// The model the server itself would run, for when the catalog offers
+	// nothing this app knows; zero until a dial reads it.
+	serverDefault agentModelRef
 	// The folders the server works in, as its project list says them;
 	// empty until a dial reads it.
 	projects []string
@@ -255,30 +258,48 @@ func (a *app) scope() *serverScope {
 }
 
 // defaultModelRef is what a new conversation starts on: the app's free
-// default while the catalog still offers it, else the first model the
-// composer offers (free first, then by name), and the free default again
-// when nothing is enabled. The runner names the model itself when no
-// catalog is loaded yet.
+// default while the catalog still offers it, else a model that runs for
+// nothing, else the server's own default, else the first model still on.
+// A server whose providers differ is never told about a model it has not
+// heard of, and a free model is never passed over for a paid one.
 func (a *app) defaultModelRef() agentModelRef {
 	prov, name := sessionModel()
 	free := agentModelRef{providerID: prov, id: name}
-	best := -1
-	for i, m := range a.scope().models {
-		if m.providerID == prov && m.id == name {
-			if !a.modelDisabled(m) {
-				return free
-			}
-			continue
+	def := a.scope().serverDefault
+	if len(a.scope().models) == 0 {
+		// Nothing to choose from yet: the server's own default stands when
+		// a dial has read it, the app's free default otherwise.
+		if def.id != "" {
+			return def
 		}
+		return free
+	}
+	var freeOffered, paidOffered *agentModel
+	for _, m := range a.scope().models {
 		if a.modelDisabled(m) {
 			continue
 		}
-		if best < 0 || modelLess(m, a.scope().models[best]) {
-			best = i
+		if m.providerID == prov && m.id == name {
+			return free
+		}
+		if m.free {
+			if freeOffered == nil || modelLess(m, *freeOffered) {
+				freeOffered = &m
+			}
+			continue
+		}
+		if paidOffered == nil || modelLess(m, *paidOffered) {
+			paidOffered = &m
 		}
 	}
-	if best >= 0 {
-		return agentModelRef{providerID: a.scope().models[best].providerID, id: a.scope().models[best].id}
+	if freeOffered != nil {
+		return agentModelRef{providerID: freeOffered.providerID, id: freeOffered.id}
+	}
+	if def.id != "" && !a.modelOff[modelKey(a.activeServer, def.providerID, def.id)] {
+		return def
+	}
+	if paidOffered != nil {
+		return agentModelRef{providerID: paidOffered.providerID, id: paidOffered.id}
 	}
 	return free
 }

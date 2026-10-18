@@ -276,6 +276,62 @@ func TestAgentModel(t *testing.T) {
 	}
 }
 
+// TestDefaultFollowsTheServer checks the chooser's order for a server whose
+// catalog is not this app's: a model that runs for nothing beats the
+// server's own default, the default stands when nothing free is offered or
+// before the catalog has landed, and a default the settings turned off
+// steps aside.
+func TestDefaultFollowsTheServer(t *testing.T) {
+	a := newApp()
+	paid := agentModel{providerID: "wada", id: "pro", name: "Pro"}
+	a.scope().models = []agentModel{paid}
+	a.scope().serverDefault = agentModelRef{providerID: "wada", id: "their-default"}
+	if ref := a.defaultModelRef(); ref.providerID != "wada" || ref.id != "their-default" {
+		t.Fatalf("default %+v, want the server's own", ref)
+	}
+	freebie := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
+	a.scope().models = []agentModel{paid, freebie}
+	if ref := a.defaultModelRef(); ref.id != "flash" {
+		t.Fatalf("default %+v, want the free model", ref)
+	}
+	// A default the settings turned off leaves the catalog standing.
+	a.setModelEnabled(agentModel{providerID: "wada", id: "their-default"}, false)
+	a.scope().models = []agentModel{paid}
+	if ref := a.defaultModelRef(); ref.id != "pro" {
+		t.Fatalf("default %+v, want the paid catalog model", ref)
+	}
+	// Before the catalog lands, the server's own stands in place of a
+	// model it may never have heard of.
+	b := newApp()
+	b.scope().serverDefault = agentModelRef{providerID: "remote", id: "their-default"}
+	if ref := b.defaultModelRef(); ref.id != "their-default" {
+		t.Fatalf("default %+v, want the server's own before a catalog", ref)
+	}
+}
+
+// TestAgentDefaultModel reads the model the server would run itself, the
+// fallback for a catalog that offers nothing this app knows.
+func TestAgentDefaultModel(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/model/default", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"location":{"directory":"/w"},"data":` +
+			`{"id":"minimax-m3","providerID":"opencode-go","variant":"max"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ref, err := a.defaultModel(ctx)
+	if err != nil || ref.providerID != "opencode-go" || ref.id != "minimax-m3" || ref.variant != "max" {
+		t.Fatalf("default %+v %v", ref, err)
+	}
+	if _, err := (&agent{base: "http://127.0.0.1:1/api", http: httpClient()}).defaultModel(ctx); err == nil {
+		t.Fatal("a dead address named a default")
+	}
+}
+
 func TestSessionModelOverride(t *testing.T) {
 	t.Setenv("WADA_MODEL", "opencode/glm-5.3-flash-free")
 	if prov, name := sessionModel(); prov+"/"+name != "opencode/glm-5.3-flash-free" {

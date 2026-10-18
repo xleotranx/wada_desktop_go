@@ -193,6 +193,10 @@ func (a *app) browserDestination(c *ui.Context, p palette) {
 
 		if a.browserTool != "" {
 			ui.Text(c, a.toolDescription()).FontSize(13).LineHeight(1.5).TextColor(p.muted)
+			if a.browserTool == "Changes" {
+				a.changesBody(c, p)
+				return
+			}
 			if a.browserTool == "Files" {
 				dir := a.chatDir()
 				if dir == "" {
@@ -256,6 +260,10 @@ func (a *app) openTool(name string) {
 	} else {
 		a.browserAddress = "codex://tools/" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	}
+	if name == "Changes" {
+		// The pane's first look at the workspace it is open over.
+		a.openChanges(changesWorking)
+	}
 }
 
 func (a *app) openBrowserAddress() {
@@ -304,7 +312,13 @@ func (a *app) browserForward() {
 	a.browserTool = ""
 }
 
+// reloadBrowserPage reads a page again, or the workspace's changes when
+// the Changes tool is the page on show.
 func (a *app) reloadBrowserPage() {
+	if a.browserTool == "Changes" {
+		a.openChanges(a.changesMode())
+		return
+	}
 	if a.browserAddress != "" {
 		a.browserPage = a.browserAddress
 	}

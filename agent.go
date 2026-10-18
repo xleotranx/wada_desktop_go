@@ -586,6 +586,75 @@ func (a *agent) location(ctx context.Context, dir string) (string, error) {
 	return out.Directory, nil
 }
 
+// vcsInfo is the version control one workspace sits in, as the server
+// reads it: the provider, the branch on show and the branch it comes off.
+type vcsInfo struct {
+	provider string
+	branch   string
+	base     string
+}
+
+// vcsChange is one file a workspace has changed: its path as the repo
+// spells it, what happened to it, the two counts and the patch itself.
+type vcsChange struct {
+	file      string
+	status    string // "added", "modified" or "deleted"
+	additions int
+	deletions int
+	patch     string
+}
+
+// workspaceVcs reads the version control a workspace sits in.
+func (a *agent) workspaceVcs(ctx context.Context, dir string) (vcsInfo, error) {
+	raw, err := a.call(ctx, "GET", "/vcs?location[directory]="+url.QueryEscape(dir), nil)
+	if err != nil {
+		return vcsInfo{}, err
+	}
+	var out struct {
+		Data struct {
+			Provider string `json:"provider"`
+			Branch   struct {
+				Current string `json:"current"`
+				Default string `json:"default"`
+			} `json:"branch"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return vcsInfo{}, fmt.Errorf("the version control did not read")
+	}
+	return vcsInfo{provider: out.Data.Provider, branch: out.Data.Branch.Current,
+		base: out.Data.Branch.Default}, nil
+}
+
+// workspaceChanges reads the files a workspace has changed in one mode:
+// "working" for what is not committed yet, "branch" for everything the
+// branch holds beyond its base. The patches come with them.
+func (a *agent) workspaceChanges(ctx context.Context, dir, mode string) ([]vcsChange, error) {
+	route := "/vcs/diff?location[directory]=" + url.QueryEscape(dir) + "&mode=" + url.QueryEscape(mode)
+	raw, err := a.call(ctx, "GET", route, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			File      string `json:"file"`
+			Patch     string `json:"patch"`
+			Additions int    `json:"additions"`
+			Deletions int    `json:"deletions"`
+			Status    string `json:"status"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return nil, fmt.Errorf("the diff did not read")
+	}
+	files := []vcsChange{}
+	for _, f := range out.Data {
+		files = append(files, vcsChange{file: f.File, status: f.Status,
+			additions: f.Additions, deletions: f.Deletions, patch: f.Patch})
+	}
+	return files, nil
+}
+
 // readWorkspaceFile streams one file named relative to the workspace.
 func (a *agent) readWorkspaceFile(ctx context.Context, dir, rel string) ([]byte, error) {
 	raw, err := a.call(ctx, "GET", "/fs/read/"+escapeFileRoute(rel)+"?location[directory]="+url.QueryEscape(dir), nil)

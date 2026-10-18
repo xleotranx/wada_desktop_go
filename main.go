@@ -114,8 +114,11 @@ type app struct {
 	browserAddress    string
 	browserPage       string
 	browserTool       string
-	browserHistory    []string
-	browserHistoryAt  int
+	// changes is the workspace diff the Changes tool holds; nil until the
+	// tool is opened.
+	changes          *changesState
+	browserHistory   []string
+	browserHistoryAt int
 
 	policyDir, policyLevel string
 	policyDirs             chan string
@@ -973,6 +976,11 @@ func (a *app) adoptSession(s agentSession) {
 	a.selected = label
 	a.selectedSession = s.id
 	a.freshTranscript()
+	// The Changes tool compares the folder on show, and another chat means
+	// another folder.
+	if a.browserTool == "Changes" {
+		a.openChanges(a.changesMode())
+	}
 }
 
 // settleBoot finishes the boot: the conversation list lands and the view

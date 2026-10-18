@@ -14,6 +14,7 @@ type palette struct {
 	bubble                                           ui.Color
 	detailBg                                         ui.Color
 	danger, dangerText                               ui.Color
+	diffAdd, diffDel                                 ui.Color
 	scrim, shadow, cardShadow                        ui.Color
 	link                                             ui.Color
 	thumbLine                                        ui.Color
@@ -48,6 +49,8 @@ func paletteFor(c *ui.Context) palette {
 			greenBadge:          ui.Hex("#4ed463"),
 			danger:              ui.Hex("#e0442f"),
 			dangerText:          ui.Hex("#ffffff"),
+			diffAdd:             ui.Hex("#4ed463"),
+			diffDel:             ui.Hex("#ff7a6b"),
 			scrim:               ui.RGBA(0, 0, 0, 0.4),
 			shadow:              ui.RGBA(0, 0, 0, 0.2),
 			cardShadow:          ui.RGBA(0, 0, 0, 0.05),
@@ -78,6 +81,8 @@ func paletteFor(c *ui.Context) palette {
 		greenBadge:          ui.Hex("#0e7a34"),
 		danger:              ui.Hex("#e0442f"),
 		dangerText:          ui.Hex("#ffffff"),
+		diffAdd:             ui.Hex("#0e7a34"),
+		diffDel:             ui.Hex("#c2331f"),
 		scrim:               ui.RGBA(0, 0, 0, 0.4),
 		shadow:              ui.RGBA(0, 0, 0, 0.2),
 		cardShadow:          ui.RGBA(0, 0, 0, 0.05),

@@ -122,8 +122,8 @@ func TestServerMenuKeepsThePage(t *testing.T) {
 }
 
 // TestServerRowShowsState keeps the row's words honest: the address, how
-// the server last answered and whether a key is set, in every state the
-// health map can hold.
+// the server last answered and whether a password is set, in every state
+// the health map can hold.
 func TestServerRowShowsState(t *testing.T) {
 	local := defaultLocalServer()
 	local.password = "key-1"
@@ -136,21 +136,21 @@ func TestServerRowShowsState(t *testing.T) {
 		want []string
 	}{
 		{"running local", local, serverHealth{status: healthReady, detail: "0.5.5", addr: "http://127.0.0.1:50112"},
-			[]string{"http://127.0.0.1:50112", "Connected · 0.5.5", "Key set"}},
+			[]string{"http://127.0.0.1:50112", "Connected · 0.5.5", "Password set"}},
 		{"starting local", local, serverHealth{status: healthConnecting},
-			[]string{"Starting…", "Key set"}},
+			[]string{"Starting…", "Password set"}},
 		{"stopped local", local, serverHealth{status: healthStopped},
-			[]string{"Stopped", "Key set"}},
+			[]string{"Stopped", "Password set"}},
 		{"untested remote", remote, serverHealth{},
-			[]string{"http://10.0.0.12:4096", "Not tested yet", "No key set"}},
-		{"refused remote", remote, serverHealth{status: healthDown, detail: "the key was refused"},
-			[]string{"Not connected — the key was refused"}},
+			[]string{"http://10.0.0.12:4096", "Not tested yet", "No password set"}},
+		{"refused remote", remote, serverHealth{status: healthDown, detail: "the password was refused"},
+			[]string{"Not connected — the password was refused"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line := serverLine(tc.cfg, tc.h)
 			for _, want := range tc.want {
-				if !strings.Contains(line+serverKeyLine(tc.cfg), want) {
-					t.Fatalf("row %q / %q lacks %q", line, serverKeyLine(tc.cfg), want)
+				if !strings.Contains(line+serverPasswordLine(tc.cfg), want) {
+					t.Fatalf("row %q / %q lacks %q", line, serverPasswordLine(tc.cfg), want)
 				}
 			}
 		})
@@ -287,17 +287,17 @@ func TestServerEditorAddsRemote(t *testing.T) {
 	if len(probed) != 1 || probed[0] != added.id {
 		t.Fatalf("the new server was not probed: %v", probed)
 	}
-	// The list shows it with the key it was given.
+	// The list shows it with the password it was given.
 	tt.Frame()
-	if !tt.HasText("Build box") || !tt.HasText("Key set") {
+	if !tt.HasText("Build box") || !tt.HasText("Password set") {
 		t.Fatalf("the row is not drawn: %v", tt.Texts())
 	}
 }
 
-// TestServerEditorEditsLocalKey keeps the local row's editor on its own
-// terms: no address to type, a key to set, and a redial because the key
-// travels with the server the app starts.
-func TestServerEditorEditsLocalKey(t *testing.T) {
+// TestServerEditorEditsLocalPassword keeps the local row's editor on its
+// own terms: no address to type, a password to set, and a redial because
+// the password travels with the server the app starts.
+func TestServerEditorEditsLocalPassword(t *testing.T) {
 	a := newApp()
 	a.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -326,7 +326,7 @@ func TestServerEditorEditsLocalKey(t *testing.T) {
 			t.Fatalf("the redial job %+v", job)
 		}
 	default:
-		t.Fatal("editing the active server's key did not queue a redial")
+		t.Fatal("editing the active server's password did not queue a redial")
 	}
 
 	// Pointing the local row at a server the user runs themselves needs an
@@ -594,7 +594,7 @@ func TestAPIBaseNormalizes(t *testing.T) {
 }
 
 // TestProbeServer checks the connection test the settings run: a version
-// out of /info, and the key's refusal told apart from a dead address.
+// out of /info, and the password's refusal told apart from a dead address.
 func TestProbeServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if user, pw, ok := r.BasicAuth(); !ok || user != "opencode" || pw != "right-key" {
@@ -611,7 +611,7 @@ func TestProbeServer(t *testing.T) {
 	}
 	if _, err := probeServer(context.Background(), serverConn{url: srv.URL, password: "wrong"}); err == nil ||
 		!strings.Contains(err.Error(), "refused") {
-		t.Fatalf("a refused key reads %v", err)
+		t.Fatalf("a refused password reads %v", err)
 	}
 	if _, err := probeServer(context.Background(), serverConn{url: "http://127.0.0.1:1"}); err == nil {
 		t.Fatal("a dead address probed fine")

@@ -8,7 +8,7 @@ The design-copy era is over: every visible control answers. Conversations, turns
 
 - macOS (the UI uses native windows and hidden title bars).
 - A Go toolchain; MyGo is pinned in `go.mod` and runs as `go tool mygo`.
-- The `opencode` CLI v2 on `PATH`. The app spawns it itself (`opencode serve`) on its own port with a key of its own; your global `~/.config/opencode` config is untouched. Settings can instead point the app at a server you run yourself, with the key it was started with.
+- The `opencode` CLI v2 on `PATH`. The app spawns it itself (`opencode serve`) on its own port with a password it generates; your global `~/.config/opencode` config is untouched. Settings can instead point the app at a server you run yourself, with the password it was started with.
 
 ## Run
 
@@ -50,7 +50,7 @@ Use `go tool mygo build` for size comparisons: MyGo already strips symbols and d
 - **Sessions** — list, restore, create, rename, delete, pagination, per-chat working directories. Search is server-side (`GET /session?search=…`) with a stale-result guard.
 - **Turns** — stream, stop, approval cards for shell and edit asks, activity rows for tools as they run.
 - **Models** — the picker reads the active server's catalog, free first, with per-model reasoning-effort chips; the switch folds back over `session.model.selected`. Settings lists the whole catalog grouped by provider with a switch per model and Enable all / Disable all, and the composer's picker offers only what stays on. New chats run `opencode-go/longcat-2.5-preview-free` while it is enabled, else the first model still on, unless `WADA_MODEL=provider/model` says otherwise.
-- **Servers** — the rail's gear opens the settings page: the local server the app runs itself (its key settable, or empty for one generated each start) beside any servers added by address and key. Use, Edit and Delete manage them, the active row reconnects from its menu, and the others are probed so their rows say how they last answered. Switching servers clears the view for that server's chats, its own pins, catalog and model choices.
+- **Servers** — the rail's gear opens the settings page: the local server the app runs itself (its password settable, or empty for one generated each start) beside any servers added by address and password. Use, Edit and Delete manage them, the active row reconnects from its menu, and the others are probed so their rows say how they last answered. Switching servers clears the view for that server's chats, its own pins, catalog and model choices.
 - **Folders** — every chat names its directory; Add folder, Open folder… and New project all open the system's folder chooser.
 - **Sidebar metadata** — MyGo SQLite saves the app's state in `metadata.db` under the OS user configuration directory's `wada-desktop-go` folder (`~/Library/Application Support/wada-desktop-go/metadata.db` on macOS): project folders, project pins, chat pins per server, server connections and disabled models. This path is shared by dev and packaged builds. The sidebar shows pinned chats and projects, and each project lists the chats that work in its folder: open by default, folded away with a click, five of them before a Show more row, while conversation results appear only during search. Projects start empty and only explicitly added folders appear; the version 2 migration clears the legacy imported project list once, preserving chat pins, and version 3 adds the settings tables without touching either. The Projects `+` opens the folder chooser, and a project's hover `+` or menu starts a blank draft in that folder. New drafts have a searchable project chooser above the composer, including New project and no-project actions. The first message creates the server chat in the chosen directory, and its row lands under that folder. Each project's menu pins or removes it without deleting files or conversations. Missing folders remain marked unavailable. Chat pins retain their order and load beyond the first history page. OpenCode continues to own all conversation contents.
 - **Files** — the composer's `+` quotes a workspace file into the draft as a fenced block (path through `~` or relative to the chat's folder, 256 KiB cap, de-duplicated).
@@ -61,7 +61,7 @@ Use `go tool mygo build` for size comparisons: MyGo already strips symbols and d
 ## Honest boundaries
 
 - Links render underlined but do not open yet, and quoting a file still takes a typed path rather than a picker; no dictate and no archive — the first has no surface worth faking, the second no server endpoint.
-- Server keys are stored as plain text in the local `metadata.db`, not the Keychain. A local server without a key set still gets a fresh generated one for each start, which only the app knows.
+- Server passwords are stored as plain text in the local `metadata.db`, not the Keychain. A local server without a password set still gets a fresh generated one for each start, which only the app knows.
 - One server is active at a time: a conversation belongs to the server it was created on, and switching servers swaps the whole view rather than mixing both.
 
 ## Layout

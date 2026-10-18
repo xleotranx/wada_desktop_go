@@ -26,7 +26,7 @@ import (
 // the real agent answers where the demo copy used to.
 type agent struct {
 	base    string // like http://127.0.0.1:4096/api
-	pw      string // the key this app connects with
+	pw      string // the password this app connects with
 	http    *http.Client
 	cmd     *exec.Cmd // the process the app started; nil for a dialed server
 	addr    string    // where it listens, for Settings to show
@@ -67,7 +67,7 @@ func startAgentFor(ctx context.Context, cfg serverConn, dir string) (*agent, err
 	return a, nil
 }
 
-// startLocalAgent spawns opencode serve on a free port with the app's key
+// startLocalAgent spawns opencode serve on a free port with the app's password
 // (generated when settings hold none). The server dies with this process
 // (Pdeathsig), so dev rebuilds don't leave orphans behind.
 func startLocalAgent(ctx context.Context, cfg serverConn, dir string) (*agent, error) {
@@ -185,7 +185,7 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 		return nil, fmt.Errorf("%s %s: the response is larger than %d MiB", method, path, limit>>20)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("the key was refused (401)")
+		return nil, fmt.Errorf("the password was refused (401)")
 	}
 	if resp.StatusCode >= 300 {
 		var tagged struct {

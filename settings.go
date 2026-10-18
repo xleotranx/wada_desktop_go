@@ -26,7 +26,7 @@ type serverEditor struct {
 	managed  bool
 	url      string
 	password string
-	show     bool   // the key field is revealed
+	show     bool   // the password field is revealed
 	note     string // why the last save did not go through
 }
 
@@ -120,7 +120,7 @@ func (a *app) settingsHeading(c *ui.Context, p palette, title, blurb, action str
 }
 
 // settingsServers is the Servers tab: one card per connection, with its
-// key and how it last answered.
+// password and how it last answered.
 func (a *app) settingsServers(c *ui.Context, p palette) {
 	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
 		ui.Column(c).MaxWidth(720).Margin(0, ui.Auto).FillWidth().
@@ -135,7 +135,7 @@ func (a *app) settingsServers(c *ui.Context, p palette) {
 	})
 }
 
-// serverCard is one connection: its name and state, its key, and the
+// serverCard is one connection: its name and state, its password, and the
 // actions the app and the user have on it.
 func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 	h := a.serverHealth[s.id]
@@ -167,12 +167,12 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 			})
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
 				ui.Icon(c, icKey).FontSize(11).TextColor(p.faint).Shrink(0)
-				keyLine := serverKeyLine(s)
+				passwordLine := serverPasswordLine(s)
 				if active && a.modelsLoaded {
 					on, total := a.enabledModelCount()
-					keyLine += fmt.Sprintf("  ·  %d of %d models on", on, total)
+					passwordLine += fmt.Sprintf("  ·  %d of %d models on", on, total)
 				}
-				ui.Text(c, keyLine).FontSize(12).TextColor(p.faint).
+				ui.Text(c, passwordLine).FontSize(12).TextColor(p.faint).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 			})
 		})
@@ -220,7 +220,7 @@ func (a *app) addServer() {
 	a.serverEditor = &serverEditor{open: true}
 }
 
-// editServer opens the editor on one connection, its key shown as the
+// editServer opens the editor on one connection, its password shown as the
 // fields carry it.
 func (a *app) editServer(s serverConn) {
 	a.serverEditor = &serverEditor{
@@ -525,8 +525,8 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 				settingsField(c, p, "Address", "Where the server listens, e.g. http://127.0.0.1:4096.",
 					&st.url, "http://127.0.0.1:4096", false, nil)
 			}
-			settingsField(c, p, "Key", keyHint(st), &st.password, keyPlaceholder(st), !st.show, func() {
-				a.linkButton(c, p, "Generate a key", "Generate", func() { st.password = serverKey() })
+			settingsField(c, p, "Password", passwordHint(st), &st.password, passwordPlaceholder(st), !st.show, func() {
+				a.linkButton(c, p, "Generate a password", "Generate", func() { st.password = serverKey() })
 				ui.Checkbox(c, &st.show, "Show").MarginStart(6)
 			})
 			if st.note != "" {
@@ -554,7 +554,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 				ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
 				ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
 			})
-			ui.Text(c, "Its key and model choices go with it. The chats stay on the server.").
+			ui.Text(c, "Its password and model choices go with it. The chats stay on the server.").
 				FontSize(12.5).TextColor(p.muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
@@ -573,24 +573,24 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 	}
 }
 
-// keyHint words what the key field means for the server being edited.
-func keyHint(st *serverEditor) string {
+// passwordHint words what the password field means for the server being edited.
+func passwordHint(st *serverEditor) string {
 	switch {
 	case st.local && st.managed:
-		return "The app starts opencode serve with this key. Leave it empty and it generates one for each run."
+		return "The app starts opencode serve with this password. Leave it empty and it generates one for each run."
 	case st.local:
-		return "The key the local server was started with."
+		return "The password the local server was started with."
 	default:
-		return "The key that server was started with. Leave it empty for a server that takes connections bare."
+		return "The password that server was started with. Leave it empty for a server that takes connections bare."
 	}
 }
 
-// keyPlaceholder is what the empty key field suggests.
-func keyPlaceholder(st *serverEditor) string {
+// passwordPlaceholder is what the empty password field suggests.
+func passwordPlaceholder(st *serverEditor) string {
 	if st.local && st.managed {
 		return "Generated if empty"
 	}
-	return "The server's key"
+	return "The server's password"
 }
 
 // settingsField is one labeled field of a settings dialog: the label with

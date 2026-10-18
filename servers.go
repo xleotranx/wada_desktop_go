@@ -30,11 +30,11 @@ type serverConn struct {
 	local    bool   // the built-in row, kept whatever happens
 	managed  bool   // it runs with the app, on a port the app picks
 	url      string // where it listens; empty while the app runs it
-	password string // the key the app connects with
+	password string // the password the app connects with
 }
 
 // defaultLocalServer is the connection the app starts with: its own
-// opencode serve, on a key it generates for each run.
+// opencode serve, on a password it generates for each run.
 func defaultLocalServer() serverConn {
 	return serverConn{id: localServerID, name: "Local server", local: true, managed: true}
 }
@@ -104,15 +104,15 @@ func serverLine(s serverConn, h serverHealth) string {
 	return status
 }
 
-// serverKeyLine words what the row says about the key.
-func serverKeyLine(s serverConn) string {
+// serverPasswordLine words what the row says about the password.
+func serverPasswordLine(s serverConn) string {
 	switch {
 	case s.password != "":
-		return "Key set"
+		return "Password set"
 	case s.managed:
-		return "Key generated for each start"
+		return "Password generated for each start"
 	default:
-		return "No key set"
+		return "No password set"
 	}
 }
 
@@ -181,7 +181,7 @@ func probeServer(ctx context.Context, cfg serverConn) (string, error) {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("the key was refused")
+		return "", fmt.Errorf("the password was refused")
 	}
 	if resp.StatusCode >= 300 {
 		return "", fmt.Errorf("%s: %s", base, resp.Status)

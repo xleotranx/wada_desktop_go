@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -442,13 +443,22 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 
 		ui.Box(c).Width(titleGap)
 		// The title appears once the conversation has one, and names the
-		// page while the settings are up.
+		// page while the settings are up. What the chat has spent rides
+		// beside it, quiet for the free models the app runs by default.
 		title := a.selected
 		if a.settingsOpen {
 			title = "Settings"
 		}
 		if title != "" {
-			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).Grow(1).SingleLine()
+			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).
+				Shrink(1).MinWidth(0).SingleLine()
+			if !a.settingsOpen {
+				if cost := a.spentOf(a.selectedSession); cost > 0 {
+					ui.Text(c, spentLine(cost)).FontSize(12.5).TextColor(p.muted).
+						MarginStart(8).Shrink(0).SingleLine()
+				}
+			}
+			ui.Spacer(c)
 		} else {
 			ui.Spacer(c)
 		}
@@ -844,6 +854,35 @@ func (a *app) saveRename() {
 	case a.jobs <- agentJob{kind: jobRename, sid: st.sid, text: title}:
 	default:
 	}
+}
+
+// refreshSessions asks the pipe for the newest page of conversations
+// again, after a turn: the list's order and the chat's spending moved, and
+// another client may have written a chat of its own meanwhile.
+func (a *app) refreshSessions() {
+	select {
+	case a.jobs <- agentJob{kind: jobRefresh}:
+	default:
+	}
+}
+
+// spentLine words what one conversation has cost: cents, or fractions of
+// one while cents would round the whole of it away.
+func spentLine(cost float64) string {
+	if cost >= 0.01 {
+		return fmt.Sprintf("$%.2f", cost)
+	}
+	return fmt.Sprintf("$%.4f", cost)
+}
+
+// spentOf is what one conversation has spent, as the list last read it.
+func (a *app) spentOf(sid string) float64 {
+	for _, s := range a.scope().sessions {
+		if s.id == sid {
+			return s.cost
+		}
+	}
+	return 0
 }
 
 // titleOf is one conversation's title as the list shows it now.

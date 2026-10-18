@@ -283,6 +283,9 @@ func (a *app) apply(ev agentEvent) {
 		if a.busySession == d.SessionID {
 			a.busySession = ""
 		}
+		// The turn moved the chat's place in the list and what it has
+		// spent: read the newest page again.
+		a.refreshSessions()
 	case "session.model.selected":
 		var d struct {
 			SessionID string `json:"sessionID"`
@@ -388,6 +391,23 @@ func dedupeSessions(all, add []agentSession) []agentSession {
 	for _, s := range add {
 		if !seen[s.id] {
 			seen[s.id] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// freshSessions lays one page the server just gave over a list that
+// already holds older pages: the fresh rows stand in their own order at
+// the head, and the kept ones they do not name follow in theirs.
+func freshSessions(kept, fresh []agentSession) []agentSession {
+	seen := map[string]bool{}
+	for _, s := range fresh {
+		seen[s.id] = true
+	}
+	out := fresh
+	for _, s := range kept {
+		if !seen[s.id] {
 			out = append(out, s)
 		}
 	}

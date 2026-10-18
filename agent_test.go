@@ -348,7 +348,7 @@ func TestAgentSessions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessions, next, err := a.listSessions(ctx, "", "")
+	sessions, next, err := a.listSessions(ctx, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,6 +481,84 @@ func TestAgentProjectsFilterDropsPhantoms(t *testing.T) {
 	}
 }
 
+// TestAgentSessionRowsAskForRootsAndCost checks what the sidebar's read
+// says and takes: root conversations only — a subagent's session belongs
+// to the chat that spawned it — and the spending each row carries, which
+// a build that hands children over anyway cannot slip past either.
+func TestAgentSessionRowsAskForRootsAndCost(t *testing.T) {
+	asked := make(chan string, 2)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
+		asked <- r.URL.RawQuery
+		w.Write([]byte(`{"data":[` +
+			`{"id":"ses_root","title":"Reviewing the wiring","cost":0.3196,` +
+			`"location":{"directory":"/srv/app"},"time":{"created":10,"updated":20}},` +
+			`{"id":"ses_child","parentID":"ses_root","title":"Explore approvals","agent":"explore",` +
+			`"location":{"directory":"/srv/app"},"time":{"created":11,"updated":21}}` +
+			`],"cursor":{"next":""}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, next, err := a.listSessions(ctx, "", "", "")
+	if err != nil || next != "" {
+		t.Fatalf("rows %v %v %q", rows, err, next)
+	}
+	query := <-asked
+	if !strings.Contains(query, "parentID=null") {
+		t.Fatalf("the read asked %q", query)
+	}
+	if len(rows) != 1 || rows[0].id != "ses_root" || rows[0].cost != 0.3196 {
+		t.Fatalf("rows %+v", rows)
+	}
+	// A folder's own chats can be asked for the same way.
+	if _, _, err := a.listSessions(ctx, "", "", "/srv/app"); err != nil {
+		t.Fatal(err)
+	}
+	if q := <-asked; !strings.Contains(q, "directory=%2Fsrv%2Fapp") {
+		t.Fatalf("the folder's read asked %q", q)
+	}
+}
+
+// TestFreshSessionsPrepend keeps one later read from burying what is
+// already listed: the server's newest page stands at the head in its own
+// order, and the pages loaded before it follow, with the fresh copy of a
+// row winning.
+func TestFreshSessionsPrepend(t *testing.T) {
+	kept := []agentSession{{id: "ses_a", updated: 30}, {id: "ses_b", updated: 20}}
+	fresh := []agentSession{{id: "ses_c", updated: 40}, {id: "ses_a", updated: 31, cost: 0.5}}
+	got := freshSessions(kept, fresh)
+	if len(got) != 3 || got[0].id != "ses_c" || got[1].id != "ses_a" || got[2].id != "ses_b" {
+		t.Fatalf("the list reads %+v", got)
+	}
+	if got[1].cost != 0.5 {
+		t.Fatalf("the kept row did not take the fresh one: %+v", got[1])
+	}
+}
+
+// TestRefreshAfterATurn queues the list read a finished turn earns, so the
+// sidebar's order and the chat's spending catch up without a redial.
+func TestRefreshAfterATurn(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.busySession = "ses_z"
+	a.apply(agentEvent{Type: "session.execution.succeeded", Data: []byte(`{"sessionID":"ses_z"}`)})
+	if a.busySession != "" {
+		t.Fatalf("the turn is still busy: %q", a.busySession)
+	}
+	select {
+	case job := <-a.jobs:
+		if job.kind != "refresh" {
+			t.Fatalf("the turn queued %+v", job)
+		}
+	default:
+		t.Fatal("a finished turn did not queue a list read")
+	}
+}
+
 // TestAgentSearch asks the store for a piece of a title, and the fake
 // server checks the query the client actually sent.
 func TestAgentSearch(t *testing.T) {
@@ -501,7 +579,7 @@ func TestAgentSearch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, _, err := a.listSessions(ctx, "", "wiring")
+	rows, _, err := a.listSessions(ctx, "", "wiring", "")
 	if err != nil || len(rows) != 1 || rows[0].id != "ses_w" ||
 		rows[0].title != "Grep wiring" || rows[0].model.id != "beam-free" {
 		t.Fatalf("search rows %+v %v", rows, err)
@@ -824,7 +902,7 @@ func TestAgentSessionLocation(t *testing.T) {
 		t.Fatal("the second create never reached the server")
 	}
 
-	rows, next, err := a.listSessions(ctx, "", "")
+	rows, next, err := a.listSessions(ctx, "", "", "")
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows %v %v", rows, err)
 	}
@@ -1837,6 +1915,41 @@ func TestPermissionPillRemote(t *testing.T) {
 // named it yet -- a new chat reads as an open one the moment it exists,
 // and its auto-title lands into the open bar instead of waiting for a
 // click.
+// TestTopBarShowsWhatTheChatSpent keeps the spending beside the title:
+// cents for a chat that has spent some, nothing for the free models the
+// app runs on by default, and no chat's money on the settings page.
+func TestTopBarShowsWhatTheChatSpent(t *testing.T) {
+	a := newApp()
+	a.scope().sessions = []agentSession{{id: "ses_paid", title: "Reviewing the wiring", cost: 0.3196}}
+	a.selectedSession, a.selected = "ses_paid", "Reviewing the wiring"
+	tt := ui.NewTester(a.view, 1400, 920)
+	if !tt.HasText("Reviewing the wiring") || !tt.HasText("$0.32") {
+		t.Fatalf("the spending is not beside the title: %v", tt.Texts())
+	}
+
+	a.scope().sessions = []agentSession{{id: "ses_free", title: "Reviewing the wiring"}}
+	a.selectedSession = "ses_free"
+	tt.Frame()
+	if tt.HasText("$0.00") || tt.HasText("$0.0000") {
+		t.Fatalf("a chat that spent nothing shows spending: %v", tt.Texts())
+	}
+
+	a.scope().sessions = []agentSession{{id: "ses_free", title: "Reviewing the wiring", cost: 1.5}}
+	a.settingsOpen = true
+	tt.Frame()
+	if tt.HasText("$1.50") {
+		t.Fatal("the settings page shows a chat's spending")
+	}
+
+	// Fractions of a cent keep their digits rather than rounding away.
+	if got := spentLine(0.00042); got != "$0.0004" {
+		t.Fatalf("a fraction of a cent reads %q", got)
+	}
+	if got := spentLine(0.3196); got != "$0.32" {
+		t.Fatalf("cents read %q", got)
+	}
+}
+
 func TestNewChatLiveRenders(t *testing.T) {
 	a := newApp()
 	// The state right after the runner opened a fresh conversation: a
@@ -1944,7 +2057,7 @@ func TestLiveAgent(t *testing.T) {
 				}
 				// The turn shows up in the sidebar list, and the stored
 				// messages restore into the same rows as live.
-				ls, _, lerr := ag.listSessions(ctx, "", "")
+				ls, _, lerr := ag.listSessions(ctx, "", "", "")
 				if lerr != nil {
 					t.Fatal(lerr)
 				}
@@ -2286,7 +2399,7 @@ func TestLiveSessionOps(t *testing.T) {
 	}
 
 	// The store keeps the new title, and deleting removes the session.
-	ls, _, lerr := ag.listSessions(ctx, "", "")
+	ls, _, lerr := ag.listSessions(ctx, "", "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}
@@ -2301,7 +2414,7 @@ func TestLiveSessionOps(t *testing.T) {
 	indexWait := time.After(5 * time.Second)
 	var rows int
 	for !matched {
-		found, _, serr := ag.listSessions(ctx, "", title)
+		found, _, serr := ag.listSessions(ctx, "", title, "")
 		if serr != nil {
 			t.Fatal(serr)
 		}
@@ -2324,7 +2437,7 @@ func TestLiveSessionOps(t *testing.T) {
 	if err := ag.deleteSession(ctx, sid); err != nil {
 		t.Fatal(err)
 	}
-	ls, _, lerr = ag.listSessions(ctx, "", "")
+	ls, _, lerr = ag.listSessions(ctx, "", "", "")
 	if lerr != nil {
 		t.Fatal(lerr)
 	}

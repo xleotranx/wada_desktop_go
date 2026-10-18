@@ -313,13 +313,15 @@ func (a *agent) deleteSession(ctx context.Context, sessionID string) error {
 }
 
 // agentSession is the sidebar row of one real conversation, with the
-// folder it works in — the list spans every project the store knows.
+// folder it works in — the list spans every project the store knows — and
+// what it has spent so far.
 type agentSession struct {
 	id      string
 	title   string
 	dir     string
 	updated int64
 	model   agentModelRef // what it runs on
+	cost    float64       // what its turns have spent, in dollars
 }
 
 // agentModelRef is the model a conversation points at, as stored rows
@@ -599,18 +601,23 @@ func (a *agent) writeWorkspaceFile(ctx context.Context, dir, name string, data [
 	return err
 }
 
-// listSessions reads the conversations, newest first. The server pages
-// them; cursor "" starts at the newest page and a later page picks up
-// where the last one left off, with "" again when the list runs out. A
-// search narrows the whole store to what the titles match, and it pages
+// listSessions reads the conversations, newest first, root ones only: a
+// subagent's session belongs to the conversation that spawned it, not to
+// the sidebar. The server pages them; cursor "" starts at the newest page
+// and a later page picks up where the last one left off, with "" again
+// when the list runs out. A search narrows the whole store to what the
+// titles match, and a directory asks for one folder's own chats; both page
 // the same way.
-func (a *agent) listSessions(ctx context.Context, cursor string, search string) ([]agentSession, string, error) {
-	path := "/session?limit=50"
+func (a *agent) listSessions(ctx context.Context, cursor, search, dir string) ([]agentSession, string, error) {
+	path := "/session?limit=50&parentID=null"
 	if cursor != "" {
 		path += "&cursor=" + url.QueryEscape(cursor)
 	}
 	if search != "" {
 		path += "&search=" + url.QueryEscape(search)
+	}
+	if dir != "" {
+		path += "&directory=" + url.QueryEscape(dir)
 	}
 	raw, err := a.call(ctx, "GET", path, nil)
 	if err != nil {
@@ -619,6 +626,7 @@ func (a *agent) listSessions(ctx context.Context, cursor string, search string) 
 	var out struct {
 		Data []struct {
 			ID       string `json:"id"`
+			ParentID string `json:"parentID"`
 			Title    string `json:"title"`
 			Location struct {
 				Directory string `json:"directory"`
@@ -628,6 +636,7 @@ func (a *agent) listSessions(ctx context.Context, cursor string, search string) 
 				ProviderID string `json:"providerID"`
 				Variant    string `json:"variant"`
 			} `json:"model"`
+			Cost float64 `json:"cost"`
 			Time struct {
 				Created int64 `json:"created"`
 				Updated int64 `json:"updated"`
@@ -642,7 +651,13 @@ func (a *agent) listSessions(ctx context.Context, cursor string, search string) 
 	}
 	all := []agentSession{}
 	for _, s := range out.Data {
+		if s.ParentID != "" {
+			// A build that hands children over anyway: they are the
+			// spawning conversation's business, never the sidebar's.
+			continue
+		}
 		row := agentSession{id: s.ID, title: s.Title, dir: canonDir(s.Location.Directory), updated: s.Time.Updated,
+			cost:  s.Cost,
 			model: agentModelRef{providerID: s.Model.ProviderID, id: s.Model.ID, variant: s.Model.Variant}}
 		if row.updated == 0 {
 			row.updated = s.Time.Created
@@ -745,15 +760,16 @@ func (a *agent) events(ctx context.Context, h func(agentEvent)) error {
 type agentJobKind string
 
 const (
-	jobPrompt agentJobKind = "prompt" // send the user's words
-	jobOpen   agentJobKind = "open"   // open a conversation's stored transcript
-	jobStop   agentJobKind = "stop"   // interrupt the running turn
-	jobAnswer agentJobKind = "answer" // reply to an approval
-	jobRename agentJobKind = "rename" // retitle a conversation
-	jobDelete agentJobKind = "delete" // delete a conversation
-	jobModel  agentJobKind = "model"  // switch the conversation's model
-	jobMore   agentJobKind = "more"   // load the next page of the list
-	jobServer agentJobKind = "server" // dial the server the settings chose
+	jobPrompt  agentJobKind = "prompt"  // send the user's words
+	jobOpen    agentJobKind = "open"    // open a conversation's stored transcript
+	jobStop    agentJobKind = "stop"    // interrupt the running turn
+	jobAnswer  agentJobKind = "answer"  // reply to an approval
+	jobRename  agentJobKind = "rename"  // retitle a conversation
+	jobDelete  agentJobKind = "delete"  // delete a conversation
+	jobModel   agentJobKind = "model"   // switch the conversation's model
+	jobMore    agentJobKind = "more"    // load the next page of the list
+	jobRefresh agentJobKind = "refresh" // read the newest page again
+	jobServer  agentJobKind = "server"  // dial the server the settings chose
 )
 
 // agentJob is one request for the runner: a prompt to send, a conversation
@@ -915,7 +931,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		attemptPins := pins
 		attemptCtx, cancelAttempt := context.WithCancel(ctx)
 		go searchChats(attemptCtx, a.searches, func(ctx context.Context, query string) ([]agentSession, error) {
-			rows, _, err := ag.listSessions(ctx, "", query)
+			rows, _, err := ag.listSessions(ctx, "", query, "")
 			return rows, err
 		}, win.Update, a.acceptSearch)
 		win.Update(func() {
@@ -931,7 +947,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			done <- agentUpdates(attemptCtx, ag.events, win.Update, applyForServer(srv))
 		}()
 		go func() {
-			ls, nxt, lerr := ag.listSessions(ctx, "", "")
+			ls, nxt, lerr := ag.listSessions(ctx, "", "", "")
 			win.Update(func() {
 				if a.activeServer != srv.id {
 					return
@@ -941,16 +957,19 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					booted = true
 					return
 				}
-				// A refill keeps what the user was reading: the list
-				// lands, the transcript stays.
+				// A refill keeps what the user was reading: the newest
+				// page lands at the head of the list, the transcript stays.
 				if lerr == nil {
-					a.scope().sessions = dedupeSessions(a.scope().sessions, ls)
+					a.scope().sessions = freshSessions(a.scope().sessions, ls)
 					a.scope().nextCursor = nxt
 				}
 				a.scope().sessionsLoaded = true
 			})
 			if lerr == nil {
-				extra, err := loadPinnedSessions(attemptCtx, attemptPins, ls, nxt, ag.listSessions)
+				extra, err := loadPinnedSessions(attemptCtx, attemptPins, ls, nxt,
+					func(ctx context.Context, cursor, search string) ([]agentSession, string, error) {
+						return ag.listSessions(ctx, cursor, search, "")
+					})
 				win.Update(func() {
 					if attemptCtx.Err() != nil || a.activeServer != srv.id {
 						return
@@ -1109,7 +1128,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					}
 				})
 			case jobMore:
-				rows, cur, merr := ag.listSessions(ctx, job.cursor, "")
+				rows, cur, merr := ag.listSessions(ctx, job.cursor, "", "")
 				win.Update(func() {
 					if a.activeServer != srv.id {
 						return
@@ -1121,6 +1140,19 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 						a.streamLine("The older chats did not load: " + merr.Error())
 					}
 					a.scope().moreLoading = false
+				})
+			case jobRefresh:
+				// The server's world moved on — a turn of this app's, or
+				// another client's chat: the newest page lands at the head
+				// of the list, and what the user was reading stays.
+				rows, cur, rerr := ag.listSessions(ctx, "", "", "")
+				win.Update(func() {
+					if a.activeServer != srv.id || rerr != nil {
+						return
+					}
+					a.scope().sessions = freshSessions(a.scope().sessions, rows)
+					a.scope().nextCursor = cur
+					a.scope().sessionsLoaded = true
 				})
 			case jobModel:
 				who := job.sid

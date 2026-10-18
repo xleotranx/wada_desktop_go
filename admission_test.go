@@ -12,8 +12,8 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 	for _, session := range []string{"", "ses-existing"} {
 		t.Run("session="+session, func(t *testing.T) {
 			a := newTestApp(t)
-			a.conversation.target.selectSession(session)
-			a.conversation.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
+			a.conversation.target.selectSession(chat.SessionID(session))
+			seedTranscript(a, []chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 			a.conversation.draft = "  Keep this unsent question  "
 			for range cap(commandsOf(a)) {
 				commandsOf(a) <- commandRecord{kind: "refresh"}
@@ -31,8 +31,8 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 			if a.conversation.draft != "  Keep this unsent question  " {
 				t.Fatalf("full queue consumed the unsent draft: %q", a.conversation.draft)
 			}
-			if len(a.conversation.transcript.Rows()) != 1 || a.conversation.transcript.Rows()[0].Kind != chat.KindText || a.conversation.transcript.Rows()[0].Text != "Previous answer" {
-				t.Fatalf("full queue changed the transcript: %+v", a.conversation.transcript.Rows())
+			if a.conversation.transcript.Len() != 1 || a.conversation.transcript.Row(0).Kind != chat.KindText || a.conversation.transcript.Row(0).Text != "Previous answer" {
+				t.Fatalf("full queue changed the transcript: %+v", a.conversation.transcript.Snapshot())
 			}
 			if len(commandsOf(a)) != cap(commandsOf(a)) {
 				t.Fatalf("full queue changed admission count: %d", len(commandsOf(a)))
@@ -44,13 +44,13 @@ func TestFullQueuePreservesUnsentDraftAndTranscript(t *testing.T) {
 func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 	a := newTestApp(t)
 	a.conversation.target.selectSession("ses-existing")
-	a.conversation.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
+	seedTranscript(a, []chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 	a.conversation.draft = "  Send this question  "
 	if !a.send() {
 		t.Fatal("available queue rejected the prompt")
 	}
-	if a.conversation.draft != "" || len(a.conversation.transcript.Rows()) != 2 || a.conversation.transcript.Rows()[1].Kind != chat.KindUser || a.conversation.transcript.Rows()[1].Text != "  Send this question  " {
-		t.Fatalf("accepted prompt did not enter the transcript once: draft=%q, blocks=%+v", a.conversation.draft, a.conversation.transcript.Rows())
+	if a.conversation.draft != "" || a.conversation.transcript.Len() != 2 || a.conversation.transcript.Row(1).Kind != chat.KindUser || a.conversation.transcript.Row(1).Text != "  Send this question  " {
+		t.Fatalf("accepted prompt did not enter the transcript once: draft=%q, blocks=%+v", a.conversation.draft, a.conversation.transcript.Snapshot())
 	}
 	if len(commandsOf(a)) != 1 {
 		t.Fatalf("accepted prompt queued %d jobs, want 1", len(commandsOf(a)))
@@ -62,7 +62,7 @@ func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 	if a.send() {
 		t.Fatal("empty draft reported a prompt accepted")
 	}
-	if len(commandsOf(a)) != 0 || len(a.conversation.transcript.Rows()) != 2 {
+	if len(commandsOf(a)) != 0 || a.conversation.transcript.Len() != 2 {
 		t.Fatal("empty draft submitted or appended the accepted prompt again")
 	}
 }
@@ -70,7 +70,7 @@ func TestAcceptedSendAppendsOnceAndClearsDraft(t *testing.T) {
 func TestClosedAppPreservesUnsentDraft(t *testing.T) {
 	a := newTestApp(t)
 	a.conversation.target.selectSession("ses-existing")
-	a.conversation.transcript.Replace([]chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
+	seedTranscript(a, []chat.Block{{Kind: chat.KindText, Text: "Previous answer"}})
 	a.conversation.draft = "Keep this after closing"
 	a.closeWork()
 	if a.send() {
@@ -79,8 +79,8 @@ func TestClosedAppPreservesUnsentDraft(t *testing.T) {
 	if a.conversation.commandError == "" {
 		t.Fatal("closed app supplied no rejection feedback")
 	}
-	if a.conversation.draft != "Keep this after closing" || len(a.conversation.transcript.Rows()) != 1 || a.conversation.transcript.Rows()[0].Text != "Previous answer" || len(commandsOf(a)) != 0 {
-		t.Fatalf("closed app accepted a prompt: draft=%q blocks=%+v jobs=%d", a.conversation.draft, a.conversation.transcript.Rows(), len(commandsOf(a)))
+	if a.conversation.draft != "Keep this after closing" || a.conversation.transcript.Len() != 1 || a.conversation.transcript.Row(0).Text != "Previous answer" || len(commandsOf(a)) != 0 {
+		t.Fatalf("closed app accepted a prompt: draft=%q blocks=%+v jobs=%d", a.conversation.draft, a.conversation.transcript.Snapshot(), len(commandsOf(a)))
 	}
 }
 

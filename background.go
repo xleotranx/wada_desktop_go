@@ -4,8 +4,10 @@ import "context"
 
 // requestState owns one replaceable operation, including callbacks already
 // posted when cancellation arrives.
+type requestRevision uint64
+
 type requestState struct {
-	revision uint64
+	revision requestRevision
 	cancel   context.CancelFunc
 }
 

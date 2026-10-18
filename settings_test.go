@@ -981,13 +981,13 @@ func TestCopyPairLink(t *testing.T) {
 		t.Fatal("the link did not land despite the clipboard's refusal")
 	}
 	found := false
-	for _, b := range a.conversation.transcript.Rows() {
+	for _, b := range a.conversation.transcript.All() {
 		if strings.Contains(b.Text, "could not reach the clipboard") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("the refusal is not in the transcript: %+v", a.conversation.transcript.Rows())
+		t.Fatalf("the refusal is not in the transcript: %+v", a.conversation.transcript.Snapshot())
 	}
 }
 

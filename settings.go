@@ -50,7 +50,7 @@ func (a *app) openSettings(tab string) {
 // closeSettings returns to the view the rail had selected.
 func (a *app) closeSettings() {
 	a.layout.settingsOpen = false
-	a.layout.serverEditor = nil
+	a.closeServerEditor()
 	a.layout.serverConfirm = nil
 }
 
@@ -258,12 +258,14 @@ func (a *app) serverMenu(c *ui.Context, p palette, s serverConn) {
 
 // addServer opens the editor on a blank remote connection.
 func (a *app) addServer() {
+	a.closeServerEditor()
 	a.layout.serverEditor = &serverEditor{open: true}
 }
 
 // editServer opens the editor on one connection, its password shown as the
 // fields carry it.
 func (a *app) editServer(s serverConn) {
+	a.closeServerEditor()
 	a.layout.serverEditor = &serverEditor{
 		open:     true,
 		id:       s.id,
@@ -301,7 +303,7 @@ func (a *app) saveServerEditor() {
 			st.pairing = true
 			st.note = ""
 			a.runtime.pair(url, func(addr, token string, err error) {
-				if a.layout.serverEditor != st || !st.pairing || st.url != url {
+				if a.layout.serverEditor != st || !st.open || !st.pairing || st.url != url {
 					return // the dialog closed, or another save moved on
 				}
 				st.pairing = false
@@ -324,7 +326,7 @@ func (a *app) saveServerEditor() {
 		// the dial all show and use the same spelling.
 		url = strings.TrimSuffix(base, "/api")
 	}
-	a.layout.serverEditor = nil
+	a.closeServerEditor()
 	if st.id == "" {
 		s := serverConn{id: newServerID(), name: name, url: url, password: st.password,
 			paired: st.paired, pairedAt: st.pairedAt}
@@ -625,7 +627,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.layout.serverEditor = nil })
+				cancel.OnClick(func() { a.closeServerEditor() })
 				cancel.Children(func() {
 					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 				})

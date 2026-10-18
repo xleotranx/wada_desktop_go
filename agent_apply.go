@@ -61,7 +61,7 @@ func restoreBlocks(messages []opencode.Message) []chat.Block {
 				switch part.Type {
 				case "text":
 					if t := strings.TrimSpace(part.Text); t != "" {
-						out = append(out, chat.Block{Kind: chat.KindText, Text: t, Message: m.ID})
+						out = append(out, chat.Block{Kind: chat.KindText, Text: t, Message: chat.MessageID(m.ID)})
 						spent = len(out) - 1
 					}
 				case "tool":
@@ -121,11 +121,11 @@ func (a *app) applyUpdate(ev opencode.Update) {
 	}
 	switch ev.Kind {
 	case opencode.TextStarted:
-		a.conversation.transcript.StartText(ev.Text.MessageID, ev.Text.Ordinal)
+		a.conversation.transcript.StartText(chat.MessageID(ev.Text.MessageID), ev.Text.Ordinal)
 	case opencode.TextDelta:
-		a.conversation.transcript.Delta(ev.Text.MessageID, ev.Text.Ordinal, ev.Text.Delta)
+		a.conversation.transcript.Delta(chat.MessageID(ev.Text.MessageID), ev.Text.Ordinal, ev.Text.Delta)
 	case opencode.TextEnded:
-		a.conversation.transcript.EndText(ev.Text.MessageID, ev.Text.Ordinal, ev.Text.Text)
+		a.conversation.transcript.EndText(chat.MessageID(ev.Text.MessageID), ev.Text.Ordinal, ev.Text.Text)
 	case opencode.ToolStarted:
 		a.conversation.transcript.ToolStarted(ev.Tool.ID, ev.Tool.Name)
 	case opencode.ToolCalled:
@@ -136,9 +136,9 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		a.conversation.transcript.ToolFinished(d.ID, toolDetailLines(run))
 	case opencode.PermissionAsked:
 		d := ev.Permission
-		a.conversation.transcript.Ask(&chat.Permission{ID: d.ID, Session: d.SessionID, Action: d.Action, Resources: d.Resources, Save: d.Save})
+		a.conversation.transcript.Ask(&chat.Permission{ID: chat.PermissionID(d.ID), Session: chat.SessionID(d.SessionID), Action: d.Action, Resources: d.Resources, Save: d.Save})
 	case opencode.ExecutionStarted:
-		a.conversation.transcript.Start(ev.SessionID)
+		a.conversation.transcript.Start(chat.SessionID(ev.SessionID))
 	case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
 		if a.conversation.transcript.Finish() {
 			a.refreshSessions()
@@ -156,7 +156,7 @@ func (a *app) applyUpdate(ev opencode.Update) {
 				a.scope().sessions[i].Title = ev.Title
 			}
 		}
-		if ev.SessionID == a.conversation.target.session {
+		if ev.SessionID == string(a.conversation.target.session) {
 			a.conversation.selected = ev.Title
 		}
 	}
@@ -165,12 +165,14 @@ func (a *app) applyUpdate(ev opencode.Update) {
 // belongs reports whether a session's stream belongs to the conversation
 // on show. A draft accepts no stream until its server session is adopted.
 func (a *app) belongs(sid string) bool {
-	return !a.conversation.target.isDraft() && sid == a.conversation.target.session
+	return !a.conversation.target.isDraft() && sid == string(a.conversation.target.session)
 }
 
 // dropPerm takes an approval card out of the transcript once its reply
 // has landed; the tool row below it carries the story from there.
-func (a *app) dropPerm(requestID string) { a.conversation.transcript.DropPermission(requestID) }
+func (a *app) dropPerm(requestID string) {
+	a.conversation.transcript.DropPermission(chat.PermissionID(requestID))
+}
 
 // dropSession takes one conversation out of the list and, when it was
 // the one on show, leaves a fresh transcript behind.
@@ -184,14 +186,11 @@ func (a *app) dropSession(sid string) {
 			break
 		}
 	}
-	a.conversation.transcript.DropSession(sid)
-	if a.conversation.target.session != sid {
+	a.conversation.transcript.DropSession(chat.SessionID(sid))
+	if string(a.conversation.target.session) != sid {
 		return
 	}
-	a.conversation.target.selectSession("")
-	a.conversation.selected = ""
-	a.freshTranscript()
-	a.workspaceChanged()
+	a.resetDraft("")
 }
 
 // dedupeSessions adds the rows the list does not have yet, keeping what

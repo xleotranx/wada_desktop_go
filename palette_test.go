@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +15,22 @@ import (
 // palette.go means a pane has grown its own theme. Tests may name a
 // literal color to check a pixel; the app's surfaces may not.
 func TestColorsStayInThePalette(t *testing.T) {
-	files, err := filepath.Glob("*.go")
+	var files []string
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != "." && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "build") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".go") {
+			files = append(files, path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

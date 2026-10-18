@@ -1,6 +1,7 @@
 package main
 
 import (
+	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 	"wada-desktop-go/internal/runner"
 )
@@ -14,7 +15,9 @@ func (s runnerSink) Status(status runner.Status) {
 		h.detail = status.Err.Error()
 	}
 	s.a.setHealth(s.a.connections.activeServer, h)
-	s.a.setFacts(s.a.connections.activeServer, status.Facts)
+	if status.State == healthReady {
+		s.a.setFacts(s.a.connections.activeServer, status.Facts)
+	}
 	if status.State == healthDown {
 		s.a.finishCutTurns()
 	}
@@ -29,7 +32,8 @@ func (s runnerSink) Sessions(page runner.Page) {
 		}
 		return
 	}
-	if page.Initial {
+	if !a.connections.booted {
+		a.connections.booted = true
 		a.settleBoot(page.Sessions, page.Cursor, page.Err)
 		return
 	}
@@ -54,7 +58,9 @@ func (s runnerSink) Catalog(catalog runner.Catalog) {
 	} else {
 		s.a.scope().models = catalog.Models
 	}
-	s.a.scope().serverDefault = catalog.Default
+	if catalog.DefaultErr == nil {
+		s.a.scope().serverDefault = catalog.Default
+	}
 	s.a.scope().modelsLoaded = true
 }
 func (s runnerSink) Projects(projects []string) { s.a.scope().projects = projects }
@@ -64,7 +70,7 @@ func (s runnerSink) Updates(events []opencode.Update) {
 	}
 }
 func (s runnerSink) Opened(opened runner.Opened) {
-	if s.a.conversation.target.session != opened.Session || s.a.conversation.target.revision != opened.Revision {
+	if string(s.a.conversation.target.session) != opened.Session || s.a.conversation.target.revision != opened.Revision {
 		return
 	}
 	s.a.freshTranscript()
@@ -73,7 +79,7 @@ func (s runnerSink) Opened(opened runner.Opened) {
 func (s runnerSink) Created(created runner.Created) {
 	a := s.a
 	if a.conversation.target.revision == created.Draft && a.conversation.target.isDraft() {
-		a.conversation.target.selectSession(created.Session.ID)
+		a.conversation.target.selectSession(chat.SessionID(created.Session.ID))
 		a.conversation.selected = "New chat"
 	}
 	a.scope().sessions = dedupeSessions([]opencode.Session{created.Session}, a.scope().sessions)
@@ -84,3 +90,16 @@ func (s runnerSink) Usage(message opencode.Message) { s.a.acceptUsage(message) }
 func (s runnerSink) Notice(message string)          { s.a.streamLine(message) }
 
 var _ runner.Sink = runnerSink{}
+
+func (s runnerSink) Failed(failure runner.Failure) {
+	target := s.a.conversation.target
+	matches := failure.Origin.IsDraft && target.isDraft() && failure.Origin.Draft == target.revision
+	if !failure.Origin.IsDraft {
+		matches = failure.Origin.Session == "" || failure.Origin.Session == target.session
+	}
+	if matches {
+		s.a.streamLine(failure.Text)
+	} else {
+		s.a.conversation.commandError = failure.Text
+	}
+}

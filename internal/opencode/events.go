@@ -63,9 +63,9 @@ const (
 type Update struct {
 	Kind       EventKind
 	SessionID  string
-	Text       TextData
-	Tool       ToolData
-	Permission PermissionData
+	Text       *TextData
+	Tool       *ToolData
+	Permission *PermissionData
 	Model      ModelRef
 	Title      string
 	Bytes      int
@@ -78,13 +78,17 @@ func DecodeEvent(ev Event) (Update, bool, error) {
 	var err error
 	switch u.Kind {
 	case TextStarted, TextDelta, TextEnded:
-		err = json.Unmarshal(ev.Data, &u.Text)
+		payload := new(TextData)
+		err = json.Unmarshal(ev.Data, payload)
+		u.Text = payload
 		u.SessionID = u.Text.SessionID
 		if u.Text.MessageID == "" || u.Text.Ordinal < 0 {
 			err = fmt.Errorf("invalid text identity")
 		}
 	case ToolStarted, ToolCalled, ToolSucceeded:
-		err = json.Unmarshal(ev.Data, &u.Tool)
+		payload := new(ToolData)
+		err = json.Unmarshal(ev.Data, payload)
+		u.Tool = payload
 		u.SessionID = u.Tool.SessionID
 		if u.Tool.ID == "" {
 			err = fmt.Errorf("invalid tool identity")
@@ -95,9 +99,12 @@ func DecodeEvent(ev Event) (Update, bool, error) {
 			}
 			err = json.Unmarshal(u.Tool.Input, &input)
 			u.Tool.Command = input.Command
+			u.Tool.Input = nil
 		}
 	case PermissionAsked:
-		err = json.Unmarshal(ev.Data, &u.Permission)
+		payload := new(PermissionData)
+		err = json.Unmarshal(ev.Data, payload)
+		u.Permission = payload
 		u.SessionID = u.Permission.SessionID
 		if u.Permission.ID == "" || u.Permission.Action == "" {
 			err = fmt.Errorf("invalid permission identity")

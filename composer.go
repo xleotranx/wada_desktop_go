@@ -102,7 +102,7 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 		textField(c, p, &st.draft, "src/main.go")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.layout.attach = nil })
+			cancel.OnClick(func() { a.closeAttach() })
 			cancel.Children(func() {
 				ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
 			})
@@ -148,7 +148,7 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 // modelButton names what the chat runs on: the model's fancy name and
 // its reasoning effort, opening the picker over the catalog.
 func (a *app) modelButton(c *ui.Context, p palette) {
-	ref := a.sessionModelOf(a.conversation.target.session)
+	ref := a.sessionModelOf(string(a.conversation.target.session))
 	name, variants := a.modelLabel(ref)
 	b := ui.ButtonBase(c).Label("Model " + name).Height(28).Radius(999).PaddingX(8).
 		MinWidth(80).Shrink(1).

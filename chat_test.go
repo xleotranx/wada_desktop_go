@@ -44,7 +44,7 @@ func TestBlockKindsRender(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newTestApp(t)
 			a.conversation.target.selectSession("ses_z")
-			a.conversation.transcript.Replace([]chat.Block{tc.block})
+			seedTranscript(a, []chat.Block{tc.block})
 			tt := ui.NewTester(a.view, 1400, 920)
 			tt.Advance(time.Second) // streaming words pace in
 			if !tt.HasText(tc.drawn) {

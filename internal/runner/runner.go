@@ -6,14 +6,27 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 )
+
+type Attempt uint64
 
 type Connection struct {
 	ID, Name, Directory string
 	Config              opencode.Config
 	Pins                []string
 }
+type Origin struct {
+	Session chat.SessionID
+	Draft   uint64
+	IsDraft bool
+}
+type Failure struct {
+	Origin Origin
+	Text   string
+}
+
 type Status struct {
 	State   string
 	Facts   opencode.Facts
@@ -21,12 +34,14 @@ type Status struct {
 	Err     error
 }
 type Page struct {
-	Sessions              []opencode.Session
-	Cursor                string
-	Initial, More, Pinned bool
-	Err                   error
+	Sessions     []opencode.Session
+	Cursor       string
+	More, Pinned bool
+	Err          error
 }
 type Catalog struct {
+	DefaultErr error
+
 	Models  []opencode.Model
 	Default opencode.ModelRef
 	Err     error
@@ -55,6 +70,7 @@ type Sink interface {
 	Deleted(string)
 	Usage(opencode.Message)
 	Notice(string)
+	Failed(Failure)
 }
 
 type Client interface {
@@ -206,9 +222,9 @@ func (r *Runner) Submit(generation Generation, command Command) Admission {
 	}
 }
 
-func (r *Runner) publish(g Generation, attempt uint64, fn func(Sink)) {
+func (r *Runner) publish(g Generation, attempt Attempt, fn func(Sink)) {
 	r.post(func() {
-		if r.ctx.Err() == nil && r.generation.Load() == uint64(g) && r.attempt.Load() == attempt {
+		if r.ctx.Err() == nil && r.generation.Load() == uint64(g) && r.attempt.Load() == uint64(attempt) {
 			fn(r.sink)
 		}
 	})
@@ -224,7 +240,7 @@ func (r *Runner) run() {
 	case current = <-r.controls:
 	}
 	retries := 0
-	initial := true
+
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -239,7 +255,7 @@ func (r *Runner) run() {
 			case next := <-r.controls:
 				current = next
 				retries = 0
-				initial = true
+
 				continue
 			case <-r.options.After(delay):
 			}
@@ -250,7 +266,7 @@ func (r *Runner) run() {
 			select {
 			case current = <-r.controls:
 				retries = 0
-				initial = true
+
 				continue
 			case <-r.ctx.Done():
 				return
@@ -258,7 +274,7 @@ func (r *Runner) run() {
 		}
 		attemptCtx, cancel := context.WithCancel(r.ctx)
 		r.cancelAttempt = cancel
-		attempt := r.attempt.Add(1)
+		attempt := Attempt(r.attempt.Add(1))
 		r.mu.Unlock()
 		owner := current
 		post := func(fn func(Sink)) {
@@ -278,8 +294,8 @@ func (r *Runner) run() {
 			})
 		} else {
 			post(func(s Sink) { s.Status(Status{State: "ready", Address: client.Endpoint(), Facts: client.Info()}) })
-			r.bootstrap(attemptCtx, client, owner.connection, initial, post)
-			initial = false
+			r.bootstrap(attemptCtx, client, owner.connection, post)
+
 			uncertain := r.serve(attemptCtx, client, owner, attempt, post)
 			cancel()
 			client.Stop()
@@ -296,17 +312,17 @@ func (r *Runner) run() {
 		select {
 		case current = <-r.controls:
 			retries = 0
-			initial = true
+
 		default:
 			retries++
 		}
 	}
 }
 
-func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connection, initial bool, post func(func(Sink))) {
+func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connection, post func(func(Sink))) {
 	r.spawn(func() {
 		rows, cursor, err := client.ListSessions(ctx, "", "", "")
-		page := Page{Sessions: rows, Cursor: cursor, Initial: initial, Err: err}
+		page := Page{Sessions: rows, Cursor: cursor, Err: err}
 		post(func(s Sink) { s.Sessions(page) })
 		if err != nil {
 			return
@@ -324,8 +340,8 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 	})
 	r.spawn(func() {
 		models, err := client.ListModels(ctx)
-		def, _ := client.DefaultModel(ctx)
-		post(func(s Sink) { s.Catalog(Catalog{Models: models, Default: def, Err: err}) })
+		def, defaultErr := client.DefaultModel(ctx)
+		post(func(s Sink) { s.Catalog(Catalog{Models: models, Default: def, Err: err, DefaultErr: defaultErr}) })
 	})
 	r.spawn(func() {
 		projects, err := client.ListProjects(ctx)
@@ -335,32 +351,35 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 	})
 }
 
-func (r *Runner) serve(ctx context.Context, client Client, owner selected, attempt uint64, post func(func(Sink))) bool {
+func (r *Runner) serve(ctx context.Context, client Client, owner selected, attempt Attempt, post func(func(Sink))) bool {
 	ended := make(chan error, 1)
 	r.spawn(func() {
 		ended <- batchUpdates(ctx, client.Events, r.post, func(batch []opencode.Update) {
-			if r.ctx.Err() == nil && r.generation.Load() == uint64(owner.generation) && r.attempt.Load() == attempt {
+			if r.ctx.Err() == nil && r.generation.Load() == uint64(owner.generation) && r.attempt.Load() == uint64(attempt) {
 				r.sink.Updates(batch)
 			}
 		}, func(message string) { post(func(s Sink) { s.Notice(message) }) })
 	})
 	var active <-chan struct{}
+	activeMutation := false
 	var session string
 	var draft uint64
 	for {
 		select {
 		case <-ctx.Done():
-			return active != nil
+			return active != nil && activeMutation
 		case <-ended:
-			return active != nil
+			return active != nil && activeMutation
 		case stop := <-r.stops:
 			if stop.generation != owner.generation {
 				continue
 			}
 			command := stop.command.(Stop)
 			r.spawn(func() {
-				if err := client.Interrupt(ctx, command.Session); err != nil {
-					post(func(s Sink) { s.Notice("The turn refused to stop: " + err.Error()) })
+				if err := client.Interrupt(ctx, string(command.Session)); err != nil {
+					post(func(s Sink) {
+						s.Failed(Failure{Origin: Origin{Session: command.Session}, Text: "The turn refused to stop: " + err.Error()})
+					})
 				}
 			})
 		case <-active:
@@ -374,6 +393,7 @@ func (r *Runner) serve(ctx context.Context, client Client, owner selected, attem
 			}
 			finished := make(chan struct{})
 			active = finished
+			activeMutation = mutation(job.command)
 			r.spawn(func() { defer close(finished); r.execute(ctx, client, job.command, &session, &draft, post) })
 		}
 	}
@@ -385,17 +405,22 @@ func availableJobs(jobs <-chan queued, active <-chan struct{}) <-chan queued {
 	return jobs
 }
 func (r *Runner) execute(ctx context.Context, client Client, command Command, session *string, draft *uint64, post func(func(Sink))) {
+	origin := commandOrigin(command)
 	report := func(action string, err error) {
-		if err != nil {
-			post(func(s Sink) {
-				s.Notice(action + ": " + err.Error() + ". The server outcome may be uncertain; inspect before retrying.")
-			})
+		if err == nil {
+			return
 		}
+		message := action + ": " + err.Error()
+		if mutation(command) {
+			message += ". The server outcome may be uncertain; inspect before retrying."
+		}
+		failure := Failure{Origin: origin, Text: message}
+		post(func(s Sink) { s.Failed(failure) })
 	}
 	switch command.kind() {
 	case KindPrompt:
 		c := command.(Prompt)
-		target := c.Session
+		target := string(c.Session)
 		if target == "" {
 			if *session == "" || *draft != c.Draft {
 				id, ref, err := client.CreateSession(ctx, c.Directory)
@@ -419,38 +444,39 @@ func (r *Runner) execute(ctx context.Context, client Client, command Command, se
 			}
 			target = *session
 		}
+		origin = Origin{Session: chat.SessionID(target)}
 		report("The prompt did not complete", client.Prompt(ctx, target, c.Text))
 	case KindOpen:
 		c := command.(Open)
-		messages, err := client.SessionMessages(ctx, c.Session)
+		messages, err := client.SessionMessages(ctx, string(c.Session))
 		if err != nil {
 			report("The conversation did not open", err)
 		} else {
-			post(func(s Sink) { s.Opened(Opened{Session: c.Session, Messages: messages, Revision: c.Revision}) })
+			post(func(s Sink) { s.Opened(Opened{Session: string(c.Session), Messages: messages, Revision: c.Revision}) })
 		}
 	case KindStop: // Stops use the independent control channel.
 	case KindAnswer:
 		c := command.(Answer)
-		err := client.ReplyPermission(ctx, c.Session, c.Request, string(c.Decision))
+		err := client.ReplyPermission(ctx, string(c.Session), string(c.Request), string(c.Decision))
 		if err != nil {
 			report("The approval did not go through", err)
 		} else {
-			post(func(s Sink) { s.Answered(c.Request) })
+			post(func(s Sink) { s.Answered(string(c.Request)) })
 		}
 	case KindRename:
 		c := command.(Rename)
-		report("The rename did not complete", client.RenameSession(ctx, c.Session, c.Title))
+		report("The rename did not complete", client.RenameSession(ctx, string(c.Session), c.Title))
 	case KindDelete:
 		c := command.(Delete)
-		err := client.DeleteSession(ctx, c.Session)
+		err := client.DeleteSession(ctx, string(c.Session))
 		if err != nil {
 			report("The chat did not delete", err)
 		} else {
-			post(func(s Sink) { s.Deleted(c.Session) })
+			post(func(s Sink) { s.Deleted(string(c.Session)) })
 		}
 	case KindSelectModel:
 		c := command.(SelectModel)
-		report("The model did not switch", client.SetModel(ctx, c.Session, c.Model.ProviderID, c.Model.ID, c.Model.Variant))
+		report("The model did not switch", client.SetModel(ctx, string(c.Session), c.Model.ProviderID, c.Model.ID, c.Model.Variant))
 	case KindMore:
 		c := command.(More)
 		rows, cursor, err := client.ListSessions(ctx, c.Cursor, "", "")
@@ -460,7 +486,7 @@ func (r *Runner) execute(ctx context.Context, client Client, command Command, se
 		post(func(s Sink) { s.Sessions(Page{Sessions: rows, Cursor: cursor, Err: err}) })
 	case KindUsage:
 		c := command.(Usage)
-		message, err := client.SessionMessage(ctx, c.Session, c.Message)
+		message, err := client.SessionMessage(ctx, string(c.Session), string(c.Message))
 		if err == nil {
 			post(func(s Sink) { s.Usage(message) })
 		}

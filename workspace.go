@@ -4,10 +4,7 @@ package main
 // reads, then opens the active tool over the conversation or draft on show.
 func (a *app) workspaceChanged() {
 	a.closeBrowse()
-	if a.layout.attach != nil {
-		a.layout.attach.request.stop()
-		a.layout.attach = nil
-	}
+	a.closeAttach()
 	a.refreshWorkspacePolicy()
 	mode := a.changesMode()
 	if a.workspace.files != nil {

@@ -350,3 +350,17 @@ func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
 		t.Fatal("shutdown accepted already-posted callbacks")
 	}
 }
+
+func TestAdmissionRejectsUnsupportedPointerFormsWithoutPanicking(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r.Select(1, connection("server"))
+	for _, command := range []runner.Command{nil, (*runner.Prompt)(nil), &runner.Prompt{Text: "hello"}, runner.Answer{Session: "s", Request: "p", Decision: "invalid"}} {
+		if r.Submit(1, command) != runner.Invalid {
+			t.Fatalf("unsupported command was accepted: %T", command)
+		}
+	}
+}
+
+func (s *recordingSink) Failed(failure runner.Failure) { s.notices = append(s.notices, failure.Text) }

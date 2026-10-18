@@ -230,6 +230,7 @@ const (
 // and tools pane out over the window's material, which shows where nothing
 // is painted.
 func (a *app) view(c *ui.Context) {
+	a.releaseClosedDialogs()
 	p := paletteFor(c)
 	bar := c.TitleBar()
 	// The controls center on the header strip, so the top bar and tools
@@ -321,7 +322,7 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 			ui.Text(c, title).FontSize(14.5).FontWeight(500).TextColor(p.text).
 				Shrink(1).MinWidth(0).SingleLine()
 			if !a.layout.settingsOpen {
-				if cost := a.spentOf(a.conversation.target.session); cost > 0 {
+				if cost := a.spentOf(string(a.conversation.target.session)); cost > 0 {
 					ui.Text(c, spentLine(cost)).FontSize(12.5).TextColor(p.muted).
 						MarginStart(8).Shrink(0).SingleLine()
 				}
@@ -451,10 +452,7 @@ func (a *app) send() bool {
 	}
 	a.conversation.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.conversation.draft})
 	a.conversation.draft = ""
-	if a.layout.attach != nil {
-		a.layout.attach.request.stop()
-		a.layout.attach = nil
-	}
+	a.closeAttach()
 	a.layout.feed.ScrollToEnd()
 	return true
 }
@@ -488,7 +486,7 @@ func (a *app) chatDir() string {
 		return a.conversation.draftProject
 	}
 	for _, s := range a.scope().sessions {
-		if s.ID == a.conversation.target.session {
+		if s.ID == string(a.conversation.target.session) {
 			return s.Directory
 		}
 	}
@@ -499,31 +497,18 @@ func (a *app) chatDir() string {
 // opened off the UI thread as the dialogs document, its answer landing on
 // it through the window, which redraws the sidebar.
 func (a *app) pickFolderDialog(done func(path string)) {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Parent:                     a.runtime.win,
-			Title:                      "Choose a folder",
-			Message:                    "The folder becomes a project in the sidebar.",
-			ButtonLabel:                "Add folder",
-			Directory:                  true,
-			CreateDirectories:          true,
-			TreatPackagesAsDirectories: true,
-		})
-		land := func() {
-			if err != nil {
-				a.streamLine("The folder chooser did not open: " + err.Error())
-				return
-			}
-			if len(paths) > 0 {
-				done(paths[0])
-			}
-		}
-		if a.runtime.win == nil { // headless, as tests run the view
-			mygo.RunOnMain(land)
+	win := a.runtime.win
+	inBackground(a, func(context.Context) ([]string, error) {
+		return mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Choose a folder", Message: "The folder becomes a project in the sidebar.", Directory: true, ButtonLabel: "Add folder", CreateDirectories: true, TreatPackagesAsDirectories: true})
+	}, func(paths []string, err error) {
+		if err != nil {
+			a.streamLine("The folder chooser did not open: " + err.Error())
 			return
 		}
-		a.runtime.win.Update(land)
-	}()
+		if len(paths) > 0 {
+			done(paths[0])
+		}
+	})
 }
 
 // openProjectDialog asks the system for a folder and saves it in the
@@ -531,7 +516,11 @@ func (a *app) pickFolderDialog(done func(path string)) {
 func (a *app) openProjectDialog() {
 	wantsDraft := a.layout.selectAddedProject
 	a.layout.selectAddedProject = false
+	route, draft := a.connections.route, a.conversation.target.revision
 	a.runtime.pickFolder(func(path string) {
+		if a.runtime.closed || a.connections.route != route || (wantsDraft && a.conversation.target.revision != draft) {
+			return
+		}
 		clean, err := a.addFolder(path)
 		if err != nil {
 			a.streamLine("The folder was not added: " + err.Error())
@@ -574,6 +563,7 @@ func (a *app) startChatIn(path string) {
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.
 func (a *app) openAttachDialog() {
+	a.closeAttach()
 	a.layout.attach = &attachState{open: true}
 }
 
@@ -674,7 +664,7 @@ func (a *app) attachQuote(st *attachState, abs string, data []byte) {
 		return
 	}
 	a.conversation.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
-	a.layout.attach = nil
+	a.closeAttach()
 }
 
 // setAsk moves the shell policy of the chat's folder in the workspace
@@ -744,7 +734,7 @@ func (a *app) saveRename() {
 		a.layout.rename = nil
 		return
 	}
-	if a.queueCommand(runner.Rename{Session: st.sid, Title: title}) == runner.Accepted {
+	if a.queueCommand(runner.Rename{Session: chat.SessionID(st.sid), Title: title}) == runner.Accepted {
 		a.layout.rename = nil
 	}
 }
@@ -753,27 +743,27 @@ func (a *app) saveRename() {
 // the words may stand as several rows, and the line belongs under the last
 // of them.
 func (a *app) acceptUsage(m opencode.Message) {
-	a.conversation.transcript.Usage(m.ID, m.Cost, m.Tokens.Output+m.Tokens.Reasoning)
+	a.conversation.transcript.Usage(chat.MessageID(m.ID), m.Cost, m.Tokens.Output+m.Tokens.Reasoning)
 }
 
 // refreshUsage asks the pipe for the stored form of the answer a turn just
 // ended on: what it spent is only in the store. Nothing is asked when no
 // answer of this app's stands to spend anything.
 func (a *app) refreshUsage(sid string) {
-	if sid == "" || sid != a.conversation.target.session {
+	if sid == "" || sid != string(a.conversation.target.session) {
 		return
 	}
 	msg := ""
-	for i := len(a.conversation.transcript.Rows()) - 1; i >= 0; i-- {
-		if a.conversation.transcript.Rows()[i].Message != "" {
-			msg = a.conversation.transcript.Rows()[i].Message
+	for i := a.conversation.transcript.Len() - 1; i >= 0; i-- {
+		if a.conversation.transcript.Row(i).Message != "" {
+			msg = string(a.conversation.transcript.Row(i).Message)
 			break
 		}
 	}
 	if msg == "" {
 		return
 	}
-	a.queueCommand(runner.Usage{Session: sid, Message: msg})
+	a.queueCommand(runner.Usage{Session: chat.SessionID(sid), Message: chat.MessageID(msg)})
 }
 
 // refreshSessions asks the pipe for the newest page of conversations
@@ -872,18 +862,20 @@ func (a *app) modelLabel(ref opencode.ModelRef) (name string, variants []string)
 // — keeps its pick where the composer can show it, and the first words hand
 // it to the chat the server opens.
 func (a *app) chooseModel(m opencode.Model, variant string) {
-	a.layout.pickerOpen = false
 	if a.conversation.target.isDraft() {
+		a.layout.pickerOpen = false
 		a.conversation.draftModel = opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}
 		return
 	}
-	a.queueCommand(runner.SelectModel{Session: a.conversation.target.session, Model: opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}})
+	if a.queueCommand(runner.SelectModel{Session: a.conversation.target.session, Model: opencode.ModelRef{ProviderID: m.ProviderID, ID: m.ID, Variant: variant}}) == runner.Accepted {
+		a.layout.pickerOpen = false
+	}
 }
 
 // pickVariant keeps the conversation's model and changes its reasoning
 // effort.
 func (a *app) pickVariant(variant string) {
-	ref := a.sessionModelOf(a.conversation.target.session)
+	ref := a.sessionModelOf(string(a.conversation.target.session))
 	for _, m := range a.scope().models {
 		if m.ProviderID == ref.ProviderID && m.ID == ref.ID {
 			a.chooseModel(m, variant)
@@ -904,7 +896,7 @@ func (a *app) deleteConfirmed() {
 	if st == nil || st.sid == "" {
 		return
 	}
-	if a.queueCommand(runner.Delete{Session: st.sid}) == runner.Accepted {
+	if a.queueCommand(runner.Delete{Session: chat.SessionID(st.sid)}) == runner.Accepted {
 		a.layout.confirm = nil
 	}
 }
@@ -917,7 +909,7 @@ func (a *app) adoptSession(s opencode.Session) {
 		label = "New chat"
 	}
 	a.conversation.selected = label
-	a.conversation.target.selectSession(s.ID)
+	a.conversation.target.selectSession(chat.SessionID(s.ID))
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
@@ -955,13 +947,20 @@ func (a *app) startNewChat() {
 
 // startDraft opens an empty composer in one workspace.
 func (a *app) startDraft(dir string) {
+	a.connections.booted = true
 	a.layout.settingsOpen = false
-	a.conversation.draftProject = dir
-	a.layout.projectPickerOpen = false
-	a.conversation.selected = ""
+	a.resetDraft(dir)
+}
+
+// resetDraft is the complete conversation reset shared by navigation paths.
+func (a *app) resetDraft(dir string) {
 	a.conversation.target.selectSession("")
+	a.conversation.selected = ""
 	a.conversation.draft = ""
+	a.conversation.draftProject = dir
 	a.conversation.draftModel = opencode.ModelRef{}
+	a.conversation.commandError = ""
+	a.layout.projectPickerOpen = false
 	a.freshTranscript()
 	a.workspaceChanged()
 }

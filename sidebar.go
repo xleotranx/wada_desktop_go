@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
@@ -288,19 +289,19 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 // the store lists first.
 func (a *app) openAnAsk() {
 	a.layout.settingsOpen = false
-	keys := make([]string, 0, len(a.conversation.transcript.Pending()))
+	keys := make([]chat.PermissionID, 0, len(a.conversation.transcript.Pending()))
 	for k := range a.conversation.transcript.Pending() {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	ask := a.conversation.transcript.Pending()[keys[0]]
 	for _, session := range a.scope().sessions {
-		if session.ID == ask.Session {
+		if session.ID == string(ask.Session) {
 			a.openConversation(session)
 			return
 		}
 	}
-	a.openConversation(opencode.Session{ID: ask.Session})
+	a.openConversation(opencode.Session{ID: string(ask.Session)})
 }
 
 // newChatRow starts a fresh chat.
@@ -654,7 +655,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		label = "New chat"
 	}
 	c.Key(key + s.ID)
-	b := a.row(c, p, label, s.ID == a.conversation.target.session)
+	b := a.row(c, p, label, s.ID == string(a.conversation.target.session))
 	b.PaddingStart(indent)
 	b.OnClick(func() {
 		a.openConversation(s)
@@ -665,7 +666,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 	}
 	b.Children(func() {
 		a.textRow(c, p, label)
-		if s.ID == a.conversation.transcript.Busy() {
+		if s.ID == string(a.conversation.transcript.Busy()) {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
 		c.Key(key + "menu:" + s.ID)

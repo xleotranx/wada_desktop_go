@@ -55,17 +55,17 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
 				})
 			} else {
-				count := len(a.conversation.transcript.Rows())
+				count := a.conversation.transcript.Len()
 				if a.turnWorking() {
 					count++
 				}
 				ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().
 					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
 					Rows(func(row ui.ListRow) {
-						if row.Index == len(a.conversation.transcript.Rows()) {
+						if row.Index == a.conversation.transcript.Len() {
 							a.blockRow(row.Context, p, chat.Block{Kind: chat.KindWorking, Text: "Working…"})
 						} else {
-							a.blockRow(row.Context, p, a.conversation.transcript.Rows()[row.Index])
+							a.blockRow(row.Context, p, a.conversation.transcript.Row(row.Index))
 						}
 					})
 			}
@@ -104,9 +104,9 @@ func (a *app) turnWorking() bool {
 	// The newest stream row is the words landing: empty means there is
 	// nothing to read yet, and no stream row at all means the turn sits
 	// between steps.
-	for i := len(a.conversation.transcript.Rows()) - 1; i >= 0; i-- {
-		if a.conversation.transcript.Rows()[i].Kind == chat.KindStream {
-			return strings.TrimSpace(a.conversation.transcript.Rows()[i].Text) == ""
+	for i := a.conversation.transcript.Len() - 1; i >= 0; i-- {
+		if a.conversation.transcript.Row(i).Kind == chat.KindStream {
+			return strings.TrimSpace(a.conversation.transcript.Row(i).Text) == ""
 		}
 	}
 	return true
@@ -116,7 +116,7 @@ func (a *app) turnWorking() bool {
 // settles. IDs are assigned lazily, so opening history visits only what
 // the virtual list needs.
 func (a *app) blockIdentity(i int) any {
-	if i == len(a.conversation.transcript.Rows()) {
+	if i == a.conversation.transcript.Len() {
 		return "working"
 	}
 	return a.conversation.transcript.Identity(i)

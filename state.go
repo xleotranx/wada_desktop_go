@@ -31,6 +31,8 @@ type runtimeState struct {
 
 // connectionsState owns the connections fields coordinated on the UI thread.
 type connectionsState struct {
+	booted bool
+
 	registryRequests map[string]*requestState
 	pairLinks        map[string]mintedLink
 	scopes           map[string]*serverScope

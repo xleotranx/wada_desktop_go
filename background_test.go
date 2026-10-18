@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 )
 
@@ -42,5 +43,20 @@ func (a *app) apply(ev opencode.Event) {
 	update, known, err := opencode.DecodeEvent(ev)
 	if err == nil && known {
 		a.applyUpdate(update)
+	}
+}
+
+func setRowText(a *app, index int, text string) {
+	rows := a.conversation.transcript.Snapshot()
+	rows[index].Text = text
+	seedTranscript(a, rows)
+}
+
+// seedTranscript sets row fixtures independently from the simulated turn.
+func seedTranscript(a *app, rows []chat.Block) {
+	busy := a.conversation.transcript.Busy()
+	a.conversation.transcript.Replace(rows)
+	if busy != "" {
+		a.conversation.transcript.Start(busy)
 	}
 }

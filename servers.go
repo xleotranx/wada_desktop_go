@@ -223,7 +223,7 @@ func redeemPairLink(ctx context.Context, link string) (string, string, error) {
 // do for pickFolder.
 func (a *app) runPair(link string, done func(addr, token string, err error)) {
 	type pairing struct{ addr, token string }
-	runOwned(a, new(requestState), a.runtime.lifetime, func(ctx context.Context) (pairing, error) {
+	runOwned(a, a.registryRequest("pair:editor"), a.runtime.lifetime, func(ctx context.Context) (pairing, error) {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		addr, token, err := redeemPairLink(ctx, link)
@@ -433,8 +433,6 @@ func (a *app) useServer(id string) {
 	// The draft's folder and its model belong to the server's own world:
 	// carried over, they would speak for a folder the next server has
 	// never heard of, or a model it does not offer.
-	a.conversation.draftProject = ""
-	a.conversation.draftModel = opencode.ModelRef{}
 	a.reconnect()
 	a.saveState()
 }
@@ -460,15 +458,14 @@ func (a *app) reconnect() {
 // stay in its scope, so a switch back to one shows its chats while the
 // pipe dials, and its dial refreshes the list.
 func (a *app) clearForSwitch() {
-	a.conversation.selected = ""
-	a.conversation.target.selectSession("")
-	a.freshTranscript()
+	a.connections.booted = false
+	a.resetDraft("")
 	a.layout.pickerOpen = false
 	a.scope().moreLoading = false
 	a.search.searchResults = nil
 	a.search.searchLoading = false
 	a.search.searchVersion++
-	a.workspaceChanged()
+
 }
 
 // dropServer forgets one connection and everything the app kept for it.
@@ -527,6 +524,7 @@ func (a *app) registryRequest(key string) *requestState {
 }
 
 func (a *app) invalidateServerWork(id string) {
+	delete(a.connections.serverFacts, id)
 	for _, prefix := range []string{"probe:", "mint:"} {
 		key := prefix + id
 		if request := a.connections.registryRequests[key]; request != nil {

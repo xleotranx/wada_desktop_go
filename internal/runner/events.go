@@ -12,10 +12,12 @@ import (
 func batchUpdates(ctx context.Context, source func(context.Context, func(opencode.Event)) error,
 	post func(func()), apply func([]opencode.Update), notice func(string)) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	queue := make(chan opencode.Update)
 	done := make(chan error, 1)
+	sourceExited := make(chan struct{})
+	defer func() { cancel(); <-sourceExited }()
 	go func() {
+		defer close(sourceExited)
 		warned := false
 		done <- source(ctx, func(wire opencode.Event) {
 			ev, known, err := opencode.DecodeEvent(wire)

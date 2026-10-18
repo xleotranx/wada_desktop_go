@@ -97,7 +97,7 @@ func TestApprovalRemovalPreservesLiveRows(t *testing.T) {
 	a.dropPerm("ask")
 	a.apply(opencode.Event{Type: "session.text.delta", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
 	a.apply(opencode.Event{Type: "session.text.ended", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
-	if a.blockIdentity(0) != id || a.conversation.transcript.Rows()[0].Text != "kept" || a.conversation.transcript.Rows()[0].Kind != "text" {
+	if a.blockIdentity(0) != id || a.conversation.transcript.Row(0).Text != "kept" || a.conversation.transcript.Row(0).Kind != "text" {
 		t.Fatal("removing an approval changed the live row's identity or content")
 	}
 }
@@ -232,8 +232,8 @@ func TestStreamAllocationBudget(t *testing.T) {
 		a.apply(ev)
 	}
 	runtime.ReadMemStats(&after)
-	if len(a.conversation.transcript.Rows()[0].Text) != 128<<10 {
-		t.Fatalf("answer has %d bytes", len(a.conversation.transcript.Rows()[0].Text))
+	if len(a.conversation.transcript.Row(0).Text) != 128<<10 {
+		t.Fatalf("answer has %d bytes", len(a.conversation.transcript.Row(0).Text))
 	}
 	// The race detector deliberately drops pooled JSON decoders. Allow
 	// their extra allocations; prefix copying would exceed 250 MiB.

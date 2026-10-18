@@ -78,6 +78,7 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 }
 
 func (a *app) selectDraftProject(dir string) {
+	a.connections.booted = true
 	a.conversation.draftProject = dir
 	a.conversation.target.revision++
 	a.layout.projectPickerOpen = false

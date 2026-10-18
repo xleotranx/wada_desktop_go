@@ -21,8 +21,8 @@ func TestView(t *testing.T) {
 
 	// The interface starts clean, with Codex navigation and workspace
 	// tools around an empty transcript waiting for the boot.
-	if a.conversation.selected != "" || len(a.conversation.transcript.Rows()) != 0 {
-		t.Fatalf("initial state: selected %q, %d blocks", a.conversation.selected, len(a.conversation.transcript.Rows()))
+	if a.conversation.selected != "" || a.conversation.transcript.Len() != 0 {
+		t.Fatalf("initial state: selected %q, %d blocks", a.conversation.selected, a.conversation.transcript.Len())
 	}
 	if !tt.HasText("What should we work on?") || !tt.HasText("Codex") ||
 		!tt.HasText("Pinned") || !tt.HasText("Projects") || tt.HasText("Recents") ||
@@ -187,7 +187,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 		t.Fatalf("the row above the answer is not in view: %v", tt.Texts())
 	}
 	// Words that stay on the answer's first line leave the feed alone.
-	a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text = "start with a few more words"
+	setRowText(a, a.conversation.transcript.Len()-1, "start with a few more words")
 	for range 20 {
 		tt.Frame()
 		tt.Advance(16 * time.Millisecond)
@@ -197,7 +197,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 	}
 	// A wrapped line pins the bottom at once, lifting the rows above by
 	// that line rather than gliding over the next half second.
-	a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text = strings.Repeat("word ", 40)
+	setRowText(a, a.conversation.transcript.Len()-1, strings.Repeat("word ", 40))
 	tt.Frame()
 	tt.Advance(time.Second)
 	if after, _ := tt.Find("line 79"); after.Y >= before.Y {
@@ -215,7 +215,7 @@ func TestStreamMarkers(t *testing.T) {
 	a.conversation.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
 	show := func(text string) *ui.Tester {
-		a.conversation.transcript.Replace([]chat.Block{{Kind: "stream", Text: text}})
+		seedTranscript(a, []chat.Block{{Kind: "stream", Text: text}})
 		tt.Frame()
 		tt.Advance(time.Second) // the words pace in
 		return tt
@@ -280,7 +280,7 @@ func TestTranscriptLoader(t *testing.T) {
 
 	// Words landing take the loader's place, and an empty stream row --
 	// the next paragraph starting -- brings it back.
-	a.conversation.transcript.Replace([]chat.Block{{Kind: "stream", Text: "half an answer"}})
+	seedTranscript(a, []chat.Block{{Kind: "stream", Text: "half an answer"}})
 	tt.Frame()
 	tt.Advance(time.Second) // the words pace in
 	if tt.HasText("Working…") || !tt.HasText("half an answer") {
@@ -293,7 +293,7 @@ func TestTranscriptLoader(t *testing.T) {
 	}
 
 	// An approval waiting leaves the decisions to the user, not the agent.
-	a.conversation.transcript.Replace(nil)
+	seedTranscript(a, nil)
 	a.conversation.transcript.Ask(&chat.Permission{ID: "per_1", Session: "ses_z"})
 	tt.Frame()
 	if tt.HasText("Working…") {
@@ -410,7 +410,7 @@ func TestHeaderWiring(t *testing.T) {
 	a.conversation.target.selectSession("ses_seed")
 	a.conversation.selected = "Wired turn"
 	a.conversation.target.selectSession("ses_z")
-	a.conversation.transcript.Replace([]chat.Block{{Kind: "text", Text: "half a thought"}})
+	seedTranscript(a, []chat.Block{{Kind: "text", Text: "half a thought"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The search chip aims the field: the ask stands until a frame gives
@@ -503,7 +503,7 @@ func TestActivityExpands(t *testing.T) {
 	a := newTestApp(t)
 	a.conversation.target.selectSession("ses_seed")
 	a.conversation.selected = "Wired turn"
-	a.conversation.transcript.Replace([]chat.Block{
+	seedTranscript(a, []chat.Block{
 		{Kind: "activity", Text: "Ran command", Icon: "shell", Key: "activity:call_1",
 			Detail: []string{
 				"$ echo hi",
@@ -542,10 +542,10 @@ func TestComposerSends(t *testing.T) {
 	if a.conversation.draft != "" {
 		t.Fatalf("draft %q after Enter", a.conversation.draft)
 	}
-	if len(a.conversation.transcript.Rows()) == 0 || a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Text != "Ship the boundary check" {
-		t.Fatalf("last block %v", a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1])
+	if a.conversation.transcript.Len() == 0 || a.conversation.transcript.Row(a.conversation.transcript.Len()-1).Text != "Ship the boundary check" {
+		t.Fatalf("last block %v", a.conversation.transcript.Row(a.conversation.transcript.Len()-1))
 	}
-	if a.conversation.transcript.Rows()[len(a.conversation.transcript.Rows())-1].Kind != "user" {
+	if a.conversation.transcript.Row(a.conversation.transcript.Len()-1).Kind != "user" {
 		t.Fatal("the sent block is not the user's")
 	}
 
@@ -566,8 +566,8 @@ func TestComposerSends(t *testing.T) {
 	if a.conversation.draft != "" {
 		t.Fatalf("draft %q after the send button", a.conversation.draft)
 	}
-	if n := len(a.conversation.transcript.Rows()); n == 0 || a.conversation.transcript.Rows()[n-1].Text != "One more" {
-		t.Fatalf("last block %v", a.conversation.transcript.Rows()[n-1])
+	if n := a.conversation.transcript.Len(); n == 0 || a.conversation.transcript.Row(n-1).Text != "One more" {
+		t.Fatalf("last block %v", a.conversation.transcript.Row(n-1))
 	}
 	if tt.HasText("Send message") {
 		t.Fatal("send button stayed after sending")

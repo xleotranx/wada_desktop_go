@@ -265,7 +265,7 @@ func (a *app) saveState() {
 }
 
 func (a *app) acceptMetadataWrite(version uint64, err error) {
-	if version != a.preferences.metadataVersion {
+	if a.runtime.closed || version != a.preferences.metadataVersion {
 		return
 	}
 	a.preferences.metadataSaving = false

@@ -29,7 +29,7 @@ func installCommandFixture(a *app, capacity int) {
 		switch c := command.(type) {
 		case runner.Prompt:
 			record.kind = "prompt"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 			record.text = c.Text
 			record.dir = c.Directory
 			record.draft = c.Draft
@@ -38,25 +38,25 @@ func installCommandFixture(a *app, capacity int) {
 			record.variant = c.Model.Variant
 		case runner.Open:
 			record.kind = "open"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 		case runner.Stop:
 			record.kind = "stop"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 		case runner.Answer:
 			record.kind = "answer"
-			record.sid = c.Session
-			record.request = c.Request
+			record.sid = string(c.Session)
+			record.request = string(c.Request)
 			record.decision = string(c.Decision)
 		case runner.Rename:
 			record.kind = "rename"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 			record.text = c.Title
 		case runner.Delete:
 			record.kind = "delete"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 		case runner.SelectModel:
 			record.kind = "model"
-			record.sid = c.Session
+			record.sid = string(c.Session)
 			record.provider = c.Model.ProviderID
 			record.model = c.Model.ID
 			record.variant = c.Model.Variant
@@ -67,8 +67,8 @@ func installCommandFixture(a *app, capacity int) {
 			record.kind = "refresh"
 		case runner.Usage:
 			record.kind = "usage"
-			record.sid = c.Session
-			record.msg = c.Message
+			record.sid = string(c.Session)
+			record.msg = string(c.Message)
 		default:
 			panic("unobserved command")
 		}

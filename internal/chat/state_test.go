@@ -28,7 +28,7 @@ func TestRemovingPermissionsKeepsStreamAndToolTargets(t *testing.T) {
 	s.EndText("message", 1, "Second answer")
 	s.ToolFinished("tool", []string{"ok: all tests passed"})
 
-	rows := s.Rows()
+	rows := s.Snapshot()
 	if len(rows) != 3 || len(s.Pending()) != 0 {
 		t.Fatalf("approval removal left rows=%+v pending=%+v", rows, s.Pending())
 	}
@@ -73,11 +73,11 @@ func TestResetClearsTurnStateWithoutReusingRowIdentities(t *testing.T) {
 	s.ToolCalled("tool", "old command")
 	s.Ask(&chat.Permission{ID: "approval", Session: "session"})
 	oldIDs := map[uint64]bool{}
-	for i := range s.Rows() {
+	for i := range s.All() {
 		oldIDs[s.Identity(i)] = true
 	}
 	s.Reset()
-	if len(s.Rows()) != 0 || len(s.Pending()) != 0 || len(s.Streaming()) != 0 || s.Busy() != "" || s.ToolCommand("tool") != "" {
+	if s.Len() != 0 || len(s.Pending()) != 0 || len(s.Streaming()) != 0 || s.Busy() != "" || s.ToolCommand("tool") != "" {
 		t.Fatal("reset retained transcript or turn state")
 	}
 
@@ -88,10 +88,10 @@ func TestResetClearsTurnStateWithoutReusingRowIdentities(t *testing.T) {
 	s.ToolStarted("tool", "read")
 	s.ToolCalled("tool", "new command")
 	s.Ask(&chat.Permission{ID: "approval", Session: "session"})
-	if len(s.Rows()) != 3 || s.Rows()[0].Text != "new text" || s.ToolCommand("tool") != "new command" || len(s.Pending()) != 1 {
-		t.Fatalf("reset left stale indexes or approvals: %+v", s.Rows())
+	if s.Len() != 3 || s.Row(0).Text != "new text" || s.ToolCommand("tool") != "new command" || len(s.Pending()) != 1 {
+		t.Fatalf("reset left stale indexes or approvals: %+v", s.Snapshot())
 	}
-	for i := range s.Rows() {
+	for i := range s.All() {
 		id := s.Identity(i)
 		if id == 0 || oldIDs[id] || s.Identity(i) != id {
 			t.Fatalf("row %d reused or changed its identity: %d", i, id)
@@ -114,7 +114,7 @@ func TestInterruptedStreamsKeepPartialTextAndReleaseLiveTargets(t *testing.T) {
 	if s.Busy() != "" || len(s.Pending()) != 0 || len(s.Streaming()) != 0 {
 		t.Fatal("interruption retained active turn state")
 	}
-	rows := s.Rows()
+	rows := s.Snapshot()
 	if rows[0].Kind != chat.KindText || rows[0].Text != "Some answer" || s.Identity(0) != firstID {
 		t.Fatalf("interruption lost partial text or row identity: %+v", rows[0])
 	}
@@ -123,7 +123,7 @@ func TestInterruptedStreamsKeepPartialTextAndReleaseLiveTargets(t *testing.T) {
 	}
 	s.Delta("partial", 0, " stale delta")
 	s.EndText("partial", 0, "stale final answer")
-	if s.Rows()[0].Text != "Some answer" {
+	if s.Row(0).Text != "Some answer" {
 		t.Fatal("a late stream result changed an interrupted answer")
 	}
 }
@@ -138,7 +138,7 @@ func TestUsageBelongsToLastRowOfItsMessage(t *testing.T) {
 		chat.Block{Kind: chat.KindText, Message: "later", Text: "Later answer"},
 	)
 	s.Usage("message", 0.25, 123)
-	for i, row := range s.Rows() {
+	for i, row := range s.All() {
 		if i == 3 {
 			if row.Cost != 0.25 || row.Tokens != 123 {
 				t.Fatalf("last message row has no usage: %+v", row)
@@ -148,7 +148,33 @@ func TestUsageBelongsToLastRowOfItsMessage(t *testing.T) {
 		}
 	}
 	s.Usage("unknown", 1, 999)
-	if s.Rows()[4].Cost != 0 || s.Rows()[4].Tokens != 0 {
+	if s.Row(4).Cost != 0 || s.Row(4).Tokens != 0 {
 		t.Fatal("unknown usage was attached to the latest unrelated answer")
+	}
+}
+
+func TestReadViewsCannotMutateOwnedRowsOrPermissions(t *testing.T) {
+	var s chat.State
+	s.Append(chat.Block{Kind: chat.KindText, Text: "kept"})
+	s.Ask(&chat.Permission{ID: "approval", Session: "session", Resources: []string{"keep"}})
+	rows := s.Snapshot()
+	rows[0].Text = "changed"
+	rows[1].Request.Resources[0] = "changed"
+	pending := s.Pending()
+	delete(pending, "approval")
+	if s.Row(0).Text != "kept" || s.Pending()["approval"].Resources[0] != "keep" {
+		t.Fatal("read views leaked mutable state")
+	}
+}
+
+func TestReplacingTranscriptInvalidatesLiveIndexes(t *testing.T) {
+	var s chat.State
+	s.StartText("old", 0)
+	s.Delta("old", 0, "old")
+	s.Replace([]chat.Block{{Kind: chat.KindText, Text: "replacement"}})
+	s.Delta("old", 0, " stale")
+	s.EndText("old", 0, "stale")
+	if s.Row(0).Text != "replacement" {
+		t.Fatal("replaced transcript accepted an old stream")
 	}
 }

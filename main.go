@@ -223,6 +223,7 @@ type app struct {
 
 	// The agent runner feeds the jobs; the rest is its bookkeeping of
 	// what is streaming where.
+	route      uint64 // UI-owned generation of the active connection
 	jobs       chan agentJob
 	live       map[string]int    // streaming row by message id and ordinal
 	toolNames  map[string]string // tool call id -> tool name
@@ -596,19 +597,13 @@ func (a *app) send() {
 // settings enabled.
 func (a *app) agentSend(text string) {
 	def := a.draftModelRef()
-	select {
-	case a.jobs <- agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
-		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
+		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant})
 }
 
 // stopTurn asks the runner to interrupt the running conversation.
 func (a *app) stopTurn() {
-	select {
-	case a.jobs <- agentJob{kind: jobStop, sid: a.busySession}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobStop, sid: a.busySession})
 }
 
 // answerPerm sends the decision for one approval request; the runner
@@ -617,10 +612,7 @@ func (a *app) answerPerm(perm *agentPerm, decision string) {
 	if perm == nil {
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobAnswer, sid: perm.session, request: perm.id, decision: decision}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobAnswer, sid: perm.session, request: perm.id, decision: decision})
 }
 
 // chatDir is the directory the open conversation works in.
@@ -709,9 +701,7 @@ func (a *app) startChatIn(path string) {
 		}
 		path = clean
 	}
-	a.startNewChat()
-	a.draftProject = path
-	a.projectPickerOpen = false
+	a.startDraft(path)
 	delete(a.projectCollapsed, path)
 }
 
@@ -873,10 +863,7 @@ func (a *app) saveRename() {
 	if st.sid == "" || title == "" || title == a.titleOf(st.sid) {
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobRename, sid: st.sid, text: title}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobRename, sid: st.sid, text: title})
 }
 
 // acceptUsage gives one stored turn's answer what the store says it spent:
@@ -913,20 +900,14 @@ func (a *app) refreshUsage(sid string) {
 	if msg == "" {
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobUsage, sid: sid, msg: msg}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobUsage, sid: sid, msg: msg})
 }
 
 // refreshSessions asks the pipe for the newest page of conversations
 // again, after a turn: the list's order and the chat's spending moved, and
 // another client may have written a chat of its own meanwhile.
 func (a *app) refreshSessions() {
-	select {
-	case a.jobs <- agentJob{kind: jobRefresh}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobRefresh})
 }
 
 // usageLine words what one answer spent: the money it cost and the tokens
@@ -1023,11 +1004,8 @@ func (a *app) chooseModel(m agentModel, variant string) {
 		a.draftModel = agentModelRef{providerID: m.providerID, id: m.id, variant: variant}
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
-		provider: m.providerID, model: m.id, variant: variant}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
+		provider: m.providerID, model: m.id, variant: variant})
 }
 
 // pickVariant keeps the conversation's model and changes its reasoning
@@ -1055,10 +1033,7 @@ func (a *app) deleteConfirmed() {
 	if st == nil || st.sid == "" {
 		return
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobDelete, sid: st.sid}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobDelete, sid: st.sid})
 }
 
 // adoptSession settles the view onto one conversation: what a conversation
@@ -1073,12 +1048,7 @@ func (a *app) adoptSession(s agentSession) {
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
-	switch a.browserTool {
-	case "Changes":
-		a.openChanges(a.changesMode())
-	case "Files":
-		a.openFiles()
-	}
+	a.workspaceChanged()
 }
 
 // settleBoot finishes the boot: the conversation list lands and the view
@@ -1091,10 +1061,7 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 	}
 	if lerr == nil && len(ls) > 0 {
 		a.adoptSession(ls[0])
-		select {
-		case a.jobs <- agentJob{kind: jobOpen, sid: ls[0].id}:
-		default:
-		}
+		a.queueJob(agentJob{kind: jobOpen, sid: ls[0].id})
 	} else {
 		a.freshTranscript()
 	}
@@ -1104,17 +1071,23 @@ func (a *app) settleBoot(ls []agentSession, next string, lerr error) {
 // startNewChat clears the view; the conversation itself comes into being
 // with the first words, so a new chat is not one until it is spoken in.
 func (a *app) startNewChat() {
-	a.settingsOpen = false
 	dir := a.chatDir()
-	a.draftProject = ""
+	projectDir := ""
 	// The folder the view sat on carries into the draft, whatever server
 	// lists it as a project row.
 	for _, project := range a.projectDirectories() {
 		if dir == project {
-			a.draftProject = dir
+			projectDir = dir
 			break
 		}
 	}
+	a.startDraft(projectDir)
+}
+
+// startDraft opens an empty composer in one workspace.
+func (a *app) startDraft(dir string) {
+	a.settingsOpen = false
+	a.draftProject = dir
 	a.draftVersion++
 	a.projectPickerOpen = false
 	a.selected = ""
@@ -1122,6 +1095,7 @@ func (a *app) startNewChat() {
 	a.draft = ""
 	a.draftModel = agentModelRef{}
 	a.freshTranscript()
+	a.workspaceChanged()
 }
 
 // freshTranscript empties the transcript for another conversation,

@@ -139,6 +139,9 @@ func permissionLevel(dir string) (string, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "", fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
 	}
+	if doc == nil {
+		return "", fmt.Errorf("opencode.json must contain a JSON object")
+	}
 	return shellGate(doc), nil
 }
 
@@ -223,38 +226,36 @@ func clearV1BashStar(doc map[string]any) {
 // asking, it does not lift a block. It says whether the config came out
 // different.
 func setShellGate(doc map[string]any, ask bool) bool {
-	want := "full"
-	if ask {
-		want = "ask"
-	}
 	rules := permissionRules(doc)
-	hasV2 := false
+	askCount, askIndex := 0, -1
 	kept := make([]any, 0, len(rules)+1)
-	for _, raw := range rules {
+	if ask {
+		// Last-match policies leave specific restrictions and exceptions
+		// after the general rule, so the toggle cannot override them.
+		kept = append(kept, map[string]any{"action": "shell", "resource": "*", "effect": "ask"})
+	}
+	for i, raw := range rules {
 		if action, resource, effect, ok := ruleFields(raw); ok &&
 			action == "shell" && resource == "*" && effect == "ask" {
-			hasV2 = true
+			askCount++
+			askIndex = i
 			continue
 		}
 		kept = append(kept, raw)
 	}
 	star, spelled := v1BashStar(doc)
 	hasV1 := spelled && star == "ask"
-	if !hasV1 && !hasV2 && !ask {
+	if !hasV1 && askCount == 0 && !ask {
 		// Nothing of the app's to take out, and nothing to add: a config
 		// another rule holds back is not this toggle's to change.
 		return false
 	}
-	if !hasV1 && hasV2 == ask && shellGate(doc) == want {
-		// The app's rule already says what it should, the gate reads it,
-		// and no older spelling of it is left to migrate: no write.
+	if !hasV1 && ask && askCount == 1 && askIndex == 0 {
+		// One leading rule already preserves the user's precedence.
 		return false
 	}
 	if hasV1 {
 		clearV1BashStar(doc)
-	}
-	if ask {
-		kept = append(kept, map[string]any{"action": "shell", "resource": "*", "effect": "ask"})
 	}
 	if len(kept) == 0 {
 		delete(doc, "permissions")
@@ -270,9 +271,16 @@ func setShellGate(doc map[string]any, ask bool) bool {
 func setPermissionAsk(dir string, ask bool) error {
 	pth := filepath.Join(dir, "opencode.json")
 	doc := map[string]any{}
-	if raw, err := os.ReadFile(pth); err == nil {
+	raw, err := os.ReadFile(pth)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			return fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
+		}
+		if doc == nil {
+			return fmt.Errorf("opencode.json must contain a JSON object")
 		}
 	}
 	if !setShellGate(doc, ask) {
@@ -339,8 +347,5 @@ func remoteSetPermissionAsk(ctx context.Context, cfg serverConn, dir string, ask
 	if err := ag.writeWorkspaceFile(ctx, dir, "opencode.json", out); err != nil {
 		return "", err
 	}
-	if ask {
-		return "ask", nil
-	}
-	return "full", nil
+	return shellGate(doc), nil
 }

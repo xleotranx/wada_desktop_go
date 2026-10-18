@@ -1,0 +1,59 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
+
+func TestWorkspaceToolsFollowDraftProject(t *testing.T) {
+	for _, tool := range []string{"Files", "Changes"} {
+		t.Run(tool, func(t *testing.T) {
+			srv, _ := filesServer(t)
+			if tool == "Changes" {
+				// Changes asks the version-control endpoints instead.
+				srv, _ = changesServer(t)
+			}
+			a := newApp()
+			a.servers = append(a.servers, serverConn{id: "box", name: "Box", url: srv.URL})
+			a.activeServer = "box"
+			a.scope().projects = []string{"/srv/app", "/srv/app/src"}
+			a.startChatIn("/srv/app")
+			a.openTool(tool)
+			tt := ui.NewTester(a.view, 1400, 920)
+			if err := tt.Click("Choose project"); err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.Click("Use project src"); err != nil {
+				t.Fatal(err)
+			}
+			assertDir := func(want string) {
+				t.Helper()
+				got := ""
+				if tool == "Files" && a.files != nil {
+					got = a.files.location
+				} else if tool == "Changes" && a.changes != nil {
+					got = a.changes.dir
+				}
+				if got != want {
+					t.Fatalf("%s reads %q, want %q", tool, got, want)
+				}
+			}
+			assertDir("/srv/app/src")
+			a.reloadBrowserPage()
+			assertDir("/srv/app/src")
+			a.selectDraftProject("")
+			tt.Frame()
+			assertDir("")
+			if !tt.HasText("no folder on the server") {
+				t.Fatalf("folderless tool still shows old data: %v", tt.Texts())
+			}
+			a.startChatIn("/srv/app")
+			assertDir("/srv/app")
+			a.servers = append(a.servers, serverConn{id: "other", name: "Other", url: srv.URL})
+			a.useServer("other")
+			tt.Frame()
+			assertDir("")
+		})
+	}
+}

@@ -909,6 +909,7 @@ const (
 // approval to answer, a list change to make or the server to dial.
 type agentJob struct {
 	kind     agentJobKind // what to do; one of the job* constants
+	route    uint64       // the connection generation this request belongs to
 	sid      string       // the session to act on; empty for a new one
 	dir      string       // where a new chat should work; empty for the app's
 	text     string       // the user's words or a new title, for jobPrompt and jobRename
@@ -944,6 +945,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 	})
 
 	pins := pinnedIDs
+	var route uint64
 	var last *agent
 	booted := false // the first refill of a server settles onto its newest chat
 	switching := false
@@ -1017,7 +1019,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					break waiting
 				case job := <-jobs:
 					if job.kind == jobServer {
-						cfg, pins = job.server, job.pins
+						cfg, pins, route = job.server, job.pins, job.route
 						switching = true
 						timer.Stop()
 						break waiting
@@ -1197,6 +1199,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// handle runs one job against the connected server; it reports the
 		// one job that asks for another server instead.
 		handle := func(job agentJob) bool {
+			if job.kind != jobServer && job.route != route {
+				return false // the request belongs to a connection left behind
+			}
 			switch job.kind {
 			case jobOpen:
 				msgs, oerr := ag.sessionMessages(ctx, job.sid)
@@ -1304,7 +1309,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					say(srv.id, "The agent could not take that: "+perr.Error())
 				}
 			case jobServer:
-				cfg, pins = job.server, job.pins
+				cfg, pins, route = job.server, job.pins, job.route
 				switching = true
 				return true
 			}
@@ -1313,10 +1318,8 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 
 		alive := true
 		for alive {
-			var job agentJob
-			if len(stash) > 0 {
-				job, stash = stash[0], stash[1:]
-			} else {
+			job, ready := pollAgentJob(jobs, &stash)
+			if !ready {
 				select {
 				case <-ctx.Done():
 					cancelAttempt()

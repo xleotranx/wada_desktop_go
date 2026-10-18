@@ -127,8 +127,7 @@ func (a *app) filesList(rel string) {
 		}
 		return ag.listDir(ctx, location, rel)
 	}, func(entries []fsEntry, err error) {
-		st := a.files
-		if st == nil || st.location != location {
+		if a.files != st || st.location != location {
 			return
 		}
 		st.loading[rel] = false
@@ -164,8 +163,7 @@ func (a *app) filesFind() {
 		}
 		return ag.findFiles(ctx, location, query, filesFound)
 	}, func(entries []fsEntry, err error) {
-		st := a.files
-		if st == nil || st.location != location || st.query != query {
+		if a.files != st || st.location != location || st.query != query {
 			return // another search moved on
 		}
 		st.finding = false
@@ -194,8 +192,7 @@ func (a *app) filesRead(rel string) {
 		}
 		return ag.readWorkspaceFile(ctx, location, rel)
 	}, func(data []byte, err error) {
-		st := a.files
-		if st == nil || st.location != location || st.path != rel {
+		if a.files != st || st.location != location || st.path != rel {
 			return
 		}
 		if err != nil {

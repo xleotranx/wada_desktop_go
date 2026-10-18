@@ -335,9 +335,9 @@ func (a *app) apply(ev agentEvent) {
 }
 
 // belongs reports whether a session's stream belongs to the conversation
-// on show: only when the transcripts match, or when nothing real is open.
+// on show. A draft accepts no stream until its server session is adopted.
 func (a *app) belongs(sid string) bool {
-	return a.selectedSession == "" || sid == "" || sid == a.selectedSession
+	return a.selectedSession != "" && sid == a.selectedSession
 }
 
 // dropPerm takes an approval card out of the transcript once its reply
@@ -388,6 +388,7 @@ func (a *app) dropSession(sid string) {
 	a.selectedSession = ""
 	a.selected = ""
 	a.freshTranscript()
+	a.workspaceChanged()
 }
 
 // dedupeSessions adds the rows the list does not have yet, keeping what

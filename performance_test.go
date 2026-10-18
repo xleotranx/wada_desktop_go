@@ -175,12 +175,13 @@ func TestActivitySurvivesVirtualScrolling(t *testing.T) {
 
 func TestApprovalRemovalPreservesLiveRows(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "s"
 	a.apply(agentEvent{Type: "permission.asked", Data: []byte(`{"id":"ask","sessionID":"s","action":"shell"}`)})
-	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"assistantMessageID":"m","ordinal":0}`)})
+	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
 	id := a.blockIdentity(1)
 	a.dropPerm("ask")
-	a.apply(agentEvent{Type: "session.text.delta", Data: []byte(`{"assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
-	a.apply(agentEvent{Type: "session.text.ended", Data: []byte(`{"assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
+	a.apply(agentEvent{Type: "session.text.delta", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"kept"}`)})
+	a.apply(agentEvent{Type: "session.text.ended", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"text":"kept"}`)})
 	if a.blockIdentity(0) != id || a.blocks[0].text != "kept" || a.blocks[0].kind != "text" {
 		t.Fatal("removing an approval changed the live row's identity or content")
 	}
@@ -306,8 +307,9 @@ func TestToolTailReleasesOutput(t *testing.T) {
 
 func TestStreamAllocationBudget(t *testing.T) {
 	a := newApp()
-	a.apply(agentEvent{Type: "session.text.started", Data: json.RawMessage(`{"assistantMessageID":"m","ordinal":0}`)})
-	ev := agentEvent{Type: "session.text.delta", Data: json.RawMessage(`{"assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
+	a.selectedSession = "s"
+	a.apply(agentEvent{Type: "session.text.started", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
+	ev := agentEvent{Type: "session.text.delta", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	for range 4096 {

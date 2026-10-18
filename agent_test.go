@@ -188,6 +188,7 @@ func TestAgentEventsStream(t *testing.T) {
 // activity row per tool call with its detail.
 func TestApplyTurn(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "s"
 	upTo := len(a.blocks)
 	step := func(typ, data string) {
 		a.apply(agentEvent{Type: typ, Data: json.RawMessage(data)})
@@ -198,18 +199,18 @@ func TestApplyTurn(t *testing.T) {
 	if last.kind != "stream" || last.text != "" {
 		t.Fatalf("preview row kind %q text %q", last.kind, last.text)
 	}
-	step("session.text.delta", `{"assistantMessageID":"msg_a","ordinal":0,"delta":"PONG"}`)
-	step("session.text.delta", `{"assistantMessageID":"msg_a","ordinal":0,"delta":" now"}`)
+	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":"PONG"}`)
+	step("session.text.delta", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"delta":" now"}`)
 	if last := a.blocks[len(a.blocks)-1]; last.text != "PONG now" {
 		t.Fatalf("preview text %q", last.text)
 	}
-	step("session.text.ended", `{"assistantMessageID":"msg_a","ordinal":0,"text":"PONG now"}`)
+	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":0,"text":"PONG now"}`)
 	if last := a.blocks[len(a.blocks)-1]; last.kind != "text" || last.text != "PONG now" {
 		t.Fatalf("settled block kind %q text %q", last.kind, last.text)
 	}
 	// A second paragraph of the same answer is its own row.
 	step("session.text.started", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1}`)
-	step("session.text.ended", `{"assistantMessageID":"msg_a","ordinal":1,"text":"Also, hi again."}`)
+	step("session.text.ended", `{"sessionID":"s","assistantMessageID":"msg_a","ordinal":1,"text":"Also, hi again."}`)
 	if last := a.blocks[len(a.blocks)-1]; last.kind != "text" || last.text != "Also, hi again." {
 		t.Fatalf("second block kind %q text %q", last.kind, last.text)
 	}
@@ -830,6 +831,7 @@ func TestAgentInterruptAndReply(t *testing.T) {
 // does once its reply lands.
 func TestApplyPermission(t *testing.T) {
 	a := newApp()
+	a.selectedSession = "s"
 	upTo := len(a.blocks)
 	step := func(typ, data string) {
 		a.apply(agentEvent{Type: typ, Data: json.RawMessage(data)})

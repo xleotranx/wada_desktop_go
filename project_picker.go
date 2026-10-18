@@ -84,4 +84,5 @@ func (a *app) selectDraftProject(dir string) {
 	// The chat that grows from this draft belongs in view.
 	delete(a.projectCollapsed, dir)
 	a.freshTranscript()
+	a.workspaceChanged()
 }

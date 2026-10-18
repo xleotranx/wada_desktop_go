@@ -542,10 +542,18 @@ func (a *app) useServer(id string) {
 // reconnect dials the active server again, as its row's action and a
 // switch both do.
 func (a *app) reconnect() {
+	a.route++
 	a.clearForSwitch()
-	select {
-	case a.jobs <- agentJob{kind: jobServer, server: a.activeServerConn(), pins: slices.Clone(a.pinOrder)}:
-	default:
+	// Producers run on the UI thread. Emptying obsolete work reserves a
+	// slot for the switch; all requests for the new route follow it.
+	for {
+		select {
+		case <-a.jobs:
+		default:
+			a.jobs <- agentJob{kind: jobServer, route: a.route,
+				server: a.activeServerConn(), pins: slices.Clone(a.pinOrder)}
+			return
+		}
 	}
 }
 
@@ -563,6 +571,7 @@ func (a *app) clearForSwitch() {
 	a.searchResults = nil
 	a.searchLoading = false
 	a.searchVersion++
+	a.workspaceChanged()
 }
 
 // dropServer forgets one connection and everything the app kept for it.

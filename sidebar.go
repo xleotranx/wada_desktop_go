@@ -306,10 +306,7 @@ func (a *app) openAnAsk() {
 		a.selected = ""
 		a.freshTranscript()
 	}
-	select {
-	case a.jobs <- agentJob{kind: jobOpen, sid: ask.session}:
-	default:
-	}
+	a.queueJob(agentJob{kind: jobOpen, sid: ask.session})
 }
 
 // newChatRow starts a fresh chat.
@@ -665,10 +662,7 @@ func (a *app) chatRow(c *ui.Context, p palette, s agentSession, key string, inde
 	b.PaddingStart(indent)
 	b.OnClick(func() {
 		a.adoptSession(s)
-		select {
-		case a.jobs <- agentJob{kind: jobOpen, sid: s.id}:
-		default:
-		}
+		a.queueJob(agentJob{kind: jobOpen, sid: s.id})
 	})
 	tint := p.faint
 	if b.Hovered() {

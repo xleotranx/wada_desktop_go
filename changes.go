@@ -93,8 +93,7 @@ func (a *app) openChanges(mode string) {
 		defer cancel()
 		return readChanges(ctx, cfg, dir, mode)
 	}, func(read changesRead, err error) {
-		st := a.changes
-		if st == nil || st.dir != read.dir || st.mode != read.mode {
+		if a.changes != st || st.dir != read.dir || st.mode != read.mode {
 			return // another read moved on
 		}
 		st.loading = false

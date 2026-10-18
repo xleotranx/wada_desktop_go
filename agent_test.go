@@ -306,28 +306,38 @@ func TestAgentSessions(t *testing.T) {
 }
 
 // TestAgentProjects reads the folders a server works in: one row per
-// project it knows, and a directory named twice turns up once.
+// project it knows, and a directory named twice turns up once. opencode
+// hands the list over behind its data envelope or bare; both read alike.
 func TestAgentProjects(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":[` +
+	shapes := []string{
+		`{"data":[` +
 			`{"id":"p1","canonical":"/srv/app"},` +
 			`{"id":"p2","canonical":"/srv/docs"},` +
 			`{"id":"p3","canonical":"/srv/app/"}` +
-			`]}`))
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	dirs, err := a.listProjects(ctx)
-	if err != nil {
-		t.Fatal(err)
+			`]}`,
+		`[` +
+			`{"id":"p1","canonical":"/srv/app"},` +
+			`{"id":"p2","canonical":"/srv/docs"},` +
+			`{"id":"p3","canonical":"/srv/app/"}` +
+			`]`,
 	}
-	if len(dirs) != 2 || dirs[0] != "/srv/app" || dirs[1] != "/srv/docs" {
-		t.Fatalf("projects %+v", dirs)
+	for _, body := range shapes {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(body))
+		})
+		srv := httptest.NewServer(mux)
+		a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		dirs, err := a.listProjects(ctx)
+		cancel()
+		srv.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(dirs) != 2 || dirs[0] != "/srv/app" || dirs[1] != "/srv/docs" {
+			t.Fatalf("projects %+v", dirs)
+		}
 	}
 }
 

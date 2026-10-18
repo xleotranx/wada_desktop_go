@@ -399,11 +399,24 @@ func (a *app) pinnedSessions() []agentSession {
 
 // projectDirectories is the folder list the sidebar and the picker offer,
 // pinned ones first. The local server's are the folders the user added;
-// a remote server's come with its project list on every dial.
+// a remote server's come with its project list on every dial, and its
+// chats name folders the list may not know — a worktree copy, a folder
+// it dropped — which step up as the rows their chats sit under.
 func (a *app) projectDirectories() []string {
 	projects := append([]string(nil), a.projects...)
 	if !a.localActive() {
 		projects = append([]string(nil), a.scope().projects...)
+		seen := map[string]bool{}
+		for _, dir := range projects {
+			seen[filepath.Clean(dir)] = true
+		}
+		for _, s := range a.scope().sessions {
+			if s.dir == "" || seen[filepath.Clean(s.dir)] {
+				continue
+			}
+			seen[filepath.Clean(s.dir)] = true
+			projects = append(projects, s.dir)
+		}
 	}
 	sort.SliceStable(projects, func(i, j int) bool { return a.projectPins[projects[i]] && !a.projectPins[projects[j]] })
 	return projects

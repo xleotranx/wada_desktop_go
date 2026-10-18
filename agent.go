@@ -365,23 +365,32 @@ func (a *agent) listModels(ctx context.Context) ([]agentModel, error) {
 
 // listProjects reads the folders the server works in: one directory per
 // project it knows, the way its project list says them, kept in the order
-// it reports.
+// it reports. opencode answers the list behind its data envelope or as a
+// bare array, depending on the build; both read the same.
 func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 	raw, err := a.call(ctx, "GET", "/project", nil)
 	if err != nil {
 		return nil, err
+	}
+	var rows []struct {
+		Canonical string `json:"canonical"`
 	}
 	var out struct {
 		Data []struct {
 			Canonical string `json:"canonical"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
+	err = json.Unmarshal(raw, &rows)
+	if err != nil {
+		err = json.Unmarshal(raw, &out)
+		rows = out.Data
+	}
+	if err != nil {
+		return nil, fmt.Errorf("the project list did not decode")
 	}
 	seen := map[string]bool{}
 	dirs := []string{}
-	for _, p := range out.Data {
+	for _, p := range rows {
 		dir := canonDir(p.Canonical)
 		if dir == "" || seen[dir] {
 			continue

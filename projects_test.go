@@ -348,9 +348,21 @@ func TestRemoteServerListsItsProjects(t *testing.T) {
 		t.Fatalf("the server chat is not nested under its folder: %v", tt.Texts())
 	}
 
-	// Before its first dial lands, the server has nothing to list.
+	// The server's list dropped a folder its chats still work in: the
+	// chat's own folder steps up as the row, here and in the picker.
 	a.scope().projects = nil
 	a.projectFilter = "app"
+	tt.Frame()
+	if !tt.HasText("Use project app") {
+		t.Fatalf("the chat's folder did not offer itself: %v", tt.Texts())
+	}
+	if !tt.HasText("Remote wiring") {
+		t.Fatalf("the chat lost its row: %v", tt.Texts())
+	}
+
+	// Before its first dial lands, the server has nothing to list.
+	a.scope().sessions = nil
+	a.projectFilter = ""
 	tt.Frame()
 	if !tt.HasText("No projects match") {
 		t.Fatalf("the empty picker read wrong: %v", tt.Texts())

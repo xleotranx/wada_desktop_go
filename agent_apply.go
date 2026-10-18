@@ -59,11 +59,13 @@ func restoreBlocks(messages []agentMessage) []block {
 				out = append(out, block{kind: kindUser, text: t})
 			}
 		case "assistant":
+			spent := -1 // the message's last text part, which words its spending
 			for i, part := range m.Content {
 				switch part.Type {
 				case "text":
 					if t := strings.TrimSpace(part.Text); t != "" {
-						out = append(out, block{kind: kindText, text: t})
+						out = append(out, block{kind: kindText, text: t, msg: m.ID})
+						spent = len(out) - 1
 					}
 				case "tool":
 					label, icon := toolLook(part.Name)
@@ -81,6 +83,12 @@ func restoreBlocks(messages []agentMessage) []block {
 					out = append(out, block{kind: kindActivity, text: label, icon: icon,
 						key: "activity:" + id, detail: commandDetail(toolDetailLines(run)...)})
 				}
+			}
+			// One answer can hold several text parts; the spending stands
+			// under the last of them, where the message ends.
+			if spent >= 0 {
+				out[spent].cost = m.Cost
+				out[spent].tokens = m.Tokens.Output + m.Tokens.Reasoning
 			}
 		}
 	}
@@ -186,7 +194,7 @@ func (a *app) apply(ev agentEvent) {
 		}
 		key := d.MessageID + ":" + strconv.Itoa(d.Ordinal)
 		a.live[key] = len(a.blocks)
-		a.blocks = append(a.blocks, block{kind: kindStream, key: "stream:" + key})
+		a.blocks = append(a.blocks, block{kind: kindStream, key: "stream:" + key, msg: d.MessageID})
 	case "session.text.delta":
 		var d evTextData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
@@ -284,8 +292,10 @@ func (a *app) apply(ev agentEvent) {
 			a.busySession = ""
 		}
 		// The turn moved the chat's place in the list and what it has
-		// spent: read the newest page again.
+		// spent: read the newest page again, and ask the store what the
+		// answer that just ended cost.
 		a.refreshSessions()
+		a.refreshUsage(d.SessionID)
 	case "session.model.selected":
 		var d struct {
 			SessionID string `json:"sessionID"`

@@ -776,7 +776,13 @@ func (a *agent) listSessions(ctx context.Context, cursor, search, dir string) ([
 // transcript ignores (such as the "idle" marker) decode fine and get
 // skipped.
 type agentMessage struct {
-	Type    string `json:"type"`
+	ID     string  `json:"id"`
+	Type   string  `json:"type"`
+	Cost   float64 `json:"cost"`
+	Tokens struct {
+		Output    int `json:"output"`
+		Reasoning int `json:"reasoning"`
+	} `json:"tokens"`
 	Text    string `json:"text"`
 	Payload struct {
 		Text string `json:"text"`
@@ -787,6 +793,13 @@ type agentMessage struct {
 		Variant    string `json:"variant"`
 	} `json:"model"`
 	Content []agentPart `json:"content"`
+}
+
+// tokenSpend is what one stored turn used, as the store counts it: what
+// the model wrote, and what it thought before writing.
+type tokenSpend struct {
+	Output    int `json:"output"`
+	Reasoning int `json:"reasoning"`
 }
 
 // agentPart is one piece of an assistant message: text or one tool call.
@@ -817,6 +830,22 @@ func (a *agent) sessionMessages(ctx context.Context, id string) ([]agentMessage,
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
+	}
+	return out.Data, nil
+}
+
+// sessionMessage reads one stored turn by its id: what a finished turn
+// spent, without reading the whole conversation back for it.
+func (a *agent) sessionMessage(ctx context.Context, id, msgID string) (agentMessage, error) {
+	raw, err := a.call(ctx, "GET", "/session/"+id+"/message/"+msgID, nil)
+	if err != nil {
+		return agentMessage{}, err
+	}
+	var out struct {
+		Data agentMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return agentMessage{}, err
 	}
 	return out.Data, nil
 }
@@ -871,6 +900,7 @@ const (
 	jobModel   agentJobKind = "model"   // switch the conversation's model
 	jobMore    agentJobKind = "more"    // load the next page of the list
 	jobRefresh agentJobKind = "refresh" // read the newest page again
+	jobUsage   agentJobKind = "usage"   // read one stored turn's spending
 	jobServer  agentJobKind = "server"  // dial the server the settings chose
 )
 
@@ -886,6 +916,7 @@ type agentJob struct {
 	provider string       // the model's provider, for jobModel and jobPrompt
 	model    string       // the model id, for jobModel and jobPrompt
 	variant  string       // its reasoning effort, when it has one
+	msg      string       // the stored turn whose spending to read, for jobUsage
 	request  string       // the permission request being answered
 	decision string       // "once", "always" or "reject"
 	draft    uint64       // identifies a blank draft until its server session arrives
@@ -1242,6 +1273,14 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 						a.streamLine("The older chats did not load: " + merr.Error())
 					}
 					a.scope().moreLoading = false
+				})
+			case jobUsage:
+				m, uerr := ag.sessionMessage(ctx, job.sid, job.msg)
+				win.Update(func() {
+					if a.activeServer != srv.id || uerr != nil {
+						return
+					}
+					a.acceptUsage(m)
 				})
 			case jobRefresh:
 				// The server's world moved on — a turn of this app's, or

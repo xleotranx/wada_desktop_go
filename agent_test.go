@@ -54,7 +54,9 @@ func fakeAgent(t *testing.T, prompts chan<- string, models chan<- string) (*agen
 	mux.HandleFunc("GET /api/session/ses_a/message", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"data":[` +
 			`{"id":"msg_u","type":"user","time":{"created":1},"payload":{"text":"Run the wiring check"}},` +
-			`{"id":"msg_r","type":"assistant","time":{"created":2},"content":[` +
+			`{"id":"msg_r","type":"assistant","time":{"created":2},` +
+			`"cost":0.000959688,"tokens":{"input":1744,"output":116,"reasoning":387,` +
+			`"cache":{"read":132096,"write":0}},"content":[` +
 			`{"type":"text","text":"Running it now."},` +
 			`{"type":"tool","id":"call_9","name":"shell","state":{` +
 			`"status":"completed","input":{"command":"go test ./wire"},` +
@@ -559,6 +561,86 @@ func TestRefreshAfterATurn(t *testing.T) {
 	}
 }
 
+// TestUsageFollowsTheTurn keeps the answer's spending on the road it takes
+// live: a finished turn asks for the stored turn its answer came from, and
+// what comes back lands under that answer alone.
+func TestUsageFollowsTheTurn(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.blocks = []block{
+		{kind: kindUser, text: "run the checks"},
+		{kind: kindText, text: "Running them.", msg: "msg_z"},
+	}
+	a.refreshUsage("ses_z")
+	select {
+	case job := <-a.jobs:
+		if job.kind != "usage" || job.sid != "ses_z" || job.msg != "msg_z" {
+			t.Fatalf("the turn queued %+v", job)
+		}
+	default:
+		t.Fatal("a finished turn did not ask for its answer's spending")
+	}
+
+	// The words of one answer may stand as several rows: the spending
+	// lands under the last of them.
+	a.blocks = append(a.blocks, block{kind: kindText, text: "One more word.", msg: "msg_z"})
+	a.acceptUsage(agentMessage{ID: "msg_z", Cost: 0.031,
+		Tokens: tokenSpend{Output: 3000, Reasoning: 500}})
+	if a.blocks[1].cost != 0 || a.blocks[1].tokens != 0 {
+		t.Fatalf("an earlier row took the spending: %+v", a.blocks[1])
+	}
+	if a.blocks[2].cost != 0.031 || a.blocks[2].tokens != 3500 {
+		t.Fatalf("the last row reads %+v", a.blocks[2])
+	}
+
+	// A streamed row knows its turn the moment the words start.
+	c := newApp()
+	c.selectedSession = "ses_live"
+	c.apply(agentEvent{Type: "session.text.started",
+		Data: []byte(`{"sessionID":"ses_live","assistantMessageID":"msg_l","ordinal":0}`)})
+	if len(c.blocks) != 1 || c.blocks[0].msg != "msg_l" || c.blocks[0].kind != "stream" {
+		t.Fatalf("a streamed row reads %+v", c.blocks)
+	}
+
+	// Nothing to ask when no answer of this app's stands, or when the
+	// conversation on show is another one.
+	b := newApp()
+	b.selectedSession = "ses_z"
+	b.refreshUsage("ses_z")
+	select {
+	case job := <-b.jobs:
+		t.Fatalf("a turn with no answer asked anyway: %+v", job)
+	default:
+	}
+	b.refreshUsage("ses_other")
+	select {
+	case job := <-b.jobs:
+		t.Fatalf("a switched-away conversation asked: %+v", job)
+	default:
+	}
+}
+
+// TestUsageLine words one answer's spending: money and tokens, either
+// alone when the other is nothing, and nothing when both are.
+func TestUsageLine(t *testing.T) {
+	for _, tc := range []struct {
+		cost   float64
+		tokens int
+		want   string
+	}{
+		{0.000959688, 503, "$0.0010  ·  503 tokens"},
+		{0.031, 45287, "$0.03  ·  45.3k tokens"},
+		{1.5, 132096, "$1.50  ·  132k tokens"},
+		{0, 503, "503 tokens"},
+		{0.02, 0, "$0.02"},
+		{0, 0, ""},
+	} {
+		if got := usageLine(tc.cost, tc.tokens); got != tc.want {
+			t.Fatalf("usageLine(%v, %d) = %q, want %q", tc.cost, tc.tokens, got, tc.want)
+		}
+	}
+}
+
 // TestAgentSearch asks the store for a piece of a title, and the fake
 // server checks the query the client actually sent.
 func TestAgentSearch(t *testing.T) {
@@ -607,6 +689,10 @@ func TestRestoreBlocks(t *testing.T) {
 		blocks[3].kind != "user" || blocks[3].text != "Top-level hello" {
 		t.Fatalf("restored blocks %+v", blocks)
 	}
+	// The answer keeps the turn it came from and what that turn spent.
+	if blocks[1].msg != "msg_r" || blocks[1].cost != 0.000959688 || blocks[1].tokens != 503 {
+		t.Fatalf("the answer's spending reads %+v", blocks[1])
+	}
 	// The tool row expands like a live one does.
 	a2 := newApp()
 	a2.blocks = blocks
@@ -616,6 +702,9 @@ func TestRestoreBlocks(t *testing.T) {
 	tt := ui.NewTester(a2.view, 1400, 920)
 	if !tt.HasText("$ go test ./wire") || !tt.HasText("ok") {
 		t.Fatalf("stored tool detail not drawn: %v", tt.Texts())
+	}
+	if !tt.HasText("$0.0010  ·  503 tokens") {
+		t.Fatalf("the stored spending is not drawn: %v", tt.Texts())
 	}
 }
 

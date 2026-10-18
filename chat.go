@@ -154,6 +154,9 @@ func (a *app) blockRow(c *ui.Context, p palette, b block) {
 			markdown.Stream(c, b.text, &a.md)
 		case kindText:
 			markdown.View(c, b.text, &a.md)
+			if line := usageLine(b.cost, b.tokens); line != "" {
+				ui.Text(c, line).FontSize(11.5).TextColor(p.faint).SingleLine()
+			}
 		}
 	})
 }

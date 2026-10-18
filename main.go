@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,11 @@ type block struct {
 	detail func(c *ui.Context, p palette) // drawn below the line once expanded
 	req    *agentPerm                     // the approval request a permission card carries
 	stream *strings.Builder               // amortized storage while text deltas arrive
+	// The stored turn this row came from, and what it spent: the usage
+	// line only the store knows waits under the answer that earned it.
+	msg    string
+	cost   float64
+	tokens int
 }
 
 // attachState is the file-attach dialog, quoting a workspace file into
@@ -860,6 +866,46 @@ func (a *app) saveRename() {
 	}
 }
 
+// acceptUsage gives one stored turn's answer what the store says it spent:
+// the words may stand as several rows, and the line belongs under the last
+// of them.
+func (a *app) acceptUsage(m agentMessage) {
+	last := -1
+	for i := range a.blocks {
+		if a.blocks[i].msg == m.ID {
+			last = i
+		}
+	}
+	if last < 0 {
+		return
+	}
+	a.blocks[last].cost = m.Cost
+	a.blocks[last].tokens = m.Tokens.Output + m.Tokens.Reasoning
+}
+
+// refreshUsage asks the pipe for the stored form of the answer a turn just
+// ended on: what it spent is only in the store. Nothing is asked when no
+// answer of this app's stands to spend anything.
+func (a *app) refreshUsage(sid string) {
+	if sid == "" || sid != a.selectedSession {
+		return
+	}
+	msg := ""
+	for i := len(a.blocks) - 1; i >= 0; i-- {
+		if a.blocks[i].msg != "" {
+			msg = a.blocks[i].msg
+			break
+		}
+	}
+	if msg == "" {
+		return
+	}
+	select {
+	case a.jobs <- agentJob{kind: jobUsage, sid: sid, msg: msg}:
+	default:
+	}
+}
+
 // refreshSessions asks the pipe for the newest page of conversations
 // again, after a turn: the list's order and the chat's spending moved, and
 // another client may have written a chat of its own meanwhile.
@@ -867,6 +913,33 @@ func (a *app) refreshSessions() {
 	select {
 	case a.jobs <- agentJob{kind: jobRefresh}:
 	default:
+	}
+}
+
+// usageLine words what one answer spent: the money it cost and the tokens
+// it wrote, either alone when the other is nothing, and nothing at all
+// when both are — a free model that answered nothing worth counting.
+func usageLine(cost float64, tokens int) string {
+	parts := []string{}
+	if cost > 0 {
+		parts = append(parts, spentLine(cost))
+	}
+	if tokens > 0 {
+		parts = append(parts, tokensLine(tokens)+" tokens")
+	}
+	return strings.Join(parts, "  ·  ")
+}
+
+// tokensLine words a token count compactly: exact under ten thousand, one
+// decimal in the tens, whole thousands past that.
+func tokensLine(n int) string {
+	switch {
+	case n < 10000:
+		return strconv.Itoa(n)
+	case n < 100000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.0fk", float64(n)/1000)
 	}
 }
 

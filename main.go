@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -650,6 +651,8 @@ func (a *app) openAttachDialog() {
 
 // attachFile quotes a workspace file into the draft, as a fenced block
 // the agent reads with the message; typing it again does not repeat it.
+// On a local server the file is this machine's to read; a remote server
+// names the file its API streams from its own folders.
 func (a *app) attachFile() {
 	st := a.attach
 	if st == nil {
@@ -658,6 +661,10 @@ func (a *app) attachFile() {
 	rel := strings.TrimSpace(st.draft)
 	if rel == "" {
 		st.note = "Name a file first."
+		return
+	}
+	if !a.localActive() {
+		a.attachRemote(st, rel)
 		return
 	}
 	pth := rel
@@ -669,6 +676,52 @@ func (a *app) attachFile() {
 		st.note = err.Error()
 		return
 	}
+	a.attachQuote(st, abs, data)
+}
+
+// attachRemote quotes one file of the chat's folder off the server: an
+// absolute name at home in the folder reads against it, the miss of a
+// file that is not there shows in the dialog like a local one would, and
+// the same size cap keeps megabytes out of the draft.
+func (a *app) attachRemote(st *attachState, rel string) {
+	dir := a.chatDir()
+	if dir == "" {
+		st.note = "The chat has no folder of the server to read in yet."
+		return
+	}
+	trimmed := rel
+	if strings.HasPrefix(rel, dir+"/") {
+		trimmed = strings.TrimPrefix(rel, dir+"/")
+	}
+	abs := trimmed
+	if !filepath.IsAbs(trimmed) {
+		abs = filepath.Join(dir, trimmed)
+	}
+	ag, err := standaloneAgent(a.activeServerConn())
+	if err != nil {
+		st.note = err.Error()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	data, err := ag.readWorkspaceFile(ctx, dir, trimmed)
+	if err != nil {
+		if strings.Contains(err.Error(), "File not found") {
+			st.note = "that file is not there"
+			return
+		}
+		st.note = err.Error()
+		return
+	}
+	if len(data) > 256*1024 {
+		st.note = "that file is too large to quote"
+		return
+	}
+	a.attachQuote(st, abs, data)
+}
+
+// attachQuote marks the file into the draft and closes the dialog.
+func (a *app) attachQuote(st *attachState, abs string, data []byte) {
 	mark := "(file: " + abs + ")"
 	if strings.Contains(a.draft, mark) {
 		st.note = "That file is already in the draft."
@@ -679,11 +732,44 @@ func (a *app) attachFile() {
 }
 
 // setAsk moves the shell policy of the chat's folder in the workspace
-// config; the note lands in the transcript when the file refuses.
+// config; the note lands in the transcript when the file refuses. A
+// remote chat carries the rule over the server's own API, into the file
+// it watches on its machine.
 func (a *app) setAsk(ask bool) {
 	dir := a.chatDir()
 	if dir == "" {
 		dir = a.home
+	}
+	if !a.localActive() {
+		cfg := a.activeServerConn()
+		if a.win == nil { // headless, as tests run the view
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			level, err := remoteSetPermissionAsk(ctx, cfg, dir, ask)
+			if err != nil {
+				a.streamLine("The shell policy did not change: " + err.Error())
+				return
+			}
+			if a.policyDir == dir {
+				a.policyLevel = level
+			}
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			level, err := remoteSetPermissionAsk(ctx, cfg, dir, ask)
+			a.win.Update(func() {
+				if err != nil {
+					a.streamLine("The shell policy did not change: " + err.Error())
+					return
+				}
+				if a.policyDir == dir {
+					a.policyLevel = level
+				}
+			})
+		}()
+		return
 	}
 	select {
 	case a.policyWrites <- policyChange{dir: dir, ask: ask}:

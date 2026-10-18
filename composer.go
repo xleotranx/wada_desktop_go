@@ -118,7 +118,11 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	if dir == "" {
 		dir = a.home
 	}
-	a.watchWorkspacePolicy(dir)
+	if a.localActive() {
+		a.watchWorkspacePolicy(dir)
+	} else {
+		a.watchServerPolicy(dir)
+	}
 	label := "Full access"
 	if a.policyLevel != "full" {
 		// A policy not yet read, or unreadable, leans to the safe name.

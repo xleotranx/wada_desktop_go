@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1282,6 +1283,146 @@ func TestAttachFile(t *testing.T) {
 	}
 }
 
+// TestRemoteAttachFile quotes server files into the draft of a remote
+// chat: relative names ride the chat's folder, the mark names the file
+// where the server keeps it, misses stay in the dialog.
+func TestRemoteAttachFile(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/fs/read/docs/readme.md", func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query().Get("location[directory]"); q != "/srv/app" {
+			t.Errorf("the file asked against %q", r.URL.RawQuery)
+		}
+		w.Write([]byte("from the server\n"))
+	})
+	mux.HandleFunc("GET /api/fs/read/missing.md", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"_tag":"FileNotFoundError","message":"File not found: missing.md"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "test"})
+	a.activeServer = "srv-box"
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.selectedSession = "ses_r"
+
+	// A file that is not there keeps the dialog open with a note.
+	a.attach = &attachState{open: true, draft: "missing.md"}
+	a.attachFile()
+	if a.attach == nil || a.attach.note != "that file is not there" {
+		t.Fatalf("missing file %+v", a.attach)
+	}
+
+	// A real file lands fenced in the draft, the dialog closed, the mark
+	// naming the server folder.
+	a.attach.draft = "docs/readme.md"
+	a.attachFile()
+	if a.attach != nil {
+		t.Fatalf("attach state %+v", a)
+	}
+	mark := "(file: " + filepath.Join("/srv/app", "docs/readme.md") + ")"
+	if !strings.Contains(a.draft, mark) || !strings.Contains(a.draft, "from the server") ||
+		!strings.Contains(a.draft, "```md") {
+		t.Fatalf("draft %q", a.draft)
+	}
+
+	// An absolute name at home in the folder reads through the same call.
+	a.attach = &attachState{open: true, draft: "/srv/app/docs/readme.md"}
+	a.attachFile()
+	if a.attach == nil || !strings.Contains(a.attach.note, "already") {
+		t.Fatalf("dedup missed the server folder: %+v", a.attach)
+	}
+}
+
+// TestRemotePolicyLevelAndWrite reads the shell level of a server
+// workspace and moves it like a local folder's rule would: the config
+// documents name the project's file, the write carries the rule in and
+// out through its file API, and the config's other keys stand untouched.
+func TestRemotePolicyLevelAndWrite(t *testing.T) {
+	state := map[string]any{"shell": "zsh"} // the project's own config
+	var docs []byte
+	flush := func() {
+		raw, _ := json.Marshal([]agentConfigEntry{
+			{Type: "document", Path: "/home/dev/.config/opencode/opencode.json",
+				Info: map[string]any{"shell": "bash"}},
+			{Type: "directory", Path: "/home/dev/.config/opencode"},
+			{Type: "document", Path: "/srv/app/opencode.json", Info: state},
+		})
+		docs = raw
+	}
+	flush()
+	writes := make(chan []byte, 2)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query().Get("location[directory]"); q != "/srv/app" {
+			t.Errorf("the config asked against %q", r.URL.RawQuery)
+		}
+		w.Write([]byte(docs))
+	})
+	mux.HandleFunc("POST /api/experimental/fs/write", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.Header.Get("Content-Type") != "application/octet-stream" {
+			t.Errorf("write went out as %q", r.Header.Get("Content-Type"))
+		}
+		writes <- body
+		var doc map[string]any
+		if json.Unmarshal(body, &doc) != nil {
+			t.Errorf("the config wrote as broken JSON %q", string(body))
+		}
+		state = doc
+		flush()
+		w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cfg := serverConn{url: srv.URL, password: "test"}
+
+	level, err := remotePermissionLevel(context.Background(), cfg, "/srv/app")
+	if err != nil || level != "full" {
+		t.Fatalf("level %q %v", level, err)
+	}
+
+	level, err = remoteSetPermissionAsk(context.Background(), cfg, "/srv/app", true)
+	if err != nil || level != "ask" {
+		t.Fatalf("ask %q %v", level, err)
+	}
+	raw := <-writes
+	if !bytes.Contains(raw, []byte(`"*":"ask"`)) || !bytes.Contains(raw, []byte(`"shell":"zsh"`)) {
+		t.Fatalf("the written config %q", string(raw))
+	}
+	level, err = remotePermissionLevel(context.Background(), cfg, "/srv/app")
+	if err != nil || level != "ask" {
+		t.Fatalf("level %q %v", level, err)
+	}
+
+	level, err = remoteSetPermissionAsk(context.Background(), cfg, "/srv/app", false)
+	if err != nil || level != "full" {
+		t.Fatalf("clear %q %v", level, err)
+	}
+	raw = <-writes
+	if bytes.Contains(raw, []byte(`"*"`)) {
+		t.Fatalf("the cleared config kept the rule: %q", string(raw))
+	}
+	level, err = remotePermissionLevel(context.Background(), cfg, "/srv/app")
+	if err != nil || level != "full" {
+		t.Fatalf("level %q %v", level, err)
+	}
+
+	// A rule the workspace already carries leaves the file alone.
+	state = map[string]any{"permission": map[string]any{"bash": map[string]any{"*": "ask"}}}
+	flush()
+	level, err = remoteSetPermissionAsk(context.Background(), cfg, "/srv/app", true)
+	if err != nil || level != "ask" {
+		t.Fatalf("no-op ask %q %v", level, err)
+	}
+	select {
+	case raw := <-writes:
+		t.Fatalf("a carried rule rewrote the file: %q", string(raw))
+	default:
+	}
+}
+
 // TestPermissionToggle drives the shell policy through the workspace's
 // opencode.json: the ask rule lands, the file's other keys stand
 // untouched, and clearing takes only what the app put in.
@@ -1383,6 +1524,57 @@ func TestPermissionPill(t *testing.T) {
 	settle()
 	if level, _ := permissionLevel(tmp); level != "ask" {
 		t.Fatalf("the pill did not write the rule back: %q", level)
+	}
+}
+
+// TestPermissionPillRemote drives the pill against a server's own shell
+// level: the chat opens leaning ask, the server's answer renames it, and
+// the menu carries the rule over the API like the local file would.
+func TestPermissionPillRemote(t *testing.T) {
+	state := map[string]any{"shell": "zsh"}
+	var docs []byte
+	flush := func() {
+		docs, _ = json.Marshal([]agentConfigEntry{
+			{Type: "document", Path: "/srv/app/opencode.json", Info: state},
+		})
+	}
+	flush()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(docs))
+	})
+	mux.HandleFunc("POST /api/experimental/fs/write", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &state)
+		flush()
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.activeServer = "srv-box"
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
+	a.selectedSession = "ses_r"
+	tt := ui.NewTester(a.view, 1400, 920)
+	settle := func(want string) {
+		t.Helper()
+		for range 40 {
+			tt.Frame()
+			if tt.HasText(want) {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("the pill never read %q: %v", want, tt.Texts())
+	}
+	settle("Full access")
+	a.setAsk(true)
+	settle("Asks first")
+	perm, _ := state["permission"].(map[string]any)
+	bash, _ := perm["bash"].(map[string]any)
+	if bash["*"] != "ask" {
+		t.Fatalf("the pill left no rule behind: %v", state)
 	}
 }
 

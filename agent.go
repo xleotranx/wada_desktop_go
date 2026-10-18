@@ -46,6 +46,17 @@ type agentEvent struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// standaloneAgent is one connection's client without a managed process:
+// the server the app dials stands on its own.
+func standaloneAgent(cfg serverConn) (*agent, error) {
+	base, err := apiBase(cfg.url)
+	if err != nil {
+		return nil, err
+	}
+	return &agent{base: base, pw: cfg.password, http: httpClient(),
+		addr: strings.TrimSuffix(base, "/api")}, nil
+}
+
 // startAgentFor brings one configured server up: it spawns opencode serve
 // for a connection the app manages, and dials any other, waiting for its
 // API to answer either way.
@@ -53,12 +64,10 @@ func startAgentFor(ctx context.Context, cfg serverConn, dir string) (*agent, err
 	if cfg.managed {
 		return startLocalAgent(ctx, cfg, dir)
 	}
-	base, err := apiBase(cfg.url)
+	a, err := standaloneAgent(cfg)
 	if err != nil {
 		return nil, err
 	}
-	a := &agent{base: base, pw: cfg.password, http: httpClient(),
-		addr: strings.TrimSuffix(base, "/api")}
 	version, err := a.waitReady(ctx, 8*time.Second)
 	if err != nil {
 		return nil, err
@@ -161,6 +170,8 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 		limit = defaultBodyCap
 	}
 	var buf bytes.Buffer
+	// Raw bytes go out as the server's file API asks for them.
+	_, isRaw := body.(json.RawMessage)
 	if body != nil {
 		json.NewEncoder(&buf).Encode(body)
 	}
@@ -169,7 +180,9 @@ func (a *agent) call(ctx context.Context, method, path string, body any) (json.R
 		return nil, err
 	}
 	req.SetBasicAuth("opencode", a.pw)
-	if body != nil {
+	if isRaw {
+		req.Header.Set("Content-Type", "application/octet-stream")
+	} else if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := a.http.Do(req)
@@ -399,6 +412,53 @@ func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 		dirs = append(dirs, dir)
 	}
 	return dirs, nil
+}
+
+// agentConfigEntry is one configuration document a workspace stacks up,
+// lowest precedence first; Info is the config it parses, nil when absent.
+type agentConfigEntry struct {
+	Type string         `json:"type"`
+	Path string         `json:"path"`
+	Info map[string]any `json:"info"`
+}
+
+// listConfig reads the configuration documents and sources of one
+// workspace, the project's own opencode.json among them at the end.
+func (a *agent) listConfig(ctx context.Context, dir string) ([]agentConfigEntry, error) {
+	raw, err := a.call(ctx, "GET", "/config?location[directory]="+url.QueryEscape(dir), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []agentConfigEntry
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// escapeFileRoute is one file path for an fs/read route: each folder and
+// file escapes as its own segment, slashes kept as the route's separators.
+func escapeFileRoute(rel string) string {
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+// readWorkspaceFile streams one file named relative to the workspace.
+func (a *agent) readWorkspaceFile(ctx context.Context, dir, rel string) ([]byte, error) {
+	raw, err := a.call(ctx, "GET", "/fs/read/"+escapeFileRoute(rel)+"?location[directory]="+url.QueryEscape(dir), nil)
+	return []byte(raw), err
+}
+
+// writeWorkspaceFile posts one file of the workspace, its parent folders
+// created as needed; the server re-reads it without a restart.
+func (a *agent) writeWorkspaceFile(ctx context.Context, dir, name string, data []byte) error {
+	_, err := a.call(ctx, "POST",
+		"/experimental/fs/write?path="+url.QueryEscape(name)+"&location[directory]="+url.QueryEscape(dir),
+		json.RawMessage(data))
+	return err
 }
 
 // listSessions reads the conversations, newest first. The server pages

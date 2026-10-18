@@ -89,6 +89,41 @@ func (a *app) acceptPolicy(result policyResult) {
 	}
 }
 
+// watchServerPolicy reads the shell level of one server workspace once,
+// over its API: nothing of this machine to watch, so the pill leans ask
+// until the server answers, and a fresh ask lands when the chat moves.
+func (a *app) watchServerPolicy(dir string) {
+	if a.policyDir == dir {
+		return
+	}
+	a.policyDir, a.policyLevel = dir, "ask"
+	if a.win == nil { // headless, as tests run the view
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		level, err := remotePermissionLevel(ctx, a.activeServerConn(), dir)
+		if err != nil {
+			return
+		}
+		a.policyLevel = level
+		return
+	}
+	cfg := a.activeServerConn()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		level, err := remotePermissionLevel(ctx, cfg, dir)
+		land := func() {
+			if err != nil {
+				return // an unreadable level leans to the safe name
+			}
+			if a.policyDir == dir {
+				a.policyLevel = level
+			}
+		}
+		a.win.Update(land)
+	}()
+}
+
 // permissionLevel reads the workspace's opencode.json: how bash actions
 // run in it, ask-first or open. A config the decoder cannot read shows
 // itself as ask-first, the safe reading.
@@ -104,14 +139,59 @@ func permissionLevel(dir string) (string, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "", fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
 	}
+	if permissionBashAsks(doc) {
+		return "ask", nil
+	}
+	return "full", nil
+}
+
+// permissionBashAsks reads one config for its bash rule: a star line that
+// is not "allow" holds the door.
+func permissionBashAsks(doc map[string]any) bool {
 	perm, _ := doc["permission"].(map[string]any)
 	bash, _ := perm["bash"].(map[string]any)
 	if bash != nil {
 		if star, ok := bash["*"]; ok && star != "allow" {
-			return "ask", nil
+			return true
 		}
 	}
-	return "full", nil
+	return false
+}
+
+// foldPermissionAsk turns the bash gate on or off in one config, touching
+// only the rule it owns; it says whether the config came out different.
+func foldPermissionAsk(doc map[string]any, ask bool) bool {
+	perm, _ := doc["permission"].(map[string]any)
+	bash, _ := perm["bash"].(map[string]any)
+	if ask {
+		if perm == nil {
+			perm = map[string]any{}
+			doc["permission"] = perm
+		}
+		if bash == nil {
+			bash = map[string]any{}
+			perm["bash"] = bash
+		}
+		if star, has := bash["*"]; has && star == "ask" {
+			return false
+		}
+		bash["*"] = "ask"
+		return true
+	}
+	if bash == nil {
+		return false
+	}
+	if star, has := bash["*"]; !has || star == "" {
+		return false
+	}
+	delete(bash, "*")
+	if len(bash) == 0 {
+		delete(perm, "bash")
+	}
+	if len(perm) == 0 {
+		delete(doc, "permission")
+	}
+	return true
 }
 
 // setPermissionAsk writes the ask-first rule for bash into the
@@ -125,34 +205,75 @@ func setPermissionAsk(dir string, ask bool) error {
 			return fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
 		}
 	}
-	perm, _ := doc["permission"].(map[string]any)
-	if ask {
-		if perm == nil {
-			perm = map[string]any{}
-			doc["permission"] = perm
-		}
-		bash, _ := perm["bash"].(map[string]any)
-		if bash == nil {
-			bash = map[string]any{}
-			perm["bash"] = bash
-		}
-		bash["*"] = "ask"
-	} else {
-		bash, _ := perm["bash"].(map[string]any)
-		if bash == nil {
-			return nil // nothing of ours to clear
-		}
-		delete(bash, "*")
-		if len(bash) == 0 {
-			delete(perm, "bash")
-		}
-		if len(perm) == 0 {
-			delete(doc, "permission")
-		}
+	if !foldPermissionAsk(doc, ask) {
+		return nil // the rule already reads as asked
 	}
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(pth, append(out, '\n'), 0644)
+}
+
+// remotePermissionLevel reads how shell actions run in one workspace of
+// a remote server: the config documents it stacks up, and the project's
+// own opencode.json among them holds the door like the local file does.
+func remotePermissionLevel(ctx context.Context, cfg serverConn, dir string) (string, error) {
+	ag, err := standaloneAgent(cfg)
+	if err != nil {
+		return "", err
+	}
+	entries, err := ag.listConfig(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	want := filepath.Join(filepath.Clean(dir), "opencode.json")
+	for _, entry := range entries {
+		if entry.Type != "document" || filepath.Clean(entry.Path) != want {
+			continue
+		}
+		if permissionBashAsks(entry.Info) {
+			return "ask", nil
+		}
+		return "full", nil
+	}
+	return "full", nil
+}
+
+// remoteSetPermissionAsk carries the ask-first rule to one workspace of a
+// remote server: the config its documents report, the rule folded in,
+// written back through the file API. It names the level the server will
+// read out next, or why the write did not go through.
+func remoteSetPermissionAsk(ctx context.Context, cfg serverConn, dir string, ask bool) (string, error) {
+	ag, err := standaloneAgent(cfg)
+	if err != nil {
+		return "", err
+	}
+	entries, err := ag.listConfig(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	want := filepath.Join(filepath.Clean(dir), "opencode.json")
+	doc := map[string]any{}
+	for _, entry := range entries {
+		if entry.Type == "document" && filepath.Clean(entry.Path) == want && entry.Info != nil {
+			doc = entry.Info
+		}
+	}
+	if !foldPermissionAsk(doc, ask) {
+		// The rule already reads as asked; nothing of the server's files
+		// to touch — the level is whatever the workspace says.
+		return remotePermissionLevel(ctx, cfg, dir)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := ag.writeWorkspaceFile(ctx, dir, "opencode.json", out); err != nil {
+		return "", err
+	}
+	if ask {
+		return "ask", nil
+	}
+	return "full", nil
 }

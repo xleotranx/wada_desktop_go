@@ -624,17 +624,23 @@ func (a *app) addFolder(path string) (string, error) {
 }
 
 // startChatIn prepares a draft in a folder; the first message creates its
-// server chat there, and the folder joins the sidebar, open for it.
+// server chat there. On the local server the folder joins the sidebar's
+// list, and it exists on this machine to begin with; a remote server's
+// rows come with its dial, so only the draft moves. The folder naming a
+// chat's home is the server's business, not a folder this machine has.
 func (a *app) startChatIn(path string) {
-	clean, err := a.addFolder(path)
-	if err != nil {
-		a.streamLine("That folder cannot start a chat: " + err.Error())
-		return
+	if a.localActive() {
+		clean, err := a.addFolder(path)
+		if err != nil {
+			a.streamLine("That folder cannot start a chat: " + err.Error())
+			return
+		}
+		path = clean
 	}
 	a.startNewChat()
-	a.draftProject = clean
+	a.draftProject = path
 	a.projectPickerOpen = false
-	delete(a.projectCollapsed, clean)
+	delete(a.projectCollapsed, path)
 }
 
 // openAttachDialog readies the file-attach dialog for the chat's folder.
@@ -825,7 +831,9 @@ func (a *app) startNewChat() {
 	a.settingsOpen = false
 	dir := a.chatDir()
 	a.draftProject = ""
-	for _, project := range a.projects {
+	// The folder the view sat on carries into the draft, whatever server
+	// lists it as a project row.
+	for _, project := range a.projectDirectories() {
 		if dir == project {
 			a.draftProject = dir
 			break

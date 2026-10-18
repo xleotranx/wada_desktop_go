@@ -46,6 +46,72 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 	}
 }
 
+// TestRemoteProjectHoverStartsDraftInFolder starts the quick chat of a
+// remote project row: its folder belongs to the server, so the draft asks
+// the server for it without a local lookup, and this machine's folder
+// list stays out of it.
+func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
+	a.activeServer = "srv-box"
+	a.scope().sessionsLoaded = true
+	a.scope().projects = []string{"/srv/app"}
+	dir := a.projectDirectories()[0]
+	tt := ui.NewTester(a.view, 1400, 920)
+	row, ok := tt.Find("Hide chats in app")
+	if !ok {
+		t.Fatalf("the server's project row is missing: %v", tt.Texts())
+	}
+	tt.Move(row.X+20, row.Y+row.H/2)
+	if err := tt.Click("New chat in app"); err != nil {
+		t.Fatal(err)
+	}
+	if a.selectedSession != "" || a.chatDir() != dir {
+		t.Fatalf("quick chat opened in %q with session %q", a.chatDir(), a.selectedSession)
+	}
+	if len(a.projects) != 0 {
+		t.Fatalf("the server folder landed in this machine's list: %v", a.projects)
+	}
+	if !tt.HasText("What should we build in app?") {
+		t.Fatalf("the draft did not name its folder: %v", tt.Texts())
+	}
+	a.draft = "work there"
+	a.send()
+	job := <-a.jobs
+	if job.dir != dir || job.sid != "" || job.text != "work there" {
+		t.Fatalf("wrong prompt target: %+v", job)
+	}
+}
+
+// TestNewChatCarriesItsProject keeps the folder the view sat on — the
+// local lists are the folders the user chose, a remote one names its own
+// rows — and leaves an unlisted folder out of the draft.
+func TestNewChatCarriesItsProject(t *testing.T) {
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
+	a.activeServer = "srv-box"
+	a.scope().sessionsLoaded = true
+	a.scope().projects = []string{"/srv/app"}
+	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote wiring", dir: "/srv/app"}}
+	a.adoptSession(a.scope().sessions[0])
+	a.startNewChat()
+	if a.chatDir() != "/srv/app" {
+		t.Fatalf("the new draft lost the server project: %q", a.chatDir())
+	}
+	if a.draftVersion == 0 {
+		t.Fatal("new draft would reuse the previous server chat")
+	}
+
+	// The local list is made of choices: a chat elsewhere starts free.
+	b := newApp()
+	b.scope().sessions = []agentSession{{id: "ses_l", title: "Local wiring", dir: canonDir(t.TempDir())}}
+	b.adoptSession(b.scope().sessions[0])
+	b.startNewChat()
+	if b.chatDir() != "" || b.selectedSession != "" {
+		t.Fatalf("an unlisted folder carried into a local draft: %q", b.chatDir())
+	}
+}
+
 func TestNewChatProjectPicker(t *testing.T) {
 	a := newApp()
 	a.addFolder(t.TempDir())

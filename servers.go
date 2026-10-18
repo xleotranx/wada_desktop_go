@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/transfer"
 )
 
 // localServerID is the built-in server's identity: the row the app always
@@ -268,6 +269,107 @@ func (a *app) runPair(link string, done func(addr, token string, err error)) {
 	}()
 }
 
+// pairLinkLife is how long a minted pairing link works for: opencode's
+// links are single use and expire in five minutes.
+const pairLinkLife = 5 * time.Minute
+
+// mintedLink is one pairing link the app asked a server for, with the
+// moment it was minted: the settings row shows it while it still works.
+type mintedLink struct {
+	link string
+	at   time.Time
+}
+
+// mintPairLink asks one server for a fresh pairing link, the way
+// `opencode pair` does: a short-lived code for another client to join
+// with, on an address the server names for itself, else the one the app
+// dials it at.
+func mintPairLink(ctx context.Context, cfg serverConn, facts serverFacts) (string, error) {
+	ag, err := standaloneAgent(cfg)
+	if err != nil {
+		return "", err
+	}
+	raw, err := ag.call(ctx, "POST", "/pair", struct{}{})
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Code string `json:"code"`
+		Data struct {
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return "", fmt.Errorf("the pairing answer did not read")
+	}
+	code := out.Code
+	if code == "" {
+		code = out.Data.Code
+	}
+	if code == "" {
+		return "", fmt.Errorf("the server minted no pairing code")
+	}
+	addr := strings.TrimSuffix(cfg.url, "/")
+	if len(facts.urls) > 0 {
+		addr = strings.TrimSuffix(facts.urls[0], "/")
+	}
+	if addr == "" {
+		addr = ag.addr
+	}
+	return addr + "/auth/connect/" + url.PathEscape(code), nil
+}
+
+// copyPairLink mints a fresh pairing link on one server and puts it on the
+// clipboard — the server's own way of letting another client in, without a
+// trip to its machine. The link has to go out on a goroutine and the
+// clipboard back on the UI thread, so the answer lands through the window
+// the way the probes do; tests run it inline, as they do setAsk.
+func (a *app) copyPairLink(s serverConn) {
+	facts := a.serverFacts[s.id]
+	mint := func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return mintPairLink(ctx, s, facts)
+	}
+	land := func(link string, err error) {
+		if err != nil {
+			a.streamLine("The pairing link did not mint: " + err.Error())
+			return
+		}
+		if cerr := a.copy(link); cerr != nil {
+			a.streamLine("The pairing link could not reach the clipboard: " + cerr.Error())
+		}
+		if a.pairLinks == nil {
+			a.pairLinks = map[string]mintedLink{}
+		}
+		a.pairLinks[s.id] = mintedLink{link: link, at: time.Now()}
+	}
+	if a.win == nil { // headless, as tests run the view
+		link, err := mint()
+		land(link, err)
+		return
+	}
+	go func() {
+		link, err := mint()
+		a.win.Update(func() { land(link, err) })
+	}()
+}
+
+// copyToClipboard puts one string on the system clipboard.
+func (a *app) copyToClipboard(text string) error {
+	return mygo.Clipboard.Write(transfer.TextData(text))
+}
+
+// activePairLink is one server's minted pairing link while it still works;
+// a link the clock has passed is nothing to show.
+func (a *app) activePairLink(serverID string) string {
+	m, ok := a.pairLinks[serverID]
+	if !ok || time.Since(m.at) > pairLinkLife {
+		return ""
+	}
+	return m.link
+}
+
 // httpClient is what agents dial with: a host that blackholes must not
 // hang a call forever, while the event stream, whose headers arrive at
 // once, stays open.
@@ -478,6 +580,7 @@ func (a *app) dropServer(id string) {
 	delete(a.scopes, id)
 	delete(a.serverHealth, id)
 	delete(a.serverFacts, id)
+	delete(a.pairLinks, id)
 	prefix := id + "\x00"
 	for key := range a.modelOff {
 		if strings.HasPrefix(key, prefix) {

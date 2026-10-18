@@ -848,6 +848,108 @@ func TestServerEditorKeepsThePairing(t *testing.T) {
 	}
 }
 
+// TestMintPairLink asks a server for a link the way the settings do: the
+// code rides the path on the address the server names for itself, a
+// refusal comes back in its own words, and a server that mints nothing is
+// told apart.
+func TestMintPairLink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pw, ok := r.BasicAuth(); !ok || pw != "key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/api/pair" || r.Method != "POST" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write([]byte(`{"code":"abc-123","expires_in":300}`))
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	link, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "key"},
+		serverFacts{urls: []string{"https://box.tailnet:4096/"}})
+	if err != nil || link != "https://box.tailnet:4096/auth/connect/abc-123" {
+		t.Fatalf("mint = %q %v", link, err)
+	}
+	// A server that names no address of its own is reached where it was
+	// dialed, the way the settings row spells it.
+	link, err = mintPairLink(ctx, serverConn{url: srv.URL, password: "key"}, serverFacts{})
+	if err != nil || link != srv.URL+"/auth/connect/abc-123" {
+		t.Fatalf("mint = %q %v", link, err)
+	}
+	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong"}, serverFacts{}); err == nil ||
+		!strings.Contains(err.Error(), "refused") {
+		t.Fatalf("a refused mint reads %v", err)
+	}
+	if _, err := mintPairLink(ctx, serverConn{url: srv.URL, password: "wrong", paired: true}, serverFacts{}); err == nil ||
+		!strings.Contains(err.Error(), "pairing has lapsed") {
+		t.Fatalf("a lapsed pairing reads %v", err)
+	}
+	if _, err := mintPairLink(ctx, serverConn{url: "http://127.0.0.1:1", password: "key"}, serverFacts{}); err == nil {
+		t.Fatal("a dead address minted a link")
+	}
+}
+
+// TestCopyPairLink runs the card's action end to end: the menu mints a
+// link on the server, the clipboard gets it, and the row shows it while it
+// is good for joining.
+func TestCopyPairLink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"code":"abc-123","expires_in":300}`))
+	}))
+	defer srv.Close()
+
+	a := newApp()
+	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "key"})
+	a.setHealth("srv-box", serverHealth{status: healthReady, detail: "2.0.32", addr: srv.URL})
+	a.setFacts("srv-box", serverFacts{urls: []string{srv.URL}})
+	copied := ""
+	a.copy = func(text string) error { copied = text; return nil }
+	a.settingsOpen = true
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	if err := tt.Click("Server options, Build box"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Copy pairing link"); err != nil {
+		t.Fatal(err)
+	}
+	want := srv.URL + "/auth/connect/abc-123"
+	if copied != want || a.activePairLink("srv-box") != want {
+		t.Fatalf("copied %q, link %q; want %q", copied, a.activePairLink("srv-box"), want)
+	}
+	tt.CloseMenu()
+	tt.Frame()
+	if !tt.HasText("Pairing link (5 min): " + want) {
+		t.Fatalf("the row does not show the link: %v", tt.Texts())
+	}
+
+	// A link the clock has passed is nothing to show, and a server that
+	// answered nothing never got one.
+	a.pairLinks["srv-box"] = mintedLink{link: want, at: time.Now().Add(-6 * time.Minute)}
+	tt.Frame()
+	if tt.HasText("Pairing link") {
+		t.Fatal("a lapsed link is still shown")
+	}
+
+	// A clipboard that refuses says so in the transcript instead.
+	a.copy = func(string) error { return errors.New("no clipboard") }
+	a.copyPairLink(a.servers[1])
+	if a.activePairLink("srv-box") != want {
+		t.Fatal("the link did not land despite the clipboard's refusal")
+	}
+	found := false
+	for _, b := range a.blocks {
+		if strings.Contains(b.text, "could not reach the clipboard") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the refusal is not in the transcript: %+v", a.blocks)
+	}
+}
+
 // TestProbeServer checks the connection test the settings run: the facts
 // out of /info, and the credential's refusal told apart from a dead
 // address — a pairing token's lapse reading as its own thing.

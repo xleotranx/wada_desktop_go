@@ -154,6 +154,10 @@ type app struct {
 	// in tests as pickFolder is; pair redeems a pairing link the same way.
 	probe func(cfg serverConn)
 	pair  func(link string, done func(addr, token string, err error))
+	// copy puts a minted pairing link on the system clipboard, stood in for
+	// in tests as probe is; the links it made wait in pairLinks.
+	copy      func(text string) error
+	pairLinks map[string]mintedLink
 
 	// The composer's attach drawer and the conversation rows' rename and
 	// delete dialogs: one state struct each, nil until its dialog opens.
@@ -247,6 +251,8 @@ func newApp() *app {
 	a.pickFolder = a.pickFolderDialog
 	a.probe = a.runProbe
 	a.pair = a.runPair
+	a.copy = a.copyToClipboard
+	a.pairLinks = map[string]mintedLink{}
 	return a
 }
 

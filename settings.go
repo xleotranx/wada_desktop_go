@@ -200,6 +200,15 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 							SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 					})
 				}
+				// The link the app minted for another client, while it is
+				// still good for joining.
+				if link := a.activePairLink(s.id); link != "" {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
+						ui.Icon(c, icPlug).FontSize(11).TextColor(p.faint).Shrink(0)
+						ui.Text(c, "Pairing link (5 min): "+link).FontSize(11.5).TextColor(p.faint).
+							SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+					})
+				}
 			}
 		})
 	})
@@ -227,6 +236,11 @@ func (a *app) serverMenu(c *ui.Context, p palette, s serverConn) {
 		} else if !s.managed {
 			if m.Item("Test connection").Chosen() {
 				a.probe(s)
+			}
+		}
+		if a.serverHealth[s.id].status == healthReady {
+			if m.Item("Copy pairing link").Chosen() {
+				a.copyPairLink(s)
 			}
 		}
 		if !s.local {

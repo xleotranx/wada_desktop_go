@@ -165,6 +165,9 @@ type app struct {
 	attach  *attachState
 	rename  *renameState
 	confirm *confirmState
+	// browse is the server-folder dialog a remote draft's picker and the
+	// sidebar's Add folder open.
+	browse *browseState
 
 	// Each server's conversations and catalog, keyed by server id; a
 	// new server's is empty until the first dial fills it.
@@ -395,6 +398,7 @@ func (a *app) view(c *ui.Context) {
 	a.attachModal(c, p)
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
+	a.browseModal(c, p)
 }
 
 // cardRadius rounds the card's top corners, a little tighter than the

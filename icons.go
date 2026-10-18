@@ -48,6 +48,7 @@ var (
 	icPlug     = ui.MustParseSVG(stroke(`<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>`))
 
 	icChevRight = ui.MustParseSVG(stroke(`<path d="m9 18 6-6-6-6"/>`))
+	icChevUp    = ui.MustParseSVG(stroke(`<path d="m6 15 6-6 6 6"/>`))
 	icChevDown  = ui.MustParseSVG(stroke(`<path d="m6 9 6 6 6-6"/>`))
 	icChevUD    = ui.MustParseSVG(stroke(`<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>`))
 

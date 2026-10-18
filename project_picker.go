@@ -57,13 +57,21 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 				}
 			})
 			ui.Divider(c)
-			if a.localActive() {
-				ui.Button(c, "New project…").OnClick(func() {
-					a.projectPickerOpen = false
+			label := "New project…"
+			if !a.localActive() {
+				// A remote server's folders are on its machine: the panel
+				// below is this one's.
+				label = "Browse the server…"
+			}
+			ui.Button(c, label).OnClick(func() {
+				a.projectPickerOpen = false
+				if a.localActive() {
 					a.selectAddedProject = true
 					a.openProjectDialog()
-				})
-			}
+					return
+				}
+				a.browseServerFolders(true)
+			})
 			ui.Button(c, "Don't work in a project").OnClick(func() { a.selectDraftProject("") })
 		})
 	})

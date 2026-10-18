@@ -156,9 +156,9 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 
 					addProjects := a.openProjectDialog
 					if !a.localActive() {
-						// A remote server's projects come with its list;
-						// there is no folder of this machine to add.
-						addProjects = nil
+						// A remote server's folders are its own disk's; the
+						// system panel is this machine's to hand over.
+						addProjects = func() { a.browseServerFolders(false) }
 					}
 					a.sectionHeading(c, p, "Projects", addProjects)
 					projects := a.projectDirectories()

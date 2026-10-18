@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -503,6 +504,77 @@ func escapeFileRoute(rel string) string {
 		parts[i] = url.PathEscape(part)
 	}
 	return strings.Join(parts, "/")
+}
+
+// fsEntry is one child of a directory the server listed: its path relative
+// to the listing's location, the name a row shows, and whether it is a
+// folder.
+type fsEntry struct {
+	rel  string
+	name string
+	dir  bool
+}
+
+// listDir reads one directory of the server's disk. The location is where
+// the browse was opened and stays put while rel walks from it, so a look
+// around files no project row the folder did not already have; the entries
+// come back relative to that location, the way the server spells them.
+func (a *agent) listDir(ctx context.Context, location, rel string) ([]fsEntry, error) {
+	route := "/fs/list?location[directory]=" + url.QueryEscape(location)
+	if rel != "" && rel != "." {
+		route += "&path=" + url.QueryEscape(rel)
+	}
+	raw, err := a.call(ctx, "GET", route, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	entries := []fsEntry{}
+	for _, e := range out.Data {
+		rel := strings.TrimSuffix(e.Path, "/")
+		if rel == "" {
+			continue
+		}
+		entries = append(entries, fsEntry{rel: rel, name: path.Base(rel), dir: e.Type == "directory"})
+	}
+	return entries, nil
+}
+
+// location asks the server which folder it works in: the one named, else
+// the server's own default.
+func (a *agent) location(ctx context.Context, dir string) (string, error) {
+	route := "/location"
+	if dir != "" {
+		route += "?location[directory]=" + url.QueryEscape(dir)
+	}
+	raw, err := a.call(ctx, "GET", route, nil)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Directory string `json:"directory"`
+		Data      struct {
+			Directory string `json:"directory"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return "", fmt.Errorf("the location did not read")
+	}
+	if out.Directory == "" {
+		out.Directory = out.Data.Directory
+	}
+	if out.Directory == "" {
+		return "", fmt.Errorf("the server named no folder")
+	}
+	return out.Directory, nil
 }
 
 // readWorkspaceFile streams one file named relative to the workspace.

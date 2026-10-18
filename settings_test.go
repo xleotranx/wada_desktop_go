@@ -613,6 +613,46 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 	}
 }
 
+// TestDraftModelChoiceSticks keeps a draft's model pick where the composer
+// can read it: the button shows the chosen model, the first words carry it
+// into the conversation the server opens, and a fresh chat drops back to
+// the default.
+func TestDraftModelChoiceSticks(t *testing.T) {
+	a := newApp()
+	a.scope().modelsLoaded = true
+	a.scope().models = []agentModel{
+		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true},
+		{providerID: "opencode", id: "glm-5.3-flash-free", name: "GLM", free: true},
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	a.chooseModel(a.scope().models[1], "max")
+	if ref := a.sessionModelOf(""); ref.id != "glm-5.3-flash-free" || ref.variant != "max" {
+		t.Fatalf("the draft reads %+v", ref)
+	}
+	tt.Frame()
+	if !tt.HasText("GLM") || !tt.HasText("max") {
+		t.Fatalf("the button does not show the draft's model: %v", tt.Texts())
+	}
+
+	a.draft = "hello"
+	a.send()
+	select {
+	case job := <-a.jobs:
+		if job.kind != "prompt" || job.provider != "opencode" || job.model != "glm-5.3-flash-free" ||
+			job.variant != "max" {
+			t.Fatalf("the send carried %+v", job)
+		}
+	default:
+		t.Fatal("the send queued nothing")
+	}
+
+	a.startNewChat()
+	if ref := a.sessionModelOf(""); ref.id != "longcat-2.5-preview-free" || ref.variant != "" {
+		t.Fatalf("a fresh draft reads %+v", ref)
+	}
+}
+
 // TestSendCarriesTheDefault keeps a new turn on the model the settings
 // enabled: the job names it, so the runner does not fall back on its own.
 func TestSendCarriesTheDefault(t *testing.T) {

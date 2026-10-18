@@ -1156,9 +1156,6 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// A draft reuses its pending server chat until the UI learns its ID.
 		var sid string
 		var sidDraft uint64
-		// pend is a model picked while nothing was open: it waits for the
-		// next conversation open creates.
-		var pend agentJob
 		// open brings a fresh conversation up under the model wanted --
 		// the app's default unless the job names another -- working in
 		// the directory asked for; a model ref refusing to set does not
@@ -1175,15 +1172,6 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			}
 			if perr := ag.setModel(ctx, nid, want.providerID, want.id, want.variant); perr != nil {
 				say(srv.id, "The app's model was not set, running the config's: "+perr.Error())
-			}
-			// A model picked while nothing was open applies to this new
-			// conversation instead of the default.
-			if pend.kind != "" && pend.draft == draft {
-				if perr := ag.setModel(ctx, nid, pend.provider, pend.model, pend.variant); perr != nil {
-					say(srv.id, "The model did not switch: "+perr.Error())
-				}
-				ref = agentModelRef{providerID: pend.provider, id: pend.model, variant: pend.variant}
-				pend = agentJob{}
 			}
 			sid = nid
 			sidDraft = draft
@@ -1296,15 +1284,10 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					a.scope().sessionsLoaded = true
 				})
 			case jobModel:
-				who := job.sid
-				if who == "" && sidDraft == job.draft {
-					who = sid
+				if job.sid == "" {
+					return false // a draft's pick waits in the view, not here
 				}
-				if who == "" {
-					pend = job
-					return false
-				}
-				if merr := ag.setModel(ctx, who, job.provider, job.model, job.variant); merr != nil {
+				if merr := ag.setModel(ctx, job.sid, job.provider, job.model, job.variant); merr != nil {
 					say(srv.id, "The model did not switch: "+merr.Error())
 				}
 				// The switch folds back over session.model.selected.

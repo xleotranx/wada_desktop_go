@@ -134,8 +134,12 @@ type app struct {
 	// expanded holds collapsible lines ("activity:…").
 	expanded map[string]bool
 
-	draft             string
-	draftProject      string
+	draft        string
+	draftProject string
+	// draftModel is what a conversation born here runs on once the
+	// composer's picker has chosen one: a draft has no session yet, so its
+	// pick waits here until the first words open one.
+	draftModel        agentModelRef
 	draftVersion      uint64
 	projectPickerOpen bool
 	projectFilter     string
@@ -279,6 +283,15 @@ func (a *app) scope() *serverScope {
 		a.scopes[a.activeServer] = s
 	}
 	return s
+}
+
+// draftModelRef is what a conversation born here would run on: the model
+// the composer's picker chose for the draft, else the app's default.
+func (a *app) draftModelRef() agentModelRef {
+	if a.draftModel.id != "" {
+		return a.draftModel
+	}
+	return a.defaultModelRef()
 }
 
 // defaultModelRef is what a new conversation starts on: the app's free
@@ -582,7 +595,7 @@ func (a *app) send() {
 // app's default model, so a conversation born here starts on what the
 // settings enabled.
 func (a *app) agentSend(text string) {
-	def := a.defaultModelRef()
+	def := a.draftModelRef()
 	select {
 	case a.jobs <- agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
 		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant}:
@@ -973,7 +986,8 @@ func (a *app) titleOf(sid string) string {
 }
 
 // sessionModelOf is the model one conversation points at; a conversation
-// without one reads as what a new one would start on.
+// without one, and the draft that has none at all, read as what a new one
+// would start on.
 func (a *app) sessionModelOf(sid string) agentModelRef {
 	for _, s := range a.scope().sessions {
 		if s.id == sid {
@@ -983,7 +997,7 @@ func (a *app) sessionModelOf(sid string) agentModelRef {
 			break
 		}
 	}
-	return a.defaultModelRef()
+	return a.draftModelRef()
 }
 
 // modelLabel is the fancy name of a model ref, from the catalog; the ref
@@ -999,9 +1013,16 @@ func (a *app) modelLabel(ref agentModelRef) (name string, variants []string) {
 	return name, variants
 }
 
-// chooseModel queues a switch of what the open conversation runs on.
+// chooseModel takes the model the picker landed on: the open conversation
+// is switched over the pipe, while a draft — which has no conversation yet
+// — keeps its pick where the composer can show it, and the first words hand
+// it to the chat the server opens.
 func (a *app) chooseModel(m agentModel, variant string) {
 	a.pickerOpen = false
+	if a.selectedSession == "" {
+		a.draftModel = agentModelRef{providerID: m.providerID, id: m.id, variant: variant}
+		return
+	}
 	select {
 	case a.jobs <- agentJob{kind: jobModel, sid: a.selectedSession, draft: a.draftVersion,
 		provider: m.providerID, model: m.id, variant: variant}:
@@ -1099,6 +1120,7 @@ func (a *app) startNewChat() {
 	a.selected = ""
 	a.selectedSession = ""
 	a.draft = ""
+	a.draftModel = agentModelRef{}
 	a.freshTranscript()
 }
 

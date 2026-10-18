@@ -121,8 +121,8 @@ func TestTopBarChrome(t *testing.T) {
 }
 
 // TestStreamFollowsFeed keeps a streaming answer in view: at the foot the
-// transcript glides after the growing answer, and a reader who scrolled
-// up during it stays where they put the view.
+// transcript pins to the growing answer, and a reader who scrolled up
+// during it stays where they put the view.
 func TestStreamFollowsFeed(t *testing.T) {
 	a := newApp()
 	a.selectedSession = "ses_z"
@@ -162,6 +162,44 @@ func TestStreamFollowsFeed(t *testing.T) {
 	}
 	if tt.HasText("tail 39") {
 		t.Fatal("a row outside the viewport was built")
+	}
+}
+
+// TestStreamPinsInLineSteps keeps the transcript still while the answer
+// fills its current line: without a glide, the feed moves only when a
+// line wraps, not on every word.
+func TestStreamPinsInLineSteps(t *testing.T) {
+	a := newApp()
+	a.selectedSession = "ses_z"
+	a.selected = "Turn"
+	a.busySession = "ses_z"
+	for i := range 80 {
+		a.blocks = append(a.blocks, block{kind: kindText, text: fmt.Sprintf("line %d", i)})
+	}
+	a.blocks = append(a.blocks, block{kind: kindStream, text: "start", key: "stream:m:0", msg: "m"})
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Advance(time.Second) // the words pace in
+
+	before, ok := tt.Find("line 79")
+	if !ok {
+		t.Fatalf("the row above the answer is not in view: %v", tt.Texts())
+	}
+	// Words that stay on the answer's first line leave the feed alone.
+	a.blocks[len(a.blocks)-1].text = "start with a few more words"
+	for range 20 {
+		tt.Frame()
+		tt.Advance(16 * time.Millisecond)
+		if now, _ := tt.Find("line 79"); now.Y != before.Y {
+			t.Fatalf("the feed moved while the line filled: %0.1f to %0.1f", before.Y, now.Y)
+		}
+	}
+	// A wrapped line pins the bottom at once, lifting the rows above by
+	// that line rather than gliding over the next half second.
+	a.blocks[len(a.blocks)-1].text = strings.Repeat("word ", 40)
+	tt.Frame()
+	tt.Advance(time.Second)
+	if after, _ := tt.Find("line 79"); after.Y >= before.Y {
+		t.Fatalf("the wrapped line did not move the feed: %0.1f to %0.1f", before.Y, after.Y)
 	}
 }
 

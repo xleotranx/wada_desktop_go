@@ -245,7 +245,7 @@ func newApp() *app {
 		browserHistoryAt:    -1,
 		expanded:            map[string]bool{},
 		blocks:              []block{},
-		feed:                ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth},
+		feed:                newFeed(),
 
 		settingsTab:  tabServers,
 		servers:      []serverConn{defaultLocalServer()},
@@ -1134,5 +1134,5 @@ func (a *app) freshTranscript() {
 	a.toolBlocks = map[string]int{}
 	a.pending = map[string]*agentPerm{}
 	a.busySession = ""
-	a.feed = ui.ListState{FollowEnd: true, FollowAnimation: &ui.Smooth}
+	a.feed = newFeed()
 }

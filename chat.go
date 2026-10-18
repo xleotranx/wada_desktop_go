@@ -31,6 +31,11 @@ func (a *app) prepareMarkdown(p palette) {
 	a.md.ShareSelection = true
 }
 
+// newFeed is the transcript's list: it opens at its end and keeps the
+// newest text in view as the answer streams. It pins in whole lines rather
+// than gliding, so arriving words do not drag the lines above them along.
+func newFeed() ui.ListState { return ui.ListState{FollowEnd: true} }
+
 // contentPane draws the conversation title, transcript and composer.
 func (a *app) contentPane(c *ui.Context, p palette) {
 	a.prepareMarkdown(p)

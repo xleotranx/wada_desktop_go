@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 )
 
 // The two reads the Changes tool offers.
@@ -26,6 +26,10 @@ type changesState struct {
 	files    []vcsChange
 	selected int
 	note     string
+
+	// Keep the selected patch's buffers and selection across frames.
+	patchFile, patch string
+	diff             *editor.DiffState
 }
 
 // changesRead is one read of a workspace's changes: the folder and mode it
@@ -183,20 +187,26 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	}
 	f := st.files[st.selected]
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-	ui.ScrollBoth(c).FillWidth().Grow(1).Children(func() {
-		ui.Column(c).Gap(0).Children(func() {
-			// Every line rides its own strip, the way a diff reads in a
-			// terminal: the pane's own color where nothing changed. Rows
-			// past the window cost nothing, so the whole patch stands.
-			for _, line := range strings.Split(strings.TrimSuffix(f.patch, "\n"), "\n") {
-				ui.Box(c).FillWidth().Shrink(0).Padding(0, 6).
-					Background(patchBg(p, line)).Children(func() {
-					ui.Text(c, clipLine(line)).Font("monospace").FontSize(11.5).LineHeight(1.5).
-						TextColor(patchTint(p, line)).SingleLine().Shrink(0)
-				})
-			}
-		})
-	})
+	if st.diff == nil || st.patchFile != f.file || st.patch != f.patch {
+		st.patchFile, st.patch = f.file, f.patch
+		st.diff = &editor.DiffState{Layout: editor.DiffUnified, Indicators: editor.DiffClassic,
+			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
+		if patches, err := editor.ParsePatch(f.patch); err == nil && len(patches) == 1 && len(patches[0].Hunks) > 0 {
+			st.diff.SetPatch(patches[0])
+			lang := editor.LanguageFor(f.file)
+			st.diff.Old.SetLanguage(lang)
+			st.diff.New.SetLanguage(lang)
+		}
+	}
+	if st.diff.New == nil {
+		// Binary, metadata-only and malformed patches still show their raw text.
+		ui.TextAreaBase(c, &st.patch).Label("Raw patch").ReadOnly(true).
+			Font("monospace").FontSize(11.5).LineHeight(1.5).FillWidth().Grow(1)
+		return
+	}
+	st.diff.Theme = &editor.Theme{Background: p.bg, Text: p.muted,
+		LineNumber: p.faint, Added: p.diffAdd, Deleted: p.diffDel, Modified: p.link}
+	editor.DiffView(c.Key("patch:"+f.file), st.diff).FillWidth().Grow(1)
 }
 
 // modePill is one of the Changes tool's reads, the chosen one standing out.
@@ -262,43 +272,4 @@ func statusTint(p palette, status string) ui.Color {
 		return p.diffDel
 	}
 	return p.orange
-}
-
-// patchBg is the strip one line of a patch rides: the adding and removing
-// lines carry the pane's own washes, a hunk its quiet band, and everything
-// else the pane's own color.
-func patchBg(p palette, line string) ui.Color {
-	switch {
-	case strings.HasPrefix(line, "@@"):
-		return p.diffHunkBg
-	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-		return p.bg
-	case strings.HasPrefix(line, "+"):
-		return p.diffAddBg
-	case strings.HasPrefix(line, "-"):
-		return p.diffDelBg
-	}
-	return p.bg
-}
-
-// patchTint colors one line of a patch: the adding and removing lines
-// carry the pane's greens and reds, the hunks and headers read quiet.
-func patchTint(p palette, line string) ui.Color {
-	switch {
-	case strings.HasPrefix(line, "+"), strings.HasPrefix(line, "-"):
-		if strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") {
-			return p.muted
-		}
-		if strings.HasPrefix(line, "+") {
-			return p.diffAdd
-		}
-		return p.diffDel
-	case strings.HasPrefix(line, "@@"):
-		return p.link
-	case strings.HasPrefix(line, "diff --git"), strings.HasPrefix(line, "index "),
-		strings.HasPrefix(line, "new file"), strings.HasPrefix(line, "deleted file"),
-		strings.HasPrefix(line, "similarity index"), strings.HasPrefix(line, "rename "):
-		return p.faint
-	}
-	return p.muted
 }

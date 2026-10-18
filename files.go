@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 )
 
 // filesShown is how much of one file the viewer shows: enough for a source
@@ -17,20 +18,6 @@ const filesShown = 256 * 1024
 // filesFound is how many matches the search asks the server for: more
 // than the pane shows at once, few enough to rank well.
 const filesFound = 50
-
-// filesLineCut is how much of one line the viewer draws: a minified file
-// can hold a line the length of the whole window, and measuring it costs a
-// frame of its own.
-const filesLineCut = 500
-
-// clipLine cuts one line to what the viewer draws, the cut shown.
-func clipLine(line string) string {
-	runes := []rune(line)
-	if len(runes) <= filesLineCut {
-		return line
-	}
-	return string(runes[:filesLineCut]) + "…"
-}
 
 // filesState is what the Files tool holds: the folder the tree hangs off,
 // the listings read so far, which folders are unfolded, and the file on
@@ -42,6 +29,7 @@ type filesState struct {
 	loading  map[string]bool      // folder rel -> a listing is on its way
 	path     string               // the file on show, relative to the location
 	content  string
+	viewer   *editor.State
 	clipped  bool   // the file runs past what the viewer shows
 	note     string // trouble or an explanation, instead of a tree
 	fileErr  string // the file on show refused to read
@@ -78,6 +66,7 @@ func (a *app) openFiles() {
 	st.location, st.note, st.fileErr = dir, "", ""
 	st.open, st.entries, st.loading = map[string]bool{}, map[string][]fsEntry{}, map[string]bool{}
 	st.path, st.content, st.clipped = "", "", false
+	st.viewer = nil
 	st.query, st.results, st.finding, st.findErr = "", nil, false, ""
 	a.filesList(".")
 }
@@ -183,6 +172,7 @@ func (a *app) filesRead(rel string) {
 	}
 	cfg, location := a.activeServerConn(), st.location
 	st.path, st.content, st.clipped = rel, "Reading…", false
+	st.viewer = nil
 	inBackground(a, func() ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -206,6 +196,10 @@ func (a *app) filesRead(rel string) {
 			data = data[:filesShown]
 		}
 		st.content = string(data)
+		buf := editor.NewBuffer(st.content)
+		buf.SetLanguage(editor.LanguageFor(rel))
+		st.viewer = &editor.State{Buffer: buf, ReadOnly: true, Label: "File preview",
+			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
 	})
 }
 
@@ -335,14 +329,12 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 		ui.Text(c, st.fileErr).FontSize(12).TextColor(p.danger).SingleLine()
 		return
 	}
-	ui.ScrollBoth(c).FillWidth().Grow(1).Children(func() {
-		ui.Column(c).Gap(0).Children(func() {
-			for _, text := range strings.Split(strings.TrimSuffix(st.content, "\n"), "\n") {
-				ui.Text(c, clipLine(text)).Font("monospace").FontSize(11.5).LineHeight(1.5).
-					TextColor(p.muted).SingleLine().Shrink(0)
-			}
-		})
-	})
+	if st.viewer == nil {
+		ui.Text(c, st.content).FontSize(12).TextColor(p.muted)
+		return
+	}
+	st.viewer.Theme = &editor.Theme{Background: p.bg, Text: p.muted, LineNumber: p.faint}
+	editor.View(c.Key("preview:"+st.path), st.viewer).FillWidth().Grow(1)
 }
 
 // filesRows draws one folder's children, the unfolded folders' own under

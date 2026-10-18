@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -326,12 +327,11 @@ func mintPairLink(ctx context.Context, cfg serverConn, facts serverFacts) (strin
 // the way the probes do; tests run it inline, as they do setAsk.
 func (a *app) copyPairLink(s serverConn) {
 	facts := a.serverFacts[s.id]
-	mint := func() (string, error) {
+	inBackground(a, func() (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return mintPairLink(ctx, s, facts)
-	}
-	land := func(link string, err error) {
+	}, func(link string, err error) {
 		if err != nil {
 			a.streamLine("The pairing link did not mint: " + err.Error())
 			return
@@ -343,16 +343,7 @@ func (a *app) copyPairLink(s serverConn) {
 			a.pairLinks = map[string]mintedLink{}
 		}
 		a.pairLinks[s.id] = mintedLink{link: link, at: time.Now()}
-	}
-	if a.win == nil { // headless, as tests run the view
-		link, err := mint()
-		land(link, err)
-		return
-	}
-	go func() {
-		link, err := mint()
-		a.win.Update(func() { land(link, err) })
-	}()
+	})
 }
 
 // copyToClipboard puts one string on the system clipboard.
@@ -580,24 +571,14 @@ func (a *app) dropServer(id string) {
 	if id == localServerID || id == a.activeServer {
 		return
 	}
-	kept := a.servers[:0]
-	for _, s := range a.servers {
-		if s.id != id {
-			kept = append(kept, s)
-		}
-	}
-	a.servers = kept
+	a.servers = slices.DeleteFunc(a.servers, func(s serverConn) bool { return s.id == id })
 	delete(a.pinsByServer, id)
 	delete(a.scopes, id)
 	delete(a.serverHealth, id)
 	delete(a.serverFacts, id)
 	delete(a.pairLinks, id)
 	prefix := id + "\x00"
-	for key := range a.modelOff {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.modelOff, key)
-		}
-	}
+	maps.DeleteFunc(a.modelOff, func(key string, _ bool) bool { return strings.HasPrefix(key, prefix) })
 	a.saveState()
 }
 

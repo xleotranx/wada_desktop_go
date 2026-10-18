@@ -130,8 +130,17 @@ func TestFilesPane(t *testing.T) {
 	if a.files.path != "README.md" || !strings.Contains(a.files.content, "Chats run here.") {
 		t.Fatalf("the file did not read: %+v", a.files)
 	}
-	if !tt.HasText("# Remote box") || !tt.HasText("Chats run here.") {
-		t.Fatalf("the viewer is not drawn: %v", tt.Texts())
+	if err := tt.Click("File preview"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Key(ui.Cmd, ui.KeyC)
+	if tt.Clipboard() != a.files.content {
+		t.Fatal("the preview could not be copied")
+	}
+	tt.Type("an accidental edit")
+	if a.files.viewer.Buffer.String() != a.files.content {
+		t.Fatal("the read-only preview changed")
 	}
 
 	// Reloading reads the tree and the file on show again.
@@ -281,14 +290,6 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("the first 256 KB") {
 		t.Fatalf("the cut is not said: %v", tt.Texts())
-	}
-	// One line the width of the window is cut to what the viewer draws.
-	if got := clipLine(strings.Repeat("x", filesLineCut+5)); len([]rune(got)) != filesLineCut+1 ||
-		!strings.HasSuffix(got, "…") {
-		t.Fatalf("a line past the cut reads %q", got)
-	}
-	if got := clipLine("short enough"); got != "short enough" {
-		t.Fatalf("a short line reads %q", got)
 	}
 
 	// A file the server refuses keeps the tree and explains itself.

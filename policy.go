@@ -97,31 +97,16 @@ func (a *app) watchServerPolicy(dir string) {
 		return
 	}
 	a.policyDir, a.policyLevel = dir, "ask"
-	if a.win == nil { // headless, as tests run the view
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		level, err := remotePermissionLevel(ctx, a.activeServerConn(), dir)
-		if err != nil {
-			return
-		}
-		a.policyLevel = level
-		return
-	}
 	cfg := a.activeServerConn()
-	go func() {
+	inBackground(a, func() (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		level, err := remotePermissionLevel(ctx, cfg, dir)
-		land := func() {
-			if err != nil {
-				return // an unreadable level leans to the safe name
-			}
-			if a.policyDir == dir {
-				a.policyLevel = level
-			}
+		return remotePermissionLevel(ctx, cfg, dir)
+	}, func(level string, err error) {
+		if err == nil && a.policyDir == dir {
+			a.policyLevel = level
 		}
-		a.win.Update(land)
-	}()
+	})
 }
 
 // permissionLevel reads the workspace's opencode.json: how bash actions

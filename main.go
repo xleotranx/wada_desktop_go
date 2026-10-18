@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -442,10 +443,7 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 	}
 	// Back and forward are 28 wide, the sidebar toggle 30, and four gaps
 	// of the row's 2 stand between them and the title.
-	titleGap := titleStart - (barLeft + 8 + 28 + 28 + 30 + 4*2)
-	if titleGap < 8 {
-		titleGap = 8
-	}
+	titleGap := max(float32(8), titleStart-(barLeft+8+28+28+30+4*2))
 	toolsLabel := "Show tools"
 	if !a.browserCollapsed {
 		toolsLabel = "Hide tools"
@@ -482,10 +480,8 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 						MarginStart(8).Shrink(0).SingleLine()
 				}
 			}
-			ui.Spacer(c)
-		} else {
-			ui.Spacer(c)
 		}
+		ui.Spacer(c)
 
 		a.navButton(c, p, toolsLabel, icPanelRight, func() {
 			a.browserCollapsed = !a.browserCollapsed
@@ -807,33 +803,13 @@ func (a *app) setAsk(ask bool) {
 			return
 		}
 		cfg := a.activeServerConn()
-		if a.win == nil { // headless, as tests run the view
+		inBackground(a, func() (string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			level, err := remoteSetPermissionAsk(ctx, cfg, dir, ask)
-			if err != nil {
-				a.streamLine("The shell policy did not change: " + err.Error())
-				return
-			}
-			if a.policyDir == dir {
-				a.policyLevel = level
-			}
-			return
-		}
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			level, err := remoteSetPermissionAsk(ctx, cfg, dir, ask)
-			a.win.Update(func() {
-				if err != nil {
-					a.streamLine("The shell policy did not change: " + err.Error())
-					return
-				}
-				if a.policyDir == dir {
-					a.policyLevel = level
-				}
-			})
-		}()
+			return remoteSetPermissionAsk(ctx, cfg, dir, ask)
+		}, func(level string, err error) {
+			a.acceptPolicy(policyResult{dir: dir, level: level, err: err})
+		})
 		return
 	}
 	if dir == "" {
@@ -1075,11 +1051,8 @@ func (a *app) startNewChat() {
 	projectDir := ""
 	// The folder the view sat on carries into the draft, whatever server
 	// lists it as a project row.
-	for _, project := range a.projectDirectories() {
-		if dir == project {
-			projectDir = dir
-			break
-		}
+	if slices.Contains(a.projectDirectories(), dir) {
+		projectDir = dir
 	}
 	a.startDraft(projectDir)
 }

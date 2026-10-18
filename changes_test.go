@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,42 +27,21 @@ func changesServer(t *testing.T) (*httptest.Server, *[]string) {
 		q := r.URL.Query()
 		*asked = append(*asked, "diff "+q.Get("location[directory]")+" "+q.Get("mode"))
 		patch := "diff --git a/src/app.go b/src/app.go\nindex 1111111..2222222 100644\n" +
-			"--- a/src/app.go\n+++ b/src/app.go\n@@ -1,3 +1,4 @@\n package main\n+// a new line\n \n"
+			"--- a/src/app.go\n+++ b/src/app.go\n@@ -1,2 +1,3 @@\n package main\n+// a new line\n \n"
+		patchJSON, _ := json.Marshal(patch)
 		if q.Get("mode") == "branch" {
-			w.Write([]byte(`{"data":[{"file":"src/app.go","patch":` + jsonString(patch) +
+			w.Write([]byte(`{"data":[{"file":"src/app.go","patch":` + string(patchJSON) +
 				`,"additions":1,"deletions":0,"status":"modified"},` +
 				`{"file":"docs/old.md","patch":"@@ -1 +1 @@\n-a\n+b\n","additions":1,"deletions":1,"status":"modified"}]}`))
 			return
 		}
-		w.Write([]byte(`{"data":[{"file":"src/app.go","patch":` + jsonString(patch) +
+		w.Write([]byte(`{"data":[{"file":"src/app.go","patch":` + string(patchJSON) +
 			`,"additions":1,"deletions":0,"status":"modified"},` +
 			`{"file":"src/new.go","patch":"@@ -0,0 +1 @@\n+package main\n","additions":1,"deletions":0,"status":"added"}]}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, asked
-}
-
-// jsonString quotes a patch for a fake answer.
-func jsonString(s string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '"':
-			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
 }
 
 // TestAgentWorkspaceChanges reads a workspace's version control and its
@@ -124,7 +104,7 @@ func TestChangesPane(t *testing.T) {
 		t.Fatalf("the pane is not drawn: %v", tt.Texts())
 	}
 	// The file on show is the first one's, and its patch draws.
-	if !tt.HasText("package main") || !tt.HasText("+// a new line") {
+	if a.changes.diff.New == nil || !strings.Contains(a.changes.diff.New.String(), "// a new line") {
 		t.Fatalf("the patch is not drawn: %v", tt.Texts())
 	}
 	// Asking for the other file shows its patch instead.
@@ -132,7 +112,7 @@ func TestChangesPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.changes.selected != 1 || !tt.HasText("+package main") {
+	if a.changes.selected != 1 || a.changes.diff.New == nil || a.changes.diff.New.String() != "package main" {
 		t.Fatalf("the second file's patch is not drawn: %v", tt.Texts())
 	}
 
@@ -225,48 +205,67 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 	}
 }
 
-// TestPatchTint keeps the patch's reading: adding and removing lines carry
-// the palette's diff slots, and the headers do not.
-func TestPatchTint(t *testing.T) {
-	p := palette{diffAdd: ui.Hex("#00ff00"), diffDel: ui.Hex("#ff0000"),
-		diffAddBg: ui.Hex("#00ff0018"), diffDelBg: ui.Hex("#ff000018"),
-		diffHunkBg: ui.Hex("#0000ff10"), bg: ui.Hex("#ffffff"),
-		link: ui.Hex("#0000ff"), muted: ui.Hex("#999999"), faint: ui.Hex("#cccccc")}
-	if got := patchTint(p, "+added"); got != p.diffAdd {
-		t.Fatalf("an added line reads %v", got)
+func TestChangesPatchIsSelectableAndReadOnly(t *testing.T) {
+	a := newApp()
+	a.browserCollapsed, a.browserTool = false, "Changes"
+	line := strings.Repeat("x", 600)
+	a.changes = &changesState{mode: changesWorking, files: []vcsChange{
+		{file: "long.txt", patch: "@@ -1 +1 @@\n-old\n+" + line + "\n"},
+		{file: "other.txt", patch: "@@ -1 +1 @@\n-before\n+after\n"},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("New text"); err != nil {
+		t.Fatal(err)
 	}
-	if got := patchTint(p, "-removed"); got != p.diffDel {
-		t.Fatalf("a removed line reads %v", got)
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Key(ui.Cmd, ui.KeyC)
+	if tt.Clipboard() != line {
+		t.Fatal("the full patch line could not be copied")
 	}
-	if got := patchTint(p, "+++ b/src/app.go"); got != p.muted {
-		t.Fatalf("the file header reads %v", got)
+	tt.Type("an accidental edit")
+	if a.changes.diff.New.String() != line {
+		t.Fatalf("the patch was clipped or edited: %v", tt.Texts())
 	}
-	if got := patchTint(p, "@@ -1,3 +1,4 @@"); got != p.link {
-		t.Fatalf("a hunk header reads %v", got)
+	if err := tt.Click("Show other.txt"); err != nil {
+		t.Fatal(err)
 	}
-	if got := patchTint(p, " package main"); got != p.muted {
-		t.Fatalf("a context line reads %v", got)
+	tt.Frame()
+	if a.changes.diff.New.String() != "after" {
+		t.Fatalf("the selected patch did not change: %v", tt.Texts())
 	}
-	if got := patchTint(p, "diff --git a/x b/x"); got != p.faint {
-		t.Fatalf("the diff header reads %v", got)
+	tt.SetDark(true)
+	tt.Frame()
+}
+
+func TestChangesRawPatch(t *testing.T) {
+	for _, patch := range []string{
+		"diff --git a/x b/x\nBinary files a/x and b/x differ\n",
+		"diff --git a/x b/x\nold mode 100644\nnew mode 100755\n",
+		"@@ broken header\n+keep this visible\n",
+	} {
+		t.Run(patch, func(t *testing.T) {
+			a := newApp()
+			a.browserCollapsed, a.browserTool = false, "Changes"
+			a.changes = &changesState{mode: changesWorking, files: []vcsChange{{file: "x", patch: patch}}}
+			tt := ui.NewTester(a.view, 1400, 920)
+			if err := tt.Click("Raw patch"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Key(ui.Cmd, ui.KeyA)
+			tt.Key(ui.Cmd, ui.KeyC)
+			if tt.Clipboard() != patch {
+				t.Fatal("the raw patch could not be copied")
+			}
+			tt.Type("an accidental edit")
+			if a.changes.patch != patch {
+				t.Fatalf("the raw patch was lost or edited: %v", tt.Texts())
+			}
+		})
 	}
+}
+
+func TestChangeStatusLetters(t *testing.T) {
 	if statusLetter("added") != "A" || statusLetter("deleted") != "D" || statusLetter("modified") != "M" {
 		t.Fatal("the status letters drifted")
-	}
-	// Each line rides its own strip: the washes for what moved, the pane's
-	// own color for what did not.
-	if got := patchBg(p, "+added"); got == p.bg || got == p.diffDelBg {
-		t.Fatalf("an added line rides %v", got)
-	}
-	if got := patchBg(p, "-removed"); got == p.bg || got == p.diffAddBg {
-		t.Fatalf("a removed line rides %v", got)
-	}
-	if got := patchBg(p, "@@ -1 +1 @@"); got != p.diffHunkBg {
-		t.Fatalf("a hunk rides %v", got)
-	}
-	for _, plain := range []string{"+++ b/x", "--- a/x", "diff --git a/x b/x", " context"} {
-		if got := patchBg(p, plain); got != p.bg {
-			t.Fatalf("%q rides %v, want the pane's own color", plain, got)
-		}
 	}
 }

@@ -198,20 +198,14 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		}
 	}
 	for i, s := range state.servers {
-		kind, managed, paired := "remote", 0, 0
+		kind := "remote"
 		if s.local {
 			kind = "local"
-		}
-		if s.managed {
-			managed = 1
-		}
-		if s.paired {
-			paired = 1
 		}
 		statements = append(statements, sqlite.Statement{
 			SQL: "INSERT INTO servers (id, name, kind, managed, url, password, paired, paired_at, position) " +
 				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			Args: []any{s.id, s.name, kind, managed, s.url, s.password, paired, s.pairedAt, i},
+			Args: []any{s.id, s.name, kind, s.managed, s.url, s.password, s.paired, s.pairedAt, i},
 		})
 	}
 	for key := range state.modelOff {

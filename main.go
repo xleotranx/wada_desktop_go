@@ -114,9 +114,10 @@ type app struct {
 	browserAddress    string
 	browserPage       string
 	browserTool       string
-	// changes is the workspace diff the Changes tool holds; nil until the
-	// tool is opened.
+	// changes is the workspace diff the Changes tool holds; files is the
+	// tree the Files tool holds. Both nil until their tool opens.
 	changes          *changesState
+	files            *filesState
 	browserHistory   []string
 	browserHistoryAt int
 
@@ -976,10 +977,13 @@ func (a *app) adoptSession(s agentSession) {
 	a.selected = label
 	a.selectedSession = s.id
 	a.freshTranscript()
-	// The Changes tool compares the folder on show, and another chat means
+	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
-	if a.browserTool == "Changes" {
+	switch a.browserTool {
+	case "Changes":
 		a.openChanges(a.changesMode())
+	case "Files":
+		a.openFiles()
 	}
 }
 

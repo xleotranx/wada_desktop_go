@@ -41,7 +41,7 @@ The native UI rules below apply where the app uses package `ui`; preserve a web 
 The mechanical half of the rules above; don't re-derive it in review or leave it unstated:
 
 - `make vet` (`go tool mygo vet .`) owns the lifetime rules: `ui.Element`, the parts types, `ui.ListRow` and `*ui.Context` are flagged when stored in a struct or package variable, passed to a goroutine, or captured by one. "Keep Context out of app state and workers" and "never store an element or parts" are violations the gate catches, not judgment calls.
-- `make lint` keeps the closed sets and dead code honest: `exhaustive` over the `kind*`/`job*` constants, `staticcheck`, `ineffassign`, `unused`.
+- `make lint` keeps the closed sets and dead code honest: `exhaustive` over block, event and command enums, and `depguard` over internal package dependencies, `staticcheck`, `ineffassign`, `unused`.
 - Guard tests hold the repo's conventions: `palette_test.go` (every color from `paletteFor`), `chat_test.go` (every block kind renders); the rest of the behavior lives in `ui.NewTester` tests.
 - `make test` runs the suite under the race detector; `make test-nocgo` without cgo.
 

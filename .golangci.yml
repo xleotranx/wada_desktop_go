@@ -6,7 +6,8 @@ version: "2"
 linters:
   default: none
   enable:
-    - exhaustive # a switch over the kind*/job* sets must name every member
+    - exhaustive # block, event and command dispatch name every member
+    - depguard # pure model, protocol and worker dependencies point outward
     - ineffassign
     - staticcheck
     - unused
@@ -15,3 +16,28 @@ linters:
       # A default case catches the zero value; every named member must
       # still stand above it as its own case.
       default-signifies-exhaustive: false
+    depguard:
+      rules:
+        chat:
+          files: ["**/internal/chat/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd"]
+          deny:
+            - pkg: encoding/json
+              desc: Decode wire data in internal/opencode.
+            - pkg: os
+              desc: Chat transitions must not perform I/O.
+            - pkg: net
+              desc: Chat transitions must not perform I/O.
+            - pkg: io
+              desc: Chat transitions must not perform I/O.
+            - pkg: syscall
+              desc: Chat transitions must not perform I/O.
+        opencode:
+          files: ["**/internal/opencode/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd"]
+        runner:
+          files: ["**/internal/runner/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "wada-desktop-go/internal/opencode", "wada-desktop-go/internal/chat"]

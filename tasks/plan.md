@@ -1,6 +1,6 @@
 # Plan: Make the codebase easier to reason about
 
-Status: implementation authorized; proceeding in verified increments.
+Status: complete. Implemented on codex/enforced-ownership; verification recorded below.
 
 ## Objective and scope
 
@@ -308,3 +308,43 @@ corrupt stores are never reset automatically. No developer database was reset.
 Integrated `make check` passed (lint 0 issues, root race 10.156s, root no-cgo
 3.489s, and all three internal packages). Final boundary checks, performance
 comparison, native captures and documentation cleanup remain.
+
+## Final verification — 2026-10-19
+
+- `make check`: passed. MyGo lifetime vet, lint (0 issues), race tests and no-cgo
+  tests pass for root and all three internal packages. Final root race time was
+  10.205s; no-cgo time was 3.539s.
+- A temporary runner source importing MyGo was rejected by depguard, then removed.
+  Import rules distinguish production from test code. Palette checking now walks
+  production subdirectories as well as the native root package.
+- `WADA_LIVE_AGENT=1 go test -run 'TestLiveLocation|TestLiveSessionOps' .`: passed
+  against the installed OpenCode CLI (6.813s). Model-generating live tests were
+  not needed for this architecture change; protocol and runner fakes cover the
+  command/event paths without external model calls.
+- Native conversation and Servers settings captures rendered and were inspected.
+  Each run used a new temporary WADA_DATA_DIR. No existing developer settings
+  database was reset. Captures are under
+  `/Users/leotran/.codex/visualizations/2026/10/18/01a14f1d-417b-7752-ab32-4abe8be9724a/architecture/`.
+- Three final frame samples: transcript/1000 178.2–181.0 us, 1440 B/op;
+  sidebar/2000 111.3–119.0 us, 8064 B/op. Allocation counts match baseline.
+- Benchmarking exposed an initial large event-wrapper escape (2.22 MB for 4096
+  deltas). The decoder now allocates only the relevant typed payload. Corrected
+  stream/4096 samples were 1.364–1.469 ms, approximately 844 KB/op and 4130
+  allocations/op, matching baseline allocation behavior. Timing samples have
+  ordinary machine/scheduling variation; no claim of a timing improvement is made.
+
+Final review additionally tightened domain IDs, immutable chat read APIs,
+transcript replacement/reset, command-form validation, source-worker shutdown,
+bootstrap ownership, target-scoped command failures, and closed-dialog release.
+Each newly found behavioral issue has a regression test. Bounded batch ordering,
+filtering and shutdown tests were moved alongside the runner rather than dropped.
+
+AGENTS.md and README now describe the actual package boundaries and executable
+gates. The MyGo skill's enforcement map was updated. An additional verification
+skill was unnecessary: the short guide routes directly to the existing single
+`make check` gate and focused tests/capture commands, without duplicating rules.
+
+The CI workflow is configured for pushes and pull requests. It has not been run
+remotely because this task does not push or open a pull request. All implementation
+and verification work is complete locally; no compatibility implementation or
+obsolete migration path remains.

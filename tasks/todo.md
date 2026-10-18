@@ -1,6 +1,6 @@
 # Tasks: Codebase clarity and enforceable ownership
 
-Design: [plan.md](plan.md). Implementation is in progress. Baseline evidence is recorded in plan.md.
+Design: [plan.md](plan.md). Implementation is complete. Baseline and final evidence are recorded in plan.md.
 
 ## 1. Establish the baseline and automatic gate
 
@@ -200,9 +200,9 @@ Depends on: 12a. Files: `metadata.go`, `metadata_test.go`, reset command handlin
 
 ## 14. Enforce boundaries and shorten prose
 
-- [ ] Add narrow import restrictions for the extracted packages using supported lint configuration; demonstrate that forbidden imports fail. Preserve enum, lifetime and palette checks across the new layout.
-- [ ] Rewrite AGENTS.md as a compact map and verification entry point; update README architecture, persistence and remote-folder descriptions. Link representative tests instead of repeating field behavior.
-- [ ] Run the full gate, benchmark comparison, and conversation/settings captures. Record limitations and final evidence. Add a thin verification skill only if it improves check discovery.
+- [x] Add narrow import restrictions for the extracted packages using supported lint configuration; demonstrate that forbidden imports fail. Preserve enum, lifetime and palette checks across the new layout.
+- [x] Rewrite AGENTS.md as a compact map and verification entry point; update README architecture, persistence and remote-folder descriptions. Link representative tests instead of repeating field behavior.
+- [x] Run the full gate, benchmark comparison, and conversation/settings captures. Record limitations and final evidence. Add a thin verification skill only if it improves check discovery.
 
 Depends on: 12c, 13. Files: `.golangci.yml`, `palette_test.go`, `AGENTS.md`,
 `README.md`, final notes in `tasks/plan.md`. Verify: intentional boundary violation
@@ -212,8 +212,8 @@ is rejected and removed; `make check`; baseline benchmark command;
 
 ## Final checkpoint
 
-- [ ] All completion criteria in plan.md have concrete evidence.
-- [ ] All obsolete implementations and compatibility scaffolding are removed.
-- [ ] Automatic CI runs the same passing gate.
-- [ ] Remaining prose explains intent and framework constraints rather than
+- [x] All completion criteria in plan.md have concrete evidence.
+- [x] All obsolete implementations and compatibility scaffolding are removed.
+- [x] Automatic CI is configured for the same passing local gate; remote execution will occur after a push.
+- [x] Remaining prose explains intent and framework constraints rather than
       substituting for checks or ownership.

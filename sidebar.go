@@ -425,25 +425,6 @@ func (a *app) projectDirectories() []string {
 	return projects
 }
 
-// mergeFolderLists keeps one row per directory the two lists name: the
-// ones already kept stay in place, and the fresh list adds only what is
-// new, its own order.
-func mergeFolderLists(kept, fresh []string) []string {
-	seen := map[string]bool{}
-	for _, dir := range kept {
-		seen[filepath.Clean(dir)] = true
-	}
-	out := kept
-	for _, dir := range fresh {
-		if seen[filepath.Clean(dir)] {
-			continue
-		}
-		seen[filepath.Clean(dir)] = true
-		out = append(out, dir)
-	}
-	return out
-}
-
 func (a *app) addProject(dir string) {
 	dir = canonDir(dir)
 	for _, project := range a.projects {

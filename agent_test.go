@@ -409,6 +409,43 @@ func TestAgentProjects(t *testing.T) {
 	}
 }
 
+// TestAgentProjectsOrderByActivity keeps the section's order the server's
+// own: the folder a chat ran in most recently stands first, and rows the
+// server wrote no activity for keep the order it listed them in.
+func TestAgentProjectsOrderByActivity(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/project", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[` +
+			`{"id":"p1","canonical":"/srv/app","time":{"created":1,"updated":1,"active":100}},` +
+			`{"id":"p2","canonical":"/srv/docs","time":{"created":1,"updated":1,"active":300}},` +
+			`{"id":"p3","canonical":"/srv/labs","time":{"created":1,"updated":1}},` +
+			`{"id":"p4","canonical":"/srv/tools","time":{"created":1,"updated":1}}` +
+			`]`))
+	})
+	mux.HandleFunc("GET /api/fs/list", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &agent{base: srv.URL + "/api", pw: "test", http: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dirs, err := a.listProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/srv/docs", "/srv/app", "/srv/labs", "/srv/tools"}
+	if len(dirs) != len(want) {
+		t.Fatalf("projects %+v, want %+v", dirs, want)
+	}
+	for i := range want {
+		if dirs[i] != want[i] {
+			t.Fatalf("projects %+v, want %+v", dirs, want)
+		}
+	}
+}
+
 // TestAgentProjectsFilterDropsPhantoms runs the same read against a list
 // the server keeps beyond its disk: a project row for another machine's
 // folder stays in its registry with no call to remove it, so the read

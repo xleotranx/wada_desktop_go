@@ -404,25 +404,28 @@ func (a *agent) defaultModel(ctx context.Context) (agentModelRef, error) {
 }
 
 // listProjects reads the folders the server works in: one directory per
-// project it knows, the way its project list says them, kept in the order
-// it reports. opencode answers the list behind its data envelope or as a
-// bare array, depending on the build; both read the same. The server
-// remembers every directory any of its callers named — a draft pointed
-// at another machine's folder, a probe of a path that is not there — and
-// keeps the row with no way to drop it, so each name is asked of the
-// server's disk once here, and the ones that are not on it step aside.
+// project it knows, the ones its own activity tracked most recently
+// first, kept in that order. opencode answers the list behind its data
+// envelope or as a bare array, depending on the build; both read the
+// same. The server remembers every directory any of its callers named —
+// a draft pointed at another machine's folder, a probe of a path that is
+// not there, another client's look around — and keeps the row with no
+// way to drop it, so each name is asked of the server's disk once here,
+// and the ones that are not on it step aside.
 func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 	raw, err := a.call(ctx, "GET", "/project", nil)
 	if err != nil {
 		return nil, err
 	}
-	var rows []struct {
+	type projectRow struct {
 		Canonical string `json:"canonical"`
+		Time      struct {
+			Active int64 `json:"active"`
+		} `json:"time"`
 	}
+	var rows []projectRow
 	var out struct {
-		Data []struct {
-			Canonical string `json:"canonical"`
-		} `json:"data"`
+		Data []projectRow `json:"data"`
 	}
 	err = json.Unmarshal(raw, &rows)
 	if err != nil {
@@ -432,6 +435,10 @@ func (a *agent) listProjects(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the project list did not decode")
 	}
+	// The activity the server tracks is what the section shows by: a
+	// folder a chat has just run in moves up, and rows it wrote no
+	// activity for keep the order it listed them in.
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Time.Active > rows[j].Time.Active })
 	seen := map[string]bool{}
 	uniq := []string{}
 	for _, p := range rows {
@@ -986,7 +993,11 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				if a.activeServer != srv.id || perr != nil {
 					return
 				}
-				a.scope().projects = mergeFolderLists(a.scope().projects, ps)
+				// The server's own list, in its own order, is what the
+				// section shows; the folders a chat sits in are unioned
+				// where the list is read, so nothing a session named is
+				// lost by the swap.
+				a.scope().projects = ps
 			})
 		}()
 

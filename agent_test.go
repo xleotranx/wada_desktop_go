@@ -1527,8 +1527,17 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 		t.Fatalf("ask %q %v", level, err)
 	}
 	raw := <-writes
-	if !bytes.Contains(raw, []byte(`"*":"ask"`)) || !bytes.Contains(raw, []byte(`"shell":"zsh"`)) {
+	var asked map[string]any
+	if json.Unmarshal(raw, &asked) != nil {
 		t.Fatalf("the written config %q", string(raw))
+	}
+	rules := permissionRules(asked)
+	if len(rules) != 1 || asked["shell"] != "zsh" {
+		t.Fatalf("the written config %q", string(raw))
+	}
+	if action, resource, effect, ok := ruleFields(rules[0]); !ok ||
+		action != "shell" || resource != "*" || effect != "ask" {
+		t.Fatalf("the written rule reads %v", rules[0])
 	}
 	level, err = remotePermissionLevel(context.Background(), cfg, "/srv/app")
 	if err != nil || level != "ask" {
@@ -1540,7 +1549,11 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 		t.Fatalf("clear %q %v", level, err)
 	}
 	raw = <-writes
-	if bytes.Contains(raw, []byte(`"*"`)) {
+	var cleared map[string]any
+	if json.Unmarshal(raw, &cleared) != nil {
+		t.Fatalf("the cleared config %q", string(raw))
+	}
+	if len(permissionRules(cleared)) != 0 || cleared["permissions"] != nil || cleared["shell"] != "zsh" {
 		t.Fatalf("the cleared config kept the rule: %q", string(raw))
 	}
 	level, err = remotePermissionLevel(context.Background(), cfg, "/srv/app")
@@ -1549,7 +1562,8 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 	}
 
 	// A rule the workspace already carries leaves the file alone.
-	state = map[string]any{"permission": map[string]any{"bash": map[string]any{"*": "ask"}}}
+	state = map[string]any{"permissions": []any{
+		map[string]any{"action": "shell", "resource": "*", "effect": "ask"}}}
 	flush()
 	level, err = remoteSetPermissionAsk(context.Background(), cfg, "/srv/app", true)
 	if err != nil || level != "ask" {
@@ -1563,8 +1577,9 @@ func TestRemotePolicyLevelAndWrite(t *testing.T) {
 }
 
 // TestPermissionToggle drives the shell policy through the workspace's
-// opencode.json: the ask rule lands, the file's other keys stand
-// untouched, and clearing takes only what the app put in.
+// opencode.json: the ask rule lands in the V2 permissions array, the
+// file's other keys stand untouched, and clearing takes only what the app
+// put in.
 func TestPermissionToggle(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := "{\n  \"model\": \"opencode-go/minimax-m3\",\n  \"permission\": {\n    \"bash\": {\"*\": \"allow\"},\n    \"web\": {\"fetch\": \"deny\"}\n  }\n}"
@@ -1587,21 +1602,33 @@ func TestPermissionToggle(t *testing.T) {
 	if doc["model"] != "opencode-go/minimax-m3" {
 		t.Fatalf("other keys lost: %s", raw)
 	}
-	perm := doc["permission"].(map[string]any)
-	bash := perm["bash"].(map[string]any)
-	if bash["*"] != "ask" || bash["fetch"] != nil {
-		t.Fatalf("bash rules %v", bash)
+	rules := permissionRules(doc)
+	if len(rules) != 1 {
+		t.Fatalf("rules %v", rules)
+	}
+	if action, resource, effect, ok := ruleFields(rules[0]); !ok ||
+		action != "shell" || resource != "*" || effect != "ask" {
+		t.Fatalf("the rule reads %v", rules[0])
+	}
+	// The V1 keys the file carried are the user's: the app only owns the
+	// ask wildcard, and this file allows instead.
+	if star, ok := v1BashStar(doc); !ok || star != "allow" {
+		t.Fatalf("a user's V1 wildcard was taken: %s", raw)
 	}
 
-	// Clearing takes the wildcard only: the web rule and the model stay.
+	// Clearing takes the app's rule only: the model, the V1 keys and the
+	// web rule stay.
 	if err := setPermissionAsk(tmp, false); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(filepath.Join(tmp, "opencode.json"))
 	var kept map[string]any
 	json.Unmarshal(raw, &kept)
-	if kept["model"] == nil || !strings.Contains(string(raw), `"fetch"`) {
+	if kept["model"] == nil || !strings.Contains(string(raw), `"fetch"`) || !strings.Contains(string(raw), `"allow"`) {
 		t.Fatalf("clear broke others: %s", raw)
+	}
+	if len(permissionRules(kept)) != 0 || kept["permissions"] != nil {
+		t.Fatalf("the cleared config kept the rule: %s", raw)
 	}
 	if level, _ = permissionLevel(tmp); level != "full" {
 		t.Fatalf("level %q after clearing", level)
@@ -1622,6 +1649,91 @@ func TestPermissionToggle(t *testing.T) {
 	}
 	if err := setPermissionAsk(bad, true); err == nil {
 		t.Fatal("the unreadable config was overwritten")
+	}
+}
+
+// TestShellGateReadsBothSpellings keeps the pill honest about configs the
+// app did not write: V2 rules in the order they claim, the V1 map an older
+// app left, and what denies counting as a door held.
+func TestShellGateReadsBothSpellings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  map[string]any
+		want string
+	}{
+		{"nothing said", map[string]any{}, "full"},
+		{"unrelated rules", map[string]any{"permissions": []any{
+			map[string]any{"action": "read", "resource": "*", "effect": "allow"}}}, "full"},
+		{"a bare shell ask", map[string]any{"permissions": []any{
+			map[string]any{"action": "shell", "resource": "*", "effect": "ask"}}}, "ask"},
+		{"a bare shell deny", map[string]any{"permissions": []any{
+			map[string]any{"action": "shell", "resource": "*", "effect": "deny"}}}, "ask"},
+		{"a blanket ask", map[string]any{"permissions": []any{
+			map[string]any{"action": "*", "resource": "*", "effect": "ask"}}}, "ask"},
+		{"the last match wins", map[string]any{"permissions": []any{
+			map[string]any{"action": "shell", "resource": "*", "effect": "ask"},
+			map[string]any{"action": "shell", "resource": "*", "effect": "allow"}}}, "full"},
+		{"a narrower rule is not the gate", map[string]any{"permissions": []any{
+			map[string]any{"action": "shell", "resource": "git push *", "effect": "deny"}}}, "full"},
+		{"the V1 wildcard", map[string]any{"permission": map[string]any{
+			"bash": map[string]any{"*": "ask"}}}, "ask"},
+		{"a V1 allow", map[string]any{"permission": map[string]any{
+			"bash": map[string]any{"*": "allow"}}}, "full"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shellGate(tc.doc); got != tc.want {
+				t.Fatalf("gate %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSetShellGateTouchesItsOwn keeps the writing honest: the V2 ask rule
+// lands and leaves, a V1 wildcard the app wrote migrates as it goes, and a
+// deny the user set keeps standing through a full-access click.
+func TestSetShellGateTouchesItsOwn(t *testing.T) {
+	// A config an older app wrote: clearing the app's rule takes the V1
+	// wildcard and its containers with it, and asking again writes the V2
+	// form, leaving the keys the app does not own alone.
+	doc := map[string]any{"shell": "zsh", "permission": map[string]any{
+		"bash": map[string]any{"*": "ask"}, "web": map[string]any{"fetch": "deny"}}}
+	if !setShellGate(doc, false) {
+		t.Fatal("the V1 gate did not clear")
+	}
+	if _, ok := v1BashStar(doc); ok {
+		t.Fatalf("the V1 wildcard stayed: %+v", doc)
+	}
+	if perm, _ := doc["permission"].(map[string]any); perm["web"] == nil {
+		t.Fatalf("the V1 keys the app does not own were lost: %+v", doc)
+	}
+	if !setShellGate(doc, true) || shellGate(doc) != "ask" || doc["shell"] != "zsh" {
+		t.Fatalf("the migrated config reads %+v", doc)
+	}
+	if rules := permissionRules(doc); len(rules) != 1 {
+		t.Fatalf("the V2 rule did not land: %+v", rules)
+	}
+	if setShellGate(doc, true) {
+		t.Fatal("a carried rule wrote again")
+	}
+	if !setShellGate(doc, false) || doc["permissions"] != nil {
+		t.Fatalf("clearing the V2 rule left %+v", doc)
+	}
+	if setShellGate(doc, false) {
+		t.Fatal("a second clear wrote again")
+	}
+
+	// A deny is the user's: full access stops the asking, it does not lift
+	// a block, and the pill says as much.
+	denied := map[string]any{"permissions": []any{
+		map[string]any{"action": "shell", "resource": "*", "effect": "deny"}}}
+	if setShellGate(denied, false) {
+		t.Fatal("a deny-only config was rewritten")
+	}
+	if got := shellGate(denied); got != "ask" {
+		t.Fatalf("a deny read %q", got)
+	}
+	if rules := permissionRules(denied); len(rules) != 1 {
+		t.Fatalf("the deny was taken: %+v", rules)
 	}
 }
 
@@ -1710,10 +1822,13 @@ func TestPermissionPillRemote(t *testing.T) {
 	settle("Full access")
 	a.setAsk(true)
 	settle("Asks first")
-	perm, _ := state["permission"].(map[string]any)
-	bash, _ := perm["bash"].(map[string]any)
-	if bash["*"] != "ask" {
+	rules := permissionRules(state)
+	if len(rules) != 1 {
 		t.Fatalf("the pill left no rule behind: %v", state)
+	}
+	if action, resource, effect, ok := ruleFields(rules[0]); !ok ||
+		action != "shell" || resource != "*" || effect != "ask" {
+		t.Fatalf("the pill left %v behind: %v", rules[0], state)
 	}
 }
 

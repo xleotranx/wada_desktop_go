@@ -139,50 +139,73 @@ func permissionLevel(dir string) (string, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "", fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
 	}
-	if permissionBashAsks(doc) {
-		return "ask", nil
-	}
-	return "full", nil
+	return shellGate(doc), nil
 }
 
-// permissionBashAsks reads one config for its bash rule: a star line that
-// is not "allow" holds the door.
-func permissionBashAsks(doc map[string]any) bool {
-	perm, _ := doc["permission"].(map[string]any)
-	bash, _ := perm["bash"].(map[string]any)
-	if bash != nil {
-		if star, ok := bash["*"]; ok && star != "allow" {
-			return true
+// shellGate reads one config for how a bare shell command runs there:
+// "ask" when the file holds shell commands back, "full" when it does not.
+// V2 spells gates as permissions entries and the last match wins; the V1
+// bash map an older app wrote reads the same way.
+func shellGate(doc map[string]any) string {
+	verdict, matched := "full", false
+	for _, raw := range permissionRules(doc) {
+		action, resource, effect, ok := ruleFields(raw)
+		if !ok || resource != "*" || (action != "shell" && action != "*") {
+			continue
+		}
+		matched, verdict = true, "full"
+		if effect == "ask" || effect == "deny" {
+			verdict = "ask"
 		}
 	}
-	return false
+	if matched {
+		return verdict
+	}
+	if star, ok := v1BashStar(doc); ok && star != "allow" {
+		return "ask"
+	}
+	return "full"
 }
 
-// foldPermissionAsk turns the bash gate on or off in one config, touching
-// only the rule it owns; it says whether the config came out different.
-func foldPermissionAsk(doc map[string]any, ask bool) bool {
+// permissionRules is one config's V2 rules, in the order they claim.
+func permissionRules(doc map[string]any) []any {
+	rules, _ := doc["permissions"].([]any)
+	return rules
+}
+
+// ruleFields reads one rule's three strings; what is not a rule reads
+// false.
+func ruleFields(raw any) (action, resource, effect string, ok bool) {
+	rule, _ := raw.(map[string]any)
+	if rule == nil {
+		return "", "", "", false
+	}
+	action, _ = rule["action"].(string)
+	resource, _ = rule["resource"].(string)
+	effect, _ = rule["effect"].(string)
+	if action == "" || resource == "" || effect == "" {
+		return "", "", "", false
+	}
+	return action, resource, effect, true
+}
+
+// v1BashStar reads the V1 wildcard one config carries, and whether the
+// file spells one at all.
+func v1BashStar(doc map[string]any) (string, bool) {
 	perm, _ := doc["permission"].(map[string]any)
 	bash, _ := perm["bash"].(map[string]any)
-	if ask {
-		if perm == nil {
-			perm = map[string]any{}
-			doc["permission"] = perm
-		}
-		if bash == nil {
-			bash = map[string]any{}
-			perm["bash"] = bash
-		}
-		if star, has := bash["*"]; has && star == "ask" {
-			return false
-		}
-		bash["*"] = "ask"
-		return true
-	}
+	star, ok := bash["*"].(string)
+	return star, ok
+}
+
+// clearV1BashStar takes the V1 wildcard out, the containers it leaves
+// empty with it, so a config the app wrote carries no deprecated key of
+// its own once the V2 rule has taken over.
+func clearV1BashStar(doc map[string]any) {
+	perm, _ := doc["permission"].(map[string]any)
+	bash, _ := perm["bash"].(map[string]any)
 	if bash == nil {
-		return false
-	}
-	if star, has := bash["*"]; !has || star == "" {
-		return false
+		return
 	}
 	delete(bash, "*")
 	if len(bash) == 0 {
@@ -190,6 +213,53 @@ func foldPermissionAsk(doc map[string]any, ask bool) bool {
 	}
 	if len(perm) == 0 {
 		delete(doc, "permission")
+	}
+}
+
+// setShellGate moves one config's shell gate between ask-first and open,
+// touching only the rule the app owns: the bare shell ask rule, in the V2
+// array it writes now and in the V1 wildcard an older app left behind for
+// it to replace. What denies keeps standing — full access stops the
+// asking, it does not lift a block. It says whether the config came out
+// different.
+func setShellGate(doc map[string]any, ask bool) bool {
+	want := "full"
+	if ask {
+		want = "ask"
+	}
+	rules := permissionRules(doc)
+	hasV2 := false
+	kept := make([]any, 0, len(rules)+1)
+	for _, raw := range rules {
+		if action, resource, effect, ok := ruleFields(raw); ok &&
+			action == "shell" && resource == "*" && effect == "ask" {
+			hasV2 = true
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	star, spelled := v1BashStar(doc)
+	hasV1 := spelled && star == "ask"
+	if !hasV1 && !hasV2 && !ask {
+		// Nothing of the app's to take out, and nothing to add: a config
+		// another rule holds back is not this toggle's to change.
+		return false
+	}
+	if !hasV1 && hasV2 == ask && shellGate(doc) == want {
+		// The app's rule already says what it should, the gate reads it,
+		// and no older spelling of it is left to migrate: no write.
+		return false
+	}
+	if hasV1 {
+		clearV1BashStar(doc)
+	}
+	if ask {
+		kept = append(kept, map[string]any{"action": "shell", "resource": "*", "effect": "ask"})
+	}
+	if len(kept) == 0 {
+		delete(doc, "permissions")
+	} else {
+		doc["permissions"] = kept
 	}
 	return true
 }
@@ -205,7 +275,7 @@ func setPermissionAsk(dir string, ask bool) error {
 			return fmt.Errorf("opencode.json does not read as plain JSON: %w", err)
 		}
 	}
-	if !foldPermissionAsk(doc, ask) {
+	if !setShellGate(doc, ask) {
 		return nil // the rule already reads as asked
 	}
 	out, err := json.MarshalIndent(doc, "", "  ")
@@ -232,10 +302,7 @@ func remotePermissionLevel(ctx context.Context, cfg serverConn, dir string) (str
 		if entry.Type != "document" || filepath.Clean(entry.Path) != want {
 			continue
 		}
-		if permissionBashAsks(entry.Info) {
-			return "ask", nil
-		}
-		return "full", nil
+		return shellGate(entry.Info), nil
 	}
 	return "full", nil
 }
@@ -260,7 +327,7 @@ func remoteSetPermissionAsk(ctx context.Context, cfg serverConn, dir string, ask
 			doc = entry.Info
 		}
 	}
-	if !foldPermissionAsk(doc, ask) {
+	if !setShellGate(doc, ask) {
 		// The rule already reads as asked; nothing of the server's files
 		// to touch — the level is whatever the workspace says.
 		return remotePermissionLevel(ctx, cfg, dir)

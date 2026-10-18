@@ -14,6 +14,8 @@ import (
 // off, where inside it the user is looking, what the server listed there
 // and what the browse was opened for.
 type browseState struct {
+	request requestState
+
 	open bool
 	// location is the one folder the browse names to the server; rel walks
 	// from it, so looking around files no project row the folder did not
@@ -32,21 +34,6 @@ func (st *browseState) dir() string {
 	return path.Join(st.location, st.rel)
 }
 
-// inBackground runs one server call off the UI thread and hands its answer
-// back on it: through the window when the app has one, inline when tests
-// run the view without it. The probes and the pairing take the same road.
-func inBackground[T any](a *app, work func() (T, error), done func(T, error)) {
-	if a.win == nil { // headless, as tests run the view
-		value, err := work()
-		done(value, err)
-		return
-	}
-	go func() {
-		value, err := work()
-		a.win.Update(func() { done(value, err) })
-	}()
-}
-
 // browseServerFolders walks the server's own folders: the system's panel
 // is this machine's to hand over, so the local server keeps it. A browse
 // opened for the draft settles the draft's project; one opened from the
@@ -57,6 +44,7 @@ func (a *app) browseServerFolders(forDraft bool) {
 		a.openProjectDialog()
 		return
 	}
+	a.closeBrowse()
 	st := &browseState{open: true, draft: forDraft, loading: true}
 	a.browse = st
 	// The chat's own folder is where the user already is; with none, the
@@ -67,8 +55,8 @@ func (a *app) browseServerFolders(forDraft bool) {
 		return
 	}
 	cfg := a.activeServerConn()
-	inBackground(a, func() (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	runRequest(a, &st.request, func(ctx context.Context) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		ag, err := standaloneAgent(cfg)
 		if err != nil {
@@ -76,8 +64,7 @@ func (a *app) browseServerFolders(forDraft bool) {
 		}
 		return ag.location(ctx, "")
 	}, func(dir string, err error) {
-		st := a.browse
-		if st == nil || !st.open {
+		if a.browse != st || !st.open {
 			return
 		}
 		if err != nil {
@@ -99,8 +86,8 @@ func (a *app) browseList() {
 	}
 	st.loading, st.note = true, ""
 	cfg, location, rel := a.activeServerConn(), st.location, st.rel
-	inBackground(a, func() ([]fsEntry, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	runRequest(a, &st.request, func(ctx context.Context) ([]fsEntry, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		ag, err := standaloneAgent(cfg)
 		if err != nil {
@@ -108,8 +95,7 @@ func (a *app) browseList() {
 		}
 		return ag.listDir(ctx, location, rel)
 	}, func(entries []fsEntry, err error) {
-		st := a.browse
-		if st == nil || !st.open {
+		if a.browse != st || !st.open {
 			return
 		}
 		st.loading = false
@@ -165,7 +151,7 @@ func (a *app) browsePick() {
 		return
 	}
 	dir, draft := st.dir(), st.draft
-	a.browse = nil
+	a.closeBrowse()
 	if draft {
 		a.selectDraftProject(dir)
 		return
@@ -264,11 +250,18 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 		ui.Text(c, st.dir()).FontSize(11.5).TextColor(p.muted).SingleLine().Ellipsis("…")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.browse = nil })
+			cancel.OnClick(func() { a.closeBrowse() })
 			cancel.Children(func() { ui.Text(c, "Cancel").FontSize(13).TextColor(p.text) })
 			choose := ui.PrimaryButton(c, pick)
 			choose.OnClick(a.browsePick)
 			choose.Disabled(st.loading || st.note != "")
 		})
 	})
+}
+
+func (a *app) closeBrowse() {
+	if a.browse != nil {
+		a.browse.request.stop()
+		a.browse = nil
+	}
 }

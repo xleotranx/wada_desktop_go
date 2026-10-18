@@ -14,7 +14,7 @@ import (
 // The view runs without a window in tests, which click and type as a user
 // would.
 func TestView(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The interface starts clean, with Codex navigation and workspace
@@ -50,7 +50,7 @@ func TestView(t *testing.T) {
 // the title bar and rail lay a translucent wash over it, near white in
 // the light appearance, so no wallpaper shows through the chrome bare.
 func TestChromeWash(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1400, 920)
 	tt.SetVibrancy(true)
 
@@ -77,7 +77,7 @@ func TestChromeWash(t *testing.T) {
 // conversation's title stands over it, clear of the sidebar, and the
 // tools toggle at its end brings the right pane in and out.
 func TestTopBarChrome(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_z", title: "Plan project folder metadata storage"}}
 	a.adoptSession(a.scope().sessions[0])
@@ -124,7 +124,7 @@ func TestTopBarChrome(t *testing.T) {
 // transcript pins to the growing answer, and a reader who scrolled up
 // during it stays where they put the view.
 func TestStreamFollowsFeed(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
 	a.busySession = "ses_z"
@@ -169,7 +169,7 @@ func TestStreamFollowsFeed(t *testing.T) {
 // fills its current line: without a glide, the feed moves only when a
 // line wraps, not on every word.
 func TestStreamPinsInLineSteps(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
 	a.busySession = "ses_z"
@@ -208,7 +208,7 @@ func TestStreamPinsInLineSteps(t *testing.T) {
 // follows it, half-written syntax reads as what it will become, and the
 // words pace in rather than landing in bursts.
 func TestStreamMarkers(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -267,7 +267,7 @@ func TestStreamMarkers(t *testing.T) {
 // the first words, between them while a tool works, never while an
 // approval waits on the user, and never for another chat's turn.
 func TestTranscriptLoader(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.selected = "Turn"
 	a.busySession = "ses_z"
@@ -311,7 +311,7 @@ func TestTranscriptLoader(t *testing.T) {
 // the card is a column, so centering it vertically is Justify's doing,
 // not AlignItems'.
 func TestSidebarSearchCentered(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.searchOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -335,7 +335,7 @@ func TestSidebarSearchCentered(t *testing.T) {
 // lookup, the results take the list over, choosing one opens the chat
 // and a blank field hands back to projects and pinned chats.
 func TestSidebarSearch(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -404,7 +404,7 @@ func TestSidebarSearch(t *testing.T) {
 // approvals waiting and takes the user to one, and the search chip aims
 // the field the way the product menu does.
 func TestHeaderWiring(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.selectedSession = "ses_z"
@@ -458,7 +458,7 @@ func TestAttachDialog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "notes.md"), []byte("# hello\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
@@ -498,14 +498,14 @@ func TestAttachDialog(t *testing.T) {
 }
 
 func TestActivityExpands(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_seed"
 	a.selected = "Wired turn"
 	a.blocks = []block{
-		{kind: "activity", text: "Ran command", icon: icTerminal, key: "activity:call_1",
-			detail: commandDetail(
+		{kind: "activity", text: "Ran command", icon: "shell", key: "activity:call_1",
+			detail: []string{
 				"$ echo hi",
-				"hi")},
+				"hi"}},
 	}
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -524,7 +524,7 @@ func TestActivityExpands(t *testing.T) {
 }
 
 func TestComposerSends(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1400, 920)
 
 	// The composer talks even with nothing chosen: the send queues the

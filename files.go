@@ -23,6 +23,9 @@ const filesFound = 50
 // the listings read so far, which folders are unfolded, and the file on
 // show.
 type filesState struct {
+	readRequest, findRequest requestState
+	listRequests             map[string]*requestState
+
 	location string
 	open     map[string]bool      // folder rel -> unfolded
 	entries  map[string][]fsEntry // folder rel -> what the server listed
@@ -104,11 +107,17 @@ func (a *app) filesList(rel string) {
 	if st == nil || st.location == "" || st.loading[rel] {
 		return
 	}
+	if st.listRequests == nil {
+		st.listRequests = map[string]*requestState{}
+	}
+	if st.listRequests[rel] == nil {
+		st.listRequests[rel] = new(requestState)
+	}
 	st.loading[rel] = true
 	st.note = ""
 	cfg, location := a.activeServerConn(), st.location
-	inBackground(a, func() ([]fsEntry, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	runRequest(a, st.listRequests[rel], func(ctx context.Context) ([]fsEntry, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		ag, err := standaloneAgent(cfg)
 		if err != nil {
@@ -136,6 +145,7 @@ func (a *app) filesFind() {
 	if st == nil || st.location == "" {
 		return
 	}
+	st.findRequest.stop()
 	st.query = strings.TrimSpace(st.query)
 	st.results, st.findErr, st.finding = nil, "", false
 	if st.query == "" {
@@ -143,8 +153,8 @@ func (a *app) filesFind() {
 	}
 	st.finding = true
 	cfg, location, query := a.activeServerConn(), st.location, st.query
-	inBackground(a, func() ([]fsEntry, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	runRequest(a, &st.findRequest, func(ctx context.Context) ([]fsEntry, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		ag, err := standaloneAgent(cfg)
 		if err != nil {
@@ -173,8 +183,8 @@ func (a *app) filesRead(rel string) {
 	cfg, location := a.activeServerConn(), st.location
 	st.path, st.content, st.clipped = rel, "Reading…", false
 	st.viewer = nil
-	inBackground(a, func() ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	runRequest(a, &st.readRequest, func(ctx context.Context) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		ag, err := standaloneAgent(cfg)
 		if err != nil {
@@ -208,8 +218,6 @@ func (a *app) filesRead(rel string) {
 func (a *app) filesBody(c *ui.Context, p palette) {
 	st := a.files
 	if st == nil || st.location == "" {
-		a.openFiles()
-		st = a.files
 		if st == nil || st.location == "" {
 			// Nothing to grow a tree from; the note says why.
 			if st != nil && st.note != "" {
@@ -225,7 +233,6 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 		return
 	}
 	if _, ok := st.entries["."]; !ok {
-		a.filesList(".")
 		ui.Text(c, "Reading the workspace…").FontSize(12.5).TextColor(p.muted)
 		return
 	}

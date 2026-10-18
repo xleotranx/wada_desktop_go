@@ -180,12 +180,12 @@ func (a *app) activityRow(c *ui.Context, p palette, b block) {
 	}
 	row.OnClick(func() { a.expanded[b.key] = !a.expanded[b.key] })
 	row.Children(func() {
-		ui.Icon(c, b.icon).FontSize(15).TextColor(p.muted)
+		ui.Icon(c, toolIcon(b.icon)).FontSize(15).TextColor(p.muted)
 		ui.Text(c, b.text).MarginStart(9).FontSize(13).TextColor(p.muted).SingleLine()
 		ui.Icon(c, chev).FontSize(12).MarginStart(6).TextColor(p.muted)
 	})
 	if open && b.detail != nil {
-		ui.Row(c).FillWidth().Children(func() { b.detail(c, p) })
+		ui.Row(c).FillWidth().Children(func() { drawCommandDetail(c, p, b.detail) })
 	}
 }
 
@@ -257,18 +257,27 @@ func permAsk(action string) string {
 	return "use " + action
 }
 
-// commandDetail is the expanded detail of an activity: what ran, written
+// drawCommandDetail is the expanded detail of an activity: what ran, written
 // as a terminal keeps it.
-func commandDetail(lines ...string) func(c *ui.Context, p palette) {
-	return func(c *ui.Context, p palette) {
-		ui.Box(c).FillWidth().Radius(10).Padding(10, 12).Margin(4, 0, 0, 0).
-			Background(p.detailBg).Border(1, p.hairline).Children(func() {
-			ui.Column(c).Gap(3).Children(func() {
-				for _, l := range lines {
-					ui.Text(c, l).Font("monospace").FontSize(12).LineHeight(1.55).
-						TextColor(p.text).SingleLine()
-				}
-			})
+func drawCommandDetail(c *ui.Context, p palette, lines []string) {
+	ui.Box(c).FillWidth().Radius(10).Padding(10, 12).Margin(4, 0, 0, 0).
+		Background(p.detailBg).Border(1, p.hairline).Children(func() {
+		ui.Column(c).Gap(3).Children(func() {
+			for _, l := range lines {
+				ui.Text(c, l).Font("monospace").FontSize(12).LineHeight(1.55).
+					TextColor(p.text).SingleLine()
+			}
 		})
+	})
+}
+
+func toolIcon(kind string) *ui.SVG {
+	switch kind {
+	case "shell":
+		return icTerminal
+	case "read":
+		return icBook
+	default:
+		return icPlug
 	}
 }

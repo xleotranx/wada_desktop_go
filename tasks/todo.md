@@ -13,9 +13,9 @@ Depends on: none. Files: `.github/workflows/check.yml`, baseline notes in
 
 ## 2. Make background completion controllable
 
-- [ ] Replace the `win == nil` synchronous execution branch with an explicit background executor/dispatcher dependency and a production Window.Update adapter.
-- [ ] Provide a manual test executor that releases work and posted callbacks independently; retain a small production-adapter integration test.
-- [ ] Demonstrate a late callback after state replacement and closure without sleeps.
+- [x] Replace the `win == nil` synchronous execution branch with an explicit background executor/dispatcher dependency and a production Window.Update adapter.
+- [x] Provide a manual test executor that releases work and posted callbacks independently; retain a small production-adapter integration test.
+- [x] Demonstrate a late callback after state replacement and closure without sleeps.
 
 Depends on: 1. Files: `server_folders.go`, new background helper/test files,
 `main.go`, relevant folder tests. Verify: focused executor/folder tests and
@@ -38,9 +38,9 @@ tests. Verify: targeted connection tests and `make check`.
 
 ## 4. Give workspace reads revisions
 
-- [ ] Files directory reads have per-directory request ownership; file previews and searches have independent latest-request revisions. Changes reads have a revision independent of mode/path text.
-- [ ] Test file A -> B -> A, query x -> y -> x, working -> branch -> working and refresh replies arriving in reverse order.
-- [ ] Start reads through opening/selection/refresh actions. Repeated render frames issue zero additional external reads; preserve editor state across unrelated frames.
+- [x] Files directory reads have per-directory request ownership; file previews and searches have independent latest-request revisions. Changes reads have a revision independent of mode/path text.
+- [x] Test file A -> B -> A, query x -> y -> x, working -> branch -> working and refresh replies arriving in reverse order.
+- [x] Start reads through opening/selection/refresh actions. Repeated render frames issue zero additional external reads; preserve editor state across unrelated frames.
 
 Depends on: 2, 3. Files: `files.go`, `changes.go`, `workspace.go`, their tests and
 browser action wiring where needed. Verify: focused files/changes/workspace
@@ -48,9 +48,9 @@ tests, existing editor retention tests and `make check`.
 
 ## 5a. Bind folder browsing to its dialog and request
 
-- [ ] Folder discovery/listing results match their captured dialog instance, connection generation and request revision.
-- [ ] Closing/reopening a dialog and browsing A -> B -> A cannot receive an old result; obsolete work is canceled.
-- [ ] Remote paths remain in the remote server's namespace.
+- [x] Folder discovery/listing results match their captured dialog instance, connection generation and request revision.
+- [x] Closing/reopening a dialog and browsing A -> B -> A cannot receive an old result; obsolete work is canceled.
+- [x] Remote paths remain in the remote server's namespace.
 
 Depends on: 2, 3. Files: `server_folders.go`, `server_folders_test.go`, background
 helper if required. Verify: focused folder tests and `make check`.
@@ -66,18 +66,18 @@ Verify: focused attachment/policy tests and `make check`.
 
 ## 5c. Bind server administration work to configuration revisions
 
-- [ ] Probes and pairing results match their server/configuration or dialog operation revision; inactive-server probes may complete legitimately.
-- [ ] Editing/deleting a server invalidates old results; pairing and minted links cannot update a replacement operation.
-- [ ] Test reversed results and shutdown without displaying secrets in diagnostics.
+- [x] Probes and pairing results match their server/configuration or dialog operation revision; inactive-server probes may complete legitimately.
+- [x] Editing/deleting a server invalidates old results; pairing and minted links cannot update a replacement operation.
+- [x] Test reversed results and shutdown without displaying secrets in diagnostics.
 
 Depends on: 2, 3. Files: `servers.go`, `settings.go`, `settings_test.go`.
 Verify: focused probe/pairing tests and `make check`.
 
 ## 6. Make queue admission explicit
 
-- [ ] Submission returns an admission result. Required user commands cannot silently disappear; optional refresh work has explicit coalescing behavior.
-- [ ] Composer, permission and other optimistic state only advance after admission or recover visibly from rejection.
-- [ ] Test full queue, closed runner, repeated refresh and switch/cancel under load.
+- [x] Submission returns an admission result. Required user commands cannot silently disappear; optional refresh work has explicit coalescing behavior.
+- [x] Composer, permission and other optimistic state only advance after admission or recover visibly from rejection.
+- [x] Test full queue, closed runner, repeated refresh and switch/cancel under load.
 
 Depends on: 3. Files: `agent_jobs.go`, `main.go`, `agent_jobs_test.go`, relevant
 composer/permission tests. Verify: focused admission/interaction tests and
@@ -92,9 +92,9 @@ composer/permission tests. Verify: focused admission/interaction tests and
 
 ## 7. Separate transcript data from rendering
 
-- [ ] Replace SVG fields and drawing closures in transcript blocks with symbolic tool kinds and plain detail payloads.
-- [ ] Resolve icons/details in chat rendering, preserving activity expansion, permissions, markdown, row identity and virtualization.
-- [ ] Stored and streamed turns render equivalent content with stable state across extra frames.
+- [x] Replace SVG fields and drawing closures in transcript blocks with symbolic tool kinds and plain detail payloads.
+- [x] Resolve icons/details in chat rendering, preserving activity expansion, permissions, markdown, row identity and virtualization.
+- [x] Stored and streamed turns render equivalent content with stable state across extra frames.
 
 Depends on: 6. Files: `main.go`, `agent_apply.go`, `chat.go`, `chat_test.go`,
 transcript/performance fixtures. Verify: transcript/view tests, relevant existing

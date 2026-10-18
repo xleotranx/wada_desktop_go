@@ -300,8 +300,7 @@ func (a *app) saveServerEditor() {
 			st.pairing = true
 			st.note = ""
 			a.pair(url, func(addr, token string, err error) {
-				st := a.serverEditor
-				if st == nil || !st.pairing {
+				if a.serverEditor != st || !st.pairing || st.url != url {
 					return // the dialog closed, or another save moved on
 				}
 				st.pairing = false
@@ -342,6 +341,7 @@ func (a *app) saveServerEditor() {
 		// a link redeemed just now carries its own issue time, a password
 		// typed over the token takes its place, and an emptied field leaves
 		// nothing paired at all.
+		a.invalidateServerWork(st.id)
 		was := a.servers[i]
 		paired, pairedAt := was.paired, was.pairedAt
 		switch {

@@ -90,7 +90,7 @@ func TestListDir(t *testing.T) {
 // location it names never moving, so looking around files no project row.
 func TestBrowseTheServersFolders(t *testing.T) {
 	srv, listed := browseServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.settingsOpen = false
@@ -176,7 +176,7 @@ func TestBrowseTheServersFolders(t *testing.T) {
 // machine's, so the panel hands the folder over and the draft settles on
 // it without any listing.
 func TestBrowseOnTheLocalServerUsesThePanel(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	dir := t.TempDir()
 	picked := false
 	a.pickFolder = func(done func(path string)) {

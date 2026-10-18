@@ -85,7 +85,7 @@ func TestAgentUpdatesCancelWhileUIIsBlocked(t *testing.T) {
 }
 
 func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
@@ -104,7 +104,7 @@ func TestTranscriptBuildsOnlyVisibleRows(t *testing.T) {
 // same virtual list the transcript and the sidebar use: a server with
 // hundreds of models builds the rows in view, not the whole catalog.
 func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	for i := range 400 {
 		a.scope().models = append(a.scope().models, agentModel{providerID: "opencode-go",
 			id: fmt.Sprintf("m-%03d", i), name: fmt.Sprintf("Model %03d", i)})
@@ -124,7 +124,7 @@ func TestModelsTabBuildsOnlyVisibleRows(t *testing.T) {
 }
 
 func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	for i := range 2000 {
 		a.scope().sessions = append(a.scope().sessions, agentSession{id: fmt.Sprint(i), title: fmt.Sprintf("Chat %d", i)})
@@ -147,14 +147,14 @@ func TestSidebarBuildsOnlyVisibleRows(t *testing.T) {
 }
 
 func TestActivitySurvivesVirtualScrolling(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.selectedSession = "large"
 	for i := range 1000 {
 		a.blocks = append(a.blocks, block{kind: "text", text: fmt.Sprintf("Answer %d", i)})
 	}
-	a.blocks = append(a.blocks, block{kind: "activity", text: "Ran command", key: "activity:tail", icon: icTerminal,
-		detail: commandDetail("$ echo retained", "retained")})
+	a.blocks = append(a.blocks, block{kind: "activity", text: "Ran command", key: "activity:tail", icon: "shell",
+		detail: []string{"$ echo retained", "retained"}})
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Ran command"); err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestActivitySurvivesVirtualScrolling(t *testing.T) {
 }
 
 func TestApprovalRemovalPreservesLiveRows(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "s"
 	a.apply(agentEvent{Type: "permission.asked", Data: []byte(`{"id":"ask","sessionID":"s","action":"shell"}`)})
 	a.apply(agentEvent{Type: "session.text.started", Data: []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
@@ -260,7 +260,7 @@ func TestSearchCancelsObsoleteLookup(t *testing.T) {
 }
 
 func TestSearchKeepsNewestQuery(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	for range cap(a.jobs) {
 		a.jobs <- agentJob{kind: "stop"}
 	}
@@ -306,7 +306,7 @@ func TestToolTailReleasesOutput(t *testing.T) {
 }
 
 func TestStreamAllocationBudget(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "s"
 	a.apply(agentEvent{Type: "session.text.started", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0}`)})
 	ev := agentEvent{Type: "session.text.delta", Data: json.RawMessage(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"01234567890123456789012345678901"}`)}

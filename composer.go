@@ -11,6 +11,9 @@ import (
 // transcript's foot.
 func (a *app) composer(c *ui.Context, p palette) {
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
+		if a.commandError != "" {
+			ui.Text(c, a.commandError).FontSize(12).TextColor(p.danger)
+		}
 		if a.selectedSession == "" {
 			ui.Row(c).MaxWidth(780).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
 		}
@@ -25,8 +28,9 @@ func (a *app) composer(c *ui.Context, p palette) {
 				Padding(4, 8).Lines(1, 7).
 				OnTextKey(func(k ui.TextKey) bool {
 					if k.Key == ui.KeyEnter && k.Mods == 0 {
-						a.send() // reads the draft as it is now
-						k.SetText("")
+						if a.send() {
+							k.SetText("")
+						}
 						return true
 					}
 					return false
@@ -115,17 +119,6 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 // config the server watches.
 func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	dir := a.chatDir()
-	if a.localActive() {
-		if dir == "" {
-			dir = a.home
-		}
-		a.watchWorkspacePolicy(dir)
-	} else if dir != "" {
-		// A server workspace is only named once the chat has one: the
-		// folder tilde of this machine is none of the server's business,
-		// and naming it would file the server a phantom project.
-		a.watchServerPolicy(dir)
-	}
 	label := "Full access"
 	if a.policyLevel != "full" {
 		// A policy not yet read, or unreadable, leans to the safe name.

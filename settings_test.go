@@ -18,7 +18,7 @@ import (
 // gear opens it on the Servers tab, the chat furniture steps aside, and
 // Escape, the close shape and any rail place all leave it behind.
 func TestSettingsOpenAndClose(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
@@ -100,7 +100,7 @@ func TestSettingsOpenAndClose(t *testing.T) {
 // where it was. (Escape with a native menu up is the menu's own key to
 // take; the headless tester does not model that, so it stays untested.)
 func TestServerMenuKeepsThePage(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -160,7 +160,7 @@ func TestServerRowShowsState(t *testing.T) {
 	}
 
 	// The card draws the active badge and the state dot.
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.setHealth("srv-box", serverHealth{status: healthDown, detail: "no answer"})
 	a.settingsOpen = true
@@ -181,7 +181,7 @@ func TestServerRowShowsState(t *testing.T) {
 // server and hands its pins back. The old server's conversations and
 // catalog stay in their scope, so a switch back shows them again.
 func TestServerUseSwitches(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.settingsOpen = true
 	a.scope().sessionsLoaded = true
@@ -245,7 +245,7 @@ func TestServerUseSwitches(t *testing.T) {
 // TestServerMenuSwitches picks a server out of the sidebar's server menu,
 // the same road Settings' Use action takes.
 func TestServerMenuSwitches(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	tt := ui.NewTester(a.view, 1400, 920)
 	if err := tt.Click("Server menu, Local server"); err != nil {
@@ -277,7 +277,7 @@ func TestServerMenuSwitches(t *testing.T) {
 // TestServerEditorAddsRemote drives the add dialog: a nameless save stays
 // with a note, a real one lands in the list and is probed.
 func TestServerEditorAddsRemote(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	probed := []string{}
 	a.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
 	a.settingsOpen = true
@@ -338,7 +338,7 @@ func TestServerEditorAddsRemote(t *testing.T) {
 // own terms: no address to type, a password to set, and a redial because
 // the password travels with the server the app starts.
 func TestServerEditorEditsLocalPassword(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.settingsOpen = true
 	tt := ui.NewTester(a.view, 1400, 920)
 
@@ -397,7 +397,7 @@ func TestServerEditorEditsLocalPassword(t *testing.T) {
 // TestDeleteServerConfirms keeps the local row and the active one out of
 // harm's way, and takes a menu Delete through its dialog.
 func TestDeleteServerConfirms(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers,
 		serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"},
 		serverConn{id: "srv-lab", name: "Lab", url: "http://10.0.0.13:4096", password: "k"},
@@ -457,7 +457,7 @@ func TestDeleteServerConfirms(t *testing.T) {
 // TestModelsTabToggles drives the Models tab: the counts, the per-model
 // switch, and the two bulk actions over the whole catalog.
 func TestModelsTabToggles(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", variants: []string{"low", "high"}},
@@ -525,7 +525,7 @@ func TestModelsTabToggles(t *testing.T) {
 // TestModelsFollowTheServer keeps each server's choices its own: each lists
 // its own catalog, and turning a model off on one leaves the other's alone.
 func TestModelsFollowTheServer(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	// The local server's dial filled its catalog; the free default is off here.
 	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true}}
@@ -549,7 +549,7 @@ func TestModelsFollowTheServer(t *testing.T) {
 // TestServerCardShowsItsScope lists what each server's dials have kept, so
 // a card tells its chats, folders and catalog whatever server is on show.
 func TestServerCardShowsItsScope(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.activeServer = "srv-box" // the build box stands alone, no pipe served it yet
 	a.scope().sessionsLoaded = true
@@ -572,7 +572,7 @@ func TestServerCardShowsItsScope(t *testing.T) {
 // feed: turned-off models stay out, an empty offer says why, and Manage
 // models opens the tab behind it.
 func TestComposerPickerHidesDisabledModels(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free", free: true},
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3"},
@@ -618,7 +618,7 @@ func TestComposerPickerHidesDisabledModels(t *testing.T) {
 // into the conversation the server opens, and a fresh chat drops back to
 // the default.
 func TestDraftModelChoiceSticks(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().modelsLoaded = true
 	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true},
@@ -656,7 +656,7 @@ func TestDraftModelChoiceSticks(t *testing.T) {
 // TestSendCarriesTheDefault keeps a new turn on the model the settings
 // enabled: the job names it, so the runner does not fall back on its own.
 func TestSendCarriesTheDefault(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().models = []agentModel{{providerID: "wada", id: "flash", name: "Flash", free: true}}
 	a.scope().modelsLoaded = true
 	a.draft = "hello"
@@ -755,7 +755,7 @@ func TestRedeemPairLink(t *testing.T) {
 // the link to the pairing, and what lands back — the address and the token
 // — is what the connection is saved with.
 func TestServerEditorPairsALink(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.settingsOpen = true
 	probed := []string{}
 	a.probe = func(cfg serverConn) { probed = append(probed, cfg.id) }
@@ -847,7 +847,7 @@ func TestAPIBaseNormalizes(t *testing.T) {
 // an edit that leaves the token alone keeps its month, a password typed
 // over it takes its place, and the row says which credential it holds.
 func TestServerEditorKeepsThePairing(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.settingsOpen = true
 	issued := time.Now().Add(-3 * 24 * time.Hour).UnixMilli()
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box",
@@ -940,7 +940,7 @@ func TestCopyPairLink(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "key"})
 	a.setHealth("srv-box", serverHealth{status: healthReady, detail: "2.0.32", addr: srv.URL})
 	a.setFacts("srv-box", serverFacts{urls: []string{srv.URL}})
@@ -1073,7 +1073,7 @@ func TestPairedServerRow(t *testing.T) {
 // server it left behind reads as stopped.
 func TestBootOnAStoredRemote(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metadata.db")
-	a := newApp()
+	a := newTestApp(t)
 	db, err := a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -1089,7 +1089,7 @@ func TestBootOnAStoredRemote(t *testing.T) {
 	a.saveState()
 	a.closeMetadata()
 
-	b := newApp()
+	b := newTestApp(t)
 	db, err = b.loadState(path)
 	if err != nil {
 		t.Fatal(err)

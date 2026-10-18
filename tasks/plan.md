@@ -275,3 +275,14 @@ justified merely because a source file is long.
 v1.7.7 passed the enabled workflow. Three benchmark samples: transcript/1000
 182.6–187.5 us, 1440 B/op; sidebar/2000 111.8–114.2 us, 8064 B/op;
 stream/4096 1.338–1.349 ms, approximately 844 KB/op.
+
+## Implementation evidence: asynchronous boundaries
+
+Manual worker/publication tests reproduced six stale-result bugs before the
+fixes. They now pass, together with cancellation, shutdown, registry lifetime,
+render-without-I/O and admission pressure tests. `make check` passes after the
+background, request ownership, policy action and transcript-presentation changes
+(race 10.543s, no-cgo 3.459s, lint 0 issues). Interaction fixtures explicitly
+install an immediate executor; ordering regressions install a manual executor.
+Connection-result guarding is in place; runner extraction will complete
+control cancellation and its dedicated deterministic attempt tests.

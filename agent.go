@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -954,27 +955,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 	note := ""           // the last trouble line shown, so a retry does not repeat it
 	var stash []agentJob // jobs that landed while nothing was connected
 
-	// say writes a transcript note for the attempt's server only: a
-	// connection the user switched away from stays quiet.
-	say := func(id, text string) {
-		win.Update(func() {
-			if a.activeServer == id {
-				a.streamLine(text)
-			}
-		})
-	}
-
-	// applyForServer applies one server's events while it is still the
-	// active one: a switch stops its stream short of writing over the
-	// server the app opened next.
-	applyForServer := func(srv serverConn) func(agentEvent) {
-		return func(ev agentEvent) {
-			if a.activeServer != srv.id {
-				return
-			}
-			a.apply(ev)
-		}
-	}
+	var attempts atomic.Uint64
 
 	for {
 		if last != nil {
@@ -1032,14 +1013,28 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			}
 		}
 
-		win.Update(func() { a.setHealth(cfg.id, serverHealth{status: healthConnecting, addr: cfg.url}) })
-		ag, err := startAgentFor(ctx, cfg, workdir())
+		attempt := attempts.Add(1)
+		generation := route
+		post := func(fn func()) {
+			win.Update(func() {
+				if !a.closed && a.route == generation && attempts.Load() == attempt {
+					fn()
+				}
+			})
+		}
+		say := func(_ string, text string) { post(func() { a.streamLine(text) }) }
+		applyForServer := func(_ serverConn) func(agentEvent) { return a.apply }
+		current := cfg
+		post(func() { a.setHealth(current.id, serverHealth{status: healthConnecting, addr: current.url}) })
+		attemptCtx, cancelAttempt := context.WithCancel(ctx)
+		ag, err := startAgentFor(attemptCtx, cfg, workdir())
 		if err != nil {
+			cancelAttempt()
 			if ctx.Err() != nil {
 				return
 			}
-			win.Update(func() {
-				a.setHealth(cfg.id, serverHealth{status: healthDown, detail: err.Error(), addr: cfg.url})
+			post(func() {
+				a.setHealth(current.id, serverHealth{status: healthDown, detail: err.Error(), addr: current.url})
 			})
 			if text := "The agent would not come up: " + err.Error(); text != note {
 				note = text
@@ -1052,9 +1047,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		}
 		note = ""
 		last = ag
-		win.Update(func() {
-			a.setHealth(cfg.id, serverHealth{status: healthReady, detail: ag.facts.version, addr: ag.addr})
-			a.setFacts(cfg.id, ag.facts)
+		post(func() {
+			a.setHealth(current.id, serverHealth{status: healthReady, detail: ag.facts.version, addr: ag.addr})
+			a.setFacts(current.id, ag.facts)
 		})
 		if reconnect > 0 {
 			say(cfg.id, cfg.name+" is back.")
@@ -1064,12 +1059,11 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// checks the view still shows it before writing.
 		srv := cfg
 		attemptPins := pins
-		attemptCtx, cancelAttempt := context.WithCancel(ctx)
 		go searchChats(attemptCtx, a.searches, func(ctx context.Context, query string) ([]agentSession, error) {
 			rows, _, err := ag.listSessions(ctx, "", query, "")
 			return rows, err
-		}, win.Update, a.acceptSearch)
-		win.Update(func() {
+		}, post, a.acceptSearch)
+		post(func() {
 			if a.searchText != "" {
 				a.reviseSearch()
 			}
@@ -1079,11 +1073,11 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// from the stored conversations while the loop runs.
 		done := make(chan error, 1)
 		go func() {
-			done <- agentUpdates(attemptCtx, ag.events, win.Update, applyForServer(srv))
+			done <- agentUpdates(attemptCtx, ag.events, post, applyForServer(srv))
 		}()
 		go func() {
-			ls, nxt, lerr := ag.listSessions(ctx, "", "", "")
-			win.Update(func() {
+			ls, nxt, lerr := ag.listSessions(attemptCtx, "", "", "")
+			post(func() {
 				if a.activeServer != srv.id {
 					return
 				}
@@ -1103,9 +1097,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			if lerr == nil {
 				extra, err := loadPinnedSessions(attemptCtx, attemptPins, ls, nxt,
 					func(ctx context.Context, cursor, search string) ([]agentSession, string, error) {
-						return ag.listSessions(ctx, cursor, search, "")
+						return ag.listSessions(attemptCtx, cursor, search, "")
 					})
-				win.Update(func() {
+				post(func() {
 					if attemptCtx.Err() != nil || a.activeServer != srv.id {
 						return
 					}
@@ -1123,9 +1117,9 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			}
 		}()
 		go func() {
-			ms, merr := ag.listModels(ctx)
-			def, derr := ag.defaultModel(ctx)
-			win.Update(func() {
+			ms, merr := ag.listModels(attemptCtx)
+			def, derr := ag.defaultModel(attemptCtx)
+			post(func() {
 				if a.activeServer != srv.id {
 					return
 				}
@@ -1142,8 +1136,8 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			})
 		}()
 		go func() {
-			ps, perr := ag.listProjects(ctx)
-			win.Update(func() {
+			ps, perr := ag.listProjects(attemptCtx)
+			post(func() {
 				if a.activeServer != srv.id || perr != nil {
 					return
 				}
@@ -1163,7 +1157,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		// the directory asked for; a model ref refusing to set does not
 		// stop the turn.
 		open := func(dir string, draft uint64, want agentModelRef) bool {
-			nid, ref, nerr := ag.createSession(ctx, dir)
+			nid, ref, nerr := ag.createSession(attemptCtx, dir)
 			if nerr != nil {
 				say(srv.id, "The agent did not open a chat: "+nerr.Error())
 				return false
@@ -1172,7 +1166,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				prov, name := sessionModel()
 				want = agentModelRef{providerID: prov, id: name}
 			}
-			if perr := ag.setModel(ctx, nid, want.providerID, want.id, want.variant); perr != nil {
+			if perr := ag.setModel(attemptCtx, nid, want.providerID, want.id, want.variant); perr != nil {
 				say(srv.id, "The app's model was not set, running the config's: "+perr.Error())
 			}
 			sid = nid
@@ -1181,7 +1175,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			if home == "" {
 				home = canonDir(workdir())
 			}
-			win.Update(func() {
+			post(func() {
 				if a.activeServer != srv.id {
 					return
 				}
@@ -1204,13 +1198,13 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 			}
 			switch job.kind {
 			case jobOpen:
-				msgs, oerr := ag.sessionMessages(ctx, job.sid)
+				msgs, oerr := ag.sessionMessages(attemptCtx, job.sid)
 				if oerr != nil {
 					say(srv.id, "Could not open that conversation: "+oerr.Error())
 					return false
 				}
-				win.Update(func() {
-					if a.activeServer != srv.id {
+				post(func() {
+					if a.activeServer != srv.id || a.selectedSession != job.sid {
 						return
 					}
 					a.freshTranscript()
@@ -1225,37 +1219,37 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				if who == "" {
 					return false
 				}
-				if serr := ag.interrupt(ctx, who); serr != nil {
+				if serr := ag.interrupt(attemptCtx, who); serr != nil {
 					say(srv.id, "The turn refused to stop: "+serr.Error())
 				}
 			case jobAnswer:
-				if aerr := ag.replyPermission(ctx, job.sid, job.request, job.decision); aerr != nil {
+				if aerr := ag.replyPermission(attemptCtx, job.sid, job.request, job.decision); aerr != nil {
 					say(srv.id, "The approval did not go through: "+aerr.Error())
 					return false
 				}
-				win.Update(func() {
+				post(func() {
 					if a.activeServer == srv.id {
 						a.dropPerm(job.request)
 					}
 				})
 			case jobRename:
-				if rerr := ag.renameSession(ctx, job.sid, job.text); rerr != nil {
+				if rerr := ag.renameSession(attemptCtx, job.sid, job.text); rerr != nil {
 					say(srv.id, "The rename did not take: "+rerr.Error())
 				}
 				// The new title folds in over the session.renamed event.
 			case jobDelete:
-				if derr := ag.deleteSession(ctx, job.sid); derr != nil {
+				if derr := ag.deleteSession(attemptCtx, job.sid); derr != nil {
 					say(srv.id, "The chat did not delete: "+derr.Error())
 					return false
 				}
-				win.Update(func() {
+				post(func() {
 					if a.activeServer == srv.id {
 						a.dropSession(job.sid)
 					}
 				})
 			case jobMore:
-				rows, cur, merr := ag.listSessions(ctx, job.cursor, "", "")
-				win.Update(func() {
+				rows, cur, merr := ag.listSessions(attemptCtx, job.cursor, "", "")
+				post(func() {
 					if a.activeServer != srv.id {
 						return
 					}
@@ -1268,8 +1262,8 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					a.scope().moreLoading = false
 				})
 			case jobUsage:
-				m, uerr := ag.sessionMessage(ctx, job.sid, job.msg)
-				win.Update(func() {
+				m, uerr := ag.sessionMessage(attemptCtx, job.sid, job.msg)
+				post(func() {
 					if a.activeServer != srv.id || uerr != nil {
 						return
 					}
@@ -1279,8 +1273,8 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				// The server's world moved on — a turn of this app's, or
 				// another client's chat: the newest page lands at the head
 				// of the list, and what the user was reading stays.
-				rows, cur, rerr := ag.listSessions(ctx, "", "", "")
-				win.Update(func() {
+				rows, cur, rerr := ag.listSessions(attemptCtx, "", "", "")
+				post(func() {
 					if a.activeServer != srv.id || rerr != nil {
 						return
 					}
@@ -1292,7 +1286,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 				if job.sid == "" {
 					return false // a draft's pick waits in the view, not here
 				}
-				if merr := ag.setModel(ctx, job.sid, job.provider, job.model, job.variant); merr != nil {
+				if merr := ag.setModel(attemptCtx, job.sid, job.provider, job.model, job.variant); merr != nil {
 					say(srv.id, "The model did not switch: "+merr.Error())
 				}
 				// The switch folds back over session.model.selected.
@@ -1305,7 +1299,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 					}
 					target = sid
 				}
-				if perr := ag.prompt(ctx, target, job.text); perr != nil {
+				if perr := ag.prompt(attemptCtx, target, job.text); perr != nil {
 					say(srv.id, "The agent could not take that: "+perr.Error())
 				}
 			case jobServer:
@@ -1341,7 +1335,7 @@ func (a *app) connect(win *mygo.Window, jobs <-chan agentJob, cfg serverConn, pi
 		if !switching {
 			reconnect++
 			waitDue = true
-			win.Update(func() {
+			post(func() {
 				a.setHealth(srv.id, serverHealth{status: healthDown, detail: "the stream ended", addr: ag.addr})
 			})
 		}

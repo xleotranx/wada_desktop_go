@@ -35,11 +35,11 @@ type block struct {
 	id     uint64
 	kind   blockKind // what the row is; one of the kind* constants
 	text   string
-	icon   *ui.SVG
-	key    string                         // key into app.expanded for collapsible lines
-	detail func(c *ui.Context, p palette) // drawn below the line once expanded
-	req    *agentPerm                     // the approval request a permission card carries
-	stream *strings.Builder               // amortized storage while text deltas arrive
+	icon   string
+	key    string           // key into app.expanded for collapsible lines
+	detail []string         // drawn below the line once expanded
+	req    *agentPerm       // the approval request a permission card carries
+	stream *strings.Builder // amortized storage while text deltas arrive
 	// The stored turn this row came from, and what it spent: the usage
 	// line only the store knows waits under the answer that earned it.
 	msg    string
@@ -50,6 +50,8 @@ type block struct {
 // attachState is the file-attach dialog, quoting a workspace file into
 // the draft.
 type attachState struct {
+	request requestState
+
 	open  bool
 	draft string
 	note  string
@@ -91,6 +93,19 @@ type serverScope struct {
 
 // app is the state the window shows.
 type app struct {
+	registryRequests map[string]*requestState
+	policyRequest    requestState
+
+	commandError string
+
+	lifetime     context.Context
+	stopLifetime context.CancelFunc
+	workCtx      context.Context
+	stopWork     context.CancelFunc
+
+	background func(work func() func())
+	closed     bool
+
 	selected    string
 	sidebarW    float32
 	home        string
@@ -234,9 +249,13 @@ type app struct {
 
 func newApp() *app {
 	home := workdir()
+	lifetime, stopLifetime := context.WithCancel(context.Background())
+	workCtx, stopWork := context.WithCancel(lifetime)
 	a := &app{
+		lifetime: lifetime, stopLifetime: stopLifetime, workCtx: workCtx, stopWork: stopWork,
 		sidebarW:            320,
 		home:                home,
+		registryRequests:    map[string]*requestState{},
 		selectedRail:        "home",
 		browserCollapsed:    true,
 		pinned:              map[string]bool{},
@@ -519,6 +538,11 @@ func main() {
 			Content:              ui.View(a.view),
 		})
 		a.win = win
+		a.background = func(work func() func()) {
+			go func() { win.Update(work()) }()
+		}
+		win.OnClosed(a.closeWork)
+		a.refreshWorkspacePolicy()
 		if db != nil {
 			a.metadata = startMetadataWriter(db, func(version uint64, err error) {
 				if err != nil {
@@ -569,32 +593,28 @@ func main() {
 
 // send appends the draft to the transcript as the user's own words and
 // brings the latest block in view.
-func (a *app) send() {
-	if strings.TrimSpace(a.draft) == "" {
-		return
+func (a *app) send() bool {
+	text := strings.TrimSpace(a.draft)
+	if text == "" || !a.agentSend(text) {
+		return false
 	}
-	// A turn starting on nothing real opens the conversation: its first
-	// words must not land under whatever the mock left on display.
 	if a.selectedSession == "" {
 		a.freshTranscript()
 	}
 	a.blocks = append(a.blocks, block{kind: kindUser, text: a.draft})
-	text := strings.TrimSpace(a.draft)
 	a.draft = ""
 	a.feed.ScrollToEnd()
-	// Hand the turn to the agent runner; where none runs, the transcript
-	// keeps acting as the design mock it is.
-	a.agentSend(text)
+	return true
 }
 
 // agentSend queues one user turn for the runner, addressed to the open
 // conversation or to a fresh one when none is open. The turn carries the
 // app's default model, so a conversation born here starts on what the
 // settings enabled.
-func (a *app) agentSend(text string) {
+func (a *app) agentSend(text string) bool {
 	def := a.draftModelRef()
-	a.queueJob(agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
-		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant})
+	return a.queueJob(agentJob{kind: jobPrompt, sid: a.selectedSession, text: text, dir: a.chatDir(),
+		draft: a.draftVersion, provider: def.providerID, model: def.id, variant: def.variant}) == admissionAccepted
 }
 
 // stopTurn asks the runner to interrupt the running conversation.
@@ -728,12 +748,24 @@ func (a *app) attachFile() {
 	if !strings.HasPrefix(rel, "~") && !filepath.IsAbs(rel) {
 		pth = filepath.Join(a.chatDir(), rel)
 	}
-	abs, data, err := expandFile(pth)
-	if err != nil {
-		st.note = err.Error()
-		return
+	draft, dir := a.draftVersion, a.chatDir()
+	type quote struct {
+		path string
+		data []byte
 	}
-	a.attachQuote(st, abs, data)
+	runRequest(a, &st.request, func(context.Context) (quote, error) {
+		abs, data, err := expandFile(pth)
+		return quote{abs, data}, err
+	}, func(q quote, err error) {
+		if a.attach != st || a.draftVersion != draft || a.chatDir() != dir {
+			return
+		}
+		if err != nil {
+			st.note = err.Error()
+			return
+		}
+		a.attachQuote(st, q.path, q.data)
+	})
 }
 
 // attachRemote quotes one file of the chat's folder off the server: an
@@ -754,27 +786,33 @@ func (a *app) attachRemote(st *attachState, rel string) {
 	if !filepath.IsAbs(trimmed) {
 		abs = filepath.Join(dir, trimmed)
 	}
-	ag, err := standaloneAgent(a.activeServerConn())
-	if err != nil {
-		st.note = err.Error()
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	data, err := ag.readWorkspaceFile(ctx, dir, trimmed)
-	if err != nil {
-		if strings.Contains(err.Error(), "File not found") {
-			st.note = "that file is not there"
+	cfg, draft := a.activeServerConn(), a.draftVersion
+	runRequest(a, &st.request, func(ctx context.Context) ([]byte, error) {
+		ag, err := standaloneAgent(cfg)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		return ag.readWorkspaceFile(ctx, dir, trimmed)
+	}, func(data []byte, err error) {
+		if a.attach != st || a.draftVersion != draft || a.chatDir() != dir {
 			return
 		}
-		st.note = err.Error()
-		return
-	}
-	if len(data) > 256*1024 {
-		st.note = "that file is too large to quote"
-		return
-	}
-	a.attachQuote(st, abs, data)
+		if err != nil {
+			if strings.Contains(err.Error(), "File not found") {
+				st.note = "that file is not there"
+			} else {
+				st.note = err.Error()
+			}
+			return
+		}
+		if len(data) > 256*1024 {
+			st.note = "that file is too large to quote"
+			return
+		}
+		a.attachQuote(st, abs, data)
+	})
 }
 
 // attachQuote marks the file into the draft and closes the dialog.
@@ -803,8 +841,8 @@ func (a *app) setAsk(ask bool) {
 			return
 		}
 		cfg := a.activeServerConn()
-		inBackground(a, func() (string, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		inBackground(a, func(ctx context.Context) (string, error) {
+			ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
 			return remoteSetPermissionAsk(ctx, cfg, dir, ask)
 		}, func(level string, err error) {
@@ -831,15 +869,17 @@ func (a *app) requestRename(s agentSession) {
 // the rename event comes back over the stream.
 func (a *app) saveRename() {
 	st := a.rename
-	a.rename = nil
 	if st == nil {
 		return
 	}
 	title := strings.TrimSpace(st.draft)
 	if st.sid == "" || title == "" || title == a.titleOf(st.sid) {
+		a.rename = nil
 		return
 	}
-	a.queueJob(agentJob{kind: jobRename, sid: st.sid, text: title})
+	if a.queueJob(agentJob{kind: jobRename, sid: st.sid, text: title}) == admissionAccepted {
+		a.rename = nil
+	}
 }
 
 // acceptUsage gives one stored turn's answer what the store says it spent:
@@ -1005,11 +1045,12 @@ func (a *app) confirmDelete(s agentSession) {
 // deleteConfirmed queues the deletion after the dialog's say-so.
 func (a *app) deleteConfirmed() {
 	st := a.confirm
-	a.confirm = nil
 	if st == nil || st.sid == "" {
 		return
 	}
-	a.queueJob(agentJob{kind: jobDelete, sid: st.sid})
+	if a.queueJob(agentJob{kind: jobDelete, sid: st.sid}) == admissionAccepted {
+		a.confirm = nil
+	}
 }
 
 // adoptSession settles the view onto one conversation: what a conversation

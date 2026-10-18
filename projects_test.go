@@ -10,14 +10,14 @@ import (
 )
 
 func TestProjectsStartEmpty(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	if len(a.projects) != 0 {
 		t.Fatalf("unexpected discovered projects: %v", a.projects)
 	}
 }
 
 func TestProjectHoverStartsDraftInFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.addFolder(t.TempDir())
 	dir := a.projects[0]
 	a.selectedSession = "old-chat"
@@ -51,7 +51,7 @@ func TestProjectHoverStartsDraftInFolder(t *testing.T) {
 // the server for it without a local lookup, and this machine's folder
 // list stays out of it.
 func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
@@ -87,7 +87,7 @@ func TestRemoteProjectHoverStartsDraftInFolder(t *testing.T) {
 // local lists are the folders the user chose, a remote one names its own
 // rows — and leaves an unlisted folder out of the draft.
 func TestNewChatCarriesItsProject(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box"})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
@@ -103,7 +103,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 	}
 
 	// The local list is made of choices: a chat elsewhere starts free.
-	b := newApp()
+	b := newTestApp(t)
 	b.scope().sessions = []agentSession{{id: "ses_l", title: "Local wiring", dir: canonDir(t.TempDir())}}
 	b.adoptSession(b.scope().sessions[0])
 	b.startNewChat()
@@ -113,7 +113,7 @@ func TestNewChatCarriesItsProject(t *testing.T) {
 }
 
 func TestNewChatProjectPicker(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.addFolder(t.TempDir())
 	dir := a.projects[0]
 	a.startNewChat()
@@ -147,7 +147,7 @@ func TestNewChatProjectPicker(t *testing.T) {
 }
 
 func TestProjectPickerFiltersAndAddsFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.addProject(filepath.Join(t.TempDir(), "alpha"))
 	a.addProject(filepath.Join(t.TempDir(), "beta"))
 	a.projectPickerOpen = true
@@ -181,7 +181,7 @@ func TestProjectPickerFiltersAndAddsFolder(t *testing.T) {
 // project's folder nested under it, openable, and folded away with the
 // folder.
 func TestProjectChatsNestUnderFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	picked := t.TempDir()
 	a.addProject(picked)
 	dir := canonDir(picked)
@@ -246,7 +246,7 @@ func countTexts(texts []string, s string) int {
 // TestProjectChatsPreviewAndShowMore keeps a busy folder to a few rows
 // until the rest is asked for.
 func TestProjectChatsPreviewAndShowMore(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	picked := t.TempDir()
 	a.addProject(picked)
 	dir := canonDir(picked)
@@ -276,7 +276,7 @@ func TestProjectChatsPreviewAndShowMore(t *testing.T) {
 // TestPinnedChatAlsoNests prints a pinned chat under Pinned and under its
 // folder without the two rows sharing state.
 func TestPinnedChatAlsoNests(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	picked := t.TempDir()
 	a.addProject(picked)
 	a.scope().sessionsLoaded = true
@@ -317,7 +317,7 @@ func TestPinnedChatAlsoNests(t *testing.T) {
 // TestProjectRowKeepsItsColumns keeps folder names in one column,
 // whether or not a folder shows the chevron of its chats.
 func TestProjectRowKeepsItsColumns(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	empty := t.TempDir()
 	busy := t.TempDir()
 	a.addProject(empty)
@@ -338,7 +338,7 @@ func TestProjectRowKeepsItsColumns(t *testing.T) {
 }
 
 func TestProjectChatsMatchFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessions = []agentSession{
 		{id: "a", dir: "/work/app/."},
 		{id: "b", dir: "/work/app"},
@@ -367,7 +367,7 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	a := newApp()
+	a := newTestApp(t)
 	db, err = a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -380,7 +380,7 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	b := newApp()
+	b := newTestApp(t)
 	db, err = b.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestLegacyImportedProjectsAreRemovedOnce(t *testing.T) {
 // of one server, and the next has never heard of it; naming it there
 // would file it a phantom project.
 func TestSwitchServerDropsTheDraftFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://127.0.0.1:4096"})
 	a.activeServer = localServerID
 	a.projects = []string{"/Users/me/app"}
@@ -412,7 +412,7 @@ func TestSwitchServerDropsTheDraftFolder(t *testing.T) {
 // add, while the local server keeps composing its list from the folders
 // the user adds.
 func TestRemoteServerListsItsProjects(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
 	a.activeServer = "srv-box"
 	// A folder of this machine the user added while the local server was

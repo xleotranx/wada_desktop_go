@@ -8,7 +8,7 @@ import (
 )
 
 func benchmarkApp(b *testing.B) *app {
-	a := newApp()
+	a := newTestApp(b)
 	a.scope().sessionsLoaded = true
 	a.selectedSession = "review"
 	a.selected = "Performance review"

@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // toolRun is the shared outcome of one tool call, as both the live events
@@ -81,7 +79,7 @@ func restoreBlocks(messages []agentMessage) []block {
 						exit: part.State.Metadata.Exit, truncated: part.State.Metadata.Truncated}
 					run.out = textOf(part.State.Content)
 					out = append(out, block{kind: kindActivity, text: label, icon: icon,
-						key: "activity:" + id, detail: commandDetail(toolDetailLines(run)...)})
+						key: "activity:" + id, detail: toolDetailLines(run)})
 				}
 			}
 			// One answer can hold several text parts; the spending stands
@@ -244,7 +242,7 @@ func (a *app) apply(ev agentEvent) {
 		}
 		a.toolBlocks[d.ID] = len(a.blocks)
 		a.blocks = append(a.blocks, block{kind: kindActivity, text: label, icon: icon,
-			key: "activity:" + d.ID, detail: commandDetail(lines...)})
+			key: "activity:" + d.ID, detail: lines})
 	case "session.tool.success":
 		var d evToolData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
@@ -259,7 +257,7 @@ func (a *app) apply(ev agentEvent) {
 			exit: d.Metadata.Exit, truncated: d.Metadata.Truncated}
 		delete(a.toolCmds, d.ID)
 		run.out = textOf(d.Content)
-		a.blocks[idx].detail = commandDetail(toolDetailLines(run)...)
+		a.blocks[idx].detail = toolDetailLines(run)
 	case "permission.asked":
 		var d evPermissionData
 		if json.Unmarshal(ev.Data, &d) != nil || !a.belongs(d.SessionID) {
@@ -427,17 +425,17 @@ func freshSessions(kept, fresh []agentSession) []agentSession {
 
 // toolLook pairs a tool's name with the activity row's label and icon as
 // the design draws them.
-func toolLook(name string) (string, *ui.SVG) {
+func toolLook(name string) (string, string) {
 	switch name {
 	case "shell":
-		return "Ran command", icTerminal
+		return "Ran command", "shell"
 	case "read":
-		return "Read files", icBook
+		return "Read files", "read"
 	case "grep", "glob", "list", "find":
-		return "Searched", icBook
+		return "Searched", "read"
 	case "":
-		return "Used tool", icPlug
+		return "Used tool", "tool"
 	default:
-		return "Used " + name, icPlug
+		return "Used " + name, "tool"
 	}
 }

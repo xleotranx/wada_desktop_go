@@ -78,7 +78,7 @@ func appendString(list *[]string, item string) *[]string {
 // toolbar reads the whole thing again.
 func TestFilesPane(t *testing.T) {
 	srv, asked := filesServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
@@ -166,7 +166,7 @@ func TestFilesPane(t *testing.T) {
 // opens into the viewer, and an emptied field brings the tree back.
 func TestFilesSearch(t *testing.T) {
 	srv, asked := filesServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
@@ -243,7 +243,7 @@ func TestFilesSearch(t *testing.T) {
 // the server refuses says so.
 func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	srv, _ := filesServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	tt := ui.NewTester(a.view, 1400, 920)

@@ -14,7 +14,7 @@ func TestWorkspaceToolsFollowDraftProject(t *testing.T) {
 				// Changes asks the version-control endpoints instead.
 				srv, _ = changesServer(t)
 			}
-			a := newApp()
+			a := newTestApp(t)
 			a.servers = append(a.servers, serverConn{id: "box", name: "Box", url: srv.URL})
 			a.activeServer = "box"
 			a.scope().projects = []string{"/srv/app", "/srv/app/src"}

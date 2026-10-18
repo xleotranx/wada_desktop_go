@@ -19,6 +19,8 @@ const (
 // mode it compared in, the files that came back and which one's patch is
 // on show.
 type changesState struct {
+	request requestState
+
 	loading  bool
 	dir      string
 	mode     string
@@ -92,8 +94,8 @@ func (a *app) openChanges(mode string) {
 	st.loading, st.note, st.dir, st.mode = true, "", dir, mode
 	st.files, st.selected = nil, 0
 	cfg := a.activeServerConn()
-	inBackground(a, func() (changesRead, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	runRequest(a, &st.request, func(ctx context.Context) (changesRead, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		return readChanges(ctx, cfg, dir, mode)
 	}, func(read changesRead, err error) {
@@ -115,7 +117,6 @@ func (a *app) openChanges(mode string) {
 func (a *app) changesBody(c *ui.Context, p palette) {
 	st := a.changes
 	if st == nil {
-		a.openChanges(changesWorking)
 		return
 	}
 	if st.loading {

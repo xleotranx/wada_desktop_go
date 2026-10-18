@@ -1,0 +1,54 @@
+package main
+
+import "context"
+
+// requestState owns one replaceable operation, including callbacks already
+// posted when cancellation arrives.
+type requestState struct {
+	revision uint64
+	cancel   context.CancelFunc
+}
+
+func (r *requestState) stop() {
+	r.revision++
+	if r.cancel != nil {
+		r.cancel()
+		r.cancel = nil
+	}
+}
+
+func inBackground[T any](a *app, work func(context.Context) (T, error), done func(T, error)) {
+	runRequest(a, new(requestState), work, done)
+}
+
+func runRequest[T any](a *app, request *requestState, work func(context.Context) (T, error), done func(T, error)) {
+	route := a.route
+	runOwned(a, request, a.workCtx, work, func(value T, err error) {
+		if a.route == route {
+			done(value, err)
+		}
+	})
+}
+
+// Registry operations may legitimately finish for an inactive server.
+func runOwned[T any](a *app, request *requestState, parent context.Context, work func(context.Context) (T, error), done func(T, error)) {
+	request.stop()
+	revision := request.revision
+	ctx, cancel := context.WithCancel(parent)
+	request.cancel = cancel
+	a.background(func() func() {
+		value, err := work(ctx)
+		return func() {
+			defer cancel()
+			if !a.closed && ctx.Err() == nil && request.revision == revision {
+				done(value, err)
+			}
+		}
+	})
+}
+
+func (a *app) closeWork() {
+	a.closed = true
+	a.stopWork()
+	a.stopLifetime()
+}

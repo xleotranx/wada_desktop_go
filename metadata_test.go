@@ -149,7 +149,7 @@ func TestMetadataUpgradesFromVersionThree(t *testing.T) {
 }
 
 func TestSidebarProjectActions(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.projects = nil
 	if len(a.projectDirectories()) != 0 {
 		t.Fatal("empty list resurrected a project")
@@ -171,7 +171,7 @@ func TestSidebarProjectActions(t *testing.T) {
 
 func TestSidebarStartupDoesNotRediscoverRemovedFolders(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metadata.db")
-	a := newApp()
+	a := newTestApp(t)
 	db, err := a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestSidebarStartupDoesNotRediscoverRemovedFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	b := newApp()
+	b := newTestApp(t)
 	db, err = b.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestMetadataRejectsFutureSchema(t *testing.T) {
 
 func TestMetadataWriterDrainsLatestSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metadata.db")
-	a := newApp()
+	a := newTestApp(t)
 	db, err := a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestMetadataWriterDrainsLatestSnapshot(t *testing.T) {
 }
 
 func TestSidebarSaveFailureIsVisibleAndStaleResultsIgnored(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.metadataVersion = 2
 	a.acceptMetadataWrite(2, errors.New("disk full"))
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -274,7 +274,7 @@ func TestSidebarSaveFailureIsVisibleAndStaleResultsIgnored(t *testing.T) {
 }
 
 func TestAddProjectWithoutCreatingChat(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.projects = nil
 	picked := t.TempDir()
 	a.pickFolder = func(done func(path string)) { done(picked) }
@@ -328,7 +328,7 @@ func TestAddProjectWithoutCreatingChat(t *testing.T) {
 // TestAddProjectCancelKeepsSidebar: a folder chooser the user dismisses
 // changes nothing.
 func TestAddProjectCancelKeepsSidebar(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.projects = nil
 	a.pickFolder = func(func(path string)) {}
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -342,7 +342,7 @@ func TestAddProjectCancelKeepsSidebar(t *testing.T) {
 
 func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metadata.db")
-	a := newApp()
+	a := newTestApp(t)
 	db, err := a.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 	a.togglePin(agentSession{id: "unpin-me"})
 	a.togglePin(agentSession{id: "unpin-me"})
 	a.closeMetadata()
-	b := newApp()
+	b := newTestApp(t)
 	db, err = b.loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestSidebarActionsPersistAcrossAppRestart(t *testing.T) {
 }
 
 func TestPinSearchResultOutsideLoadedHistory(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.togglePin(agentSession{id: "older-search-result", title: "Older chat"})
 	if pins := a.pinnedSessions(); len(pins) != 1 || pins[0].title != "Older chat" {
 		t.Fatalf("search result pin disappeared: %+v", pins)

@@ -187,7 +187,7 @@ func TestAgentEventsStream(t *testing.T) {
 // transcript draws: a growing preview line, a settled text block, and one
 // activity row per tool call with its detail.
 func TestApplyTurn(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "s"
 	upTo := len(a.blocks)
 	step := func(typ, data string) {
@@ -262,7 +262,7 @@ func TestAgentModel(t *testing.T) {
 
 	// The settings narrow the choice: the free default steps aside for
 	// the first model still on, and comes back when none is.
-	a := newApp()
+	a := newTestApp(t)
 	free := agentModel{providerID: "opencode-go", id: "longcat-2.5-preview-free", name: "LongCat", free: true}
 	other := agentModel{providerID: "wada", id: "flash", name: "Flash", free: true}
 	a.scope().models = []agentModel{other, free}
@@ -285,7 +285,7 @@ func TestAgentModel(t *testing.T) {
 // before the catalog has landed, and a default the settings turned off
 // steps aside.
 func TestDefaultFollowsTheServer(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	paid := agentModel{providerID: "wada", id: "pro", name: "Pro"}
 	a.scope().models = []agentModel{paid}
 	a.scope().serverDefault = agentModelRef{providerID: "wada", id: "their-default"}
@@ -305,7 +305,7 @@ func TestDefaultFollowsTheServer(t *testing.T) {
 	}
 	// Before the catalog lands, the server's own stands in place of a
 	// model it may never have heard of.
-	b := newApp()
+	b := newTestApp(t)
 	b.scope().serverDefault = agentModelRef{providerID: "remote", id: "their-default"}
 	if ref := b.defaultModelRef(); ref.id != "their-default" {
 		t.Fatalf("default %+v, want the server's own before a catalog", ref)
@@ -545,7 +545,7 @@ func TestFreshSessionsPrepend(t *testing.T) {
 // TestRefreshAfterATurn queues the list read a finished turn earns, so the
 // sidebar's order and the chat's spending catch up without a redial.
 func TestRefreshAfterATurn(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.busySession = "ses_z"
 	a.apply(agentEvent{Type: "session.execution.succeeded", Data: []byte(`{"sessionID":"ses_z"}`)})
@@ -566,7 +566,7 @@ func TestRefreshAfterATurn(t *testing.T) {
 // live: a finished turn asks for the stored turn its answer came from, and
 // what comes back lands under that answer alone.
 func TestUsageFollowsTheTurn(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.blocks = []block{
 		{kind: kindUser, text: "run the checks"},
@@ -595,7 +595,7 @@ func TestUsageFollowsTheTurn(t *testing.T) {
 	}
 
 	// A streamed row knows its turn the moment the words start.
-	c := newApp()
+	c := newTestApp(t)
 	c.selectedSession = "ses_live"
 	c.apply(agentEvent{Type: "session.text.started",
 		Data: []byte(`{"sessionID":"ses_live","assistantMessageID":"msg_l","ordinal":0}`)})
@@ -605,7 +605,7 @@ func TestUsageFollowsTheTurn(t *testing.T) {
 
 	// Nothing to ask when no answer of this app's stands, or when the
 	// conversation on show is another one.
-	b := newApp()
+	b := newTestApp(t)
 	b.selectedSession = "ses_z"
 	b.refreshUsage("ses_z")
 	select {
@@ -695,7 +695,7 @@ func TestRestoreBlocks(t *testing.T) {
 		t.Fatalf("the answer's spending reads %+v", blocks[1])
 	}
 	// The tool row expands like a live one does.
-	a2 := newApp()
+	a2 := newTestApp(t)
 	a2.blocks = blocks
 	a2.selectedSession = "ses_seed"
 	a2.selected = "Wiring check"
@@ -711,7 +711,7 @@ func TestRestoreBlocks(t *testing.T) {
 
 // Only pinned chats appear in the sidebar until the user searches.
 func TestSidebarPinnedWithoutRecents(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1400, 920)
 	if tt.HasText("Recents") || tt.HasText("Loading recents") {
 		t.Fatalf("recents still visible: %v", tt.Texts())
@@ -750,7 +750,7 @@ func TestSidebarPinnedWithoutRecents(t *testing.T) {
 // once the list runs past the pane: the rows scroll under the New chat
 // and search rows, which stay put.
 func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	for i := range 40 {
 		s := agentSession{id: fmt.Sprintf("ses_%02d", i), title: fmt.Sprintf("Pinned %02d", i)}
@@ -830,7 +830,7 @@ func TestAgentInterruptAndReply(t *testing.T) {
 // state through a turn and answers the card away, the way the runner
 // does once its reply lands.
 func TestApplyPermission(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "s"
 	upTo := len(a.blocks)
 	step := func(typ, data string) {
@@ -894,7 +894,7 @@ func TestApplyPermission(t *testing.T) {
 // for real: the composer shows a stop button while a turn runs and
 // clicking the card's pill answers it.
 func TestStopAndAnswerButtons(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.busySession = "ses_z"
 	tt := ui.NewTester(a.view, 1400, 920)
 	if !tt.HasText("Stop the agent") {
@@ -1023,7 +1023,7 @@ func TestExpandPath(t *testing.T) {
 // there only notes itself, and a real folder joins the sidebar as a
 // project without creating an empty server chat.
 func TestStartChatInFolder(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.startChatIn("/does/not/exist/wada")
 	if a.draftProject != "" || len(a.projects) != 0 {
 		t.Fatalf("missing folder landed a draft: %q, %v", a.draftProject, a.projects)
@@ -1109,7 +1109,7 @@ func TestDedupeSessions(t *testing.T) {
 // TestSessionDialogs drives the rename and delete dialogs the Recents
 // kebab opens: the pills queue the two list jobs or leave things be.
 func TestSessionDialogs(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessions = []agentSession{{id: "ses_r", title: "Grep wiring", dir: "/tmp"}}
 	a.selectedSession = "ses_r"
 	a.selected = "Grep wiring"
@@ -1179,7 +1179,7 @@ func TestSessionDialogs(t *testing.T) {
 
 // Removing Recents also removes its pagination action.
 func TestSidebarHasNoOlderChatsRow(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.scope().sessionsLoaded = true
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -1198,7 +1198,7 @@ func TestSidebarHasNoOlderChatsRow(t *testing.T) {
 // conversation is adopted for real, and no session leaves a clean
 // transcript where the mock used to sit.
 func TestBootSettle(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	if len(a.blocks) != 0 || a.selected != "" {
 		t.Fatalf("the boot starts on %d blocks, selected %q", len(a.blocks), a.selected)
 	}
@@ -1218,14 +1218,14 @@ func TestBootSettle(t *testing.T) {
 	}
 
 	// A startup without a server lands empty, not on the mock.
-	a2 := newApp()
+	a2 := newTestApp(t)
 	a2.settleBoot(nil, "", fmt.Errorf("not connected"))
 	if len(a2.blocks) != 0 || !a2.scope().sessionsLoaded {
 		t.Fatalf("failed boot: %d blocks, loaded %v", len(a2.blocks), a2.scope().sessionsLoaded)
 	}
 
 	// An empty store reads the same: nothing mock survives the boot.
-	a3 := newApp()
+	a3 := newTestApp(t)
 	a3.settleBoot(nil, "", nil)
 	if len(a3.blocks) != 0 || a3.selectedSession != "" {
 		t.Fatalf("empty boot: session %q, %d blocks", a3.selectedSession, len(a3.blocks))
@@ -1235,7 +1235,7 @@ func TestBootSettle(t *testing.T) {
 // TestFirstSendClean keeps the demo transcript out of a conversation the
 // user starts from a fresh view: the first words append to nothing else.
 func TestFirstSendClean(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.draft = "hello"
 	a.send()
 	select {
@@ -1254,7 +1254,7 @@ func TestFirstSendClean(t *testing.T) {
 // TestStartNewChat resets the view and the addressee, and creates no
 // session on its own: one comes into being with the first words.
 func TestStartNewChat(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessions = []agentSession{{id: "ses_a", title: "Grep wiring"}}
 	a.selectedSession = "ses_a"
 	a.selected = "Grep wiring"
@@ -1339,7 +1339,7 @@ func TestSetModelBody(t *testing.T) {
 // TestApplyModelEvent folds a reasoning-effort switch into the sidebar
 // row, keeping the picker's chips in step with the server.
 func TestApplyModelEvent(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().models = []agentModel{{providerID: "opencode-go", id: "beam-free",
 		name: "Beam Free", variants: []string{"low", "medium", "high", "max"}, free: true}}
 	a.scope().sessions = []agentSession{{id: "ses_z", title: "Weird turn",
@@ -1360,7 +1360,7 @@ func TestApplyModelEvent(t *testing.T) {
 // name, the catalog lists free models first and closes the panel, the
 // filter narrows it, and the effort chips switch the variant.
 func TestModelPicker(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().models = []agentModel{
 		{providerID: "opencode-go", id: "minimax-m3", name: "MiniMax-M3", free: false},
 		{providerID: "opencode-go", id: "beam-free", name: "Beam Free",
@@ -1451,7 +1451,7 @@ func TestModelPicker(t *testing.T) {
 // share the room with the search field and the effort chips through the
 // scroll that grows, and the last rows only open from a scroll.
 func TestModelPickerScrolls(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	models := []agentModel{}
 	for i := range 28 {
 		models = append(models, agentModel{providerID: "opencode-go",
@@ -1554,7 +1554,7 @@ func TestAttachFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "sample.go"), []byte("package main\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
@@ -1608,7 +1608,7 @@ func TestRemoteAttachFile(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL, password: "test"})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
@@ -1912,7 +1912,7 @@ func TestPermissionPill(t *testing.T) {
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "opencode.json"),
 		[]byte(`{"permission":{"bash":{"*":"ask"}}}`), 0644)
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_z", title: "Turn", dir: tmp}}
 	a.selectedSession = "ses_z"
@@ -1929,6 +1929,7 @@ func TestPermissionPill(t *testing.T) {
 			t.Fatal("policy worker did not reply")
 		}
 	}
+	a.refreshWorkspacePolicy()
 	tt := ui.NewTester(a.view, 1400, 920)
 	settle()
 	if !tt.HasText("Asks first") {
@@ -1970,12 +1971,13 @@ func TestPermissionPillRemote(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
 	a.selectedSession = "ses_r"
+	a.refreshWorkspacePolicy()
 	tt := ui.NewTester(a.view, 1400, 920)
 	settle := func(want string) {
 		t.Helper()
@@ -2010,7 +2012,7 @@ func TestPermissionPillRemote(t *testing.T) {
 // cents for a chat that has spent some, nothing for the free models the
 // app runs on by default, and no chat's money on the settings page.
 func TestTopBarShowsWhatTheChatSpent(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.scope().sessions = []agentSession{{id: "ses_paid", title: "Reviewing the wiring", cost: 0.3196}}
 	a.selectedSession, a.selected = "ses_paid", "Reviewing the wiring"
 	tt := ui.NewTester(a.view, 1400, 920)
@@ -2042,7 +2044,7 @@ func TestTopBarShowsWhatTheChatSpent(t *testing.T) {
 }
 
 func TestNewChatLiveRenders(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	// The state right after the runner opened a fresh conversation: a
 	// real session id, no title yet.
 	a.selectedSession = "ses_fresh"
@@ -2077,7 +2079,7 @@ func TestNewChatLiveRenders(t *testing.T) {
 // TestFinishCutTurns settles what a torn pipe leaves: the half-said
 // answers stand as their words, asks and the spinning stop release.
 func TestFinishCutTurns(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.selectedSession = "ses_z"
 	a.busySession = "ses_z"
 	a.blocks = []block{

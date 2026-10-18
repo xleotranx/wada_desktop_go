@@ -2,11 +2,27 @@ package main
 
 // queueJob binds a request to the connection on show. A later switch
 // cannot replay it against another server, even after an A-B-A switch.
-func (a *app) queueJob(job agentJob) {
+type admission uint8
+
+const (
+	admissionAccepted admission = iota
+	admissionBusy
+	admissionClosed
+)
+
+func (a *app) queueJob(job agentJob) admission {
+	if a.closed {
+		a.commandError = "The connection is closed."
+		return admissionClosed
+	}
 	job.route = a.route
 	select {
 	case a.jobs <- job:
+		a.commandError = ""
+		return admissionAccepted
 	default:
+		a.commandError = "The connection is busy. Try again."
+		return admissionBusy
 	}
 }
 

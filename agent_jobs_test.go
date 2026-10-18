@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestServerSwitchReplacesFullQueue(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "box", url: "http://localhost:1234"})
 	for range cap(a.jobs) {
 		a.jobs <- agentJob{kind: jobRefresh}
@@ -16,7 +16,7 @@ func TestServerSwitchReplacesFullQueue(t *testing.T) {
 }
 
 func TestServerSwitchPrecedesRetryWork(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "box"})
 	a.agentSend("old prompt")
 	stash := []agentJob{<-a.jobs}
@@ -62,7 +62,7 @@ func TestRetryJobsKeepTheirOrder(t *testing.T) {
 }
 
 func TestDraftRejectsUnrelatedSessionEvents(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.startNewChat()
 	a.draft = "my question"
 	a.send()

@@ -257,17 +257,13 @@ func redeemPairLink(ctx context.Context, link string) (string, string, error) {
 // through the window the way the probes do. Tests stand in for it, as they
 // do for pickFolder.
 func (a *app) runPair(link string, done func(addr, token string, err error)) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	type pairing struct{ addr, token string }
+	runOwned(a, new(requestState), a.lifetime, func(ctx context.Context) (pairing, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		addr, token, err := redeemPairLink(ctx, link)
-		land := func() { done(addr, token, err) }
-		if a.win == nil { // headless, as tests run the view
-			mygo.RunOnMain(land)
-			return
-		}
-		a.win.Update(land)
-	}()
+		return pairing{addr, token}, err
+	}, func(p pairing, err error) { done(p.addr, p.token, err) })
 }
 
 // pairLinkLife is how long a minted pairing link works for: opencode's
@@ -327,11 +323,14 @@ func mintPairLink(ctx context.Context, cfg serverConn, facts serverFacts) (strin
 // the way the probes do; tests run it inline, as they do setAsk.
 func (a *app) copyPairLink(s serverConn) {
 	facts := a.serverFacts[s.id]
-	inBackground(a, func() (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	runOwned(a, a.registryRequest("mint:"+s.id), a.lifetime, func(ctx context.Context) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		return mintPairLink(ctx, s, facts)
 	}, func(link string, err error) {
+		if current, ok := a.serverByID(s.id); !ok || current != s {
+			return
+		}
 		if err != nil {
 			a.streamLine("The pairing link did not mint: " + err.Error())
 			return
@@ -533,6 +532,8 @@ func (a *app) useServer(id string) {
 // reconnect dials the active server again, as its row's action and a
 // switch both do.
 func (a *app) reconnect() {
+	a.stopWork()
+	a.workCtx, a.stopWork = context.WithCancel(a.lifetime)
 	a.route++
 	a.clearForSwitch()
 	// Producers run on the UI thread. Emptying obsolete work reserves a
@@ -571,6 +572,7 @@ func (a *app) dropServer(id string) {
 	if id == localServerID || id == a.activeServer {
 		return
 	}
+	a.invalidateServerWork(id)
 	a.servers = slices.DeleteFunc(a.servers, func(s serverConn) bool { return s.id == id })
 	delete(a.pinsByServer, id)
 	delete(a.scopes, id)
@@ -590,26 +592,44 @@ func (a *app) runProbe(cfg serverConn) {
 	if cfg.managed {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	request := a.registryRequest("probe:" + cfg.id)
+	runOwned(a, request, a.lifetime, func(ctx context.Context) (serverFacts, error) {
+		ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
+		return probeServer(ctx, cfg)
+	}, func(facts serverFacts, err error) {
+		if current, ok := a.serverByID(cfg.id); !ok || current != cfg {
+			return
+		}
 		h := serverHealth{addr: strings.TrimSuffix(cfg.url, "/")}
-		facts, err := probeServer(ctx, cfg)
 		if err != nil {
 			h.status, h.detail = healthDown, err.Error()
 		} else {
 			h.status, h.detail = healthReady, facts.version
 		}
-		land := func() {
-			a.setHealth(cfg.id, h)
-			a.setFacts(cfg.id, facts)
+		a.setHealth(cfg.id, h)
+		a.setFacts(cfg.id, facts)
+	})
+}
+
+func (a *app) registryRequest(key string) *requestState {
+	if a.registryRequests == nil {
+		a.registryRequests = map[string]*requestState{}
+	}
+	if a.registryRequests[key] == nil {
+		a.registryRequests[key] = new(requestState)
+	}
+	return a.registryRequests[key]
+}
+
+func (a *app) invalidateServerWork(id string) {
+	for _, prefix := range []string{"probe:", "mint:"} {
+		key := prefix + id
+		if request := a.registryRequests[key]; request != nil {
+			request.stop()
+			delete(a.registryRequests, key)
 		}
-		if a.win == nil { // headless, as tests run the view
-			mygo.RunOnMain(land)
-			return
-		}
-		a.win.Update(land)
-	}()
+	}
 }
 
 // probeUntried tests the connections nothing has reached for yet, so the

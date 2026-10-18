@@ -71,6 +71,7 @@ func (a *app) watchWorkspacePolicy(dir string) {
 	if a.policyDir == dir {
 		return
 	}
+	a.policyRequest.stop()
 	a.policyDir, a.policyLevel = dir, "ask"
 	select {
 	case <-a.policyDirs:
@@ -80,6 +81,9 @@ func (a *app) watchWorkspacePolicy(dir string) {
 }
 
 func (a *app) acceptPolicy(result policyResult) {
+	if result.dir != a.policyDir {
+		return
+	}
 	if result.err != nil {
 		a.streamLine("The shell policy did not change: " + result.err.Error())
 		return
@@ -96,10 +100,11 @@ func (a *app) watchServerPolicy(dir string) {
 	if a.policyDir == dir {
 		return
 	}
+	a.policyRequest.stop()
 	a.policyDir, a.policyLevel = dir, "ask"
 	cfg := a.activeServerConn()
-	inBackground(a, func() (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	runRequest(a, &a.policyRequest, func(ctx context.Context) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		return remotePermissionLevel(ctx, cfg, dir)
 	}, func(level string, err error) {

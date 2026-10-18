@@ -83,7 +83,7 @@ func TestAgentWorkspaceChanges(t *testing.T) {
 // reads the other mode, and a clean workspace says so.
 func TestChangesPane(t *testing.T) {
 	srv, asked := changesServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.scope().sessions = []agentSession{{id: "ses_r", title: "Remote turn", dir: "/srv/app"}}
@@ -154,7 +154,7 @@ func TestChangesPane(t *testing.T) {
 // and a folder without changes says so.
 func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 	srv, _ := changesServer(t)
-	a := newApp()
+	a := newTestApp(t)
 	a.servers = append(a.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
 	a.activeServer = "srv-box"
 	a.selectedSession, a.selected = "", ""
@@ -206,7 +206,7 @@ func TestChangesPaneKeepsHonestEdges(t *testing.T) {
 }
 
 func TestChangesPatchIsSelectableAndReadOnly(t *testing.T) {
-	a := newApp()
+	a := newTestApp(t)
 	a.browserCollapsed, a.browserTool = false, "Changes"
 	line := strings.Repeat("x", 600)
 	a.changes = &changesState{mode: changesWorking, files: []vcsChange{
@@ -244,7 +244,7 @@ func TestChangesRawPatch(t *testing.T) {
 		"@@ broken header\n+keep this visible\n",
 	} {
 		t.Run(patch, func(t *testing.T) {
-			a := newApp()
+			a := newTestApp(t)
 			a.browserCollapsed, a.browserTool = false, "Changes"
 			a.changes = &changesState{mode: changesWorking, files: []vcsChange{{file: "x", patch: patch}}}
 			tt := ui.NewTester(a.view, 1400, 920)

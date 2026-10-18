@@ -29,8 +29,8 @@ func TestBlockKindsRender(t *testing.T) {
 			drawn: "# engine trouble"},
 		{name: "working", block: block{kind: kindWorking, text: "Working…"},
 			drawn: "Working…"},
-		{name: "activity", block: block{kind: kindActivity, text: "Ran command", icon: icTerminal,
-			key: "activity:call_1", detail: commandDetail("$ echo hi", "hi")},
+		{name: "activity", block: block{kind: kindActivity, text: "Ran command", icon: "shell",
+			key: "activity:call_1", detail: []string{"$ echo hi", "hi"}},
 			drawn: "Ran command"},
 		{name: "permission", block: block{kind: kindPermission, text: "Approval needed",
 			key: "permission:per_1", req: &agentPerm{id: "per_1", session: "ses_z", action: "shell"}},
@@ -41,7 +41,7 @@ func TestBlockKindsRender(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := newApp()
+			a := newTestApp(t)
 			a.selectedSession = "ses_z"
 			a.blocks = []block{tc.block}
 			tt := ui.NewTester(a.view, 1400, 920)

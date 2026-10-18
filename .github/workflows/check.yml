@@ -1,9 +1,8 @@
-# The gate from the Makefile, parked: `on` carries only workflow_dispatch,
-# so nothing runs on changes. To turn CI on, add push and pull_request
-# under `on:`, run actionlint, and it is live.
 name: check
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 concurrency:

@@ -16,6 +16,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/theme"
 )
 
 // attachState is the file-attach dialog, quoting a workspace file into
@@ -235,6 +236,10 @@ const (
 // and tools pane out over the window's material, which shows where nothing
 // is painted.
 func (a *app) view(c *ui.Context) {
+	// Onevra's palette is the app's; installing it here gives every MyGo and
+	// Onevra widget the same warm surfaces, terracotta accent and type scale
+	// the hand-painted panes take from paletteFor.
+	theme.Apply(c)
 	a.releaseClosedDialogs()
 	a.appShortcuts(c)
 	p := paletteFor(c)

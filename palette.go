@@ -9,15 +9,11 @@ type palette struct {
 	bg, sidebarBg, railBg, hover, selected, hairline ui.Color
 	chromeWash                                       ui.Color
 	text, muted, faint                               ui.Color
-	orange, accent, accentText                       ui.Color
-	composerBg, composerBorder, composerBorderFocus  ui.Color
-	bubble                                           ui.Color
+	orange                                           ui.Color
 	detailBg                                         ui.Color
 	danger, dangerText                               ui.Color
 	diffAdd, diffDel                                 ui.Color
-	scrim, shadow, cardShadow                        ui.Color
 	link                                             ui.Color
-	thumbLine                                        ui.Color
 	greenBadge                                       ui.Color
 }
 
@@ -27,15 +23,6 @@ type palette struct {
 // light and dark moves every pane at once.
 func paletteFor(c *ui.Context) palette {
 	t := c.Theme()
-	black := ui.RGB(0, 0, 0)
-	scrim := black.Alpha(0.38)
-	shadow := black.Alpha(0.18)
-	cardShadow := black.Alpha(0.06)
-	if t.Dark {
-		scrim = black.Alpha(0.5)
-		shadow = black.Alpha(0.45)
-		cardShadow = black.Alpha(0.22)
-	}
 	// Danger is light in the dark theme, so its label follows the background
 	// there and the accent's text color in the light one.
 	dangerText := t.AccentText
@@ -43,33 +30,23 @@ func paletteFor(c *ui.Context) palette {
 		dangerText = t.Background
 	}
 	return palette{
-		bg:                  t.Background,
-		sidebarBg:           t.Surface,
-		railBg:              t.Background.Mix(t.Text, 0.04),
-		chromeWash:          t.Background.Alpha(0.72),
-		hover:               t.SurfaceHover,
-		selected:            t.Text.Alpha(0.10),
-		hairline:            t.Border,
-		text:                t.Text,
-		muted:               t.TextMuted,
-		faint:               t.TextMuted.Mix(t.Background, 0.45),
-		orange:              t.Accent,
-		accent:              t.Accent,
-		accentText:          t.AccentText,
-		composerBg:          t.Surface,
-		composerBorder:      t.Border,
-		composerBorderFocus: t.Accent,
-		bubble:              t.SurfaceHover,
-		detailBg:            t.Surface,
-		danger:              t.Danger,
-		dangerText:          dangerText,
-		diffAdd:             t.Success,
-		diffDel:             t.Danger,
-		scrim:               scrim,
-		shadow:              shadow,
-		cardShadow:          cardShadow,
-		link:                t.Accent,
-		thumbLine:           t.Text,
-		greenBadge:          t.Success,
+		bg:         t.Background,
+		sidebarBg:  t.Surface,
+		railBg:     t.Background.Mix(t.Text, 0.04),
+		chromeWash: t.Background.Alpha(0.72),
+		hover:      t.SurfaceHover,
+		selected:   t.Text.Alpha(0.10),
+		hairline:   t.Border,
+		text:       t.Text,
+		muted:      t.TextMuted,
+		faint:      t.TextMuted.Mix(t.Background, 0.45),
+		orange:     t.Accent,
+		detailBg:   t.Surface,
+		danger:     t.Danger,
+		dangerText: dangerText,
+		diffAdd:    t.Success,
+		diffDel:    t.Danger,
+		link:       t.Accent,
+		greenBadge: t.Success,
 	}
 }

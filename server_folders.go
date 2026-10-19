@@ -178,37 +178,20 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 		ui.Text(c, "Folders on "+a.activeServerConn().name+"'s machine; the chat runs in the one picked.").
 			FontSize(12.5).TextColor(p.muted)
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-			field := ui.Box(c).Grow(1).Height(34).Radius(8).Padding(0, 10).
-				Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
-			if field.FocusWithin() {
-				field.Border(1, p.composerBorderFocus)
-			}
-			field.Children(func() {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
-					ui.Icon(c, icFolder).FontSize(13).TextColor(p.muted)
-					ui.TextInputBase(c, &st.path).FontSize(12.5).
-						Placeholder("/home/you/project").FillWidth().Label("Folder on the server").
-						OnTextKey(func(k ui.TextKey) bool {
-							if k.Key == ui.KeyEnter && k.Mods == 0 {
-								a.browseGo()
-								return true
-							}
-							return false
-						})
+			components.TextBox(c, &st.path, components.TextBoxOptions{LeadingIcon: icFolder}).
+				Grow(1).Placeholder("/home/you/project").Label("Folder on the server").FontSize(12.5).
+				OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						a.browseGo()
+						return true
+					}
+					return false
 				})
-			})
-			goBtn := ui.ButtonBase(c).Label("Go to the folder").Height(34).Radius(8).PaddingX(11).
-				Center().Tooltip("Go to the folder")
-			if goBtn.Hovered() {
-				goBtn.Background(p.hover)
-			}
+			goBtn := components.Button(c, "", components.ButtonSecondary).
+				Label("Go to the folder").Shrink(0).Tooltip("Go to the folder")
 			goBtn.OnClick(a.browseGo)
-			goBtn.Children(func() { ui.Text(c, "Go").FontSize(13).TextColor(p.text) })
-			up := ui.ButtonBase(c).Label("Up one folder").Size(34, 34).Radius(8).Center().
-				Tooltip("Up one folder")
-			if up.Hovered() {
-				up.Background(p.hover)
-			}
+			goBtn.Children(func() { components.Text(c, "Go").FontSize(13).TextColor(p.text) })
+			up := components.IconButton(c, icChevUp, "Up one folder", components.IconButtonPlain)
 			up.OnClick(a.browseUp)
 			up.Children(func() { ui.Icon(c, icChevUp).FontSize(16).TextColor(p.text) })
 		})

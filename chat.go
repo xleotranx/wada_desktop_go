@@ -54,6 +54,18 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 				if a.turnWorking() {
 					count++
 				}
+				if count == 0 {
+					// A conversation the server opened but nothing has been
+					// said in yet: say so rather than draw an empty page.
+					ui.Column(c).Fill().Center().Gap(7).Padding(24).Children(func() {
+						ui.Icon(c, icChat).FontSize(28).TextColor(p.faint)
+						ui.Text(c, "This conversation is empty").FontSize(15).
+							FontWeight(500).TextColor(p.muted)
+						ui.Text(c, "Send a message below to start it.").FontSize(12.5).
+							TextColor(p.faint)
+					})
+					return
+				}
 				ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().
 					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
 					Rows(func(row ui.ListRow) {

@@ -163,6 +163,61 @@ func TestFilesPane(t *testing.T) {
 	}
 }
 
+// TestFilesDialTheLocalServer keeps the tool working on the app's own
+// server: the built-in row holds neither an address nor a password, so a
+// read takes the spawned address the last status named and this run's
+// password, and nothing ephemeral lands in the saved row.
+func TestFilesDialTheLocalServer(t *testing.T) {
+	mux := http.NewServeMux()
+	asked := &[]string{}
+	mux.HandleFunc("GET /api/fs/list", func(w http.ResponseWriter, r *http.Request) {
+		if user, pass, ok := r.BasicAuth(); !ok || user != "opencode" || pass != "run-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		asked = appendString(asked, "list "+r.URL.Query().Get("location[directory]"))
+		w.Write([]byte(`{"location":{"directory":"/home/work"},"data":[{"path":"plan.md","type":"file"}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a := newTestApp(t)
+	a.setHealth(localServerID, serverHealth{status: healthReady, addr: srv.URL})
+	a.runtime.localPassword = "run-key"
+	a.scope().sessions = []opencode.Session{{ID: "ses_l", Title: "Local turn", Directory: "/home/work"}}
+	a.conversation.target.selectSession("ses_l")
+	a.conversation.selected = "Local turn"
+
+	a.openTool("Files")
+	if a.workspace.files == nil || len(a.workspace.files.entries["."]) != 1 {
+		t.Fatalf("the tool did not read the local folder: %+v", a.workspace.files)
+	}
+	if got := (*asked)[len(*asked)-1]; got != "list /home/work" {
+		t.Fatalf("the tool asked %q", got)
+	}
+	if a.connections.servers[0].url != "" || a.connections.servers[0].password != "" {
+		t.Fatalf("the saved row took ephemeral state: %+v", a.connections.servers[0])
+	}
+}
+
+// TestFilesOnAComingLocalServerNameTheWait keeps the pane honest while the
+// app's server is still coming up: a dial it cannot make yet names the
+// wait, not an address nobody typed.
+func TestFilesOnAComingLocalServerNameTheWait(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{{ID: "ses_l", Title: "Local turn", Directory: "/home/work"}}
+	a.conversation.target.selectSession("ses_l")
+	a.conversation.selected = "Local turn"
+	tt := ui.NewTester(a.view, 1400, 920)
+
+	a.openTool("Files")
+	tt.Frame()
+	note := a.workspace.files.note
+	if !strings.Contains(note, "not up yet") || strings.Contains(note, "give the server an address") {
+		t.Fatalf("the pane said %q", note)
+	}
+}
+
 // TestFilesSearch runs the pane's search: Enter asks the server for the
 // files whose paths match, the matches stand in the tree's place, a match
 // opens into the viewer, and an emptied field brings the tree back.

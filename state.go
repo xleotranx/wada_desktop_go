@@ -18,6 +18,10 @@ type runtimeState struct {
 	connectTo     func(runner.Generation, runner.Connection)
 	lifetime      context.Context
 	stopLifetime  context.CancelFunc
+	// localPassword is the secret this run's own server takes: named once
+	// here rather than inside the spawn, so tools dialing on their own
+	// speak the same password the pipe started the server with.
+	localPassword string
 	workCtx       context.Context
 	stopWork      context.CancelFunc
 	background    func(work func() func())

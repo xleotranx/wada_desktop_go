@@ -84,9 +84,10 @@ func newApp() *app {
 	lifetime, stopLifetime := context.WithCancel(context.Background())
 	workCtx, stopWork := context.WithCancel(lifetime)
 	a := &app{runtime: runtimeState{lifetime: lifetime,
-		stopLifetime: stopLifetime,
-		workCtx:      workCtx,
-		stopWork:     stopWork},
+		stopLifetime:  stopLifetime,
+		localPassword: opencode.Secret(),
+		workCtx:       workCtx,
+		stopWork:      stopWork},
 		connections: connectionsState{registryRequests: map[string]*requestState{},
 			servers:      []serverConn{defaultLocalServer()},
 			activeServer: localServerID,

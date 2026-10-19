@@ -384,12 +384,24 @@ func (a *app) serverByID(id string) (serverConn, bool) {
 }
 
 // activeServerConn is the connection the pipe should be talking to; the
-// local one stands in when nothing else was chosen.
+// local one stands in when nothing else was chosen. The app's own server
+// keeps no address in its row — the saved settings must not carry an
+// ephemeral port — so a dial takes the spawned one from the last status,
+// and the password named once for this run before the server came up.
 func (a *app) activeServerConn() serverConn {
-	if s, ok := a.serverByID(a.connections.activeServer); ok {
-		return s
+	s := defaultLocalServer()
+	if found, ok := a.serverByID(a.connections.activeServer); ok {
+		s = found
 	}
-	return defaultLocalServer()
+	if s.managed {
+		if s.url == "" {
+			s.url = a.connections.serverHealth[s.id].addr
+		}
+		if s.password == "" {
+			s.password = a.runtime.localPassword
+		}
+	}
+	return s
 }
 
 // localActive says the server on show is the one the app runs itself,

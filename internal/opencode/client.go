@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -55,6 +56,11 @@ type Event struct {
 func NewClient(cfg Config) (*Client, error) {
 	base, err := APIBase(cfg.URL)
 	if err != nil {
+		if cfg.Managed {
+			// The app runs this server itself: the spawn reports the
+			// address once it is up, and until then no dial can go out.
+			return nil, errors.New("the app's server is not up yet")
+		}
 		return nil, err
 	}
 	return &Client{Base: base, Password: cfg.Password, Paired: cfg.Paired, HTTP: HTTPClient(),

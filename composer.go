@@ -67,8 +67,8 @@ func (a *app) composer(c *ui.Context, p palette) {
 
 // dialog is the frame every dialog shares: Onevra's modal panel over a dimmed
 // window, sized to the content it holds.
-func dialog(c *ui.Context, p palette, open *bool, width float32, fn func()) {
-	components.Dialog(c, open, components.DialogOptions{Label: "Dialog"}, func(panel ui.Element) {
+func dialog(c *ui.Context, p palette, open *bool, width float32, label string, fn func()) {
+	components.Dialog(c, open, components.DialogOptions{Label: label}, func(panel ui.Element) {
 		panel.Width(width).MaxWidth(width)
 		ui.Column(c).Gap(12).Children(fn)
 	})
@@ -76,7 +76,7 @@ func dialog(c *ui.Context, p palette, open *bool, width float32, fn func()) {
 
 // textField is the field the dialogs and the model picker share: Onevra's
 // bordered single-line field, with the theme's focus ring.
-func textField(c *ui.Context, p palette, value *string, placeholder string) {
+func textField(c *ui.Context, value *string, placeholder string) {
 	components.TextBox(c, value, components.TextBoxOptions{}).
 		FillWidth().Placeholder(placeholder).FontSize(13)
 }
@@ -88,10 +88,10 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	if st == nil || !st.open {
 		return
 	}
-	dialog(c, p, &st.open, 400, func() {
+	dialog(c, p, &st.open, 400, "Quote a file", func() {
 		ui.Text(c, "Quote a file").FontSize(15).FontWeight(600)
 		ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
-		textField(c, p, &st.draft, "src/main.go")
+		textField(c, &st.draft, "src/main.go")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			if components.Button(c, "Cancel", components.ButtonGhost).Clicked() {
 				a.closeAttach()
@@ -198,7 +198,7 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
 	components.Popover(c, anchor, &a.layout.pickerOpen, func(panel ui.Element) {
 		panel.Width(320).MaxHeight(420).Children(func() {
-			textField(c, p, &a.layout.modelFilter, "Search models")
+			textField(c, &a.layout.modelFilter, "Search models")
 			models := a.filteredModels()
 			ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
 				for _, m := range models {

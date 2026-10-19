@@ -722,7 +722,7 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 		if title == "" {
 			title = "New chat"
 		}
-		dialog(c, p, &st.open, 340, func() {
+		dialog(c, p, &st.open, 340, "Delete conversation", func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
 				ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()
@@ -741,9 +741,9 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 	}
 
 	if st := a.layout.rename; st != nil && st.open {
-		dialog(c, p, &st.open, 340, func() {
+		dialog(c, p, &st.open, 340, "Rename this chat", func() {
 			ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
-			textField(c, p, &st.draft, "")
+			textField(c, &st.draft, "")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
 					a.layout.rename = nil

@@ -67,33 +67,31 @@ func (a *app) browserIconButton(c *ui.Context, p palette, label string, icon *ui
 }
 
 func (a *app) browserHome(c *ui.Context, p palette) {
-	ui.Column(c).Fill().Padding(25, 20).Gap(8).Children(func() {
-		ui.Text(c, "Tools").FontSize(13).FontWeight(600).TextColor(p.text)
+	ui.Column(c).Fill().Padding(25, 20).Gap(14).Children(func() {
+		ui.Column(c).Gap(4).Children(func() {
+			ui.Text(c, "Workspace tools").FontSize(20).FontWeight(600).TextColor(p.text).SingleLine()
+			ui.Text(c, "Read the workspace and review what the agent changed, beside the conversation.").
+				FontSize(12.5).LineHeight(1.4).TextColor(p.muted)
+		})
 		tools := []struct {
-			name, shortcut string
-			icon           *ui.SVG
+			name, detail, shortcut string
+			icon                   *ui.SVG
 		}{
-			{"Changes", "⌃⇧G", icGitBranch},
-			{"Files", "⌘P", icFolder},
-			{"New page", "", icPlus},
+			{"Changes", "Review the working tree or a branch", "⌃⇧G", icGitBranch},
+			{"Files", "Browse and read the project's files", "⌘P", icFolder},
+			{"New page", "Open an address beside the chat", "", icPlus},
 		}
-		for i := 0; i < len(tools); i += 2 {
-			ui.Row(c).FillWidth().Gap(10).Children(func() {
-				for j := i; j < i+2 && j < len(tools); j++ {
-					tool := tools[j]
-					a.browserToolCard(c, p, tool.name, tool.shortcut, tool.icon)
-				}
-				if i+1 >= len(tools) {
-					ui.Box(c).Grow(1)
-				}
-			})
-		}
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			for _, tool := range tools {
+				a.browserToolCard(c, p, tool.name, tool.detail, tool.shortcut, tool.icon)
+			}
+		})
 	})
 }
 
-func (a *app) browserToolCard(c *ui.Context, p palette, name, shortcut string, icon *ui.SVG) {
+func (a *app) browserToolCard(c *ui.Context, p palette, name, detail, shortcut string, icon *ui.SVG) {
 	c.Key("browser-tool:" + name)
-	b := ui.ButtonBase(c).Label(name).Height(44).Grow(1).Radius(10).
+	b := ui.ButtonBase(c).Label(name).Height(58).Radius(10).
 		Padding(0, 12).FillWidth().Cursor(ui.CursorPointer).
 		Background(c.Theme().Surface).Border(1, p.hairline).Justify(ui.Start)
 	if b.Hovered() {
@@ -101,10 +99,13 @@ func (a *app) browserToolCard(c *ui.Context, p palette, name, shortcut string, i
 	}
 	b.OnClick(func() { a.openTool(name) })
 	b.Children(func() {
-		ui.Icon(c, icon).FontSize(14).TextColor(p.orange)
-		ui.Text(c, name).MarginStart(9).FontSize(13).FontWeight(500).TextColor(p.text).Grow(1).SingleLine()
+		ui.Icon(c, icon).FontSize(15).TextColor(p.orange).Shrink(0)
+		ui.Column(c).MarginStart(9).Grow(1).MinWidth(0).Gap(1).AlignItems(ui.Start).Children(func() {
+			ui.Text(c, name).FontSize(13).FontWeight(500).TextColor(p.text).SingleLine()
+			ui.Text(c, detail).FontSize(11.5).TextColor(p.muted).SingleLine().Ellipsis("…")
+		})
 		if shortcut != "" {
-			ui.Text(c, shortcut).FontSize(10).TextColor(p.faint).SingleLine()
+			ui.Text(c, shortcut).FontSize(10).TextColor(p.faint).SingleLine().Shrink(0)
 		}
 	})
 }

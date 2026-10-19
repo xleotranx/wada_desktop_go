@@ -173,7 +173,7 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 	if st.draft {
 		pick = "Work here"
 	}
-	dialog(c, p, &st.open, 460, func() {
+	dialog(c, p, &st.open, 460, "Browse server folders", func() {
 		ui.Text(c, "Browse the server").FontSize(14).FontWeight(600).SingleLine()
 		ui.Text(c, "Folders on "+a.activeServerConn().name+"'s machine; the chat runs in the one picked.").
 			FontSize(12.5).TextColor(p.muted)

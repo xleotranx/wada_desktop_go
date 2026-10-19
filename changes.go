@@ -149,9 +149,13 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 			}
 		}
 	})
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-		a.modePill(c, p, "Uncommitted", changesWorking, st.mode == changesWorking)
-		a.modePill(c, p, "Branch", changesBranch, st.mode == changesBranch)
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+		// The two reads share a track, as Onevra's segmented tabs do, so
+		// the chosen one stands on the content surface.
+		ui.Row(c).Shrink(0).Gap(2).Padding(2).Radius(8).Background(p.hover).Children(func() {
+			a.modePill(c, p, "Uncommitted", changesWorking, st.mode == changesWorking)
+			a.modePill(c, p, "Branch", changesBranch, st.mode == changesBranch)
+		})
 		ui.Spacer(c)
 		ui.Text(c, pluralFiles(len(st.files))).FontSize(12).TextColor(p.faint).SingleLine()
 	})
@@ -214,11 +218,11 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 // modePill is one of the Changes tool's reads, the chosen one standing out.
 func (a *app) modePill(c *ui.Context, p palette, label, mode string, chosen bool) {
 	c.Key("changes-mode:" + mode)
-	b := ui.ButtonBase(c).Label(label + " changes").Height(24).Radius(999).PaddingX(10).Center()
+	b := ui.ButtonBase(c).Label(label + " changes").Height(24).Radius(6).PaddingX(10).Center()
 	if chosen {
-		b.Background(p.selected)
+		b.Background(c.Theme().Background).Border(1, p.hairline)
 	} else if b.Hovered() {
-		b.Background(p.hover)
+		b.Background(p.selected)
 	}
 	b.OnClick(func() { a.openChanges(mode) })
 	b.Children(func() {
@@ -226,7 +230,10 @@ func (a *app) modePill(c *ui.Context, p palette, label, mode string, chosen bool
 		if chosen {
 			tint = p.text
 		}
-		ui.Text(c, label).FontSize(12).TextColor(tint).SingleLine()
+		t := ui.Text(c, label).FontSize(12).TextColor(tint).SingleLine()
+		if chosen {
+			t.FontWeight(500)
+		}
 	})
 }
 

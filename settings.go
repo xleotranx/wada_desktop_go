@@ -426,7 +426,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 				ui.Text(c, "Every model is off — the composer's picker is empty. Turn at least one back on.").
 					FontSize(12.5).TextColor(p.orange)
 			}
-			textField(c, p, &a.layout.modelsQuery, "Search models")
+			textField(c, &a.layout.modelsQuery, "Search models")
 			if !a.scope().modelsLoaded {
 				ui.Text(c, a.catalogNote(srv)).FontSize(13).TextColor(p.muted)
 			} else if total == 0 {
@@ -604,7 +604,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 		if st.id != "" {
 			title = "Edit " + st.name
 		}
-		dialog(c, p, &st.open, 460, func() {
+		dialog(c, p, &st.open, 460, title, func() {
 			ui.Text(c, title).FontSize(14).FontWeight(600).SingleLine()
 			ui.Text(c, "A server your chats can run on, over the opencode HTTP API.").
 				FontSize(12.5).TextColor(p.muted)
@@ -651,7 +651,7 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 		if title == "" {
 			title = "this server"
 		}
-		dialog(c, p, &st.open, 380, func() {
+		dialog(c, p, &st.open, 380, "Delete server", func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icTrash).FontSize(14).TextColor(p.orange)
 				ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine()

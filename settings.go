@@ -91,6 +91,12 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 		ui.Scroll(c).Grow(1).FillWidth().Padding(4, 10).Gap(2).Children(func() {
 			a.settingsNavItem(c, p, tabServers, "Servers", icServer)
 			a.settingsNavItem(c, p, tabModels, "Models", icCpu)
+			ui.Spacer(c)
+			ui.Box(c).FillWidth().Height(1).Background(p.hairline).Margin(4, 2)
+			// The About foot: the app's own name and version, so a bug
+			// report says what build it belongs to.
+			ui.Text(c, "Wada Desktop").FontSize(12).FontWeight(500).TextColor(p.muted).Margin(4, 2)
+			ui.Text(c, "Version "+appVersion()).FontSize(11).TextColor(p.faint).Margin(2, 2)
 		})
 	})
 }

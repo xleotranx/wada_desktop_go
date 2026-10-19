@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // A new chat chooses its workspace before the first message is sent.
@@ -24,10 +25,8 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 		ui.Text(c, name).MarginStart(6).FontSize(12.5).SingleLine()
 		ui.Icon(c, icChevDown).MarginStart(6).FontSize(11).TextColor(p.muted)
 	})
-	ui.PopoverBase(c, button, &a.layout.projectPickerOpen, func(panel ui.Element) {
-		panel.Width(280).MaxHeight(360).Radius(12).Padding(10).Gap(4).Margin(4, 0).
-			Background(p.bg).Border(1, p.hairline).
-			Shadow(0, 10, 30, 0, p.shadow).Children(func() {
+	components.Popover(c, button, &a.layout.projectPickerOpen, func(panel ui.Element) {
+		panel.Width(280).MaxHeight(360).Children(func() {
 			textField(c, p, &a.layout.projectFilter, "Search projects")
 			ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
 				matches := 0

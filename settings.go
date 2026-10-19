@@ -85,7 +85,7 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).Width(settingsNavWidth).Background(p.sidebarBg).Children(func() {
 		ui.Row(c).FillWidth().Height(headerH).DragWindow().Padding(0, 14).
 			AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "Settings").FontSize(15.5).FontWeight(600).SingleLine()
+			ui.Text(c, "Settings").FontSize(16).FontWeight(650).SingleLine()
 			ui.Spacer(c)
 			a.navButton(c, p, "Close settings", icClose, a.closeSettings, p.muted)
 		})
@@ -106,15 +106,18 @@ func (a *app) settingsNavItem(c *ui.Context, p palette, tab, label string, icon 
 	chosen := a.layout.settingsTab == tab
 	c.Key("settings:" + tab)
 	b := a.row(c, p, "Settings "+label, chosen)
-	b.Height(34)
+	b.Height(36)
 	b.OnClick(func() { a.layout.settingsTab = tab })
 	b.Children(func() {
 		tint := p.muted
 		if chosen {
-			tint = p.text
+			tint = p.orange
 		}
 		ui.Icon(c, icon).FontSize(15).TextColor(tint)
-		ui.Text(c, label).MarginStart(9).FontSize(13.5).SingleLine()
+		t := ui.Text(c, label).MarginStart(9).FontSize(13.5).SingleLine()
+		if chosen {
+			t.FontWeight(500)
+		}
 	})
 }
 

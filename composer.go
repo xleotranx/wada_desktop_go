@@ -33,6 +33,14 @@ func (a *app) composer(c *ui.Context, p palette) {
 				Accessory: func(c *ui.Context) {
 					attach := onechat.IconAction(c, "Attach", iconRef(icPlus))
 					attach.OnClick(a.openAttachDialog)
+					// A narrow conversation, with the tools pane open, keeps
+					// the two policy chips as icon actions so the model
+					// name and the send action still fit.
+					if a.compactComposer(c) {
+						a.fullAccessIcon(c, p)
+						a.agentIcon(c, p)
+						return
+					}
 					a.fullAccessButton(c, p)
 					a.agentPill(c, p)
 				},
@@ -93,6 +101,47 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	})
 }
 
+// compactComposer reports a conversation too narrow for labeled chips:
+// the tools pane and an open sidebar take more than half the window.
+func (a *app) compactComposer(c *ui.Context) bool {
+	w, _ := c.Size()
+	w -= navRailWidth
+	if !a.layout.sidebarCollapsed {
+		w -= a.layout.sidebarW
+	}
+	if !a.layout.browserCollapsed {
+		w *= 0.47 // the content's share of the 1:1.12 split with the tools pane
+	}
+	return w < 620
+}
+
+// fullAccessIcon is the compact full-access control: the same menu as the
+// chip, for a composer row that has no room for a label.
+func (a *app) fullAccessIcon(c *ui.Context, p palette) {
+	dir := a.chatDir()
+	label := "Full access"
+	if a.workspace.policyLevel != "full" {
+		label = "Asks first"
+	}
+	b := onechat.IconAction(c, label, iconRef(icShield))
+	b.Tooltip(label + " in " + dirBase(dir))
+	b.Menu(a.accessMenu())
+}
+
+// accessMenu is the ask-first/full-access choice the chip and the compact
+// icon both open.
+func (a *app) accessMenu() func(*ui.Menu) {
+	return func(m *ui.Menu) {
+		if m.Item("Asks first").Chosen() {
+			a.setAsk(true)
+		}
+		m.Separator()
+		if m.Item("Full access").Chosen() {
+			a.setAsk(false)
+		}
+	}
+}
+
 // fullAccessButton shows how shell actions run in the chat's folder and
 // moves the policy between ask-first and open through the workspace
 // config the server watches.
@@ -105,15 +154,7 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	}
 	chip := onechat.Chip(c, label, onechat.ChipOptions{Icon: iconRef(icShield), Caret: true})
 	chip.Tooltip("How shell actions run in " + dirBase(dir))
-	chip.Menu(func(m *ui.Menu) {
-		if m.Item("Asks first").Chosen() {
-			a.setAsk(true)
-		}
-		m.Separator()
-		if m.Item("Full access").Chosen() {
-			a.setAsk(false)
-		}
-	})
+	chip.Menu(a.accessMenu())
 }
 
 // modelButton names what the chat runs on: the model's fancy name and
@@ -150,72 +191,70 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 // the content height of the whole catalog and spill past the panel
 // instead of handing the spare room to the list that scrolls.
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
-	ui.Popover(c, anchor, &a.layout.pickerOpen, func() {
-		ui.Box(c).Width(320).MaxHeight(420).Radius(c.Theme().Radius*1.75).Padding(10).Gap(8).
-			Background(c.Theme().Surface).Border(1, p.hairline).Shadow(0, 10, 30, 0, p.shadow).
-			Children(func() {
-				textField(c, p, &a.layout.modelFilter, "Search models")
-				models := a.filteredModels()
-				ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
-					for _, m := range models {
-						m := m // fresh per row, the closures keep their own model
-						c.Key("model:" + m.ProviderID + "/" + m.ID)
-						chosen := m.ProviderID == ref.ProviderID && m.ID == ref.ID
-						row := ui.ButtonBase(c).Label("Pick "+m.Name).Height(32).Radius(8).
-							Padding(0, 8).Justify(ui.Start).FillWidth()
-						if row.Hovered() {
-							row.Background(p.hover)
-						} else if chosen {
-							row.Background(p.selected)
-						}
-						row.OnClick(func() { a.chooseModel(m, "") })
-						row.Children(func() {
-							ui.Text(c, m.Name).FontSize(13.5).SingleLine()
-							ui.Text(c, m.ProviderID).MarginStart(6).FontSize(11).
-								TextColor(p.faint).Grow(1).SingleLine()
-							if chosen {
-								ui.Icon(c, icCheck).FontSize(14).TextColor(c.Theme().Accent)
-							} else if m.Free {
-								components.Badge(c, "Free", components.BadgeOptions{Tone: components.BadgeSuccess})
-							}
-						})
+	components.Popover(c, anchor, &a.layout.pickerOpen, func(panel ui.Element) {
+		panel.Width(320).MaxHeight(420).Children(func() {
+			textField(c, p, &a.layout.modelFilter, "Search models")
+			models := a.filteredModels()
+			ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
+				for _, m := range models {
+					m := m // fresh per row, the closures keep their own model
+					c.Key("model:" + m.ProviderID + "/" + m.ID)
+					chosen := m.ProviderID == ref.ProviderID && m.ID == ref.ID
+					row := ui.ButtonBase(c).Label("Pick "+m.Name).Height(32).Radius(8).
+						Padding(0, 8).Justify(ui.Start).FillWidth()
+					if row.Hovered() {
+						row.Background(p.hover)
+					} else if chosen {
+						row.Background(p.selected)
 					}
-					if len(models) == 0 {
-						ui.Text(c, a.noModelsNote()).FontSize(12).TextColor(p.muted)
-					}
-				})
-				if len(a.scope().models) > 0 {
-					// The picker is where a missing model becomes a
-					// question; its answer lives in the settings.
-					ui.Divider(c)
-					if components.Button(c, "Manage models…", components.ButtonGhost).Clicked() {
-						a.layout.pickerOpen = false
-						a.openSettings(tabModels)
-					}
-				}
-				if len(variants) > 0 {
-					ui.Row(c).Shrink(0).Gap(4).Children(func() {
-						for _, v := range variants {
-							v := v // fresh per chip, so the closures keep their own effort
-							on := v == ref.Variant
-							chip := ui.ButtonBase(c).Label("Reasoning " + v).Height(22).Radius(999).
-								PaddingX(9).Tooltip("Reasoning effort: " + v)
-							if on {
-								chip.Background(p.selected)
-							} else if chip.Hovered() {
-								chip.Background(p.hover)
-							}
-							chip.OnClick(func() { a.pickVariant(v) })
-							chip.Children(func() {
-								t := ui.Text(c, v).FontSize(11.5).SingleLine()
-								if on {
-									t.FontWeight(500)
-								}
-							})
+					row.OnClick(func() { a.chooseModel(m, "") })
+					row.Children(func() {
+						ui.Text(c, m.Name).FontSize(13.5).SingleLine()
+						ui.Text(c, m.ProviderID).MarginStart(6).FontSize(11).
+							TextColor(p.faint).Grow(1).SingleLine()
+						if chosen {
+							ui.Icon(c, icCheck).FontSize(14).TextColor(c.Theme().Accent)
+						} else if m.Free {
+							components.Badge(c, "Free", components.BadgeOptions{Tone: components.BadgeSuccess})
 						}
 					})
 				}
+				if len(models) == 0 {
+					ui.Text(c, a.noModelsNote()).FontSize(12).TextColor(p.muted)
+				}
 			})
+			if len(a.scope().models) > 0 {
+				// The picker is where a missing model becomes a
+				// question; its answer lives in the settings.
+				ui.Divider(c)
+				if components.Button(c, "Manage models…", components.ButtonGhost).Clicked() {
+					a.layout.pickerOpen = false
+					a.openSettings(tabModels)
+				}
+			}
+			if len(variants) > 0 {
+				ui.Row(c).Shrink(0).Gap(4).Children(func() {
+					for _, v := range variants {
+						v := v // fresh per chip, so the closures keep their own effort
+						on := v == ref.Variant
+						chip := ui.ButtonBase(c).Label("Reasoning " + v).Height(22).Radius(999).
+							PaddingX(9).Tooltip("Reasoning effort: " + v)
+						if on {
+							chip.Background(p.selected)
+						} else if chip.Hovered() {
+							chip.Background(p.hover)
+						}
+						chip.OnClick(func() { a.pickVariant(v) })
+						chip.Children(func() {
+							t := ui.Text(c, v).FontSize(11.5).SingleLine()
+							if on {
+								t.FontWeight(500)
+							}
+						})
+					}
+				})
+			}
+		})
 	})
 }
 
@@ -259,5 +298,33 @@ func (a *app) noModelsNote() string {
 		return "Every model is off. Turn some on under Manage models…"
 	default:
 		return "No models in the catalog match."
+	}
+}
+
+// agentIcon is the compact persona control: the mode menu without the
+// label a chip shows.
+func (a *app) agentIcon(c *ui.Context, p palette) {
+	agents := a.scope().agents
+	if len(agents) == 0 {
+		return
+	}
+	name := agentTitle(agents, a.conversation.agent)
+	b := onechat.IconAction(c, "Mode "+name, iconRef(icGitBranch))
+	b.Tooltip("Mode " + name)
+	b.Menu(a.agentMenu())
+}
+
+// agentMenu is the persona choice both the chip and the compact icon open.
+func (a *app) agentMenu() func(*ui.Menu) {
+	return func(m *ui.Menu) {
+		for _, agent := range a.scope().agents {
+			title := agent.Name
+			if a.conversation.agent == agent.ID {
+				title = "● " + title
+			}
+			if m.Item(title).Chosen() {
+				a.conversation.agent = agent.ID
+			}
+		}
 	}
 }

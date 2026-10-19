@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // filesShown is how much of one file the viewer shows: enough for a source
@@ -254,25 +255,15 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 // the files whose paths match it, and Enter runs it.
 func (a *app) filesField(c *ui.Context, p palette) {
 	st := a.workspace.files
-	field := ui.Box(c).FillWidth().Height(32).Radius(999).Padding(0, 10).
-		Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
-	if field.FocusWithin() {
-		field.Border(1, p.composerBorderFocus)
-	}
-	field.Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
-			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
-			ui.TextInputBase(c, &st.query).FontSize(12.5).
-				Placeholder("Search files").Label("Search files").FillWidth().
-				OnTextKey(func(k ui.TextKey) bool {
-					if k.Key == ui.KeyEnter && k.Mods == 0 {
-						a.filesFind()
-						return true
-					}
-					return false
-				})
+	components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
+		FillWidth().Placeholder("Search files").Label("Search files").FontSize(12.5).
+		OnTextKey(func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEnter && k.Mods == 0 {
+				a.filesFind()
+				return true
+			}
+			return false
 		})
-	})
 }
 
 // filesResults draws what the search found in place of the tree: the

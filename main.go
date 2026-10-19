@@ -533,17 +533,7 @@ func (a *app) agentPill(c *ui.Context, p palette) {
 	name := agentTitle(agents, chosen)
 	b := ui.ButtonBase(c).Label("Mode " + name).Height(28).Radius(999).PaddingX(10).
 		Tooltip("How this chat approaches the work").
-		Menu(func(m *ui.Menu) {
-			for _, agent := range agents {
-				title := agent.Name
-				if a.conversation.agent == agent.ID {
-					title = "● " + title
-				}
-				if m.Item(title).Chosen() {
-					a.conversation.agent = agent.ID
-				}
-			}
-		})
+		Menu(a.agentMenu())
 	if b.Hovered() {
 		b.Background(p.hover)
 	}

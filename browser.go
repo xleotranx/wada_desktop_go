@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // browserPane is the native tools and page surface beside the conversation.
@@ -24,25 +25,16 @@ func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 	ui.Row(c).Height(headerH).FillWidth().AlignItems(ui.Center).Gap(3).Padding(0, 8).Children(func() {
 		a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.layout.browserPage == "")
 
-		address := ui.Box(c).Grow(1).Height(32).Radius(999).Padding(0, 10).
-			Background(p.composerBg).Border(1, p.composerBorder).Justify(ui.Center)
-		if address.FocusWithin() {
-			address.Border(1, p.composerBorderFocus)
-		}
-		address.Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
-				ui.Icon(c, icGlobe).FontSize(13).TextColor(p.muted)
-				ui.TextInputBase(c, &a.layout.browserAddress).FontSize(12.5).
-					Placeholder("Search or enter a URL").FillWidth().Label("Search or enter a URL").
-					OnTextKey(func(k ui.TextKey) bool {
-						if k.Key == ui.KeyEnter && k.Mods == 0 {
-							a.openBrowserAddress()
-							return true
-						}
-						return false
-					})
+		components.TextBox(c, &a.layout.browserAddress,
+			components.TextBoxOptions{LeadingIcon: icGlobe}).Grow(1).
+			Placeholder("Search or enter a URL").Label("Search or enter a URL").FontSize(12.5).
+			OnTextKey(func(k ui.TextKey) bool {
+				if k.Key == ui.KeyEnter && k.Mods == 0 {
+					a.openBrowserAddress()
+					return true
+				}
+				return false
 			})
-		})
 		more := ui.ButtonBase(c).Label("Browser options").Size(28, 28).Radius(8).Center().
 			Tooltip("Browser options").Menu(func(m *ui.Menu) {
 			if m.Item("New page").Chosen() {
@@ -101,16 +93,16 @@ func (a *app) browserHome(c *ui.Context, p palette) {
 
 func (a *app) browserToolCard(c *ui.Context, p palette, name, shortcut string, icon *ui.SVG) {
 	c.Key("browser-tool:" + name)
-	b := ui.ButtonBase(c).Label(name).Height(42).Grow(1).Radius(11).
-		Padding(0, 11).FillWidth().Cursor(ui.CursorPointer).
-		Background(p.bg).Border(1, p.hairline).Justify(ui.Start)
+	b := ui.ButtonBase(c).Label(name).Height(44).Grow(1).Radius(10).
+		Padding(0, 12).FillWidth().Cursor(ui.CursorPointer).
+		Background(c.Theme().Surface).Border(1, p.hairline).Justify(ui.Start)
 	if b.Hovered() {
-		b.Background(p.hover)
+		b.Background(p.hover).BorderColor(p.orange.Alpha(.5))
 	}
 	b.OnClick(func() { a.openTool(name) })
 	b.Children(func() {
-		ui.Icon(c, icon).FontSize(14).TextColor(p.muted)
-		ui.Text(c, name).MarginStart(8).FontSize(12.5).TextColor(p.text).Grow(1).SingleLine()
+		ui.Icon(c, icon).FontSize(14).TextColor(p.orange)
+		ui.Text(c, name).MarginStart(9).FontSize(13).FontWeight(500).TextColor(p.text).Grow(1).SingleLine()
 		if shortcut != "" {
 			ui.Text(c, shortcut).FontSize(10).TextColor(p.faint).SingleLine()
 		}

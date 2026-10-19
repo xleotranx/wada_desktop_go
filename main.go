@@ -107,6 +107,7 @@ func newApp() *app {
 			feed:              newFeed(),
 			settingsTab:       tabServers}}
 	a.runtime.pickFolder = a.pickFolderDialog
+	a.runtime.pickExport = a.pickSaveDialog
 	a.runtime.probe = a.runProbe
 	a.runtime.pair = a.runPair
 	a.runtime.copy = a.copyToClipboard
@@ -328,6 +329,11 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 						MarginStart(8).Shrink(0).SingleLine()
 				}
 			}
+			// The chat's own menu rides the title: rename, export what
+			// the view holds, delete.
+			if !a.layout.settingsOpen && string(a.conversation.target.session) != "" {
+				a.chatMenuButton(c, p, title)
+			}
 		}
 		ui.Spacer(c)
 
@@ -335,6 +341,33 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 			a.layout.browserCollapsed = !a.layout.browserCollapsed
 		}, p.text)
 	})
+}
+
+// chatMenuButton is the title's kebab: the conversation's own actions,
+// the same three the sidebar row's kebab carries, with the export taking
+// exactly what this view holds.
+func (a *app) chatMenuButton(c *ui.Context, p palette, title string) {
+	sid := string(a.conversation.target.session)
+	c.Key("chat-menu:" + sid)
+	kebab := ui.ButtonBase(c).Label("Chat options, "+title).Size(22, 22).Radius(6).Center().
+		MarginStart(4).Shrink(0).Tooltip("Rename, export or delete this chat")
+	tint := p.faint
+	kebab.Menu(func(m *ui.Menu) {
+		if m.Item("Rename…").Chosen() {
+			a.requestRename(opencode.Session{ID: sid, Title: title})
+		}
+		if m.Item("Export transcript…").Chosen() {
+			a.exportTranscript()
+		}
+		if m.Item("Delete").Chosen() {
+			a.confirmDelete(opencode.Session{ID: sid, Title: title})
+		}
+	})
+	if kebab.Hovered() {
+		kebab.Background(p.hover)
+		tint = p.muted
+	}
+	kebab.Children(func() { ui.Icon(c, icEllipsis).FontSize(13).TextColor(tint) })
 }
 
 func main() {

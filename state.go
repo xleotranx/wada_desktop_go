@@ -24,6 +24,7 @@ type runtimeState struct {
 	closed        bool
 	win           *mygo.Window
 	pickFolder    func(done func(path string))
+	pickExport    func(done func(path string))
 	probe         func(cfg serverConn)
 	pair          func(link string, done func(addr, token string, err error))
 	copy          func(text string) error

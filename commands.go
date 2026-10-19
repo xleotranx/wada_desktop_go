@@ -9,6 +9,10 @@ import (
 	"github.com/oneo-me/onevra/source/components/command"
 )
 
+// commandChatLimit bounds the chats the palette lists; filtering runs on
+// every keystroke, and the sidebar's search stays the way to the store.
+const commandChatLimit = 200
+
 // openCommandPalette shows the window's command dialog and starts it empty,
 // so the first keystrokes search rather than continue the last search.
 func (a *app) openCommandPalette() {
@@ -82,7 +86,10 @@ func (a *app) commandItems() []command.Item {
 			Group: "Projects", Description: dir, Icon: icFolder,
 			Keywords: []string{"project", "folder", "workspace"}})
 	}
-	for _, s := range a.scope().sessions {
+	// The palette filters on every keystroke, so it carries the newest
+	// slice of history rather than a list that paging can grow without
+	// bound; the sidebar's search still reads the whole store.
+	for _, s := range a.scope().sessions[:min(len(a.scope().sessions), commandChatLimit)] {
 		title := s.Title
 		if title == "" {
 			title = "New chat"

@@ -24,6 +24,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 		}
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			busy := a.conversation.transcript.Busy() != ""
+			tight := a.tightComposer(c)
 			result := onechat.Composer(c, &a.conversation.draft, onechat.ComposerOptions{
 				Label:       "Compose",
 				Placeholder: "Work with Codex",
@@ -44,7 +45,13 @@ func (a *app) composer(c *ui.Context, p palette) {
 					a.fullAccessButton(c, p)
 					a.agentPill(c, p)
 				},
-				Trailing: func(c *ui.Context) { a.modelButton(c, p) },
+				Trailing: func(c *ui.Context) {
+					if tight {
+						a.modelIcon(c, p)
+						return
+					}
+					a.modelButton(c, p)
+				},
 				Footer: func(c *ui.Context) {
 					ui.Text(c, "⌘K commands").FontSize(11).TextColor(p.faint).SingleLine()
 					ui.Spacer(c)
@@ -106,18 +113,30 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	})
 }
 
-// compactComposer reports a conversation too narrow for labeled chips:
-// the tools pane and an open sidebar take more than half the window.
-func (a *app) compactComposer(c *ui.Context) bool {
+// conversationWidth is the room the chat column gets: the window less the
+// rail and sidebar, then the content's share of the 1:1.12 split with the
+// tools pane while that pane is open.
+func (a *app) conversationWidth(c *ui.Context) float32 {
 	w, _ := c.Size()
 	w -= navRailWidth
 	if !a.layout.sidebarCollapsed {
 		w -= a.layout.sidebarW
 	}
 	if !a.layout.browserCollapsed {
-		w *= 0.47 // the content's share of the 1:1.12 split with the tools pane
+		w *= 0.47
 	}
-	return w < 620
+	return w
+}
+
+// compactComposer reports a conversation too narrow for labeled chips.
+func (a *app) compactComposer(c *ui.Context) bool {
+	return a.conversationWidth(c) < 620
+}
+
+// tightComposer reports the narrowest composer: even the chips become icon
+// actions so the send affordance keeps its room.
+func (a *app) tightComposer(c *ui.Context) bool {
+	return a.conversationWidth(c) < 480
 }
 
 // fullAccessIcon is the compact full-access control: the same menu as the
@@ -160,6 +179,20 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	chip := onechat.Chip(c, label, onechat.ChipOptions{Icon: iconRef(icShield), Caret: true})
 	chip.Tooltip("How shell actions run in " + dirBase(dir))
 	chip.Menu(a.accessMenu())
+}
+
+// modelIcon is the model choice where the composer has no room for a
+// label: the same picker, opened from the loading glyph.
+func (a *app) modelIcon(c *ui.Context, p palette) {
+	ref := a.sessionModelOf(string(a.conversation.target.session))
+	name, variants := a.modelLabel(ref)
+	b := onechat.IconAction(c, "Model "+name, iconRef(icLoad))
+	b.Tooltip("Model " + name)
+	b.OnClick(func() {
+		a.layout.modelFilter = ""
+		a.layout.pickerOpen = true
+	})
+	a.modelPicker(c, p, b, ref, variants)
 }
 
 // modelButton names what the chat runs on: the model's fancy name and

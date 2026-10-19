@@ -419,8 +419,10 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, fmt.Sprintf("%d of %d on", enabled, total)).FontSize(12.5).TextColor(p.muted)
 				ui.Spacer(c)
-				a.pillButton(c, p, "Disable all", nil, func() { a.setAllModelsEnabled(false) })
-				a.pillButton(c, p, "Enable all", nil, func() { a.setAllModelsEnabled(true) })
+				disableAll := a.pillButton(c, p, "Disable all", nil, func() { a.setAllModelsEnabled(false) })
+				disableAll.Disabled(total == 0)
+				enableAll := a.pillButton(c, p, "Enable all", nil, func() { a.setAllModelsEnabled(true) })
+				enableAll.Disabled(total == 0)
 			})
 			if total > 0 && enabled == 0 {
 				ui.Text(c, "Every model is off — the composer's picker is empty. Turn at least one back on.").
@@ -428,6 +430,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 			}
 			textField(c, &a.layout.modelsQuery, "Search models")
 			if !a.scope().modelsLoaded {
+				components.Skeleton(c, components.SkeletonOptions{Lines: 5, Label: "Loading the model catalog"})
 				ui.Text(c, a.catalogNote(srv)).FontSize(13).TextColor(p.muted)
 			} else if total == 0 {
 				ui.Text(c, "The server reported no models.").FontSize(13).TextColor(p.muted)

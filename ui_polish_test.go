@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -37,5 +38,22 @@ func TestToastHostShowsAndDrains(t *testing.T) {
 	}
 	if len(a.layout.toasts) != 0 {
 		t.Fatalf("%d toasts left queued", len(a.layout.toasts))
+	}
+}
+
+// TestNarrowComposerKeepsControls keeps the smallest window usable: with
+// the sidebar and tools pane open the composer still offers attach, the
+// policy and the send action rather than clipping them away.
+func TestNarrowComposerKeepsControls(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed = false
+	a.scope().models = []opencode.Model{{ProviderID: "opencode", ID: "beam-free", Name: "Beam Free", Free: true}}
+	a.scope().modelsLoaded = true
+	tt := ui.NewTester(a.view, 1120, 700)
+	tt.Frame()
+	for _, label := range []string{"Attach", "Asks first", "Model Beam Free", "Send message"} {
+		if !tt.HasText(label) {
+			t.Fatalf("the narrow composer lost %q: %v", label, tt.Texts())
+		}
 	}
 }

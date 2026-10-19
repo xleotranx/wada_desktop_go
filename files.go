@@ -236,6 +236,7 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 	}
 	if _, ok := st.entries["."]; !ok {
 		ui.Text(c, "Reading the workspace…").FontSize(12.5).TextColor(p.muted)
+		components.Skeleton(c, components.SkeletonOptions{Lines: 4, Label: "Reading the workspace"})
 		return
 	}
 

@@ -279,40 +279,53 @@ func toolIcon(kind string) *ui.SVG {
 
 // draftPanels is the first screen of a new conversation: a mark, the
 // question the chat starts from, three starts that fill the composer, and
-// the two keys that send or break the line.
+// the two keys that send or break the line. A narrow chat column drops the
+// blurbs and tightens the spacing so the composer keeps its room.
 func (a *app) draftPanels(c *ui.Context, p palette) {
 	title := "What should we work on?"
 	if a.conversation.draftProject != "" {
 		title = "What should we build in " + dirBase(a.conversation.draftProject) + "?"
 	}
-	ui.Column(c).Fill().Center().Gap(22).Padding(28, 24, 40, 24).Children(func() {
-		ui.Box(c).Size(58, 58).Radius(17).Center().
+	compact := a.tightComposer(c)
+	gap, mark, titleSize := float32(22), float32(58), float32(30)
+	if compact {
+		gap, mark, titleSize = 14, 46, 24
+	}
+	ui.Column(c).Fill().Center().Gap(gap).Padding(28, 24, 32, 24).Children(func() {
+		ui.Box(c).Size(mark, mark).Radius(mark*.29).Center().
 			Background(c.Theme().Selection.Alpha(.55)).Border(1, p.hairline).Children(func() {
-			ui.Icon(c, icSparkle).FontSize(26).TextColor(p.orange)
+			ui.Icon(c, icSparkle).FontSize(mark * .45).TextColor(p.orange)
 		})
 		ui.Column(c).AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, title).FontSize(30).FontWeight(600).TextColor(p.text).SingleLine().Ellipsis("…")
+			ui.Text(c, title).FontSize(titleSize).FontWeight(600).TextColor(p.text).Wrap()
 			ui.Text(c, "Describe the change you want. The agent reads the workspace, plans, and edits.").
-				FontSize(14).TextColor(p.muted)
+				FontSize(14).TextColor(p.muted).LineHeight(1.4)
 		})
-		ui.Row(c).Wrap().Justify(ui.Center).Gap(10).MaxWidth(720).Children(func() {
+		ui.Row(c).Wrap().Justify(ui.Center).Gap(10).MaxWidth(onechat.ContentWidth).Children(func() {
 			a.suggestion(c, p, "Explain this codebase", "A guided tour of the app's pieces",
-				"Explain this codebase", icBook)
+				"Explain this codebase", icBook, compact)
 			a.suggestion(c, p, "Fix a failing test", "Run the tests, find the break, patch it",
-				"Find the failing tests and fix them", icTerminal)
+				"Find the failing tests and fix them", icTerminal, compact)
 			a.suggestion(c, p, "Review my changes", "Read the diff and flag the risks",
-				"Review my uncommitted changes", icGitBranch)
+				"Review my uncommitted changes", icGitBranch, compact)
 		})
-		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(11.5).TextColor(p.faint)
+		if !compact {
+			ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(11.5).TextColor(p.faint)
+		}
 	})
 }
 
 // suggestion is one of the draft screen's starts: a card with an icon, a
 // title and a line of what it asks for. Choosing it writes the prompt into
-// the composer and puts the keyboard there.
-func (a *app) suggestion(c *ui.Context, p palette, title, blurb, prompt string, icon *ui.SVG) {
-	b := ui.ButtonBase(c).Label(title+". "+blurb).Width(224).Height(80).Radius(12).
-		Padding(12, 14).Justify(ui.Start).AlignItems(ui.Center).Gap(10).
+// the composer and puts the keyboard there. The compact face keeps the
+// title alone, so three starts still fit beside a narrow chat.
+func (a *app) suggestion(c *ui.Context, p palette, title, blurb, prompt string, icon *ui.SVG, compact bool) {
+	width, height, chip := float32(224), float32(80), float32(30)
+	if compact {
+		width, height, chip = 214, 46, 24
+	}
+	b := ui.ButtonBase(c).Label(title+". "+blurb).Width(width).Height(height).Radius(12).
+		Padding(10, 12).Justify(ui.Start).AlignItems(ui.Center).Gap(9).
 		Background(c.Theme().Surface).Border(1, p.hairline).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.BorderColor(p.orange.Alpha(.55)).Background(p.hover)
@@ -322,13 +335,15 @@ func (a *app) suggestion(c *ui.Context, p palette, title, blurb, prompt string, 
 		a.layout.composerFocus = true
 	})
 	b.Children(func() {
-		ui.Box(c).Size(30, 30).Radius(9).Center().
+		ui.Box(c).Size(chip, chip).Radius(chip * .3).Center().
 			Background(c.Theme().Selection.Alpha(.5)).Children(func() {
-			ui.Icon(c, icon).FontSize(15).TextColor(p.orange)
+			ui.Icon(c, icon).FontSize(chip * .5).TextColor(p.orange)
 		})
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.text).SingleLine()
-			ui.Text(c, blurb).FontSize(11.5).TextColor(p.muted).LineHeight(1.3)
+			if !compact {
+				ui.Text(c, blurb).FontSize(11.5).TextColor(p.muted).LineHeight(1.3)
+			}
 		})
 	})
 }

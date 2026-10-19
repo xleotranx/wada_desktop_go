@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // The two reads the Changes tool offers.
@@ -122,6 +123,7 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	}
 	if st.loading {
 		ui.Text(c, "Reading the workspace…").FontSize(12.5).TextColor(p.muted)
+		components.Skeleton(c, components.SkeletonOptions{Lines: 5, Label: "Reading the workspace"})
 		return
 	}
 	if st.note != "" {

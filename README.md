@@ -1,8 +1,10 @@
 # wada_desktop_go
 
-A native macOS chat client with the ChatGPT desktop look. All UI is Go through
-[MyGo](https://github.com/egoist/mygo); [OpenCode](https://github.com/sst/opencode)
-provides the agent engine over HTTP and SSE. There is no webview or Electron.
+A native macOS chat client. All UI is Go: [MyGo](https://github.com/egoist/mygo)
+owns the window and layout, and [Onevra](https://github.com/oneo-me/onevra) supplies
+the warm light/dark theme, Lucide icons, controls, dialogs and command palette.
+[OpenCode](https://github.com/sst/opencode) provides the agent engine over HTTP and
+SSE. There is no webview or Electron.
 
 ## Run
 
@@ -31,9 +33,12 @@ Global OpenCode configuration is not rewritten by startup.
   folder browser, file search/preview, file quoting, and working-tree/branch diffs.
 - Shell policy: read and update the selected workspace's OpenCode configuration,
   locally or through the remote API. Unreadable configuration is not overwritten.
+- Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
+  servers, projects and conversations. Toasts confirm copies and exports.
 
-The transcript uses MyGo markdown. Files and Changes use persistent read-only
-MyGo editor buffers. Large transcript, sidebar and catalog views are virtualized;
+The transcript uses MyGo markdown with Onevra's message and activity surfaces;
+the composer is Onevra's chat composer. Files and Changes use persistent
+read-only MyGo editor buffers. Large transcript, sidebar and catalog views are virtualized;
 stream events use bounded batches with UI backpressure.
 
 ## Architecture

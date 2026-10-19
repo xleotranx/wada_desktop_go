@@ -232,7 +232,7 @@ func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref openc
 				// The picker is where a missing model becomes a
 				// question; its answer lives in the settings.
 				ui.Divider(c)
-				if components.Button(c, "Manage models…", components.ButtonGhost).Clicked() {
+				if components.Button(c, "Manage models…", components.ButtonOutline).FillWidth().Clicked() {
 					a.layout.pickerOpen = false
 					a.openSettings(tabModels)
 				}

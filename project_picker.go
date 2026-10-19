@@ -62,7 +62,7 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 				// below is this one's.
 				label = "Browse the server…"
 			}
-			ui.Button(c, label).OnClick(func() {
+			if components.Button(c, label, components.ButtonOutline).FillWidth().Clicked() {
 				a.layout.projectPickerOpen = false
 				if a.localActive() {
 					a.layout.selectAddedProject = true
@@ -70,8 +70,10 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 					return
 				}
 				a.browseServerFolders(true)
-			})
-			ui.Button(c, "Don't work in a project").OnClick(func() { a.selectDraftProject("") })
+			}
+			if components.Button(c, "Don't work in a project", components.ButtonGhost).FillWidth().Clicked() {
+				a.selectDraftProject("")
+			}
 		})
 	})
 }

@@ -159,7 +159,7 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 	active := s.id == a.connections.activeServer
 	c.Key("server:" + s.id)
 	ui.Box(c).FillWidth().Radius(14).Padding(14, 16).
-		Background(p.bg).Border(1, p.hairline).Children(func() {
+		Background(p.detailBg).Border(1, p.hairline).Children(func() {
 		ui.Column(c).Gap(6).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icServer).FontSize(15).TextColor(p.muted).Shrink(0)

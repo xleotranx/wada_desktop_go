@@ -1,13 +1,15 @@
 # AGENTS.md — wada_desktop_go
 
 A native MyGo desktop chat client backed by OpenCode. All UI is Go; no webview.
-MyGo and its CLI are pinned in `go.mod`. This is development software: replace
+MyGo and its CLI are pinned in `go.mod`; Onevra (`github.com/oneo-me/onevra/source`)
+is the component and theme layer built on MyGo. This is development software: replace
 internal APIs directly and remove obsolete paths rather than keeping compatibility
 layers. Do not change the external server protocol to simplify a refactor.
 
 ## Source map
 
-- `main.go`: bootstrap, native window, application queries/actions.
+- `main.go`: bootstrap, native window, theme installation, application queries/actions.
+- `commands.go`: the Cmd+K command palette over actions, servers, projects and chats.
 - `state.go`: seven named UI-thread state owners: runtime, connections,
   conversation, workspace, preferences, search, and layout.
 - `conversation.go`, `workspace.go`: complete navigation and workspace transitions.
@@ -24,7 +26,8 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `servers.go`, `server_folders.go`, `files.go`, `changes.go`, `policy.go`,
   `search.go`, `background.go`, `dialog_lifetime.go`: operations and lifetime ownership.
 - `metadata.go`: transactional SQLite settings and asynchronous snapshots.
-- `palette.go`, `icons.go`: colors and single-color SVG assets.
+- `palette.go`, `icons.go`: the app's semantic colors read from the Onevra theme,
+  and Lucide icon accessors.
 
 Tests sit beside their subjects. UI interaction tests use real `ui.NewTester`
 views; `newTestApp` explicitly installs immediate effects. Ordering tests replace

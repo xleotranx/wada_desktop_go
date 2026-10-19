@@ -10,6 +10,7 @@ type commandRecord struct {
 	kind                                                                     string
 	route                                                                    uint64
 	sid, dir, text, cursor, provider, model, variant, msg, request, decision string
+	agent                                                                    string
 	draft                                                                    uint64
 	server                                                                   serverConn
 	pins                                                                     []string
@@ -32,6 +33,7 @@ func installCommandFixture(a *app, capacity int) {
 			record.sid = string(c.Session)
 			record.text = c.Text
 			record.dir = c.Directory
+			record.agent = c.Agent
 			record.draft = c.Draft
 			record.provider = c.Model.ProviderID
 			record.model = c.Model.ID

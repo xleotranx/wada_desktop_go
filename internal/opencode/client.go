@@ -229,13 +229,16 @@ func (a *Client) Call(ctx context.Context, method, path string, body any) (json.
 }
 
 // createSession opens a fresh conversation for this app, working in the
-// directory given: the server's own when none is named.
-func (a *Client) CreateSession(ctx context.Context, dir string) (string, ModelRef, error) {
-	var body any = struct{}{}
+// directory given: the server's own when none is named. The agent given
+// rides the creation, since the server folds the choice into the session
+// at birth ("plan" keeps its answers read-only) and not per turn.
+func (a *Client) CreateSession(ctx context.Context, dir, agent string) (string, ModelRef, error) {
+	body := map[string]any{}
 	if dir != "" {
-		body = map[string]any{
-			"location": map[string]any{"directory": dir},
-		}
+		body["location"] = map[string]any{"directory": dir}
+	}
+	if agent != "" {
+		body["agent"] = agent
 	}
 	raw, err := a.Call(ctx, "POST", "/session", body)
 	if err != nil {
@@ -352,6 +355,45 @@ type Model struct {
 	Name       string
 	Variants   []string
 	Free       bool
+}
+
+// agentRow is one persona the conversation can run under: how it reads
+// the codebase and what it may touch. Primary agents are chat picks
+// ("build", "plan"); subagents work for other agents, and the hidden ones
+// serve plumbing.
+type Agent struct {
+	ID          string
+	Name        string
+	Description string
+}
+
+// ListAgents reads the personas a conversation can run under, keeping
+// the chat-pickable ones in the server's own order.
+func (a *Client) ListAgents(ctx context.Context) ([]Agent, error) {
+	raw, err := a.Call(ctx, "GET", "/agent", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Mode        string `json:"mode"`
+			Hidden      bool   `json:"hidden"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	var all []Agent
+	for _, row := range out.Data {
+		if row.Mode != "primary" || row.Hidden || row.ID == "" {
+			continue
+		}
+		all = append(all, Agent{ID: row.ID, Name: row.Name, Description: row.Description})
+	}
+	return all, nil
 }
 
 // listModels reads the catalog the signed-in server offers.

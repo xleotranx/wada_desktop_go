@@ -43,8 +43,12 @@ type Command interface{ kind() Kind }
 type Prompt struct {
 	Session         chat.SessionID
 	Text, Directory string
-	Draft           uint64
-	Model           opencode.ModelRef
+	// Agent names the persona a conversation is born under ("plan"
+	// answers read-only). The server folds it in at creation only; it is
+	// dropped by the transport when the chat already stands.
+	Agent string
+	Draft uint64
+	Model opencode.ModelRef
 }
 
 func (Prompt) kind() Kind { return KindPrompt }

@@ -57,6 +57,9 @@ type serverScope struct {
 	moreLoading    bool
 	models         []opencode.Model
 	modelsLoaded   bool
+	// The personas a conversation can run under ("build", "plan"), zero
+	// until a dial reads the list.
+	agents []opencode.Agent
 	// The model the server itself would run, for when the catalog offers
 	// nothing this app knows; zero until a dial reads it.
 	serverDefault opencode.ModelRef
@@ -491,13 +494,61 @@ func (a *app) send() bool {
 	return true
 }
 
+// agentPill names the persona the next conversation is born under and
+// picks among the chat-pickable ones the server offers ("plan" keeps its
+// answers read-only). The panel hides while the server names none.
+func (a *app) agentPill(c *ui.Context, p palette) {
+	agents := a.scope().agents
+	if len(agents) == 0 {
+		return
+	}
+	chosen := a.conversation.agent
+	name := agentTitle(agents, chosen)
+	b := ui.ButtonBase(c).Label("Mode " + name).Height(28).Radius(999).PaddingX(10).
+		Tooltip("How this chat approaches the work").
+		Menu(func(m *ui.Menu) {
+			for _, agent := range agents {
+				title := agent.Name
+				if a.conversation.agent == agent.ID {
+					title = "● " + title
+				}
+				if m.Item(title).Chosen() {
+					a.conversation.agent = agent.ID
+				}
+			}
+		})
+	if b.Hovered() {
+		b.Background(p.hover)
+	}
+	b.Children(func() {
+		ui.Icon(c, icGitBranch).FontSize(14).TextColor(p.muted)
+		ui.Text(c, name).MarginStart(6).FontSize(13).FontWeight(500).SingleLine()
+	})
+}
+
+// agentTitle words the persona a pill shows: the picked persona's name,
+// or the server's opening one when the pick has not happened.
+func agentTitle(agents []opencode.Agent, picked string) string {
+	for _, agent := range agents {
+		if picked != "" && agent.ID == picked {
+			return agent.Name
+		}
+	}
+	for _, agent := range agents {
+		if agent.ID == "build" {
+			return agent.Name
+		}
+	}
+	return agents[0].Name
+}
+
 // agentSend queues one user turn for the runner, addressed to the open
 // conversation or to a fresh one when none is open. The turn carries the
 // app's default model, so a conversation born here starts on what the
 // settings enabled.
 func (a *app) agentSend(text string) bool {
 	def := a.draftModelRef()
-	return a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
+	return a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Agent: a.conversation.agent, Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
 }
 
 // stopTurn asks the runner to interrupt the running conversation.

@@ -45,6 +45,9 @@ type Catalog struct {
 	Models  []opencode.Model
 	Default opencode.ModelRef
 	Err     error
+
+	Agents    []opencode.Agent
+	AgentsErr error
 }
 type Opened struct {
 	Revision uint64
@@ -80,9 +83,10 @@ type Client interface {
 	Events(context.Context, func(opencode.Event)) error
 	ListSessions(context.Context, string, string, string) ([]opencode.Session, string, error)
 	ListModels(context.Context) ([]opencode.Model, error)
+	ListAgents(context.Context) ([]opencode.Agent, error)
 	DefaultModel(context.Context) (opencode.ModelRef, error)
 	ListProjects(context.Context) ([]string, error)
-	CreateSession(context.Context, string) (string, opencode.ModelRef, error)
+	CreateSession(context.Context, string, string) (string, opencode.ModelRef, error)
 	SetModel(context.Context, string, string, string, string) error
 	Prompt(context.Context, string, string) error
 	SessionMessages(context.Context, string) ([]opencode.Message, error)
@@ -340,8 +344,11 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 	})
 	r.spawn(func() {
 		models, err := client.ListModels(ctx)
+		agents, agentsErr := client.ListAgents(ctx)
 		def, defaultErr := client.DefaultModel(ctx)
-		post(func(s Sink) { s.Catalog(Catalog{Models: models, Default: def, Err: err, DefaultErr: defaultErr}) })
+		post(func(s Sink) {
+			s.Catalog(Catalog{Models: models, Agents: agents, Err: err, AgentsErr: agentsErr, Default: def, DefaultErr: defaultErr})
+		})
 	})
 	r.spawn(func() {
 		projects, err := client.ListProjects(ctx)
@@ -426,7 +433,7 @@ func (r *Runner) execute(ctx context.Context, client Client, command Command, se
 		target := string(c.Session)
 		if target == "" {
 			if *session == "" || *draft != c.Draft {
-				id, ref, err := client.CreateSession(ctx, c.Directory)
+				id, ref, err := client.CreateSession(ctx, c.Directory, c.Agent)
 				if err != nil {
 					report("The chat did not open", err)
 					return

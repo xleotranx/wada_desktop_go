@@ -93,7 +93,7 @@ func TestAgentRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sid, _, err := a.CreateSession(ctx, "")
+	sid, _, err := a.CreateSession(ctx, "", "")
 	if err != nil || sid != "ses_t1" {
 		t.Fatalf("createSession %q %v", sid, err)
 	}
@@ -249,7 +249,7 @@ func TestAgentModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, _, err := ag.CreateSession(ctx, ""); err != nil {
+	if _, _, err := ag.CreateSession(ctx, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	useFreeModel(t, ag, ctx, "ses_t1")
@@ -950,9 +950,10 @@ func TestAgentSessionLocation(t *testing.T) {
 			Location struct {
 				Directory string `json:"directory"`
 			} `json:"location"`
+			Agent string `json:"agent"`
 		}
 		json.NewDecoder(r.Body).Decode(&in)
-		global <- in.Location.Directory
+		global <- in.Location.Directory + "|" + in.Agent
 		row := `{"data":{"id":"ses_new"}}`
 		if in.Location.Directory != "" {
 			row = fmt.Sprintf(`{"data":{"id":"ses_new","location":{"directory":%q}}}`,
@@ -971,28 +972,40 @@ func TestAgentSessionLocation(t *testing.T) {
 	defer cancel()
 
 	// An explicitly named folder goes into the create body.
-	if _, _, err := a.CreateSession(ctx, "/home/you/far"); err != nil {
+	if _, _, err := a.CreateSession(ctx, "/home/you/far", ""); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case got := <-global:
-		if got != "/home/you/far" {
+		if got != "/home/you/far|" {
 			t.Fatalf("create location %q", got)
 		}
 	default:
 		t.Fatal("the create body never carried a location")
 	}
 	// No folder keeps the plain body the server's own directory needs.
-	if _, _, err := a.CreateSession(ctx, ""); err != nil {
+	if _, _, err := a.CreateSession(ctx, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case got := <-global:
-		if got != "" {
+		if got != "|" {
 			t.Fatalf("plain create carried %q", got)
 		}
 	default:
 		t.Fatal("the second create never reached the server")
+	}
+	// The persona a chat is born under rides the same create body.
+	if _, _, err := a.CreateSession(ctx, "", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-global:
+		if got != "|plan" {
+			t.Fatalf("the create body lost the persona: %q", got)
+		}
+	default:
+		t.Fatal("the persona never reached the server")
 	}
 
 	rows, next, err := a.ListSessions(ctx, "", "", "")
@@ -1001,6 +1014,32 @@ func TestAgentSessionLocation(t *testing.T) {
 	}
 	if next != "" || rows[0].Directory != "/home/you/far" {
 		t.Fatalf("row folder %q cursor %q", rows[0].Directory, next)
+	}
+}
+
+// TestAgentCatalogKeepsChatPicks reads the persona list the way a picker
+// wants it: only the primary agents a chat may be born under, in the
+// server's own order, with subagents and hidden plumbing left out.
+func TestAgentCatalogKeepsChatPicks(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/agent", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[
+			{"id":"build","name":"Build","description":"does the work","mode":"primary","hidden":false},
+			{"id":"general","name":"General","mode":"subagent","hidden":false},
+			{"id":"compaction","name":"Compaction","mode":"primary","hidden":true},
+			{"id":"plan","name":"Plan","description":"read-only","mode":"primary","hidden":false}
+		]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := &opencode.Client{Base: srv.URL + "/api", Password: "test", HTTP: srv.Client()}
+	agents, err := a.ListAgents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 || agents[0].ID != "build" || agents[1].ID != "plan" ||
+		agents[1].Name != "Plan" || agents[0].Description != "does the work" {
+		t.Fatalf("the persona list kept the wrong picks: %+v", agents)
 	}
 }
 
@@ -2127,7 +2166,7 @@ func TestLiveAgent(t *testing.T) {
 	evs := make(chan opencode.Event, 256)
 	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.CreateSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2220,7 +2259,7 @@ func TestLiveModel(t *testing.T) {
 	evs := make(chan opencode.Event, 256)
 	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.CreateSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2307,7 +2346,7 @@ func TestLivePermission(t *testing.T) {
 	evs := make(chan opencode.Event, 256)
 	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.CreateSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2391,7 +2430,7 @@ func TestLiveLocation(t *testing.T) {
 	evs := make(chan opencode.Event, 256)
 	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
-	sid, _, err := ag.CreateSession(ctx, dir)
+	sid, _, err := ag.CreateSession(ctx, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2465,7 +2504,7 @@ func TestLiveSessionOps(t *testing.T) {
 	go ag.Events(ctx, func(ev opencode.Event) { evs <- ev })
 
 	title := "Wada ops " + time.Now().Format("150405")
-	sid, _, err := ag.CreateSession(ctx, "")
+	sid, _, err := ag.CreateSession(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

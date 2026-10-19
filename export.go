@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"os"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode"

@@ -22,11 +22,12 @@ type fakeClient struct {
 	projects      func() ([]string, error)
 	oneMessage    func(context.Context, string, string) (opencode.Message, error)
 	opened        chan string
+	created       chan [2]string
 	stopped       atomic.Bool
 }
 
 func client(address string) *fakeClient {
-	return &fakeClient{address: address, eventsStarted: make(chan struct{}), opened: make(chan string, 8)}
+	return &fakeClient{address: address, eventsStarted: make(chan struct{}), opened: make(chan string, 8), created: make(chan [2]string, 8)}
 }
 func (c *fakeClient) Stop()                { c.stopped.Store(true) }
 func (c *fakeClient) Info() opencode.Facts { return opencode.Facts{} }
@@ -53,6 +54,14 @@ func (c *fakeClient) ListProjects(context.Context) ([]string, error) {
 	}
 	return []string{c.address}, nil
 }
+func (c *fakeClient) ListAgents(context.Context) ([]opencode.Agent, error) {
+	return []opencode.Agent{{ID: "build", Name: "Build"}}, nil
+}
+func (c *fakeClient) CreateSession(_ context.Context, dir, agent string) (string, opencode.ModelRef, error) {
+	c.created <- [2]string{dir, agent}
+	return "ses_born", opencode.ModelRef{ProviderID: "prov", ID: "free-model"}, nil
+}
+func (c *fakeClient) SetModel(context.Context, string, string, string, string) error { return nil }
 func (c *fakeClient) Prompt(ctx context.Context, session, text string) error {
 	if c.prompt != nil {
 		return c.prompt(ctx, session, text)
@@ -86,7 +95,7 @@ type recordingSink struct {
 func (s *recordingSink) Status(v runner.Status)  { s.statuses = append(s.statuses, v) }
 func (s *recordingSink) Sessions(v runner.Page)  { s.pages = append(s.pages, v) }
 func (*recordingSink) Catalog(runner.Catalog)    {}
-func (s *recordingSink) Projects([]string)         { s.projectLists++ }
+func (s *recordingSink) Projects([]string)       { s.projectLists++ }
 func (*recordingSink) Updates([]opencode.Update) {}
 func (*recordingSink) Opened(runner.Opened)      {}
 func (*recordingSink) Created(runner.Created)    {}
@@ -348,6 +357,23 @@ func TestUncertainPromptOutcomeIsNeverReplayed(t *testing.T) {
 	}
 }
 
+// TestChatBirthCarriesThePersona keeps a persona pick from the composer
+// landing in the create call: a draft's first prompt asks the server for
+// a conversation born under that persona.
+func TestChatBirthCarriesThePersona(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r.Select(1, connection("server"))
+	await(t, c.eventsStarted)
+	if r.Submit(1, runner.Prompt{Session: "", Text: "plan this", Directory: "/srv/app", Agent: "plan"}) != runner.Accepted {
+		t.Fatal("the persona prompt was rejected")
+	}
+	if got := receive(t, c.created); got != [2]string{"/srv/app", "plan"} {
+		t.Fatalf("the persona did not reach the create call: %v", got)
+	}
+}
+
 func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")
@@ -431,13 +457,16 @@ func TestUsageFetchFailureReportsItsLine(t *testing.T) {
 	if r.Submit(1, runner.Usage{Session: "session", Message: "msg_1"}) != runner.Accepted {
 		t.Fatal("usage request rejected")
 	}
-	d.until(t, func() bool { return calls.Load() == 1 })
 	var named bool
-	for _, notice := range sink.notices {
-		if strings.Contains(notice, "What this turn spent did not load") {
-			named = true
+	d.until(t, func() bool {
+		for _, notice := range sink.notices {
+			if strings.Contains(notice, "What this turn spent did not load") {
+				named = true
+				return true
+			}
 		}
-	}
+		return false
+	})
 	if !named {
 		t.Fatalf("the usage failure went unreported: %v", sink.notices)
 	}

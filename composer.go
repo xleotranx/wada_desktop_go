@@ -41,6 +41,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 				attach := a.composeIconButton(c, p, "Attach", icPlus)
 				attach.OnClick(a.openAttachDialog)
 				a.fullAccessButton(c, p)
+				a.agentPill(c, p)
 				ui.Spacer(c)
 				a.modelButton(c, p)
 				a.sendButton(c, p)

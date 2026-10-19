@@ -58,6 +58,10 @@ func (s runnerSink) Catalog(catalog runner.Catalog) {
 	} else {
 		s.a.scope().models = catalog.Models
 	}
+	if catalog.AgentsErr == nil {
+		s.a.scope().agents = catalog.Agents
+		s.a.settleAgents()
+	}
 	if catalog.DefaultErr == nil {
 		s.a.scope().serverDefault = catalog.Default
 	}
@@ -88,6 +92,21 @@ func (s runnerSink) Answered(id string)             { s.a.dropPerm(id) }
 func (s runnerSink) Deleted(id string)              { s.a.dropSession(id) }
 func (s runnerSink) Usage(message opencode.Message) { s.a.acceptUsage(message) }
 func (s runnerSink) Notice(message string)          { s.a.streamLine(message) }
+
+// settleAgents keeps the persona pick real: a chat can only be born with
+// what the server still offers, so a pick that left the catalog stands
+// down to the server's default.
+func (a *app) settleAgents() {
+	if a.conversation.agent == "" {
+		return
+	}
+	for _, agent := range a.scope().agents {
+		if agent.ID == a.conversation.agent {
+			return
+		}
+	}
+	a.conversation.agent = ""
+}
 
 var _ runner.Sink = runnerSink{}
 

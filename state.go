@@ -53,6 +53,10 @@ type conversationState struct {
 	draft        string
 	draftProject string
 	draftModel   opencode.ModelRef
+	// agent names the persona the next conversation is born under ("plan"
+	// answers read-only). The picker holds it; a session's own agent is
+	// the server's word and stays what it was born with.
+	agent string
 
 	target conversationTarget
 }

@@ -43,7 +43,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 				a.fullAccessButton(c, p)
 				ui.Spacer(c)
 				a.modelButton(c, p)
-				a.voiceButton(c, p)
+				a.sendButton(c, p)
 			})
 		})
 	})
@@ -296,24 +296,25 @@ func (a *app) noModelsNote() string {
 	}
 }
 
-// voiceButton stands at the composer's right: the dark voice-session
-// circle while the draft is empty, the blue send button once the user has
-// typed something, and a stop square while the agent's turn runs.
-func (a *app) voiceButton(c *ui.Context, p palette) {
-	bg, icon, label := p.voiceBg, icWaves, "Voice session"
+// sendButton stands at the composer's right: the blue send button while
+// the draft has text, a stop square while the agent's turn runs, and a
+// dimmed send button when there is nothing to send.
+func (a *app) sendButton(c *ui.Context, p palette) {
+	bg, icon, label := p.accent, icSend, "Send message"
+	idle := strings.TrimSpace(a.conversation.draft) == ""
+	busy := a.conversation.transcript.Busy() != ""
 	switch {
-	case a.conversation.transcript.Busy() != "":
+	case busy:
 		bg, icon, label = p.accent, icStop, "Stop the agent"
-	case strings.TrimSpace(a.conversation.draft) != "":
-		bg, icon, label = p.accent, icSend, "Send message"
 	}
 	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(999).Center().Shrink(0).
-		Cursor(ui.CursorPointer).Tooltip(label).Background(bg)
+		Cursor(ui.CursorPointer).Tooltip(label).Background(bg).
+		Disabled(idle && !busy)
 	b.OnClick(func() {
 		switch {
-		case a.conversation.transcript.Busy() != "":
+		case busy:
 			a.stopTurn()
-		case strings.TrimSpace(a.conversation.draft) != "":
+		case !idle:
 			a.send()
 		}
 	})

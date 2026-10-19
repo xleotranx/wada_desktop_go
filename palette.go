@@ -18,7 +18,6 @@ type palette struct {
 	scrim, shadow, cardShadow                        ui.Color
 	link                                             ui.Color
 	thumbLine                                        ui.Color
-	voiceBg                                          ui.Color
 	greenBadge                                       ui.Color
 }
 
@@ -44,7 +43,6 @@ func paletteFor(c *ui.Context) palette {
 			bubble:              ui.Hex("#333333"),
 			detailBg:            ui.Hex("#262626"),
 			thumbLine:           ui.Hex("#d0d0d0"),
-			voiceBg:             ui.Hex("#f2f2f2"),
 			link:                ui.Hex("#5aa2ff"),
 			greenBadge:          ui.Hex("#4ed463"),
 			danger:              ui.Hex("#e0442f"),
@@ -76,7 +74,6 @@ func paletteFor(c *ui.Context) palette {
 		bubble:              ui.Hex("#efefef"),
 		detailBg:            ui.Hex("#fafafa"),
 		thumbLine:           ui.Hex("#3a3a3a"),
-		voiceBg:             ui.Hex("#171717"),
 		link:                ui.Hex("#3b82f6"),
 		greenBadge:          ui.Hex("#0e7a34"),
 		danger:              ui.Hex("#e0442f"),

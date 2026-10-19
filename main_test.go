@@ -31,13 +31,13 @@ func TestView(t *testing.T) {
 	}
 	// The tools and browser pane waits for the rail's tools button: a
 	// fresh window is conversation only, and the button brings it back.
-	if tt.HasText("Suggested") {
+	if tt.HasText("New page") {
 		t.Fatalf("the right pane started open: %v", tt.Texts())
 	}
 	if err := tt.Click("Tools"); err != nil {
 		t.Fatalf("opening the right pane: %v", err)
 	}
-	if !tt.HasText("Suggested") {
+	if !tt.HasText("New page") {
 		t.Fatalf("the right pane did not open: %v", tt.Texts())
 	}
 	for _, gone := range []string{"Homework",
@@ -102,13 +102,13 @@ func TestTopBarChrome(t *testing.T) {
 	if err := tt.Click("Show tools"); err != nil {
 		t.Fatalf("the tools toggle: %v", err)
 	}
-	if a.layout.browserCollapsed || !tt.HasText("Suggested") {
+	if a.layout.browserCollapsed || !tt.HasText("New page") {
 		t.Fatal("the tools toggle did not bring the right pane in")
 	}
 	if err := tt.Click("Hide tools"); err != nil {
 		t.Fatalf("the tools toggle: %v", err)
 	}
-	if !a.layout.browserCollapsed || tt.HasText("Suggested") {
+	if !a.layout.browserCollapsed || tt.HasText("New page") {
 		t.Fatal("the tools toggle did not fold the right pane away")
 	}
 
@@ -569,7 +569,13 @@ func TestComposerSends(t *testing.T) {
 	if n := a.conversation.transcript.Len(); n == 0 || a.conversation.transcript.Row(n-1).Text != "One more" {
 		t.Fatalf("last block %v", a.conversation.transcript.Row(n-1))
 	}
-	if tt.HasText("Send message") {
-		t.Fatal("send button stayed after sending")
+	// After sending, the button is the idle send button again: it keeps
+	// the send label but another click sends nothing.
+	before := len(commandsOf(a))
+	if err := tt.Click("Send message"); err != nil {
+		t.Fatal(err)
+	}
+	if len(commandsOf(a)) != before {
+		t.Fatal("the idle send button submitted a turn")
 	}
 }

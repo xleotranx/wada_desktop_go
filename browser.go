@@ -7,13 +7,6 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-type browserSuggestion struct {
-	title   string
-	address string
-	color   ui.Color
-	icon    *ui.SVG
-}
-
 // browserPane is the native tools and page surface beside the conversation.
 func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).Grow(1.12).FillHeight().Background(p.bg).Children(func() {
@@ -50,7 +43,6 @@ func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
 					})
 			})
 		})
-		a.browserIconButton(c, p, "Side chat", icMessage, func() { a.openTool("Side chat") }, false)
 		more := ui.ButtonBase(c).Label("Browser options").Size(28, 28).Radius(8).Center().
 			Tooltip("Browser options").Menu(func(m *ui.Menu) {
 			if m.Item("New page").Chosen() {
@@ -90,9 +82,7 @@ func (a *app) browserHome(c *ui.Context, p palette) {
 			icon           *ui.SVG
 		}{
 			{"Changes", "⌃⇧G", icGitBranch},
-			{"Terminal", "⌃`", icTerminal},
 			{"Files", "⌘P", icFolder},
-			{"Side chat", "⌥⌘S", icMessage},
 			{"New page", "", icPlus},
 		}
 		for i := 0; i < len(tools); i += 2 {
@@ -106,20 +96,6 @@ func (a *app) browserHome(c *ui.Context, p palette) {
 				}
 			})
 		}
-
-		ui.Text(c, "Suggested").FontSize(13).FontWeight(600).TextColor(p.text).Margin(30, 0, 4, 0)
-		suggestions := []browserSuggestion{
-			{"127.0.0.1", "http://127.0.0.1", p.danger, nil},
-			{"localhost", "http://localhost", p.detailBg, icGlobe},
-			{"Sign in — Tiny App", "http://localhost:3000", p.danger, nil},
-			{"Wada — Private d…", "http://localhost:5173", p.text, icFileDoc},
-		}
-		ui.Row(c).FillWidth().Gap(8).Children(func() {
-			for i, suggestion := range suggestions {
-				i, suggestion := i, suggestion
-				a.suggestionCard(c, p, i, suggestion)
-			}
-		})
 	})
 }
 
@@ -138,38 +114,6 @@ func (a *app) browserToolCard(c *ui.Context, p palette, name, shortcut string, i
 		if shortcut != "" {
 			ui.Text(c, shortcut).FontSize(10).TextColor(p.faint).SingleLine()
 		}
-	})
-}
-
-func (a *app) suggestionCard(c *ui.Context, p palette, index int, suggestion browserSuggestion) {
-	c.Key("suggestion:" + suggestion.address)
-	b := ui.ButtonBase(c).Label("Open "+suggestion.title).Grow(1).Height(88).
-		Radius(10).Padding(5, 2).Cursor(ui.CursorPointer)
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.OnClick(func() { a.navigateToAddress(suggestion.address) })
-	b.Children(func() {
-		ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(7).Children(func() {
-			badge := ui.Box(c).Size(32, 32).Center()
-			if index == 3 {
-				badge.Radius(9)
-			} else {
-				badge.Radius(999)
-			}
-			badge.Background(suggestion.color)
-			badge.Children(func() {
-				if suggestion.icon != nil {
-					color := p.bg
-					if index == 1 {
-						color = p.muted
-					}
-					ui.Icon(c, suggestion.icon).FontSize(17).TextColor(color)
-				}
-			})
-			ui.Text(c, suggestion.title).FontSize(10.5).TextColor(p.text).
-				TextAlign(ui.Center).SingleLine().Ellipsis("…")
-		})
 	})
 }
 
@@ -228,12 +172,8 @@ func (a *app) toolDescription() string {
 	switch a.layout.browserTool {
 	case "Changes":
 		return "Review the files changed in this workspace."
-	case "Terminal":
-		return "Open a terminal alongside your coding session."
 	case "Files":
 		return "Browse the files in the current project."
-	case "Side chat":
-		return "Keep a focused follow-up beside the main conversation."
 	default:
 		return "Start a new page beside your conversation."
 	}

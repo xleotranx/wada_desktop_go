@@ -26,7 +26,6 @@ func (a *app) navRail(c *ui.Context, p palette) {
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
 			a.railButton(c, p, "history", "History", icHistory, a.openChatSearch)
-			a.railButton(c, p, "agents", "Agents", icAgent, func() { a.openTool("Side chat") })
 			c.Key("rail:more")
 			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(10).Center().
 				Cursor(ui.CursorPointer).Tooltip("More navigation")

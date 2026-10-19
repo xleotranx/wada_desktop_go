@@ -428,7 +428,7 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 				ui.Text(c, "Every model is off — the composer's picker is empty. Turn at least one back on.").
 					FontSize(12.5).TextColor(p.orange)
 			}
-			textField(c, &a.layout.modelsQuery, "Search models")
+			textField(c, "Search models", &a.layout.modelsQuery, "Search models")
 			if !a.scope().modelsLoaded {
 				components.Skeleton(c, components.SkeletonOptions{Lines: 5, Label: "Loading the model catalog"})
 				ui.Text(c, a.catalogNote(srv)).FontSize(13).TextColor(p.muted)

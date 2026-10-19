@@ -83,9 +83,9 @@ func dialog(c *ui.Context, p palette, open *bool, width float32, label string, f
 
 // textField is the field the dialogs and the model picker share: Onevra's
 // bordered single-line field, with the theme's focus ring.
-func textField(c *ui.Context, value *string, placeholder string) {
+func textField(c *ui.Context, label string, value *string, placeholder string) {
 	components.TextBox(c, value, components.TextBoxOptions{}).
-		FillWidth().Placeholder(placeholder).FontSize(13)
+		FillWidth().Label(label).Placeholder(placeholder).FontSize(13)
 }
 
 // attachModal quotes a workspace file into the draft, so the agent reads
@@ -98,7 +98,7 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	dialog(c, p, &st.open, 400, "Quote a file", func() {
 		ui.Text(c, "Quote a file").FontSize(15).FontWeight(600)
 		ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
-		textField(c, &st.draft, "src/main.go")
+		textField(c, "File path", &st.draft, "src/main.go")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			if components.Button(c, "Cancel", components.ButtonGhost).Clicked() {
 				a.closeAttach()
@@ -231,7 +231,7 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
 	components.Popover(c, anchor, &a.layout.pickerOpen, func(panel ui.Element) {
 		panel.Width(320).MaxHeight(420).Children(func() {
-			textField(c, &a.layout.modelFilter, "Search models")
+			textField(c, "Search models", &a.layout.modelFilter, "Search models")
 			models := a.filteredModels()
 			ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
 				for _, m := range models {

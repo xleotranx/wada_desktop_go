@@ -27,7 +27,7 @@ func (a *app) projectPicker(c *ui.Context, p palette) {
 	})
 	components.Popover(c, button, &a.layout.projectPickerOpen, func(panel ui.Element) {
 		panel.Width(280).MaxHeight(360).Children(func() {
-			textField(c, &a.layout.projectFilter, "Search projects")
+			textField(c, "Search projects", &a.layout.projectFilter, "Search projects")
 			ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
 				matches := 0
 				for _, dir := range a.projectDirectories() {

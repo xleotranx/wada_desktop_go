@@ -475,7 +475,14 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		label = "Hide chats in " + name
 	}
 	c.Key("project:" + dir)
-	b := a.row(c, p, label, false)
+	active := false
+	for _, s := range chats {
+		if s.ID == string(a.conversation.target.session) {
+			active = true
+			break
+		}
+	}
+	b := a.row(c, p, label, active)
 	b.Height(30).Tooltip(dir)
 	hovered := b.Hovered()
 	b.OnClick(func() { a.toggleProjectOpen(dir) })
@@ -743,7 +750,7 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 	if st := a.layout.rename; st != nil && st.open {
 		dialog(c, p, &st.open, 340, "Rename this chat", func() {
 			ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
-			textField(c, &st.draft, "")
+			textField(c, "New title", &st.draft, "")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
 					a.layout.rename = nil

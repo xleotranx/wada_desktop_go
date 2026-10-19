@@ -24,7 +24,13 @@ func (a *app) openCommandPalette() {
 // commandDialog is the Cmd+K palette: one search over the app's actions,
 // servers, projects and chats.
 func (a *app) commandDialog(c *ui.Context) {
-	command.CommandDialog(c, &a.layout.commandOpen, &a.layout.commands, a.commandItems(), command.Options{
+	// Closed, the dialog draws nothing, and the list is not worth building
+	// over every conversation the server listed.
+	var items []command.Item
+	if a.layout.commandOpen {
+		items = a.commandItems()
+	}
+	command.CommandDialog(c, &a.layout.commandOpen, &a.layout.commands, items, command.Options{
 		SearchLabel:  "Command palette",
 		Placeholder:  "Search commands, chats and projects",
 		ResultsLabel: "Commands",

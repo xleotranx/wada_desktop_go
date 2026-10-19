@@ -19,6 +19,8 @@ type fakeClient struct {
 	eventsEnd     <-chan struct{}
 	prompt        func(context.Context, string, string) error
 	interrupt     func(context.Context, string) error
+	projects      func() ([]string, error)
+	oneMessage    func(context.Context, string, string) (opencode.Message, error)
 	opened        chan string
 	stopped       atomic.Bool
 }
@@ -45,7 +47,12 @@ func (c *fakeClient) ListModels(context.Context) ([]opencode.Model, error) { ret
 func (c *fakeClient) DefaultModel(context.Context) (opencode.ModelRef, error) {
 	return opencode.ModelRef{}, nil
 }
-func (c *fakeClient) ListProjects(context.Context) ([]string, error) { return []string{c.address}, nil }
+func (c *fakeClient) ListProjects(context.Context) ([]string, error) {
+	if c.projects != nil {
+		return c.projects()
+	}
+	return []string{c.address}, nil
+}
 func (c *fakeClient) Prompt(ctx context.Context, session, text string) error {
 	if c.prompt != nil {
 		return c.prompt(ctx, session, text)
@@ -62,17 +69,24 @@ func (c *fakeClient) SessionMessages(_ context.Context, session string) ([]openc
 	c.opened <- session
 	return nil, nil
 }
+func (c *fakeClient) SessionMessage(ctx context.Context, session, message string) (opencode.Message, error) {
+	if c.oneMessage != nil {
+		return c.oneMessage(ctx, session, message)
+	}
+	return opencode.Message{}, errors.New("not captured")
+}
 
 type recordingSink struct {
-	statuses []runner.Status
-	pages    []runner.Page
-	notices  []string
+	statuses     []runner.Status
+	pages        []runner.Page
+	notices      []string
+	projectLists int
 }
 
 func (s *recordingSink) Status(v runner.Status)  { s.statuses = append(s.statuses, v) }
 func (s *recordingSink) Sessions(v runner.Page)  { s.pages = append(s.pages, v) }
 func (*recordingSink) Catalog(runner.Catalog)    {}
-func (*recordingSink) Projects([]string)         {}
+func (s *recordingSink) Projects([]string)         { s.projectLists++ }
 func (*recordingSink) Updates([]opencode.Update) {}
 func (*recordingSink) Opened(runner.Opened)      {}
 func (*recordingSink) Created(runner.Created)    {}
@@ -360,6 +374,72 @@ func TestAdmissionRejectsUnsupportedPointerFormsWithoutPanicking(t *testing.T) {
 		if r.Submit(1, command) != runner.Invalid {
 			t.Fatalf("unsupported command was accepted: %T", command)
 		}
+	}
+}
+
+// TestProjectLoadFailureIsNotSilent keeps the workspace list's failures
+// from reading as an empty server: the folders already known stand, and
+// the load's failure is named.
+func TestProjectLoadFailureIsNotSilent(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	bad, good := client("bad"), client("good")
+	bad.projects = func() ([]string, error) { return nil, errors.New("store unavailable") }
+	good.projects = func() ([]string, error) { return []string{good.address}, nil }
+	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
+		if cfg.URL == "bad" {
+			return bad, nil
+		}
+		return good, nil
+	}})
+	r.Select(1, connection("bad"))
+	await(t, bad.eventsStarted)
+	d.until(t, func() bool { return len(sink.notices) > 0 })
+	var named bool
+	for _, notice := range sink.notices {
+		if strings.Contains(notice, "workspace list did not load") && strings.Contains(notice, "store unavailable") {
+			named = true
+		}
+	}
+	if !named || sink.projectLists != 0 {
+		t.Fatalf("the project failure went unreported or published anyway: notices=%v lists=%d",
+			sink.notices, sink.projectLists)
+	}
+
+	// A good load publishes the list and says nothing.
+	r.Select(2, connection("good"))
+	await(t, good.eventsStarted)
+	d.until(t, func() bool { return sink.projectLists > 0 })
+}
+
+// TestUsageFetchFailureReportsItsLine keeps a turn's costing fetch from
+// failing quietly: the failure names what did not load, and a good fetch
+// publishes the stored message.
+func TestUsageFetchFailureReportsItsLine(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	var calls atomic.Int32
+	c.oneMessage = func(_ context.Context, session, message string) (opencode.Message, error) {
+		calls.Add(1)
+		if session == "session" && message == "msg_1" {
+			return opencode.Message{}, errors.New("the store blinked")
+		}
+		return opencode.Message{}, errors.New("unexpected ask")
+	}
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r.Select(1, connection("server"))
+	await(t, c.eventsStarted)
+	if r.Submit(1, runner.Usage{Session: "session", Message: "msg_1"}) != runner.Accepted {
+		t.Fatal("usage request rejected")
+	}
+	d.until(t, func() bool { return calls.Load() == 1 })
+	var named bool
+	for _, notice := range sink.notices {
+		if strings.Contains(notice, "What this turn spent did not load") {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("the usage failure went unreported: %v", sink.notices)
 	}
 }
 

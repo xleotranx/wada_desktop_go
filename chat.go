@@ -146,9 +146,9 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 				ui.Text(c, b.Text).FontSize(13).TextColor(p.muted)
 			})
 		case chat.KindNote:
-			// Engine trouble stays a faint line under the answers.
-			ui.Text(c, b.Text).FontSize(14).LineHeight(1.45).TextColor(p.faint).
-				SingleLine().Ellipsis("…")
+			// Engine trouble stays a faint note under the answers; it
+			// wraps, so an error's "at" lines stay readable.
+			ui.Text(c, b.Text).FontSize(14).LineHeight(1.45).TextColor(p.faint)
 		case chat.KindStream:
 			// Markdown still being written: the package parses the new
 			// words alone, shows half-written syntax as what it will

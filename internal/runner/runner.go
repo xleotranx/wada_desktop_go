@@ -347,7 +347,10 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 		projects, err := client.ListProjects(ctx)
 		if err == nil {
 			post(func(s Sink) { s.Projects(projects) })
+			return
 		}
+		// The failure keeps the folders already known, and names why.
+		post(func(s Sink) { s.Notice("The workspace list did not load: " + err.Error()) })
 	})
 }
 
@@ -489,6 +492,10 @@ func (r *Runner) execute(ctx context.Context, client Client, command Command, se
 		message, err := client.SessionMessage(ctx, string(c.Session), string(c.Message))
 		if err == nil {
 			post(func(s Sink) { s.Usage(message) })
+			return
 		}
+		// The line under the answer stays without its costing, and the
+		// note says why.
+		report("What this turn spent did not load", err)
 	}
 }

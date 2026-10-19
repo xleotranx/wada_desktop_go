@@ -88,7 +88,7 @@ func (a *app) commandItems() []command.Item {
 			title = "New chat"
 		}
 		items = append(items, command.Item{ID: "chat:" + s.ID, Title: title,
-			Group: "Chats", Description: s.Directory, Icon: icHistory,
+			Group: "Chats", Description: s.Directory, Icon: icChat,
 			Keywords: []string{"conversation", "session", "open"}})
 	}
 	return items

@@ -9,6 +9,7 @@ import (
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // browseState is the server-folder dialog: the folder its listing hangs
@@ -250,10 +251,10 @@ func (a *app) browseModal(c *ui.Context, p palette) {
 		}
 		ui.Text(c, st.dir()).FontSize(11.5).TextColor(p.muted).SingleLine().Ellipsis("…")
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-			cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-			cancel.OnClick(func() { a.closeBrowse() })
-			cancel.Children(func() { ui.Text(c, "Cancel").FontSize(13).TextColor(p.text) })
-			choose := ui.PrimaryButton(c, pick)
+			if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+				a.closeBrowse()
+			}
+			choose := components.Button(c, pick, components.ButtonPrimary)
 			choose.OnClick(a.browsePick)
 			choose.Disabled(st.loading || st.note != "")
 		})

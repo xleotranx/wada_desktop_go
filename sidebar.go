@@ -136,7 +136,9 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 			if a.preferences.metadataError != "" {
 				ui.Text(c, a.preferences.metadataError).FontSize(12).TextColor(p.orange)
 				if a.preferences.metadata != nil {
-					ui.Button(c, "Retry saving").OnClick(a.saveState)
+					if components.Button(c, "Retry saving", components.ButtonSecondary).Clicked() {
+						a.saveState()
+					}
 				}
 			} else if a.preferences.metadataSaving {
 				ui.Text(c, "Saving…").FontSize(12).TextColor(p.muted)
@@ -219,7 +221,11 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 			title.Background(p.hover)
 		}
 		title.Children(func() {
-			ui.Text(c, "Codex").FontSize(15.5).FontWeight(600).SingleLine()
+			ui.Box(c).Size(22, 22).Radius(7).Center().Shrink(0).
+				Background(c.Theme().Selection.Alpha(.7)).Children(func() {
+				ui.Icon(c, icSparkle).FontSize(12).TextColor(p.orange)
+			})
+			ui.Text(c, "Codex").MarginStart(7).FontSize(15.5).FontWeight(600).SingleLine()
 			ui.Icon(c, icChevDown).FontSize(11).MarginStart(5).TextColor(p.muted)
 		})
 		a.serverPill(c, p)

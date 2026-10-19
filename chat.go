@@ -134,11 +134,10 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 		case chat.KindPermission:
 			a.permissionRow(c, p, b)
 		case chat.KindWorking:
-			// The loader at the turn in flight, until words land.
+			// The turn in flight, until words land: Onevra's shimmer gives
+			// the row the motion of a thought being written.
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-				components.Spinner(c, components.SpinnerSpokes).Size(14, 14).
-					Label("The agent is working")
-				ui.Text(c, b.Text).FontSize(13).TextColor(p.muted)
+				onechat.Shimmer(c, b.Text, 13, p.muted, p.text)
 			})
 		case chat.KindNote:
 			// Engine trouble stays a faint note under the answers; it

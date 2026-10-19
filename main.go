@@ -231,6 +231,7 @@ const (
 // is painted.
 func (a *app) view(c *ui.Context) {
 	a.releaseClosedDialogs()
+	a.appShortcuts(c)
 	p := paletteFor(c)
 	bar := c.TitleBar()
 	// The controls center on the header strip, so the top bar and tools

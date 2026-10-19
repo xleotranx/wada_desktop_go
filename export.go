@@ -11,6 +11,8 @@ import (
 	"wada-desktop-go/internal/chat"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // transcriptMarkdown turns the conversation as it stands into markdown:
@@ -62,10 +64,12 @@ func (a *app) exportTranscript() {
 			path += ".md"
 		}
 		if werr := os.WriteFile(path, []byte(transcriptMarkdown(title, blocks, time.Now())), 0o644); werr != nil {
-			a.streamLine("The transcript did not export: " + werr.Error())
+			a.notify(ui.Toast{Title: "The transcript did not export", Description: werr.Error(),
+				Type: components.ToastError})
 			return
 		}
-		a.streamLine("The transcript exported to " + path + ".")
+		a.notify(ui.Toast{Title: "Transcript exported", Description: path,
+			Type: components.ToastSuccess})
 	})
 }
 

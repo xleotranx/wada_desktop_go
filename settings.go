@@ -8,6 +8,7 @@ import (
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // The settings tabs.
@@ -162,9 +163,9 @@ func (a *app) serverCard(c *ui.Context, p palette, s serverConn) {
 				ui.Text(c, s.name).FontSize(14).FontWeight(600).TextColor(p.text).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				if active {
-					a.badge(c, p, "Active", p.accent, p.accentText)
+					a.badge(c, "Active", components.BadgeAccent)
 				} else if s.local {
-					a.badge(c, p, "Local", p.selected, p.text)
+					a.badge(c, "Local", components.BadgeNeutral)
 				}
 				ui.Spacer(c)
 				if !active {
@@ -529,7 +530,7 @@ func (a *app) modelRow(c *ui.Context, p palette, m opencode.Model) {
 				ui.Text(c, m.Name).FontSize(13.5).TextColor(p.text).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				if m.Free {
-					a.badge(c, p, "Free", p.bg, p.greenBadge).Border(1, p.hairline)
+					a.badge(c, "Free", components.BadgeSuccess)
 				}
 			})
 			ui.Text(c, m.ProviderID+"/"+m.ID).FontSize(11.5).TextColor(p.faint).
@@ -632,13 +633,12 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 				ui.Text(c, st.note).FontSize(12).TextColor(p.danger).SingleLine()
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.closeServerEditor() })
-				cancel.Children(func() {
-					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-				})
-				save := ui.PrimaryButton(c, "Save")
-				save.OnClick(a.saveServerEditor)
+				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+					a.closeServerEditor()
+				}
+				if components.Button(c, "Save", components.ButtonPrimary).Clicked() {
+					a.saveServerEditor()
+				}
 			})
 		})
 	}
@@ -656,17 +656,12 @@ func (a *app) settingsDialogs(c *ui.Context, p palette) {
 			ui.Text(c, "Its password and model choices go with it. The chats stay on the server.").
 				FontSize(12.5).TextColor(p.muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.layout.serverConfirm = nil })
-				cancel.Children(func() {
-					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-				})
-				del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
-					Background(p.orange)
-				del.OnClick(a.deleteServerConfirmed)
-				del.Children(func() {
-					ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(p.dangerText)
-				})
+				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+					a.layout.serverConfirm = nil
+				}
+				if components.Button(c, "Delete", components.ButtonPrimary).Clicked() {
+					a.deleteServerConfirmed()
+				}
 			})
 		})
 	}
@@ -704,17 +699,11 @@ func settingsField(c *ui.Context, p palette, label, hint string, value *string, 
 				beside()
 			}
 		})
-		box := ui.Box(c).Shrink(0).FillWidth().Radius(8).Padding(8, 10).
-			Background(p.composerBg).Border(1, p.composerBorder)
-		if box.FocusWithin() {
-			box.Border(1, p.composerBorderFocus)
+		in := components.TextBox(c, value, components.TextBoxOptions{}).
+			FillWidth().FontSize(13).Placeholder(placeholder).Label(label)
+		if secret {
+			in.Password()
 		}
-		box.Children(func() {
-			in := ui.TextInputBase(c, value).FontSize(13).Placeholder(placeholder).Label(label)
-			if secret {
-				in.Password()
-			}
-		})
 		if hint != "" {
 			ui.Text(c, hint).FontSize(11.5).LineHeight(1.4).TextColor(p.muted)
 		}
@@ -736,44 +725,38 @@ func healthTint(p palette, status string) ui.Color {
 	}
 }
 
-// badge is a small rounded tag beside a name.
-func (a *app) badge(c *ui.Context, p palette, label string, bg, fg ui.Color) ui.Element {
-	b := ui.Box(c).Height(19).Radius(999).Padding(0, 8).Center().Shrink(0).Background(bg)
-	b.Children(func() {
-		ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(fg).SingleLine()
-	})
-	return b
+// badge is a small rounded tag beside a name, in Onevra's status tones.
+func (a *app) badge(c *ui.Context, label string, tone components.BadgeTone) ui.Element {
+	return components.Badge(c, label, components.BadgeOptions{Tone: tone})
 }
 
 // linkButton is the plain-text action of a settings row: label names it
 // for assistive technology and the tooltip, text is what the row shows.
+// It takes Onevra's quiet ghost face and accent text.
 func (a *app) linkButton(c *ui.Context, p palette, label, text string, on func()) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Height(26).Radius(8).PaddingX(9).Center().
+	b := ui.ButtonBase(c).Label(label).Height(28).Radius(8).PaddingX(9).Center().
 		Cursor(ui.CursorPointer).Shrink(0).Tooltip(label)
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
 	b.OnClick(on)
 	b.Children(func() {
-		ui.Text(c, text).FontSize(12.5).TextColor(p.text).SingleLine()
+		ui.Text(c, text).FontSize(13).FontWeight(500).TextColor(p.orange).SingleLine()
 	})
 	return b
 }
 
-// pillButton is a bordered action of the settings headers.
+// pillButton is a bordered action of the settings headers, in Onevra's
+// secondary weight so it sits beside a title without shouting.
 func (a *app) pillButton(c *ui.Context, p palette, label string, icon *ui.SVG, on func()) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Height(30).Radius(999).PaddingX(11).Gap(6).
-		Center().Cursor(ui.CursorPointer).Shrink(0).
-		Background(p.bg).Border(1, p.hairline)
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
+	b := components.Button(c, "", components.ButtonSecondary).Label(label).
+		Shrink(0).Cursor(ui.CursorPointer)
 	b.OnClick(on)
 	b.Children(func() {
 		if icon != nil {
-			ui.Icon(c, icon).FontSize(13).TextColor(p.text)
+			ui.Icon(c, icon).FontSize(14).TextColor(p.text)
 		}
-		ui.Text(c, label).FontSize(13).TextColor(p.text).SingleLine()
+		components.Text(c, label).FontSize(13).TextColor(p.text).SingleLine()
 	})
 	return b
 }

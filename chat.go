@@ -6,6 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/oneo-me/onevra/source/components"
+	onechat "github.com/oneo-me/onevra/source/components/chat"
 )
 
 // prepareMarkdown tunes the transcript's shared markdown options to this
@@ -46,14 +48,7 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 		area := ui.Box(c).Grow(1)
 		area.Children(func() {
 			if a.conversation.target.isDraft() {
-				ui.Column(c).Fill().Center().Gap(8).Children(func() {
-					title := "What should we work on?"
-					if a.conversation.draftProject != "" {
-						title = "What should we build in " + dirBase(a.conversation.draftProject) + "?"
-					}
-					ui.Text(c, title).FontSize(26).FontWeight(600).TextColor(p.text)
-					ui.Text(c, "Work with your coding agent").FontSize(14).TextColor(p.muted)
-				})
+				a.draftPanels(c, p)
 			} else {
 				count := a.conversation.transcript.Len()
 				if a.turnWorking() {
@@ -129,9 +124,8 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 	ui.Column(c).FillWidth().MaxWidth(760).Margin(0, ui.Auto).Gap(10).Children(func() {
 		switch b.Kind {
 		case chat.KindUser:
-			ui.Row(c).FillWidth().Justify(ui.End).Children(func() {
-				ui.Box(c).MaxWidthPercent(76).Radius(18).Padding(9, 14).
-					Background(p.bubble).Children(func() {
+			onechat.Message(c, true, func(c *ui.Context) {
+				onechat.Bubble(c, func(c *ui.Context) {
 					ui.Text(c, b.Text).FontSize(14).LineHeight(1.45)
 				})
 			})
@@ -142,7 +136,8 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 		case chat.KindWorking:
 			// The loader at the turn in flight, until words land.
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Spinner(c).Size(13, 13).Label("The agent is working")
+				components.Spinner(c, components.SpinnerSpokes).Size(14, 14).
+					Label("The agent is working")
 				ui.Text(c, b.Text).FontSize(13).TextColor(p.muted)
 			})
 		case chat.KindNote:
@@ -164,26 +159,38 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 }
 
 // activityRow is one line the agent ran, opening its detail below it.
+// It wears Onevra's activity surface: a bordered card whose header states
+// the action and whose detail unfolds inside the same outline.
 func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
 	open := a.layout.expanded[b.Key]
-	chev := icChevRight
+	c.Key("activity:" + b.Key)
+	card := ui.Column(c).FillWidth().Radius(9).Clip()
 	if open {
-		chev = icChevDown
+		card.Border(1, p.hairline).Background(c.Theme().Background.Mix(c.Theme().Text, .025))
 	}
-	row := ui.ButtonBase(c).Label(b.Text).Height(28).Radius(8).Padding(0, 6).
-		FillWidth().Justify(ui.Start).Cursor(ui.CursorPointer).Tooltip(b.Text)
-	if row.Hovered() {
-		row.Background(p.hover)
-	}
-	row.OnClick(func() { a.layout.expanded[b.Key] = !a.layout.expanded[b.Key] })
-	row.Children(func() {
-		ui.Icon(c, toolIcon(b.Icon)).FontSize(15).TextColor(p.muted)
-		ui.Text(c, b.Text).MarginStart(9).FontSize(13).TextColor(p.muted).SingleLine()
-		ui.Icon(c, chev).FontSize(12).MarginStart(6).TextColor(p.muted)
+	card.Children(func() {
+		row := ui.ButtonBase(c).Label(b.Text).Height(30).Radius(0).Padding(0, 9).
+			FillWidth().Justify(ui.Start).AlignItems(ui.Center).Gap(8).
+			Cursor(ui.CursorPointer).Tooltip(b.Text)
+		if row.Hovered() {
+			row.Background(p.hover)
+		}
+		row.OnClick(func() { a.layout.expanded[b.Key] = !a.layout.expanded[b.Key] })
+		row.Children(func() {
+			ui.Icon(c, toolIcon(b.Icon)).FontSize(12).TextColor(p.muted).Shrink(0)
+			ui.Text(c, b.Text).FontSize(12.5).FontWeight(500).TextColor(p.muted).
+				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+			chev := icChevRight
+			if open {
+				chev = icChevDown
+			}
+			ui.Icon(c, chev).FontSize(10).TextColor(p.faint).Shrink(0)
+		})
+		if open && b.Detail != nil {
+			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+			drawCommandDetail(c, p, b.Detail)
+		}
 	})
-	if open && b.Detail != nil {
-		ui.Row(c).FillWidth().Children(func() { drawCommandDetail(c, p, b.Detail) })
-	}
 }
 
 // permissionRow is one approval the agent raised mid-turn: what it wants
@@ -194,28 +201,37 @@ func (a *app) permissionRow(c *ui.Context, p palette, b chat.Block) {
 	if r == nil {
 		return
 	}
-	ui.Box(c).FillWidth().Radius(10).Padding(10, 12).Margin(4, 0, 0, 0).
+	ui.Box(c).FillWidth().Radius(12).Padding(12, 14).Margin(4, 0, 0, 0).
 		Background(p.detailBg).Border(1, p.hairline).Children(func() {
-		ui.Column(c).Gap(8).Children(func() {
+		ui.Column(c).Gap(10).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icShield).FontSize(15).TextColor(p.orange)
 				ui.Text(c, "Approval needed — "+permAsk(r.Action)).
-					FontSize(13).FontWeight(500).SingleLine()
+					FontSize(13).FontWeight(600).SingleLine()
 			})
 			for _, res := range r.Resources {
-				ui.Box(c).FillWidth().Radius(8).Padding(5, 10).
+				ui.Box(c).FillWidth().Radius(7).Padding(6, 10).
 					Background(p.bg).Border(1, p.hairline).Children(func() {
 					ui.Text(c, "$ "+res).Font("monospace").FontSize(12).LineHeight(1.5).
 						TextColor(p.text).SingleLine()
 				})
 			}
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				a.permButton(c, p, true, p.accent, p.accentText,
-					"Allow once", "Let it happen this turn.", func() { a.answerPerm(r, "once") })
-				a.permButton(c, p, false, p.hover, p.text,
-					"Always", "Keep allowing this pattern.", func() { a.answerPerm(r, "always") })
-				a.permButton(c, p, false, p.hover, p.text,
-					"Deny", "Refuse and let the agent carry on.", func() { a.answerPerm(r, "reject") })
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
+				allow := components.Button(c, "Allow once", components.ButtonPrimary)
+				allow.Tooltip("Let it happen this turn.")
+				if allow.Clicked() {
+					a.answerPerm(r, "once")
+				}
+				always := components.Button(c, "Always", components.ButtonSecondary)
+				always.Tooltip("Keep allowing this pattern.")
+				if always.Clicked() {
+					a.answerPerm(r, "always")
+				}
+				deny := components.Button(c, "Deny", components.ButtonGhost)
+				deny.Tooltip("Refuse and let the agent carry on.")
+				if deny.Clicked() {
+					a.answerPerm(r, "reject")
+				}
 			})
 			if len(r.Save) > 0 {
 				ui.Text(c, "Always would remember "+strings.Join(r.Save, ", ")+".").
@@ -223,22 +239,6 @@ func (a *app) permissionRow(c *ui.Context, p palette, b chat.Block) {
 			}
 		})
 	})
-}
-
-// permButton is one small pill of the approval card's decision row; a
-// solid button keeps its tint, the rest pick it up while hovered.
-func (a *app) permButton(c *ui.Context, p palette, solid bool, bg, tint ui.Color, label, tip string, on func()) {
-	b := ui.ButtonBase(c).Label(label).Height(26).Radius(999).PaddingX(12).
-		Cursor(ui.CursorPointer).Tooltip(tip)
-	if solid {
-		b.Background(bg)
-	} else if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.Children(func() {
-		ui.Text(c, label).FontSize(12.5).FontWeight(500).TextColor(tint).SingleLine()
-	})
-	b.OnClick(on)
 }
 
 // permAsk words what a permission action would do, as the card's header.
@@ -255,10 +255,9 @@ func permAsk(action string) string {
 }
 
 // drawCommandDetail is the expanded detail of an activity: what ran, written
-// as a terminal keeps it.
+// as a terminal keeps it, inside the activity card's outline.
 func drawCommandDetail(c *ui.Context, p palette, lines []string) {
-	ui.Box(c).FillWidth().Radius(10).Padding(10, 12).Margin(4, 0, 0, 0).
-		Background(p.detailBg).Border(1, p.hairline).Children(func() {
+	ui.Box(c).FillWidth().Padding(9, 12).Children(func() {
 		ui.Column(c).Gap(3).Children(func() {
 			for _, l := range lines {
 				ui.Text(c, l).Font("monospace").FontSize(12).LineHeight(1.55).
@@ -277,4 +276,59 @@ func toolIcon(kind string) *ui.SVG {
 	default:
 		return icPlug
 	}
+}
+
+// draftPanels is the first screen of a new conversation: a mark, the
+// question the chat starts from, three starts that fill the composer, and
+// the two keys that send or break the line.
+func (a *app) draftPanels(c *ui.Context, p palette) {
+	title := "What should we work on?"
+	if a.conversation.draftProject != "" {
+		title = "What should we build in " + dirBase(a.conversation.draftProject) + "?"
+	}
+	ui.Column(c).Fill().Center().Gap(22).Padding(28, 24, 40, 24).Children(func() {
+		ui.Box(c).Size(58, 58).Radius(17).Center().
+			Background(c.Theme().Selection.Alpha(.55)).Border(1, p.hairline).Children(func() {
+			ui.Icon(c, icSparkle).FontSize(26).TextColor(p.orange)
+		})
+		ui.Column(c).AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, title).FontSize(30).FontWeight(600).TextColor(p.text).SingleLine().Ellipsis("…")
+			ui.Text(c, "Describe the change you want. The agent reads the workspace, plans, and edits.").
+				FontSize(14).TextColor(p.muted)
+		})
+		ui.Row(c).Wrap().Justify(ui.Center).Gap(10).MaxWidth(720).Children(func() {
+			a.suggestion(c, p, "Explain this codebase", "A guided tour of the app's pieces",
+				"Explain this codebase", icBook)
+			a.suggestion(c, p, "Fix a failing test", "Run the tests, find the break, patch it",
+				"Find the failing tests and fix them", icTerminal)
+			a.suggestion(c, p, "Review my changes", "Read the diff and flag the risks",
+				"Review my uncommitted changes", icGitBranch)
+		})
+		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(11.5).TextColor(p.faint)
+	})
+}
+
+// suggestion is one of the draft screen's starts: a card with an icon, a
+// title and a line of what it asks for. Choosing it writes the prompt into
+// the composer and puts the keyboard there.
+func (a *app) suggestion(c *ui.Context, p palette, title, blurb, prompt string, icon *ui.SVG) {
+	b := ui.ButtonBase(c).Label(title+". "+blurb).Width(224).Height(80).Radius(12).
+		Padding(12, 14).Justify(ui.Start).AlignItems(ui.Center).Gap(10).
+		Background(c.Theme().Surface).Border(1, p.hairline).Cursor(ui.CursorPointer)
+	if b.Hovered() {
+		b.BorderColor(p.orange.Alpha(.55)).Background(p.hover)
+	}
+	b.OnClick(func() {
+		a.conversation.draft = prompt
+		a.layout.composerFocus = true
+	})
+	b.Children(func() {
+		ui.Box(c).Size(30, 30).Radius(9).Center().Background(p.selected).Children(func() {
+			ui.Icon(c, icon).FontSize(15).TextColor(p.orange)
+		})
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.text).SingleLine()
+			ui.Text(c, blurb).FontSize(11.5).TextColor(p.muted).LineHeight(1.3)
+		})
+	})
 }

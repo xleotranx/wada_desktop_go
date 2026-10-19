@@ -135,4 +135,6 @@ type viewState struct {
 	serverConfirm      *confirmState
 	modelsQuery        string
 	modelsList         ui.ListState
+	composerFocus      bool
+	toasts             []ui.Toast
 }

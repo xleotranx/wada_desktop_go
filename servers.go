@@ -18,6 +18,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
+	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // localServerID is the built-in server's identity: the row the app always
@@ -302,6 +304,10 @@ func (a *app) copyPairLink(s serverConn) {
 		}
 		if cerr := a.runtime.copy(link); cerr != nil {
 			a.streamLine("The pairing link could not reach the clipboard: " + cerr.Error())
+		} else {
+			// The row already shows the link; the toast only confirms the
+			// copy, so it names no "Pairing link" the settings then own.
+			a.notify(ui.Toast{Title: "Copied to the clipboard", Type: components.ToastSuccess})
 		}
 		if a.connections.pairLinks == nil {
 			a.connections.pairLinks = map[string]mintedLink{}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/theme"
 )
 
@@ -240,6 +241,10 @@ func (a *app) view(c *ui.Context) {
 	// Onevra widget the same warm surfaces, terracotta accent and type scale
 	// the hand-painted panes take from paletteFor.
 	theme.Apply(c)
+	for _, t := range a.layout.toasts {
+		c.AddToast(t)
+	}
+	a.layout.toasts = nil
 	a.releaseClosedDialogs()
 	a.appShortcuts(c)
 	p := paletteFor(c)
@@ -283,6 +288,12 @@ func (a *app) view(c *ui.Context) {
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)
+	// Onevra's toast look, below the title strip that carries the window
+	// controls.
+	components.Toasts(c, components.ToastOptions{
+		Placement: components.ToastTopEnd,
+		Inset:     headerH,
+	})
 }
 
 // cardRadius rounds the card's top corners, a little tighter than the
@@ -480,6 +491,16 @@ func main() {
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// notify queues one Onevra toast for the next frame. Callbacks from
+// background work land here; MyGo's queue, timing and announcements own
+// the rest, and a window that closed before the frame drops it.
+func (a *app) notify(t ui.Toast) {
+	a.layout.toasts = append(a.layout.toasts, t)
+	if a.runtime.win != nil {
+		a.runtime.win.Invalidate()
 	}
 }
 

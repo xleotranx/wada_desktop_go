@@ -10,6 +10,7 @@ import (
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 const navRailWidth float32 = 52
@@ -22,12 +23,12 @@ func (a *app) navRail(c *ui.Context, p palette) {
 		rail.Background(p.railBg)
 	}
 	rail.Children(func() {
-		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(5).Padding(10, 7).Children(func() {
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(4).Padding(10, 7).Children(func() {
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
 			a.railButton(c, p, "history", "History", icHistory, a.openChatSearch)
 			c.Key("rail:more")
-			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(10).Center().
+			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(9).Center().
 				Cursor(ui.CursorPointer).Tooltip("More navigation")
 			if more.Hovered() {
 				more.Background(p.hover)
@@ -56,7 +57,7 @@ func (a *app) navRail(c *ui.Context, p palette) {
 			})
 			more.Children(func() { ui.Icon(c, icEllipsis).FontSize(18).TextColor(p.muted) })
 			ui.Spacer(c)
-			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+			ui.Box(c).FillWidth().Height(1).Background(p.hairline).Margin(0, 6)
 			a.railButton(c, p, "changes", "Changes", icGitBranch, func() { a.openTool("Changes") })
 			a.railButton(c, p, "tools", "Tools", icGrid, func() { a.openTool("") })
 			a.settingsButton(c, p)
@@ -69,11 +70,12 @@ func (a *app) navRail(c *ui.Context, p palette) {
 
 func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.SVG, on func()) {
 	c.Key("rail:" + key)
-	b := ui.ButtonBase(c).Label(label).Size(36, 36).Radius(10).Center().
+	chosen := a.layout.selectedRail == key
+	b := ui.ButtonBase(c).Label(label).Size(36, 36).Radius(9).Center().
 		Cursor(ui.CursorPointer).Tooltip(label)
 	if b.Hovered() {
 		b.Background(p.hover)
-	} else if a.layout.selectedRail == key {
+	} else if chosen {
 		b.Background(p.selected)
 	}
 	b.OnClick(func() {
@@ -83,9 +85,11 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 		on()
 	})
 	b.Children(func() {
+		// Onevra tints navigation icons with the accent; the chosen one
+		// keeps it while the rest sit back in the muted text color.
 		tint := p.muted
-		if a.layout.selectedRail == key {
-			tint = p.text
+		if chosen {
+			tint = p.orange
 		}
 		ui.Icon(c, icon).FontSize(18).TextColor(tint)
 	})
@@ -95,7 +99,7 @@ func (a *app) railButton(c *ui.Context, p palette, key, label string, icon *ui.S
 // rail's places, so opening it keeps the selection the user lands back on.
 func (a *app) settingsButton(c *ui.Context, p palette) {
 	c.Key("rail:settings")
-	b := ui.ButtonBase(c).Label("Settings").Size(36, 36).Radius(10).Center().
+	b := ui.ButtonBase(c).Label("Settings").Size(36, 36).Radius(9).Center().
 		Cursor(ui.CursorPointer).Tooltip("Settings")
 	if b.Hovered() {
 		b.Background(p.hover)
@@ -106,7 +110,7 @@ func (a *app) settingsButton(c *ui.Context, p palette) {
 	b.Children(func() {
 		tint := p.muted
 		if a.layout.settingsOpen {
-			tint = p.text
+			tint = p.orange
 		}
 		ui.Icon(c, icGear).FontSize(18).TextColor(tint)
 	})
@@ -136,7 +140,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 			}
 			a.newChatRow(c, p)
 			if a.search.searchOpen {
-				a.searchField(c, p)
+				a.searchField(c)
 			}
 
 			if a.search.searchText == "" {
@@ -306,45 +310,33 @@ func (a *app) openAnAsk() {
 // newChatRow starts a fresh chat.
 func (a *app) newChatRow(c *ui.Context, p palette) {
 	b := a.row(c, p, "New chat", false)
-	b.Height(34)
+	b.Height(36)
 	b.OnClick(a.startNewChat)
 	b.Children(func() {
-		ui.Icon(c, icPen).FontSize(16).TextColor(p.text)
-		ui.Text(c, "New chat").MarginStart(10).FontSize(14).FontWeight(500).SingleLine()
+		ui.Icon(c, icPen).FontSize(15).TextColor(p.orange)
+		ui.Text(c, "New chat").MarginStart(10).FontSize(13.5).FontWeight(500).SingleLine()
 	})
 }
 
 // searchField is the filter over the store's conversations: its results
-// take the list over while a query stands.
-func (a *app) searchField(c *ui.Context, p palette) {
-	box := ui.Box(c).FillWidth().Height(30).Radius(9).
-		Background(p.composerBg).Border(1, p.composerBorder).Padding(0, 8).
-		Justify(ui.Center)
-	if box.FocusWithin() {
-		box.Border(1, p.composerBorderFocus)
-	}
-	box.Children(func() {
-		ui.Row(c).Gap(5).AlignItems(ui.Center).FillWidth().Children(func() {
-			ui.Icon(c, icSearch).FontSize(13).TextColor(p.muted)
-			in := ui.TextInputBase(c, &a.search.searchText).FontSize(13).
-				Placeholder("Search chats").FillWidth().Label("Search chats")
-			if in.Changed() {
-				a.reviseSearch()
-			}
-			if a.search.focusSearch {
-				in.Focus()
-				a.search.focusSearch = false
-			}
-			close := ui.ButtonBase(c).Label("Close search").Size(22, 22).Radius(6).Center().
-				Tooltip("Close search")
-			if close.Hovered() {
-				close.Background(p.hover)
-			}
-			close.OnClick(a.closeChatSearch)
-			close.Children(func() {
-				ui.Icon(c, icClose).FontSize(12).TextColor(p.muted)
-			})
-		})
+// take the list over while a query stands. Onevra's text box carries the
+// magnifier, the theme's focus ring and the compact clear control.
+func (a *app) searchField(c *ui.Context) {
+	ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
+		c.Key("chat-search")
+		in := components.TextBox(c, &a.search.searchText,
+			components.TextBoxOptions{LeadingIcon: icSearch}).
+			FillWidth().Label("Search chats").Placeholder("Search chats").FontSize(13)
+		if in.Changed() {
+			a.reviseSearch()
+		}
+		if a.search.focusSearch {
+			in.Focus()
+			a.search.focusSearch = false
+		}
+		if components.IconButton(c, icClose, "Close search", components.IconButtonCompact).Clicked() {
+			a.closeChatSearch()
+		}
 	})
 }
 
@@ -358,8 +350,8 @@ func (a *app) closeChatSearch() {
 }
 
 func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func()) {
-	ui.Row(c).FillWidth().Height(28).Margin(5, 0, 1, 0).Padding(0, 8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, title).FontSize(12).FontWeight(500).TextColor(p.muted).SingleLine()
+	ui.Row(c).FillWidth().Height(28).Margin(6, 0, 1, 0).Padding(0, 8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.muted).SingleLine()
 		ui.Spacer(c)
 		if add != nil {
 			b := ui.ButtonBase(c).Label("Add "+title).Size(22, 22).Radius(6).Center().
@@ -723,17 +715,12 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 			ui.Text(c, "The conversation and what it did are gone for good.").
 				FontSize(12.5).TextColor(p.muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.layout.confirm = nil })
-				cancel.Children(func() {
-					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-				})
-				del := ui.ButtonBase(c).Label("Delete").Height(28).Radius(999).PaddingX(12).
-					Background(p.orange)
-				del.OnClick(a.deleteConfirmed)
-				del.Children(func() {
-					ui.Text(c, "Delete").FontSize(13).FontWeight(500).TextColor(p.dangerText)
-				})
+				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+					a.layout.confirm = nil
+				}
+				if components.Button(c, "Delete", components.ButtonPrimary).Clicked() {
+					a.deleteConfirmed()
+				}
 			})
 		})
 	}
@@ -743,13 +730,12 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 			ui.Text(c, "Rename this chat").FontSize(14).FontWeight(600)
 			textField(c, p, &st.draft, "")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				cancel := ui.ButtonBase(c).Label("Cancel").Height(28).Radius(999).PaddingX(12)
-				cancel.OnClick(func() { a.layout.rename = nil })
-				cancel.Children(func() {
-					ui.Text(c, "Cancel").FontSize(13).TextColor(p.text)
-				})
-				save := ui.PrimaryButton(c, "Save")
-				save.OnClick(a.saveRename)
+				if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+					a.layout.rename = nil
+				}
+				if components.Button(c, "Save", components.ButtonPrimary).Clicked() {
+					a.saveRename()
+				}
 			})
 		})
 	}
@@ -763,7 +749,7 @@ func (a *app) textRow(c *ui.Context, p palette, label string) {
 // row builds the base of a sidebar row: a full-width rounded button tinted
 // while hovered or, when chosen, held that way.
 func (a *app) row(c *ui.Context, p palette, label string, chosen bool) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Height(32).Radius(9).Padding(0, 8).
+	b := ui.ButtonBase(c).Label(label).Height(34).Radius(8).Padding(0, 8).
 		Cursor(ui.CursorPointer).FillWidth().Justify(ui.Start)
 	if b.Hovered() {
 		b.Background(p.hover)

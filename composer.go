@@ -38,6 +38,10 @@ func (a *app) composer(c *ui.Context, p palette) {
 				},
 				Trailing: func(c *ui.Context) { a.modelButton(c, p) },
 			})
+			if a.layout.composerFocus {
+				result.Input.Focus()
+				a.layout.composerFocus = false
+			}
 			if result.Send {
 				a.send()
 			}

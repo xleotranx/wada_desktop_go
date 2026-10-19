@@ -44,6 +44,8 @@ var (
 	icLoad       = lucide.RefreshCw()
 	icSend       = lucide.ArrowUp()
 	icStop       = lucide.Square()
+	icCommand    = lucide.Command()
+	icSparkle    = lucide.Sparkles()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

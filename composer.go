@@ -45,6 +45,11 @@ func (a *app) composer(c *ui.Context, p palette) {
 					a.agentPill(c, p)
 				},
 				Trailing: func(c *ui.Context) { a.modelButton(c, p) },
+				Footer: func(c *ui.Context) {
+					ui.Text(c, "⌘K commands").FontSize(11).TextColor(p.faint).SingleLine()
+					ui.Spacer(c)
+					ui.Text(c, "Shift+Enter for a new line").FontSize(11).TextColor(p.faint).SingleLine()
+				},
 			})
 			if a.layout.composerFocus {
 				result.Input.Focus()

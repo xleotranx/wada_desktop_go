@@ -43,6 +43,9 @@ func (a *app) navRail(c *ui.Context, p palette) {
 				if m.Item("Open folder…").Chosen() {
 					a.openProjectDialog()
 				}
+				if m.Item("Command palette…").Chosen() {
+					a.openCommandPalette()
+				}
 				m.Separator()
 				if m.Item("Settings").Chosen() {
 					a.openSettings("")
@@ -656,7 +659,13 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		tint = p.muted
 	}
 	b.Children(func() {
-		a.textRow(c, p, label)
+		iconTint := p.muted
+		if s.ID == string(a.conversation.target.session) {
+			iconTint = p.orange
+		}
+		ui.Icon(c, icChat).FontSize(13).TextColor(iconTint).Shrink(0)
+		ui.Text(c, label).MarginStart(8).FontSize(13.5).Grow(1).MinWidth(0).
+			SingleLine().Ellipsis("…")
 		if s.ID == string(a.conversation.transcript.Busy()) {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
@@ -739,11 +748,6 @@ func (a *app) sessionDialogs(c *ui.Context, p palette) {
 			})
 		})
 	}
-}
-
-// textRow is the label of a row without an icon.
-func (a *app) textRow(c *ui.Context, p palette, label string) {
-	ui.Text(c, label).FontSize(14).Grow(1).SingleLine()
 }
 
 // row builds the base of a sidebar row: a full-width rounded button tinted

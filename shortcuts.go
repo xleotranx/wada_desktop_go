@@ -10,6 +10,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	if a.dialogsUp() {
 		return
 	}
+	c.OnShortcut(ui.Cmd, ui.KeyK, a.openCommandPalette)
 	c.OnShortcut(ui.Cmd, ui.KeyN, a.startNewChat)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })
@@ -25,5 +26,6 @@ func (a *app) dialogsUp() bool {
 		(a.layout.attach != nil && a.layout.attach.open) ||
 		(a.layout.browse != nil && a.layout.browse.open) ||
 		(a.layout.serverEditor != nil && a.layout.serverEditor.open) ||
-		(a.layout.serverConfirm != nil && a.layout.serverConfirm.open)
+		(a.layout.serverConfirm != nil && a.layout.serverConfirm.open) ||
+		a.layout.commandOpen
 }

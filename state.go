@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/oneo-me/onevra/source/components/command"
 )
 
 // runtimeState owns the runtime fields coordinated on the UI thread.
@@ -137,4 +138,6 @@ type viewState struct {
 	modelsList         ui.ListState
 	composerFocus      bool
 	toasts             []ui.Toast
+	commandOpen        bool
+	commands           command.State
 }

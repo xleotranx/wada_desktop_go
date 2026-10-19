@@ -121,7 +121,7 @@ func (a *app) blockIdentity(i int) any {
 // said, a line of what the agent ran, or the loader of the turn in
 // flight.
 func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
-	ui.Column(c).FillWidth().MaxWidth(760).Margin(0, ui.Auto).Gap(10).Children(func() {
+	ui.Column(c).FillWidth().MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).Gap(10).Children(func() {
 		switch b.Kind {
 		case chat.KindUser:
 			onechat.Message(c, true, func(c *ui.Context) {
@@ -323,7 +323,8 @@ func (a *app) suggestion(c *ui.Context, p palette, title, blurb, prompt string, 
 		a.layout.composerFocus = true
 	})
 	b.Children(func() {
-		ui.Box(c).Size(30, 30).Radius(9).Center().Background(p.selected).Children(func() {
+		ui.Box(c).Size(30, 30).Radius(9).Center().
+			Background(c.Theme().Selection.Alpha(.5)).Children(func() {
 			ui.Icon(c, icon).FontSize(15).TextColor(p.orange)
 		})
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {

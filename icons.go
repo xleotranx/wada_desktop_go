@@ -42,6 +42,7 @@ var (
 	icShield     = lucide.ShieldCheck()
 	icLoad       = lucide.RefreshCw()
 	icSparkle    = lucide.Sparkles()
+	icChat       = lucide.MessageSquare()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

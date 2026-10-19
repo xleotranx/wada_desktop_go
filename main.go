@@ -288,6 +288,7 @@ func (a *app) view(c *ui.Context) {
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)
+	a.commandDialog(c)
 	// Onevra's toast look, below the title strip that carries the window
 	// controls.
 	components.Toasts(c, components.ToastOptions{

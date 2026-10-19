@@ -374,6 +374,43 @@ func TestChatBirthCarriesThePersona(t *testing.T) {
 	}
 }
 
+// TestPlainDropSaysItIsTryingAgain keeps an idle connection's drop from
+// passing quietly: the note names the drop, and the health dot names the
+// down state while the retry gives it another try.
+func TestPlainDropSaysItIsTryingAgain(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("server")
+	end := make(chan struct{})
+	c.eventsEnd = end
+	after := make(chan time.Time) // the retry holds off, so one attempt runs
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }, After: func(time.Duration) <-chan time.Time { return after }})
+	r.Select(1, connection("server"))
+	await(t, c.eventsStarted)
+	close(end)
+	var dropped bool
+	d.until(t, func() bool {
+		for _, notice := range sink.notices {
+			if strings.Contains(notice, "connection dropped") {
+				dropped = true
+				return true
+			}
+		}
+		return false
+	})
+	if !dropped {
+		t.Fatalf("the drop went unreported: %v", sink.notices)
+	}
+	down := false
+	for _, status := range sink.statuses {
+		if status.State == "down" && status.Address == "server" {
+			down = true
+		}
+	}
+	if !down {
+		t.Fatal("the drop did not put the server down")
+	}
+}
+
 func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")

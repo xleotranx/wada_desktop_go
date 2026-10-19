@@ -303,10 +303,16 @@ func (r *Runner) run() {
 			uncertain := r.serve(attemptCtx, client, owner, attempt, post)
 			cancel()
 			client.Stop()
+			// The attempt's own end publishes through the runner's gates
+			// only: the attempt context died a line above, and a guard
+			// on it would press the drop's status out of the pipe with
+			// the dead work.
 			r.publish(owner.generation, attempt, func(s Sink) {
 				s.Status(Status{State: "down", Address: client.Endpoint()})
 				if uncertain {
 					s.Notice("The connection ended while an action was running. Inspect the server state before retrying.")
+				} else {
+					s.Notice("The connection dropped. Trying again…")
 				}
 			})
 		}

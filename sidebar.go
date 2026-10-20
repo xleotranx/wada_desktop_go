@@ -169,7 +169,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 						})
 					} else {
 						for _, s := range pins {
-							a.sessionRow(c, p, s)
+							a.pinnedSessionRow(c, p, s)
 						}
 					}
 
@@ -727,7 +727,7 @@ func (a *app) projectChatRow(c *ui.Context, p palette, s opencode.Session) {
 
 // chatRow draws one conversation row in either place, indented by the
 // tree it sits in.
-func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, indent float32, highlight bool) {
+func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, indent float32, highlight bool) ui.Element {
 	label := s.Title
 	if label == "" {
 		label = "New chat"
@@ -802,6 +802,47 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 			ui.Icon(c, icEllipsis).FontSize(13).TextColor(tint)
 		})
 	})
+	return b
+}
+
+// pinnedSessionRow is one row of the Pinned section: the chat's own row,
+// which also drags within the section to reorder the pins.
+func (a *app) pinnedSessionRow(c *ui.Context, p palette, s opencode.Session) {
+	row := a.chatRow(c, p, s, "session:", 8, false)
+	row.Drag(s.ID)
+	if dragged, over := ui.DragOver[string](row); over && dragged != s.ID {
+		row.Background(p.hover).Border(1, p.orange.Alpha(.55))
+	}
+	if dragged, ok := ui.Drop[string](row); ok {
+		a.movePinTo(dragged, s.ID)
+	}
+	if row.Dragging() {
+		row.Opacity(.55)
+	}
+}
+
+// movePinTo puts a dragged pinned chat where another one sits; the rest
+// keep their order.
+func (a *app) movePinTo(id, target string) {
+	scope := a.scope()
+	from, to := -1, -1
+	for i, pinned := range scope.pinOrder {
+		if pinned == id {
+			from = i
+		}
+		if pinned == target {
+			to = i
+		}
+	}
+	if from < 0 || to < 0 || from == to {
+		return
+	}
+	order := slices.Clone(scope.pinOrder)
+	pin := order[from]
+	order = slices.Delete(order, from, from+1)
+	order = slices.Insert(order, min(to, len(order)), pin)
+	scope.setPins(order)
+	a.saveState()
 }
 
 func (a *app) togglePin(s opencode.Session) {

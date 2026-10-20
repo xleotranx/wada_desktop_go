@@ -97,6 +97,8 @@ Global OpenCode configuration is not rewritten by startup.
 - Sidebar filters: the title menu and command palette narrow the sidebar to
   unread chats, chats needing attention, chats with drafts or archived chats;
   the list's cross clears the filter.
+- Pinned chats: a conversation's menu pins it to the top section; dragging one
+  pinned row onto another reorders that section, and the order is saved.
 - Archive: a chat's menu puts it away from the pinned and project lists without
   deleting it. Show archived chats (title menu or palette) lists them, and each
   row's menu restores it. Put-away chats drop their pin and leave the unread

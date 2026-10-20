@@ -16,15 +16,17 @@ func (a *app) appShortcuts(c *ui.Context) {
 		ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
 		c.OnShortcut(ui.Cmd, key, func() { a.openRecentChat(i) })
 	}
-	c.OnShortcut(ui.Ctrl, ui.KeyTab, func() { a.cycleTab(1) })
-	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyTab, func() { a.cycleTab(-1) })
-	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyT, a.reopenClosedTab)
+	a.bindShortcut(c, "next-tab", func() { a.cycleTab(1) })
+	a.bindShortcut(c, "prev-tab", func() { a.cycleTab(-1) })
+	a.bindShortcut(c, "reopen-tab", a.reopenClosedTab)
 	a.bindShortcut(c, "search", a.openChatSearch)
 	a.bindShortcut(c, "full-view", a.toggleFullView)
-	c.OnShortcut(ui.Cmd, ui.KeyEqual, func() { a.bumpChatText(1) })
-	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyEqual, func() { a.bumpChatText(1) })
-	c.OnShortcut(ui.Cmd, ui.KeyMinus, func() { a.bumpChatText(-1) })
-	c.OnShortcut(ui.Cmd, ui.Key0, func() {
+	a.bindShortcut(c, "text-larger", func() { a.bumpChatText(1) })
+	if _, overridden := a.preferences.keymap["text-larger"]; !overridden {
+		c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyEqual, func() { a.bumpChatText(1) })
+	}
+	a.bindShortcut(c, "text-smaller", func() { a.bumpChatText(-1) })
+	a.bindShortcut(c, "text-reset", func() {
 		a.setChatText(chatTextDefault)
 		a.notify(ui.Toast{Title: "Conversation text: Default"})
 	})
@@ -34,7 +36,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	a.bindShortcut(c, "find", a.openChatFind)
 	a.bindShortcut(c, "quick-open", a.openQuickOpen)
 	a.bindShortcut(c, "files", a.toggleFiles)
-	c.OnShortcut(ui.Cmd, ui.KeyO, a.openProjectDialog)
+	a.bindShortcut(c, "open-folder", a.openProjectDialog)
 	a.bindShortcut(c, "changes", func() { a.openTool("Changes") })
 	a.bindShortcut(c, "model", a.openModelPicker)
 	a.bindShortcut(c, "sidebar", a.toggleSidebar)
@@ -42,7 +44,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	a.bindShortcut(c, "terminal", a.toggleTerminal)
 	c.OnShortcut(ui.Ctrl, ui.KeyBackquote, a.toggleTerminal)
 	a.bindShortcut(c, "settings", func() { a.openSettings("") })
-	c.OnShortcut(ui.Cmd, ui.KeySlash, func() { a.openSettings(tabShortcuts) })
+	a.bindShortcut(c, "shortcuts", func() { a.openSettings(tabShortcuts) })
 	if a.layout.findOpen {
 		c.OnShortcut(0, ui.KeyEscape, func() { a.layout.findOpen = false })
 	}

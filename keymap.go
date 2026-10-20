@@ -38,6 +38,14 @@ var shortcutSpecs = []shortcutSpec{
 	{"changes", "Open Changes", ui.Ctrl | ui.Shift, ui.KeyG},
 	{"model", "Choose a model", ui.Ctrl | ui.Shift, ui.KeyM},
 	{"settings", "Settings", ui.Cmd, ui.KeyComma},
+	{"next-tab", "Next chat tab", ui.Ctrl, ui.KeyTab},
+	{"prev-tab", "Previous chat tab", ui.Ctrl | ui.Shift, ui.KeyTab},
+	{"reopen-tab", "Reopen closed chat tab", ui.Cmd | ui.Shift, ui.KeyT},
+	{"text-larger", "Conversation text larger", ui.Cmd, ui.KeyEqual},
+	{"text-smaller", "Conversation text smaller", ui.Cmd, ui.KeyMinus},
+	{"text-reset", "Reset conversation text", ui.Cmd, ui.Key0},
+	{"open-folder", "Open a folder", ui.Cmd, ui.KeyO},
+	{"shortcuts", "Keyboard shortcuts", ui.Cmd, ui.KeySlash},
 }
 
 func shortcutSpecByID(id string) (shortcutSpec, bool) {
@@ -112,14 +120,7 @@ var fixedShortcuts = []struct {
 	{"Open a recent chat", chord{ui.Cmd, ui.Key7}},
 	{"Open a recent chat", chord{ui.Cmd, ui.Key8}},
 	{"Open a recent chat", chord{ui.Cmd, ui.Key9}},
-	{"Next chat tab", chord{ui.Ctrl, ui.KeyTab}},
-	{"Previous chat tab", chord{ui.Ctrl | ui.Shift, ui.KeyTab}},
-	{"Reopen closed chat tab", chord{ui.Cmd | ui.Shift, ui.KeyT}},
-	{"Open a folder", chord{ui.Cmd, ui.KeyO}},
-	{"Keyboard shortcuts", chord{ui.Cmd, ui.KeySlash}},
-	{"Conversation text larger", chord{ui.Cmd, ui.KeyEqual}},
-	{"Conversation text smaller", chord{ui.Cmd, ui.KeyMinus}},
-	{"Reset conversation text", chord{ui.Cmd, ui.Key0}},
+	{"Conversation text larger (Shift+=)", chord{ui.Cmd | ui.Shift, ui.KeyEqual}},
 	{"Copy", chord{ui.Cmd, ui.KeyC}},
 	{"Paste", chord{ui.Cmd, ui.KeyV}},
 	{"Cut", chord{ui.Cmd, ui.KeyX}},
@@ -232,6 +233,9 @@ var shortcutActionIDs = map[string]string{
 	"action:show-sidebar": "sidebar",
 	"action:hide-sidebar": "sidebar",
 	"action:full-view":    "full-view",
+	"action:folder":       "open-folder",
+	"action:shortcuts":    "shortcuts",
+	"action:reopen-tab":   "reopen-tab",
 }
 
 // openShortcuts shows the customization dialog.

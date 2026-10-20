@@ -47,8 +47,9 @@ Global OpenCode configuration is not rewritten by startup.
   Cmd+Shift+J the tools pane, Cmd+Shift+F enters a conversation-only full view
   and restores the panes on exit. The chosen sizes carry across restarts.
 - Terminal: a bottom panel of up to six shells, each starting in the chat's
-  local folder. Tabs keep running while folded away; Cmd+J or Ctrl+` toggles
-  the panel, and its header can maximize or restore it.
+  local folder. Tabs keep running while folded away, each closes from its own
+  cross, and Cmd+J or Ctrl+` toggles the panel. Its header can maximize or
+  restore it.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
 - Tools pane: Files, Changes, Activity and page previews stay open together in
@@ -73,9 +74,10 @@ Global OpenCode configuration is not rewritten by startup.
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices
   are saved.
-- Shortcuts: the main window commands can be rebound from Settings → Keyboard
-  or the command palette. The recorder rejects keys another command or a fixed
-  action already uses, and overrides are saved.
+- Shortcuts: the main window commands — tab cycling, folder opening, conversation
+  text steps and more — can be rebound from Settings → Keyboard or the command
+  palette. The recorder rejects keys another command or a fixed action already
+  uses, and overrides are saved.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent

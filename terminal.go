@@ -216,10 +216,16 @@ func (a *app) stopTerminalTab(tab *terminalTab) {
 // closeTerminalTab stops the active shell and removes its tab; the last
 // tab closes the panel.
 func (a *app) closeTerminalTab() {
-	index := a.terminal.active
+	a.closeTerminalTabAt(a.terminal.active)
+}
+
+// closeTerminalTabAt removes one tab, keeping the shell on show when a
+// different tab closes and handing it to a neighbour when this one goes.
+func (a *app) closeTerminalTabAt(index int) {
 	if index < 0 || index >= len(a.terminal.tabs) {
 		return
 	}
+	active := a.terminal.active
 	a.stopTerminalTab(a.terminal.tabs[index])
 	a.terminal.tabs = append(a.terminal.tabs[:index], a.terminal.tabs[index+1:]...)
 	if len(a.terminal.tabs) == 0 {
@@ -227,7 +233,11 @@ func (a *app) closeTerminalTab() {
 		a.terminal.open = false
 		return
 	}
-	a.terminal.active = min(index, len(a.terminal.tabs)-1)
+	if index < active {
+		a.terminal.active = active - 1
+	} else if index == active {
+		a.terminal.active = min(index, len(a.terminal.tabs)-1)
+	}
 	a.terminal.tabs[a.terminal.active].focus = true
 	a.ensureTerminal()
 }
@@ -308,21 +318,33 @@ func (a *app) terminalTabButton(c *ui.Context, p palette, index int, tab *termin
 	active := index == a.terminal.active
 	c.Key(fmt.Sprintf("terminal-tab:%d", tab.id))
 	label := terminalTabLabel(tab)
-	b := ui.ButtonBase(c).Label(label).Height(24).Radius(6).Padding(0, 8).
-		AlignItems(ui.Center).Shrink(1).MinWidth(0).MaxWidth(170).Tooltip(label)
+	row := ui.Row(c).Height(24).MaxWidth(190).Shrink(1).MinWidth(0).
+		Radius(6).Clip().AlignItems(ui.Center)
 	if active {
-		b.Background(p.selected)
+		row.Background(p.selected)
+	} else if row.Hovered() {
+		row.Background(p.hover)
 	}
-	if b.Hovered() {
-		b.Background(p.hover)
-	}
-	b.OnClick(func() { a.selectTerminalTab(index) })
-	b.Children(func() {
-		tint := p.muted
-		if active {
-			tint = p.text
+	row.Children(func() {
+		open := ui.ButtonBase(c).Label(label).Height(24).Radius(6).Padding(0, 8).
+			Grow(1).Shrink(1).MinWidth(0).Tooltip(label)
+		open.OnClick(func() { a.selectTerminalTab(index) })
+		open.Children(func() {
+			tint := p.muted
+			if active {
+				tint = p.text
+			}
+			ui.Text(c, label).FontSize(11.5).TextColor(tint).SingleLine().Ellipsis("…")
+		})
+		close := ui.ButtonBase(c).Label("Close "+label).Size(18, 18).Radius(5).Center().
+			Tooltip("Close " + label)
+		if close.Hovered() {
+			close.Background(p.hover)
 		}
-		ui.Text(c, label).FontSize(11.5).TextColor(tint).SingleLine().Ellipsis("…")
+		close.OnClick(func() { a.closeTerminalTabAt(index) })
+		close.Children(func() {
+			ui.Icon(c, icClose).FontSize(9).TextColor(p.faint)
+		})
 	})
 }
 

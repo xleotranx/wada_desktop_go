@@ -103,3 +103,20 @@ func TestShortcutLabelsFollowOverrides(t *testing.T) {
 		t.Fatalf("the keyboard page does not show %q: %v", keys, tt.Texts())
 	}
 }
+
+// TestRemappedTextShortcutDropsTheOldAlias moves conversation zoom and
+// checks the Shift+= alias stops firing when the command is rebound.
+func TestRemappedTextShortcutDropsTheOldAlias(t *testing.T) {
+	a := newTestApp(t)
+	a.setShortcut("text-larger", chord{Mods: ui.Cmd | ui.Alt, Key: ui.KeyEqual})
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyEqual)
+	if normalizeChatText(a.preferences.chatText) != chatTextDefault {
+		t.Fatalf("the old alias still zoomed to %q", a.preferences.chatText)
+	}
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyEqual)
+	if a.preferences.chatText != chatTextLarge {
+		t.Fatalf("the remapped zoom reached %q", a.preferences.chatText)
+	}
+}

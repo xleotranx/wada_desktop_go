@@ -158,3 +158,29 @@ func TestTerminalMaximize(t *testing.T) {
 		t.Fatalf("restored height %v", a.terminal.height)
 	}
 }
+
+// TestTerminalTabCloseControl closes an inactive tab without changing
+// which shell is on show.
+func TestTerminalTabCloseControl(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Ctrl, ui.KeyBackquote)
+	tt.Frame()
+	if err := tt.Click("New terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.terminal.tabs) != 2 || a.terminal.active != 1 {
+		t.Fatalf("tabs=%d active=%d", len(a.terminal.tabs), a.terminal.active)
+	}
+	if err := tt.Click("Close Terminal 1"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.terminal.tabs) != 1 || a.terminal.active != 0 {
+		t.Fatalf("after closing: tabs=%d active=%d", len(a.terminal.tabs), a.terminal.active)
+	}
+	if got := terminalTabLabel(a.terminal.tabs[0]); got != "Terminal 2" {
+		t.Fatalf("the surviving tab is %q", got)
+	}
+}

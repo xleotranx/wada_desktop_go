@@ -278,9 +278,20 @@ func (a *app) serverPill(c *ui.Context, p palette) {
 // click takes the user to the chat that asked.
 func (a *app) bellButton(c *ui.Context, p palette) {
 	asks := len(a.conversation.transcript.Pending())
+	attention, unread := a.unreadCounts()
+	total := asks + unread
 	label := "Notifications"
-	if asks > 0 {
+	switch {
+	case asks > 0 && unread > 0:
+		label = fmt.Sprintf("Notifications, %d approvals waiting, %d unread chats", asks, unread)
+	case asks > 0:
 		label = fmt.Sprintf("Notifications, %d approvals waiting", asks)
+	case attention > 0 && attention == unread:
+		label = fmt.Sprintf("Notifications, %d unread chats needing attention", unread)
+	case attention > 0:
+		label = fmt.Sprintf("Notifications, %d unread chats, %d needing attention", unread, attention)
+	case unread > 0:
+		label = fmt.Sprintf("Notifications, %d unread chats", unread)
 	}
 	b := ui.ButtonBase(c).Label(label).Size(32, 32).Radius(9).Center().
 		Cursor(ui.CursorPointer)
@@ -289,13 +300,19 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 	}
 	if asks > 0 {
 		b.OnClick(a.openAnAsk)
+	} else if unread > 0 {
+		b.OnClick(a.openNextMarked)
 	}
 	b.Children(func() {
 		ui.Icon(c, icBell).FontSize(17).TextColor(p.text)
-		if asks > 0 {
+		if total > 0 {
+			tint := p.orange
+			if asks > 0 || attention > 0 {
+				tint = p.danger
+			}
 			ui.Box(c).MarginStart(-4).Height(15).Radius(8).Padding(3, 0).
-				Background(p.danger).Children(func() {
-				ui.Text(c, strconv.Itoa(asks)).FontSize(10.5).FontWeight(600).
+				Background(tint).Children(func() {
+				ui.Text(c, strconv.Itoa(total)).FontSize(10.5).FontWeight(600).
 					TextColor(p.dangerText)
 			})
 		}
@@ -684,6 +701,9 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		ui.Icon(c, icChat).FontSize(13).TextColor(iconTint).Shrink(0)
 		ui.Text(c, label).MarginStart(8).FontSize(13.5).Grow(1).MinWidth(0).
 			SingleLine().Ellipsis("…")
+		if scope := a.scope(); scope.unread[s.ID] {
+			unreadDot(c, p, scope.attention[s.ID])
+		}
 		if s.ID == string(a.conversation.transcript.Busy()) {
 			ui.Spinner(c).Size(13, 13).MarginStart(8).Label("Running")
 		}
@@ -700,6 +720,13 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 			}
 			if m.Item(pinLabel).Chosen() {
 				a.togglePin(s)
+			}
+			unreadLabel := "Mark as unread"
+			if a.scope().unread[s.ID] {
+				unreadLabel = "Mark as read"
+			}
+			if m.Item(unreadLabel).Chosen() {
+				a.toggleSessionUnread(s)
 			}
 			if m.Item("Delete").Chosen() {
 				a.confirmDelete(s)

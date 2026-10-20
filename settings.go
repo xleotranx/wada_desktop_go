@@ -541,6 +541,8 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Next chat tab", "⌃⇥"},
 			{"Previous chat tab", "⌃⇧⇥"},
 			{"Reopen closed chat tab", "⌘⇧T"},
+			{"Mark chat unread or read", "⌘⇧U"},
+			{"Next chat needing attention", "⌥⌘A"},
 		}},
 		{"Workspace", [][2]string{
 			{"Toggle sidebar", "⌘B"},

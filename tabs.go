@@ -207,6 +207,9 @@ func (a *app) chatTab(c *ui.Context, p palette, tab chatTab) {
 				tint = p.text
 			}
 			ui.Text(c, title).FontSize(12.5).TextColor(tint).SingleLine().Ellipsis("…")
+			if scope := a.scope(); scope.unread[tab.id] {
+				unreadDot(c, p, scope.attention[tab.id])
+			}
 		})
 		close := ui.ButtonBase(c).Label("Close "+title).Size(20, 20).Radius(5).Center().
 			Tooltip("Close " + title)

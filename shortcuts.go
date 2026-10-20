@@ -22,6 +22,8 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.toggleFullView)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyU, a.toggleActivity)
+	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyU, a.toggleUnread)
+	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyA, a.openNextMarked)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
 	c.OnShortcut(ui.Cmd, ui.KeyP, a.openFilesSearch)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyE, a.toggleFiles)

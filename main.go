@@ -77,6 +77,10 @@ type serverScope struct {
 	// The model the server itself would run, for when the catalog offers
 	// nothing this app knows; zero until a dial reads it.
 	serverDefault opencode.ModelRef
+	// unread and attention mark chats that moved while another one was on
+	// show; attention is a background approval waiting for an answer.
+	unread    map[string]bool
+	attention map[string]bool
 	// The folders the server works in, as its project list says them;
 	// empty until a dial reads it.
 	projects []string
@@ -145,7 +149,7 @@ func (a *app) scope() *serverScope { return a.scopeFor(a.connections.activeServe
 func (a *app) scopeFor(id string) *serverScope {
 	s := a.connections.scopes[id]
 	if s == nil {
-		s = &serverScope{pinned: map[string]bool{}}
+		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}}
 		a.connections.scopes[id] = s
 	}
 	return s
@@ -1152,6 +1156,7 @@ func (a *app) adoptSession(s opencode.Session) {
 	}
 	a.conversation.selected = label
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
+	a.clearUnread(s.ID)
 	a.scope().activeTab = s.ID
 	a.rememberTab(s)
 	a.freshTranscript()

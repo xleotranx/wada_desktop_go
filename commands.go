@@ -48,6 +48,10 @@ func (a *app) commandDialog(c *ui.Context) {
 // actions, then every other server, the project folders and the chats the
 // active server listed. IDs never change with a title.
 func (a *app) commandItems() []command.Item {
+	unreadTitle := "Mark chat as unread"
+	if id := string(a.conversation.target.session); id != "" && a.scope().unread[id] {
+		unreadTitle = "Mark chat as read"
+	}
 	items := []command.Item{
 		{ID: "action:new-chat", Title: "New chat", Group: "Actions",
 			Description: "Start a draft in a new conversation", Shortcut: "⌘N",
@@ -64,6 +68,14 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:model", Title: "Choose model", Group: "Chats",
 			Description: "Pick what this chat runs on", Shortcut: "⌃⇧M", Icon: icCpu,
 			Keywords: []string{"model", "reasoning", "provider"}},
+		{ID: "action:unread", Title: unreadTitle, Group: "Chats",
+			Description: "Keep a dot on this chat until it is opened again",
+			Shortcut:    "⌘⇧U", Icon: icBell,
+			Keywords: []string{"unread", "read", "notification", "attention"}},
+		{ID: "action:next-marked", Title: "Next chat needing attention", Group: "Chats",
+			Description: "Open the next unread chat or waiting approval",
+			Shortcut:    "⌥⌘A", Icon: icBell,
+			Keywords: []string{"next", "unread", "attention", "approval"}},
 		{ID: "action:activity", Title: "Activity view", Group: "Tools",
 			Description: "Watch what the agent has run in this chat", Shortcut: "⌥⌘U",
 			Icon: icActivity, Keywords: []string{"tools", "steps", "running", "shell"}},
@@ -157,6 +169,12 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:model":
 		a.openModelPicker()
+		return
+	case "action:unread":
+		a.toggleUnread()
+		return
+	case "action:next-marked":
+		a.openNextMarked()
 		return
 	case "action:activity":
 		a.toggleActivity()

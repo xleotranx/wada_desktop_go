@@ -116,6 +116,22 @@ func (a *app) streamLine(text string) {
 // lands, and each tool call is an activity row that gains its detail
 // once something ran.
 func (a *app) applyUpdate(ev opencode.Update) {
+	if ev.SessionID != "" && !a.belongs(ev.SessionID) {
+		switch ev.Kind {
+		case opencode.PermissionAsked:
+			a.markUnread(ev.SessionID, true)
+		case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
+			// The turn ended elsewhere: the chat has news, and any
+			// approval it was waiting on is no longer pending.
+			a.markUnread(ev.SessionID, false)
+			delete(a.scope().attention, ev.SessionID)
+		case opencode.TextStarted, opencode.TextDelta, opencode.TextEnded,
+			opencode.ToolStarted, opencode.ToolCalled, opencode.ToolSucceeded,
+			opencode.ExecutionStarted, opencode.ModelSelected, opencode.SessionRenamed:
+			// The stream of another chat is not this app's transcript;
+			// its end is what the marks above report.
+		}
+	}
 	if ev.Kind != opencode.ModelSelected && ev.Kind != opencode.SessionRenamed && !a.belongs(ev.SessionID) {
 		return
 	}
@@ -185,6 +201,8 @@ func (a *app) dropPerm(requestID string) {
 // a fresh transcript when it was the last one.
 func (a *app) dropSession(sid string) {
 	scope := a.scope()
+	delete(scope.unread, sid)
+	delete(scope.attention, sid)
 	index := -1
 	for i, tab := range scope.tabs {
 		if tab.id == sid {

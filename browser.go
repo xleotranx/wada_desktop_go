@@ -174,7 +174,9 @@ func (a *app) toolDescription() string {
 
 func (a *app) openTool(name string) {
 	// Opening a tool is asking to see it, so the pane comes back and the
-	// settings page steps aside.
+	// settings page steps aside; from a full view it is the only pane that
+	// returns.
+	a.leaveFullView(false)
 	a.layout.settingsOpen = false
 	a.layout.browserCollapsed = false
 	if name == "" {

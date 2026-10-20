@@ -26,6 +26,7 @@ func (a *app) toggleTerminal() {
 		a.terminal.open = false
 		return
 	}
+	a.leaveFullView(false)
 	a.layout.settingsOpen = false
 	a.terminal.open = true
 	a.terminal.focus = true

@@ -42,6 +42,7 @@ type serverEditor struct {
 // openSettings shows the settings page; tab names the page when the
 // caller has one in mind.
 func (a *app) openSettings(tab string) {
+	a.leaveFullView(true)
 	a.layout.settingsOpen = true
 	if tab != "" {
 		a.layout.settingsTab = tab
@@ -477,7 +478,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Find in chat", "⌘F"},
 			{"Find next match", "⌘G"},
 			{"Find previous match", "⌘⇧G"},
-			{"Search chats", "⌘⇧F"},
+			{"Search chats", "⌘⌥F"},
 			{"Choose a model", "⌃⇧M"},
 			{"Next chat tab", "⌃⇥"},
 			{"Previous chat tab", "⌃⇧⇥"},
@@ -486,6 +487,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Toggle sidebar", "⌘B"},
 			{"Toggle terminal", "⌘J / ⌃`"},
 			{"Toggle tools", "⌘⇧J"},
+			{"Toggle full view", "⌘⇧F"},
 			{"Open Files", "⌘P"},
 			{"Open Changes", "⌃⇧G"},
 			{"Move a focused divider", "← → / ↑ ↓"},

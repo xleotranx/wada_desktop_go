@@ -53,7 +53,7 @@ func (a *app) commandItems() []command.Item {
 			Description: "Start a draft in a new conversation", Shortcut: "⌘N",
 			Icon: icPen, Keywords: []string{"draft", "start", "compose"}},
 		{ID: "action:search", Title: "Search chats", Group: "Actions",
-			Description: "Filter the conversation list", Shortcut: "⌘⇧F", Icon: icSearch,
+			Description: "Filter the conversation list", Shortcut: "⌘⌥F", Icon: icSearch,
 			Keywords: []string{"find", "history"}},
 		{ID: "action:find", Title: "Find in chat", Group: "Actions",
 			Description: "Find text in the open transcript", Shortcut: "⌘F", Icon: icSearch,
@@ -90,6 +90,13 @@ func (a *app) commandItems() []command.Item {
 	} else {
 		items = append(items, command.Item{ID: "action:hide-sidebar", Title: "Hide sidebar",
 			Group: "View", Description: "Give the chat the whole window", Shortcut: "⌘B", Icon: icPanel})
+	}
+	if a.layout.fullView {
+		items = append(items, command.Item{ID: "action:full-view", Title: "Exit full view",
+			Group: "View", Description: "Bring the side panes back", Shortcut: "⌘⇧F", Icon: icCollapse})
+	} else {
+		items = append(items, command.Item{ID: "action:full-view", Title: "Enter full view",
+			Group: "View", Description: "Give the conversation the whole window", Shortcut: "⌘⇧F", Icon: icExpand})
 	}
 	items = append(items, command.Item{ID: "action:reset-layout", Title: "Reset pane widths",
 		Group: "View", Description: "Return both side panes to their default width", Icon: icPanelRight,
@@ -152,19 +159,23 @@ func (a *app) runCommand(id string) {
 	case "action:terminal":
 		a.toggleTerminal()
 		return
+	case "action:full-view":
+		a.toggleFullView()
+		return
 	case "action:show-tools":
-		a.layout.browserCollapsed = false
+		a.showTools()
 		return
 	case "action:hide-tools":
-		a.layout.browserCollapsed = true
+		a.hideTools()
 		return
 	case "action:show-sidebar":
-		a.layout.sidebarCollapsed = false
+		a.showSidebar()
 		return
 	case "action:hide-sidebar":
-		a.layout.sidebarCollapsed = true
+		a.hideSidebar()
 		return
 	case "action:reset-layout":
+		a.leaveFullView(false)
 		a.layout.sidebarW = sidebarDefaultWidth
 		a.layout.browserW = browserDefaultWidth
 		a.terminal.height = terminalDefaultHeight

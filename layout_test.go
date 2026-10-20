@@ -119,3 +119,49 @@ func TestPaneWidthsRestoreClamped(t *testing.T) {
 		t.Fatalf("tall terminal restored as %v, want %v", a.terminal.height, terminalMaxHeight)
 	}
 }
+
+// TestFullViewHidesAndRestoresPanes keeps the conversation-only page
+// honest: entering folds every side pane, leaving puts the exact layout
+// back, including a terminal panel that was open.
+func TestFullViewHidesAndRestoresPanes(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.sidebarCollapsed = false
+	a.layout.browserCollapsed = false
+	a.terminal.open = true
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
+	tt.Frame()
+	if !a.layout.fullView || !a.layout.sidebarCollapsed || !a.layout.browserCollapsed || a.terminal.open {
+		t.Fatalf("full view left panes open: sidebar=%v tools=%v terminal=%v",
+			a.layout.sidebarCollapsed, a.layout.browserCollapsed, a.terminal.open)
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
+	tt.Frame()
+	if a.layout.fullView || a.layout.sidebarCollapsed || a.layout.browserCollapsed || !a.terminal.open {
+		t.Fatalf("leaving full view did not restore: sidebar=%v tools=%v terminal=%v",
+			a.layout.sidebarCollapsed, a.layout.browserCollapsed, a.terminal.open)
+	}
+}
+
+// TestFullViewEndsOnALayoutKey leaves the mode when another pane key asks
+// for a pane: the key it names is the only one that changes.
+func TestFullViewEndsOnALayoutKey(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyJ)
+	tt.Frame()
+	if a.layout.fullView {
+		t.Fatal("a pane key left full view armed")
+	}
+	if a.layout.browserCollapsed {
+		t.Fatal("Cmd+Shift+J did not show the tools pane")
+	}
+	if !a.layout.sidebarCollapsed {
+		t.Fatal("the sidebar returned without being asked")
+	}
+}

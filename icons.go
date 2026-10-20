@@ -45,6 +45,8 @@ var (
 	icChat       = lucide.MessageSquare()
 	icCopy       = lucide.Copy()
 	icQuote      = lucide.TextQuote()
+	icExpand     = lucide.Maximize2()
+	icCollapse   = lucide.Minimize2()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

@@ -122,7 +122,9 @@ func (a *app) settingsButton(c *ui.Context, p palette) {
 // openChatSearch aims the sidebar's search field and leaves the settings
 // page behind.
 func (a *app) openChatSearch() {
+	a.leaveFullView(false)
 	a.layout.settingsOpen = false
+	a.layout.sidebarCollapsed = false
 	a.search.searchOpen = true
 	a.search.focusSearch = true
 }

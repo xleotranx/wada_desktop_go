@@ -38,10 +38,11 @@ Global OpenCode configuration is not rewritten by startup.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
   servers, projects and conversations. Opened chats stay in a tab strip;
   Ctrl+Tab and Ctrl+Shift+Tab cycle it. Cmd+F finds text in the open transcript
-  and Cmd+Shift+F searches chats. Toasts confirm copies and exports.
+  and Cmd+Option+F searches chats. Toasts confirm copies and exports.
 - Layout: drag the sidebar, tools or terminal divider, nudge it with the arrow
   keys, or double-click it to restore the default. Cmd+B folds the sidebar,
-  Cmd+Shift+J the tools pane, and the chosen sizes carry across restarts.
+  Cmd+Shift+J the tools pane, Cmd+Shift+F enters a conversation-only full view
+  and restores the panes on exit. The chosen sizes carry across restarts.
 - Terminal: a bottom shell starts in the chat's local folder, keeps running
   while folded away, and restarts on demand. Cmd+J or Ctrl+` toggles it.
 

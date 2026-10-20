@@ -129,7 +129,9 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 // rail, the sidebar and the tools pane, each with its divider while open.
 func (a *app) conversationWidth(c *ui.Context) float32 {
 	w, _ := c.Size()
-	w -= navRailWidth
+	if !a.layout.fullView {
+		w -= navRailWidth
+	}
 	if !a.layout.sidebarCollapsed {
 		w -= a.layout.sidebarW + 1
 	}

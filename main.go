@@ -278,7 +278,9 @@ func (a *app) view(c *ui.Context) {
 	ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		a.topBar(c, p, headerH, bar.Left)
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
-			a.navRail(c, p)
+			if !a.layout.fullView {
+				a.navRail(c, p)
+			}
 			// The sidebar and conversation ride on one card whose top
 			// corners follow the window's, so the material frames them.
 			ui.Row(c).Grow(1).AlignItems(ui.Stretch).
@@ -380,7 +382,10 @@ func (a *app) workspaceMain(c *ui.Context, p palette, headerH float32) {
 		return
 	}
 	windowW, _ := c.Size()
-	avail := windowW - navRailWidth
+	avail := windowW
+	if !a.layout.fullView {
+		avail -= navRailWidth
+	}
 	if !a.layout.sidebarCollapsed {
 		// The sidebar's own divider takes one DIP before this split.
 		avail -= a.layout.sidebarW + 1
@@ -413,7 +418,10 @@ const cardRadius float32 = 12
 func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 	// The title starts where the conversation does, past the sidebar, and
 	// follows it in when the sidebar folds away.
-	titleStart := float32(navRailWidth) + 12
+	titleStart := float32(12)
+	if !a.layout.fullView {
+		titleStart += navRailWidth
+	}
 	if !a.layout.sidebarCollapsed {
 		titleStart += a.layout.sidebarW
 	}
@@ -423,6 +431,10 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 	toolsLabel := "Show tools"
 	if !a.layout.browserCollapsed {
 		toolsLabel = "Hide tools"
+	}
+	fullLabel, fullIcon := "Enter full view", icExpand
+	if a.layout.fullView {
+		fullLabel, fullIcon = "Exit full view", icCollapse
 	}
 
 	ui.Row(c).FillWidth().Height(headerH).DragWindow().AlignItems(ui.Center).
@@ -435,9 +447,7 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 		if a.layout.sidebarCollapsed {
 			label = "Show sidebar"
 		}
-		a.navButton(c, p, label, icPanel, func() {
-			a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed
-		}, p.text)
+		a.navButton(c, p, label, icPanel, a.toggleSidebar, p.text)
 
 		ui.Box(c).Width(titleGap)
 		// The title appears once the conversation has one, and names the
@@ -464,9 +474,8 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 		}
 		ui.Spacer(c)
 
-		a.navButton(c, p, toolsLabel, icPanelRight, func() {
-			a.layout.browserCollapsed = !a.layout.browserCollapsed
-		}, p.text)
+		a.navButton(c, p, fullLabel, fullIcon, a.toggleFullView, p.text)
+		a.navButton(c, p, toolsLabel, icPanelRight, a.toggleTools, p.text)
 	})
 }
 

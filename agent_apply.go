@@ -207,8 +207,9 @@ func (a *app) dropSession(sid string) {
 		if index >= 0 {
 			next = min(index, len(scope.tabs)-1)
 		}
-		a.openTab(scope.tabs[next].id)
-		return
+		if a.openTab(scope.tabs[next].id) {
+			return
+		}
 	}
 	a.resetDraft("")
 }

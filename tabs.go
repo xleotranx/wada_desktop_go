@@ -54,18 +54,22 @@ func (a *app) tabTitle(id string) string {
 }
 
 // openTab brings one tab's conversation on show, by its row or by the ID
-// the store still answers for.
-func (a *app) openTab(id string) {
-	if id == "" || id == string(a.conversation.target.session) {
-		return
+// the store still answers for. It reports whether the conversation was
+// admitted, so a close can fall back to a draft rather than leave a
+// removed tab's transcript on screen.
+func (a *app) openTab(id string) bool {
+	if id == "" {
+		return false
+	}
+	if id == string(a.conversation.target.session) {
+		return true
 	}
 	for _, s := range a.scope().sessions {
 		if s.ID == id {
-			a.openConversation(s)
-			return
+			return a.openConversation(s)
 		}
 	}
-	a.openConversation(opencode.Session{ID: id, Title: a.tabTitle(id)})
+	return a.openConversation(opencode.Session{ID: id, Title: a.tabTitle(id)})
 }
 
 // cycleTab moves the view through the strip, wrapping at either end. With
@@ -108,8 +112,9 @@ func (a *app) closeTab(id string) {
 		return
 	}
 	if len(scope.tabs) > 0 {
-		a.openTab(scope.tabs[min(index, len(scope.tabs)-1)].id)
-		return
+		if a.openTab(scope.tabs[min(index, len(scope.tabs)-1)].id) {
+			return
+		}
 	}
 	a.startNewChat()
 }

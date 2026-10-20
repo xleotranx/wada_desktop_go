@@ -27,7 +27,8 @@ func TestAppMenuShape(t *testing.T) {
 	for _, label := range []string{
 		"File", "Chat", "View", "Help",
 		"New Chat", "Open Folder…", "Close Chat Tab", "Reopen Closed Chat Tab",
-		"Export Transcript…", "Find…", "Search Chats…", "Choose Model…",
+		"Export Transcript…", "Quick Open File…", "Find…", "Search Chats…",
+		"Chat History…", "Copy Transcript", "Choose Model…",
 		"Toggle Sidebar", "Toggle Tools", "Toggle Terminal", "Toggle Full View",
 		"Reset Pane Sizes", "Keyboard Shortcuts", "Slash Commands",
 	} {
@@ -71,6 +72,16 @@ func TestAppMenuActions(t *testing.T) {
 		t.Fatal("Slash Commands did not open the help sheet")
 	}
 	a.layout.slashHelp = false
+	click("Chat History…")
+	if !a.layout.historyOpen {
+		t.Fatal("Chat History… did not open the history")
+	}
+	a.layout.historyOpen = false
+	click("Quick Open File…")
+	if !a.layout.quickOpen {
+		t.Fatal("Quick Open File… did not open the picker")
+	}
+	a.layout.quickOpen = false
 	click("Toggle Sidebar")
 	if !a.layout.sidebarCollapsed {
 		t.Fatal("Toggle Sidebar did not fold the sidebar")

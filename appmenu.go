@@ -30,6 +30,7 @@ func appMenu(a *app) *mygo.Menu {
 		{Label: "File", Submenu: []*mygo.MenuItem{
 			{Label: "New Chat", Click: run(a.startNewChat)},
 			{Label: "Open Folder…", Click: run(a.openProjectDialog)},
+			{Label: "Quick Open File…", Click: run(a.openQuickOpen)},
 			mygo.Separator(),
 			{Label: "Close Chat Tab", Click: run(func() {
 				if id := string(a.conversation.target.session); id != "" {
@@ -46,6 +47,8 @@ func appMenu(a *app) *mygo.Menu {
 		{Label: "Chat", Submenu: []*mygo.MenuItem{
 			{Label: "Find…", Click: run(a.openChatFind)},
 			{Label: "Search Chats…", Click: run(a.openChatSearch)},
+			{Label: "Chat History…", Click: run(a.openHistory)},
+			{Label: "Copy Transcript", Click: run(a.copyTranscript)},
 			{Label: "Choose Model…", Click: run(a.openModelPicker)},
 			mygo.Separator(),
 			{Label: "Mark Unread or Read", Click: run(a.toggleUnread)},

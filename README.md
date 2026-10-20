@@ -150,11 +150,12 @@ Global OpenCode configuration is not rewritten by startup.
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices
   are saved.
-- Menu bar: the native menu carries Settings, New Chat, Open Folder, Close and
-  Reopen Chat Tab, Export Transcript, an Edit menu, Chat actions (find, search,
-  model, unread), View toggles for the panes, terminal, full view and pane
-  sizes, plus Help for the keyboard reference and slash commands. The app's own
-  items leave accelerators to the remappable shortcut map.
+- Menu bar: the native menu carries Settings, New Chat, Open Folder, Quick Open
+  File, Close and Reopen Chat Tab, Export and Copy Transcript, an Edit menu,
+  Chat actions (find, search, history, model, unread), View toggles for the
+  panes, terminal, full view and pane sizes, plus Help for the keyboard
+  reference and slash commands. The app's own items leave accelerators to the
+  remappable shortcut map.
 - Chat menu: the title's kebab renames the chat, copies the transcript to the
   clipboard or exports it as markdown, archives it, or deletes it. The copy
   writes what the export would, and the command palette carries it too.

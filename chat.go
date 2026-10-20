@@ -401,9 +401,47 @@ func (a *app) draftPanels(c *ui.Context, p palette) {
 			a.suggestion(c, p, "Review my changes", "Read the diff and flag the risks",
 				"Review my uncommitted changes", icGitBranch, compact)
 		})
+		a.draftProjects(c, p)
 		if !compact {
 			ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(11.5).TextColor(p.faint)
 		}
+	})
+}
+
+// draftProjects offers the first few projects on the draft screen itself,
+// so a new chat starts in the right folder without opening the picker. The
+// project on show wears the selected face; choosing another moves the
+// draft there and the title follows.
+func (a *app) draftProjects(c *ui.Context, p palette) {
+	projects := a.projectDirectories()
+	if len(projects) == 0 {
+		return
+	}
+	projects = projects[:min(len(projects), 4)]
+	ui.Column(c).AlignItems(ui.Center).Gap(6).Children(func() {
+		ui.Text(c, "Start in a project").FontSize(11).FontWeight(600).
+			TextColor(p.faint).SingleLine()
+		ui.Row(c).Wrap().Justify(ui.Center).Gap(6).Children(func() {
+			for _, dir := range projects {
+				dir := dir
+				chosen := a.conversation.draftProject != "" && sameDir(a.conversation.draftProject, dir)
+				c.Key("draft-project-chip:" + dir)
+				b := ui.ButtonBase(c).Label("Work in "+dirBase(dir)).Height(26).Radius(999).
+					PaddingX(10).Gap(6).Cursor(ui.CursorPointer).
+					Border(1, p.hairline).Background(p.detailBg)
+				if chosen {
+					b.Background(p.selected).BorderColor(p.orange.Alpha(.6))
+				}
+				if b.Hovered() {
+					b.Background(p.hover)
+				}
+				b.OnClick(func() { a.selectDraftProject(dir) })
+				b.Children(func() {
+					ui.Icon(c, icFolder).FontSize(12).TextColor(p.muted)
+					ui.Text(c, dirBase(dir)).FontSize(12).TextColor(p.text).SingleLine()
+				})
+			}
+		})
 	})
 }
 

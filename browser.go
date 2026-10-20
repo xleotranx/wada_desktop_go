@@ -237,9 +237,9 @@ func (a *app) browserHome(c *ui.Context, p palette) {
 			name, detail, shortcut string
 			icon                   *ui.SVG
 		}{
-			{"Activity", "See what the agent has run", "⌥⌘U", icActivity},
-			{"Changes", "Review the working tree or a branch", "⌃⇧G", icGitBranch},
-			{"Files", "Browse and read the project's files", "⌘P", icFolder},
+			{"Activity", "See what the agent has run", a.shortcutKeys("activity"), icActivity},
+			{"Changes", "Review the working tree or a branch", a.shortcutKeys("changes"), icGitBranch},
+			{"Files", "Browse and read the project's files", a.shortcutKeys("quick-open"), icFolder},
 			{"New page", "Open an address beside the chat", "", icPlus},
 		}
 		ui.Column(c).FillWidth().Gap(8).Children(func() {

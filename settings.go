@@ -598,6 +598,13 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			a.settingsHeading(c, p, "Keyboard",
 				"Every command the window answers. Dragging a workspace divider resizes its pane; double-clicking it returns the pane to its opening width.",
 				"", nil)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Text(c, "Window keys can be changed in the shortcut editor.").
+					FontSize(12).TextColor(p.muted).Grow(1).MinWidth(0).SingleLine()
+				if components.Button(c, "Customize shortcuts…", components.ButtonSecondary).Clicked() {
+					a.openShortcuts()
+				}
+			})
 			for _, group := range groups {
 				ui.Column(c).FillWidth().Gap(5).Children(func() {
 					ui.Text(c, group.title).FontSize(12).FontWeight(600).
@@ -613,7 +620,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 									AlignItems(ui.Center).Children(func() {
 									ui.Text(c, row[0]).FontSize(13).TextColor(p.text).SingleLine()
 									ui.Spacer(c)
-									a.keycap(c, p, row[1])
+									a.keycap(c, p, a.shortcutRowKeys(row[0], row[1]))
 								})
 							}
 						})

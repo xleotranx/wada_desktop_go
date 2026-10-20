@@ -117,6 +117,7 @@ type preferencesState struct {
 	home                string
 	appearance          string
 	chatText            string
+	keymap              map[string]chord
 	projects            []string
 	projectPins         map[string]bool
 	metadata            *metadataWriter
@@ -195,6 +196,8 @@ type viewState struct {
 	slashHelp          bool
 	slashSelected      int
 	slashSeen          string
+	shortcutOpen       bool
+	shortcutRecord     string
 	// fullView hides the side panes for a conversation-only page, keeping
 	// the states it found so leaving it restores the workspace.
 	fullView         bool

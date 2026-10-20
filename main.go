@@ -123,6 +123,7 @@ func newApp() *app {
 		workspace: workspaceState{policyDirs: make(chan policyTarget, 1),
 			policyWrites: make(chan policyChange, 16)},
 		preferences: preferencesState{home: home,
+			keymap:              map[string]chord{},
 			projectPins:         map[string]bool{},
 			unavailableProjects: map[string]bool{}},
 		search: searchState{searches: make(chan searchRequest, 1)},
@@ -309,6 +310,7 @@ func (a *app) view(c *ui.Context) {
 	a.attachModal(c, p)
 	a.quickOpenDialog(c, p)
 	a.slashHelpDialog(c, p)
+	a.shortcutsDialog(c, p)
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)

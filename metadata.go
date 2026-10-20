@@ -29,6 +29,7 @@ type appMetadata struct {
 	terminalH   float32
 	appearance  string
 	chatText    string
+	keymap      map[string]chord
 	unread      map[string][]string          // server id -> chats with news
 	drafts      map[string]map[string]string // server id -> draft key -> words
 	tabs        map[string][]chatTab         // server id -> its open conversations
@@ -179,6 +180,11 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			state.appearance = normalizeAppearance(value)
 		case "chat_text":
 			state.chatText = normalizeChatText(value)
+		case "keymap":
+			var keymap map[string]chord
+			if json.Unmarshal([]byte(value), &keymap) == nil && len(keymap) > 0 {
+				state.keymap = keymap
+			}
 		case "sidebar_width":
 			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
 				state.sidebarW = float32(width)
@@ -242,6 +248,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('appearance', ?)", Args: []any{normalizeAppearance(state.appearance)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
 	}
 	for serverID, tabs := range state.tabs {
 		statements = append(statements, sqlite.Statement{
@@ -306,6 +313,18 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 	}
 	_, err := db.Transaction(ctx, statements)
 	return err
+}
+
+// encodeKeymap writes the overrides as one stable JSON object.
+func encodeKeymap(keymap map[string]chord) string {
+	if len(keymap) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(keymap)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }
 
 // formatWidth keeps a pane width in the preferences table as a stable
@@ -401,6 +420,9 @@ func (a *app) stateSnapshot() appMetadata {
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
 	}
+	if len(a.preferences.keymap) > 0 {
+		state.keymap = maps.Clone(a.preferences.keymap)
+	}
 	// Entries hold chats or nothing: the store rewrites every list whole,
 	// and an empty one simply has no rows.
 	for key, scope := range a.connections.scopes {
@@ -471,6 +493,10 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
 	a.preferences.appearance = normalizeAppearance(state.appearance)
 	a.preferences.chatText = normalizeChatText(state.chatText)
+	a.preferences.keymap = maps.Clone(state.keymap)
+	if a.preferences.keymap == nil {
+		a.preferences.keymap = map[string]chord{}
+	}
 	if a.preferences.projectPins == nil {
 		a.preferences.projectPins = map[string]bool{}
 	}

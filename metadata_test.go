@@ -35,6 +35,7 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		terminalH:  248,
 		appearance: appearanceDark,
 		chatText:   chatTextLarge,
+		keymap:     map[string]chord{"palette": {Mods: ui.Cmd | ui.Alt, Key: ui.KeyK}},
 		unread:     map[string][]string{localServerID: {"ses_1", "ses_2"}},
 		drafts: map[string]map[string]string{
 			localServerID: {"ses_a": "still typing", "": "a new idea"},

@@ -70,6 +70,9 @@ Global OpenCode configuration is not rewritten by startup.
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices
   are saved.
+- Shortcuts: the main window commands can be rebound from Settings → Keyboard
+  or the command palette. The recorder rejects keys another command or a fixed
+  action already uses, and overrides are saved.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent

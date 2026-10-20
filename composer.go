@@ -70,7 +70,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 					a.modelButton(c, p)
 				},
 				Footer: func(c *ui.Context) {
-					ui.Text(c, "⌘K commands · /help").FontSize(11).TextColor(p.faint).SingleLine()
+					ui.Text(c, a.shortcutKeys("palette")+" commands · /help").FontSize(11).TextColor(p.faint).SingleLine()
 					ui.Spacer(c)
 					ui.Text(c, "Shift+Enter for a new line").FontSize(11).TextColor(p.faint).SingleLine()
 				},

@@ -91,6 +91,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:shortcuts", Title: "Keyboard shortcuts", Group: "Tools",
 			Description: "Every command key the window answers", Shortcut: "⌘/",
 			Icon: icKey, Keywords: []string{"keys", "help", "reference"}},
+		{ID: "action:edit-shortcuts", Title: "Customize shortcuts", Group: "Tools",
+			Description: "Change the window's command keys", Shortcut: "",
+			Icon: icKey, Keywords: []string{"keys", "remap", "bindings", "customize"}},
 		{ID: "action:terminal", Title: "Toggle terminal", Group: "Tools",
 			Description: "Open the shell beneath the chat", Shortcut: "⌘J", Icon: icTerminal,
 			Keywords: []string{"shell", "console", "bottom", "panel"}},
@@ -149,6 +152,11 @@ func (a *app) commandItems() []command.Item {
 			Group: "Chats", Description: s.Directory, Icon: icChat,
 			Keywords: []string{"conversation", "session", "open"}})
 	}
+	for i := range items {
+		if id, ok := shortcutActionIDs[items[i].ID]; ok {
+			items[i].Shortcut = a.shortcutKeys(id)
+		}
+	}
 	return items
 }
 
@@ -190,6 +198,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:shortcuts":
 		a.openSettings(tabShortcuts)
+		return
+	case "action:edit-shortcuts":
+		a.openShortcuts()
 		return
 	case "action:terminal":
 		a.toggleTerminal()

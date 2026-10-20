@@ -118,6 +118,7 @@ type preferencesState struct {
 	appearance          string
 	chatText            string
 	keymap              map[string]chord
+	recent              map[string][]recentFile
 	projects            []string
 	projectPins         map[string]bool
 	metadata            *metadataWriter

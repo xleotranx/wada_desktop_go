@@ -182,6 +182,7 @@ func (a *app) filesRead(rel string) {
 	if st == nil || st.location == "" {
 		return
 	}
+	a.noteRecentFile(st.location, rel)
 	cfg, location := a.activeServerConn(), st.location
 	st.path, st.content, st.clipped = rel, "Reading…", false
 	st.viewer = nil

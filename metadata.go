@@ -30,6 +30,7 @@ type appMetadata struct {
 	appearance  string
 	chatText    string
 	keymap      map[string]chord
+	recent      map[string][]recentFile
 	unread      map[string][]string          // server id -> chats with news
 	drafts      map[string]map[string]string // server id -> draft key -> words
 	tabs        map[string][]chatTab         // server id -> its open conversations
@@ -229,6 +230,14 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 					}
 					state.drafts[strings.TrimPrefix(key, "drafts:")] = drafts
 				}
+			case strings.HasPrefix(key, "recent_files:"):
+				var recent []recentFile
+				if json.Unmarshal([]byte(value), &recent) == nil && len(recent) > 0 {
+					if state.recent == nil {
+						state.recent = map[string][]recentFile{}
+					}
+					state.recent[strings.TrimPrefix(key, "recent_files:")] = recent
+				}
 			}
 		}
 	}
@@ -241,7 +250,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
-		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%' OR key LIKE 'drafts:%'"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%' OR key LIKE 'drafts:%' OR key LIKE 'recent_files:%'"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
@@ -282,6 +291,19 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		statements = append(statements, sqlite.Statement{
 			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
 			Args: []any{"drafts:" + serverID, string(data)},
+		})
+	}
+	for serverID, recent := range state.recent {
+		if len(recent) == 0 {
+			continue
+		}
+		data, err := json.Marshal(recent)
+		if err != nil {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"recent_files:" + serverID, string(data)},
 		})
 	}
 	for i, dir := range state.projects {
@@ -423,6 +445,16 @@ func (a *app) stateSnapshot() appMetadata {
 	if len(a.preferences.keymap) > 0 {
 		state.keymap = maps.Clone(a.preferences.keymap)
 	}
+	if len(a.preferences.recent) > 0 {
+		if state.recent == nil {
+			state.recent = map[string][]recentFile{}
+		}
+		for server, files := range a.preferences.recent {
+			if len(files) > 0 {
+				state.recent[server] = slices.Clone(files)
+			}
+		}
+	}
 	// Entries hold chats or nothing: the store rewrites every list whole,
 	// and an empty one simply has no rows.
 	for key, scope := range a.connections.scopes {
@@ -539,6 +571,12 @@ func (a *app) restoreState(state appMetadata) {
 	}
 	for id, drafts := range state.drafts {
 		a.scopeFor(id).drafts = maps.Clone(drafts)
+	}
+	a.preferences.recent = map[string][]recentFile{}
+	for id, files := range state.recent {
+		if len(files) > 0 {
+			a.preferences.recent[id] = slices.Clone(files)
+		}
 	}
 	for id, tabs := range state.tabs {
 		a.scopeFor(id).tabs = tabs

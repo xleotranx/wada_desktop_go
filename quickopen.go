@@ -34,6 +34,9 @@ func (a *app) quickOpenEntries(st *filesState) []opencode.FileEntry {
 	if st.query != "" {
 		return st.results
 	}
+	if recent := a.recentFilesFor(st.location); len(recent) > 0 {
+		return recent
+	}
 	out := make([]opencode.FileEntry, 0, len(st.entries["."]))
 	for _, entry := range st.entries["."] {
 		if !entry.Directory {
@@ -113,6 +116,8 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 			label := "Workspace files"
 			if st.query != "" {
 				label = "Matches"
+			} else if len(a.recentFilesFor(st.location)) > 0 {
+				label = "Recent files"
 			}
 			ui.Text(c, label).FontSize(11.5).FontWeight(600).TextColor(p.muted).
 				SingleLine()
@@ -144,7 +149,7 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 			})
 		}
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-			ui.Text(c, "↑↓ choose · Enter opens").FontSize(11).TextColor(p.faint).
+			ui.Text(c, "↑↓ choose · Enter opens · type to search all files").FontSize(11).TextColor(p.faint).
 				SingleLine()
 			ui.Spacer(c)
 			ui.Text(c, "Esc closes").FontSize(11).TextColor(p.faint).SingleLine()

@@ -124,6 +124,7 @@ func newApp() *app {
 			policyWrites: make(chan policyChange, 16)},
 		preferences: preferencesState{home: home,
 			keymap:              map[string]chord{},
+			recent:              map[string][]recentFile{},
 			projectPins:         map[string]bool{},
 			unavailableProjects: map[string]bool{}},
 		search: searchState{searches: make(chan searchRequest, 1)},

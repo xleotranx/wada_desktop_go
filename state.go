@@ -105,25 +105,34 @@ type searchState struct {
 
 // viewState owns the view fields coordinated on the UI thread.
 type viewState struct {
-	sidebarW           float32
-	browserW           float32
-	sidebarCollapsed   bool
-	browserCollapsed   bool
-	selectedRail       string
-	projectsExpanded   bool
-	projectCollapsed   map[string]bool
-	projectChatsShown  map[string]bool
-	browserAddress     string
-	browserPage        string
-	browserTool        string
-	browserHistory     []string
-	browserHistoryAt   int
-	expanded           map[string]bool
-	projectPickerOpen  bool
-	projectFilter      string
-	feed               ui.ListState
-	md                 markdown.Options
-	mdTheme            markdown.Theme
+	sidebarW          float32
+	browserW          float32
+	sidebarCollapsed  bool
+	browserCollapsed  bool
+	selectedRail      string
+	projectsExpanded  bool
+	projectCollapsed  map[string]bool
+	projectChatsShown map[string]bool
+	browserAddress    string
+	browserPage       string
+	browserTool       string
+	browserHistory    []string
+	browserHistoryAt  int
+	expanded          map[string]bool
+	projectPickerOpen bool
+	projectFilter     string
+	feed              ui.ListState
+	md                markdown.Options
+	mdTheme           markdown.Theme
+	// The transcript's find bar: its open state, query, the match it
+	// shows, and the match and query it last scrolled to, so a reader can
+	// still scroll away between searches.
+	findOpen           bool
+	findQuery          string
+	findMatch          int
+	findShownMatch     int
+	findShownQuery     string
+	findQuerySeen      string
 	selectAddedProject bool
 	attach             *attachState
 	rename             *renameState

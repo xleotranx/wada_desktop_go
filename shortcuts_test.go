@@ -65,15 +65,16 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatal("Cmd+B did not bring the sidebar back")
 	}
 
-	// Cmd+F aims the sidebar's search field: the key opens it and asks
-	// the field to take the keyboard on its next build.
-	tt.Key(ui.Cmd, ui.KeyF)
+	// Cmd+Shift+F aims the sidebar's search field: the key opens it and
+	// asks the field to take the keyboard on its next build. Cmd+F itself
+	// belongs to find in the transcript.
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
 	if !a.search.searchOpen {
-		t.Fatalf("Cmd+F did not open the search: open=%v focus=%v", a.search.searchOpen, a.search.focusSearch)
+		t.Fatalf("Cmd+Shift+F did not open the search: open=%v focus=%v", a.search.searchOpen, a.search.focusSearch)
 	}
 	tt.Frame()
 	if !a.search.searchOpen {
-		t.Fatalf("Cmd+F did not keep the search open")
+		t.Fatalf("Cmd+Shift+F did not keep the search open")
 	}
 
 	// Cmd+, opens the settings page.

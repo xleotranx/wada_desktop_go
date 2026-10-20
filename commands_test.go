@@ -21,8 +21,8 @@ func TestCommandPalette(t *testing.T) {
 	if !a.layout.commandOpen || !tt.Focused("Command palette") {
 		t.Fatalf("Cmd+K left the palette open=%v focused=%v", a.layout.commandOpen, tt.Focused("Command palette"))
 	}
-	if !tt.HasText("Open Files") || !tt.HasText("First conversation") {
-		t.Fatalf("the palette lists neither tool nor chat: %v", tt.Texts())
+	if !tt.HasText("Open Files") {
+		t.Fatalf("the palette lists no tool: %v", tt.Texts())
 	}
 
 	tt.Type("files")

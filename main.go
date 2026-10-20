@@ -112,6 +112,7 @@ func newApp() *app {
 			browserHistoryAt:  -1,
 			expanded:          map[string]bool{},
 			feed:              newFeed(),
+			findShownMatch:    -1,
 			settingsTab:       tabServers}}
 	a.runtime.pickFolder = a.pickFolderDialog
 	a.runtime.pickExport = a.pickSaveDialog
@@ -1134,5 +1135,11 @@ func (a *app) resetDraft(dir string) {
 }
 
 // freshTranscript empties the transcript for another conversation,
-// forgetting what was streaming and what tools ran.
-func (a *app) freshTranscript() { a.conversation.transcript.Reset(); a.layout.feed = newFeed() }
+// forgetting what was streaming, what tools ran and what find had found.
+func (a *app) freshTranscript() {
+	a.conversation.transcript.Reset()
+	a.layout.feed = newFeed()
+	a.layout.findOpen = false
+	a.layout.findShownMatch = -1
+	a.layout.findShownQuery = ""
+}

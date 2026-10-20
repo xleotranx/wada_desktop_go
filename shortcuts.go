@@ -12,12 +12,16 @@ func (a *app) appShortcuts(c *ui.Context) {
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyK, a.openCommandPalette)
 	c.OnShortcut(ui.Cmd, ui.KeyN, a.startNewChat)
-	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatSearch)
+	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.openChatSearch)
+	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyG, func() { a.openTool("Changes") })
 	c.OnShortcut(ui.Cmd, ui.KeyB, func() { a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed })
 	c.OnShortcut(ui.Cmd, ui.KeyJ, func() { a.layout.browserCollapsed = !a.layout.browserCollapsed })
 	c.OnShortcut(ui.Cmd, ui.KeyComma, func() { a.openSettings("") })
+	if a.layout.findOpen {
+		c.OnShortcut(0, ui.KeyEscape, func() { a.layout.findOpen = false })
+	}
 }
 
 // dialogsUp reports a modal dialog covering the window: rename, delete

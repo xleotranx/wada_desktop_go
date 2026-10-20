@@ -53,8 +53,11 @@ func (a *app) commandItems() []command.Item {
 			Description: "Start a draft in a new conversation", Shortcut: "⌘N",
 			Icon: icPen, Keywords: []string{"draft", "start", "compose"}},
 		{ID: "action:search", Title: "Search chats", Group: "Actions",
-			Description: "Filter the conversation list", Shortcut: "⌘F", Icon: icSearch,
+			Description: "Filter the conversation list", Shortcut: "⌘⇧F", Icon: icSearch,
 			Keywords: []string{"find", "history"}},
+		{ID: "action:find", Title: "Find in chat", Group: "Actions",
+			Description: "Find text in the open transcript", Shortcut: "⌘F", Icon: icSearch,
+			Keywords: []string{"find", "search", "transcript", "match"}},
 		{ID: "action:files", Title: "Open Files", Group: "Tools",
 			Description: "Browse the workspace beside the chat", Shortcut: "⌘P",
 			Icon: icFolder, Keywords: []string{"tree", "explorer", "read"}},
@@ -118,6 +121,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:search":
 		a.openChatSearch()
+		return
+	case "action:find":
+		a.openChatFind()
 		return
 	case "action:files":
 		a.openTool("Files")

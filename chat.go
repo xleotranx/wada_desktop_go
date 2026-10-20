@@ -91,6 +91,9 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 			}
 			ui.Box(c).Absolute().Start(0).End(0).Bottom(0).Height(26).
 				Gradient(p.bg.Alpha(0), p.bg, 180)
+			if a.layout.findOpen {
+				a.chatFindBar(c, p)
+			}
 		})
 
 		a.composer(c, p)

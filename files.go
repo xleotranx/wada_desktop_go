@@ -39,12 +39,9 @@ type filesState struct {
 	note     string // trouble or an explanation, instead of a tree
 	fileErr  string // the file on show refused to read
 	query    string // what the search field holds
-	// focusSearch is a command's request for the field to take the
-	// keyboard on its next build.
-	focusSearch bool
-	results     []opencode.FileEntry
-	finding     bool   // a search is on its way
-	findErr     string // the search refused to run
+	results  []opencode.FileEntry
+	finding  bool   // a search is on its way
+	findErr  string // the search refused to run
 }
 
 // openFiles reads the open chat's folder into the Files tool. A remote chat
@@ -259,7 +256,7 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 // the files whose paths match it, and Enter runs it.
 func (a *app) filesField(c *ui.Context, p palette) {
 	st := a.workspace.files
-	in := components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
+	components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
 		FillWidth().Placeholder("Search files").Label("Search files").FontSize(12.5).
 		OnTextKey(func(k ui.TextKey) bool {
 			if k.Key == ui.KeyEnter && k.Mods == 0 {
@@ -268,19 +265,6 @@ func (a *app) filesField(c *ui.Context, p palette) {
 			}
 			return false
 		})
-	if st.focusSearch {
-		in.Focus()
-		st.focusSearch = false
-	}
-}
-
-// openFilesSearch opens the Files tool and puts the keyboard in its search
-// field, as the file-search key does in the reference app.
-func (a *app) openFilesSearch() {
-	a.openTool("Files")
-	if st := a.workspace.files; st != nil {
-		st.focusSearch = true
-	}
 }
 
 // toggleFiles opens the Files tool, or folds the pane when that tool is

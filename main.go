@@ -307,6 +307,7 @@ func (a *app) view(c *ui.Context) {
 		})
 	})
 	a.attachModal(c, p)
+	a.quickOpenDialog(c, p)
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)

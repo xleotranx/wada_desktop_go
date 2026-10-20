@@ -186,6 +186,8 @@ type viewState struct {
 	toasts             []ui.Toast
 	commandOpen        bool
 	commands           command.State
+	quickOpen          bool
+	quickFocus         bool
 	// fullView hides the side panes for a conversation-only page, keeping
 	// the states it found so leaving it restores the workspace.
 	fullView         bool

@@ -50,23 +50,27 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatal("Cmd+O did not add a project")
 	}
 
-	// Cmd+P opens the Files pane and puts the keyboard in its search
-	// field; Cmd+Shift+E folds that pane and brings it back.
+	// Cmd+P opens the quick file dialog; closing it leaves Cmd+Shift+E
+	// free to fold and restore the Files pane.
 	tt.Key(ui.Cmd, ui.KeyP)
 	tt.Frame()
+	if !a.layout.quickOpen {
+		t.Fatal("Cmd+P did not open the file picker")
+	}
+	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if but := a.layout.browserTool; but != "Files" || a.layout.browserCollapsed {
-		t.Fatalf("Cmd+P opened %q (collapsed=%v)", but, a.layout.browserCollapsed)
+	if a.layout.quickOpen {
+		t.Fatal("Escape did not close the file picker")
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyE)
+	tt.Frame()
+	if a.layout.browserCollapsed || a.layout.browserTool != "Files" {
+		t.Fatal("Cmd+Shift+E did not open the file pane")
 	}
 	tt.Key(ui.Cmd|ui.Shift, ui.KeyE)
 	tt.Frame()
 	if !a.layout.browserCollapsed {
 		t.Fatal("Cmd+Shift+E did not fold the file pane")
-	}
-	tt.Key(ui.Cmd|ui.Shift, ui.KeyE)
-	tt.Frame()
-	if a.layout.browserCollapsed || a.layout.browserTool != "Files" {
-		t.Fatal("Cmd+Shift+E did not bring the file pane back")
 	}
 
 	// Ctrl+Shift+G opens Changes.

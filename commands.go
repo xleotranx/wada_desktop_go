@@ -79,9 +79,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:activity", Title: "Activity view", Group: "Tools",
 			Description: "Watch what the agent has run in this chat", Shortcut: "⌥⌘U",
 			Icon: icActivity, Keywords: []string{"tools", "steps", "running", "shell"}},
-		{ID: "action:files", Title: "Open Files", Group: "Tools",
-			Description: "Browse the workspace beside the chat", Shortcut: "⌘P",
-			Icon: icFolder, Keywords: []string{"tree", "explorer", "read"}},
+		{ID: "action:files", Title: "Quick open file", Group: "Tools",
+			Description: "Find and open a workspace file", Shortcut: "⌘P",
+			Icon: icFolder, Keywords: []string{"files", "search", "open", "tree"}},
 		{ID: "action:changes", Title: "Open Changes", Group: "Tools",
 			Description: "Review the working tree or a branch", Shortcut: "⌃⇧G",
 			Icon: icGitBranch, Keywords: []string{"diff", "git", "patch"}},
@@ -180,7 +180,7 @@ func (a *app) runCommand(id string) {
 		a.toggleActivity()
 		return
 	case "action:files":
-		a.openFilesSearch()
+		a.openQuickOpen()
 		return
 	case "action:changes":
 		a.openTool("Changes")

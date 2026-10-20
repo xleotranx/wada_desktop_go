@@ -26,13 +26,13 @@ func TestCommandPalette(t *testing.T) {
 	}
 
 	tt.Type("files")
-	if err := tt.Click("Open Files"); err != nil {
+	if err := tt.Click("Quick open file"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.layout.commandOpen || a.layout.browserCollapsed || a.layout.browserTool != "Files" {
-		t.Fatalf("activation: open=%v collapsed=%v tool=%q",
-			a.layout.commandOpen, a.layout.browserCollapsed, a.layout.browserTool)
+	if a.layout.commandOpen || !a.layout.quickOpen {
+		t.Fatalf("activation: open=%v quick open=%v",
+			a.layout.commandOpen, a.layout.quickOpen)
 	}
 }
 

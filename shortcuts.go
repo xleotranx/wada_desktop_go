@@ -32,7 +32,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyU, a.toggleUnread)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyA, a.openNextMarked)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
-	c.OnShortcut(ui.Cmd, ui.KeyP, a.openFilesSearch)
+	c.OnShortcut(ui.Cmd, ui.KeyP, a.openQuickOpen)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyE, a.toggleFiles)
 	c.OnShortcut(ui.Cmd, ui.KeyO, a.openProjectDialog)
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyG, func() { a.openTool("Changes") })

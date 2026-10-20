@@ -32,8 +32,8 @@ Global OpenCode configuration is not rewritten by startup.
   history, pins, catalogs and workspace folders. One connection is active at a time.
 - Workspaces: added local projects or server-reported remote projects, a remote
   folder browser, file search/preview, quoting files by path, picker or drop,
-  and working-tree/branch diffs. Cmd+O adds a folder, Cmd+P focuses file search,
-  and Cmd+Shift+E folds the Files pane.
+  and working-tree/branch diffs. Cmd+O adds a folder, Cmd+P opens the quick file
+  picker, and Cmd+Shift+E folds the Files pane.
 - Shell policy: read and update the selected workspace's OpenCode configuration,
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,

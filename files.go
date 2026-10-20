@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"wada-desktop-go/internal/opencode"
@@ -375,7 +376,32 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 	if st.clipped {
 		line += fmt.Sprintf("  ·  the first %d KB", filesShown/1024)
 	}
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Children(func() {
+	row := ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).
+		Label("Preview actions: " + st.path)
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Copy path").Chosen() {
+			a.copyFilesPath()
+		}
+		if m.Item("Copy contents").Chosen() {
+			a.copyFilesContents()
+		}
+		m.Separator()
+		if a.localActive() {
+			if m.Item("Open in editor").Chosen() {
+				a.openFileExternally(c)
+			}
+			if m.Item("Reveal in folder").Chosen() {
+				a.revealFile(c)
+			}
+		}
+		if m.Item("Show in tree").Chosen() {
+			a.filesShowInTree()
+		}
+		if m.Item("Close preview").Chosen() {
+			a.filesCloseViewer()
+		}
+	})
+	row.Children(func() {
 		ui.Text(c, line).FontSize(12).TextColor(p.faint).Grow(1).MinWidth(0).
 			SingleLine().Ellipsis("…")
 		a.filesWrapControl(c, p)
@@ -460,6 +486,32 @@ func (a *app) filesWrapControl(c *ui.Context, p palette) {
 		tint = p.orange
 	}
 	b.Children(func() { ui.Icon(c, icWrap).FontSize(13).TextColor(tint) })
+}
+
+// copyFilesContents puts what the viewer read on the clipboard, saying
+// so when the read is still on its way or the viewer cut the file short.
+func (a *app) copyFilesContents() {
+	st := a.workspace.files
+	if st == nil || st.path == "" {
+		return
+	}
+	if st.fileErr != "" {
+		a.notify(ui.Toast{Title: "The file did not read", Description: st.fileErr})
+		return
+	}
+	if st.content == "" || st.content == "Reading…" {
+		a.notify(ui.Toast{Title: "The file is still being read"})
+		return
+	}
+	if err := a.runtime.copy(st.content); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the file", Description: err.Error()})
+		return
+	}
+	title := "File contents copied"
+	if st.clipped {
+		title = "Copied the first " + strconv.Itoa(filesShown/1024) + " KB"
+	}
+	a.notify(ui.Toast{Title: title})
 }
 
 // copyFilesPath puts the open file's path on the clipboard.

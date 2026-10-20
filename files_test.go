@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"wada-desktop-go/internal/opencode"
@@ -407,6 +408,47 @@ func TestFilesPaneActions(t *testing.T) {
 	}
 	if !strings.HasSuffix(urls[0], "/main.go") || !strings.Contains(urls[1], dir) || strings.HasSuffix(urls[1], "main.go") {
 		t.Fatalf("opened %v", urls)
+	}
+
+	// The preview's own menu copies what the viewer holds.
+	if err := tt.RightClick("Preview actions: main.go"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(tt.Menu(), "Copy contents") {
+		t.Fatalf("the preview menu reads %v", tt.Menu())
+	}
+	if err := tt.ChooseMenuItem("Copy contents"); err != nil {
+		t.Fatal(err)
+	}
+	if copied != "package main" {
+		t.Fatalf("copied %q", copied)
+	}
+}
+
+// TestCopyFilesContentsTrimsAndWaits copies what a clipped viewer holds
+// and refuses a file that has not arrived.
+func TestCopyFilesContentsTrimsAndWaits(t *testing.T) {
+	a := newTestApp(t)
+	var copied string
+	a.runtime.copy = func(text string) error { copied = text; return nil }
+	a.workspace.files = &filesState{path: "big.txt", content: strings.Repeat("x", filesShown), clipped: true}
+	a.copyFilesContents()
+	if len(copied) != filesShown {
+		t.Fatalf("copied %d bytes", len(copied))
+	}
+	if len(a.layout.toasts) != 1 || !strings.Contains(a.layout.toasts[0].Title, "256 KB") {
+		t.Fatalf("the cut is not said: %+v", a.layout.toasts)
+	}
+	copied = ""
+	a.workspace.files.content = "Reading…"
+	a.copyFilesContents()
+	if copied != "" {
+		t.Fatalf("a reading file copied %q", copied)
+	}
+	a.workspace.files.content = ""
+	a.copyFilesContents()
+	if copied != "" {
+		t.Fatalf("an empty file copied %q", copied)
 	}
 }
 

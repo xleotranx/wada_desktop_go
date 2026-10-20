@@ -86,9 +86,11 @@ Global OpenCode configuration is not rewritten by startup.
   marks it read; marking the file on show moves to the next unread one, the
   header counts the read files, and Hide viewed narrows the list. A patch with
   several hunks gets arrows in the header that walk them and name the place
-  (1/2). In Files,
-  Show in tree unfolds the read
-  file's folders (clearing a search) and the cross closes the viewer. The
+  (1/2). In Files, Show in tree unfolds the read file's folders (clearing a
+  search), the cross closes the viewer, and the wrap control folds long lines
+  instead of scrolling them sideways; that choice is saved and applies to the
+  next file. A right-click on the preview path copies the path or the file's
+  contents, opens the editor or folder, and shows or closes the preview. The
   search's matches take the arrows and Enter: a completed search opens the
   chosen match, while a changed query searches again. A file row dragged into
   the composer writes its path as an @mention; files dropped

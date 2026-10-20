@@ -308,6 +308,7 @@ func (a *app) view(c *ui.Context) {
 	})
 	a.attachModal(c, p)
 	a.quickOpenDialog(c, p)
+	a.slashHelpDialog(c, p)
 	a.sessionDialogs(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)
@@ -675,7 +676,13 @@ func (a *app) notify(t ui.Toast) {
 // brings the latest block in view.
 func (a *app) send() bool {
 	text := strings.TrimSpace(a.conversation.draft)
-	if text == "" || !a.agentSend(text) {
+	if text == "" {
+		return false
+	}
+	if a.runSlash(text) {
+		return true
+	}
+	if !a.agentSend(text) {
 		return false
 	}
 	key := a.draftKey()

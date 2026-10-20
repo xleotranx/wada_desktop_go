@@ -192,6 +192,7 @@ type viewState struct {
 	quickFocus         bool
 	quickSelected      int
 	quickList          ui.ListState
+	slashHelp          bool
 	// fullView hides the side panes for a conversation-only page, keeping
 	// the states it found so leaving it restores the workspace.
 	fullView         bool

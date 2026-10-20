@@ -33,6 +33,7 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `drafts.go`: each chat's unsent composer words and their metadata.
 - `chattext.go`: the saved conversation text size and its shortcuts.
 - `quickopen.go`: the centered file picker and its search.
+- `slash.go`: local composer commands, suggestions and their help sheet.
 - `appearance.go`: the saved System/Light/Dark palette and MyGo theme source.
 - `palette.go`, `icons.go`: the app's semantic colors read from the Onevra theme,
   and Lucide icon accessors.

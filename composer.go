@@ -23,6 +23,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 		if a.conversation.target.isDraft() {
 			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
 		}
+		a.slashMenu(c, p)
 		if n := a.queuedTurns(string(a.conversation.target.session)); n > 0 {
 			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().
 				Padding(0, 0, 4, 0).Children(func() {
@@ -69,7 +70,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 					a.modelButton(c, p)
 				},
 				Footer: func(c *ui.Context) {
-					ui.Text(c, "⌘K commands").FontSize(11).TextColor(p.faint).SingleLine()
+					ui.Text(c, "⌘K commands · /help").FontSize(11).TextColor(p.faint).SingleLine()
 					ui.Spacer(c)
 					ui.Text(c, "Shift+Enter for a new line").FontSize(11).TextColor(p.faint).SingleLine()
 				},

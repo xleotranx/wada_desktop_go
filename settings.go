@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -157,7 +158,7 @@ func (a *app) settingsGeneral(c *ui.Context, p palette) {
 		ui.Column(c).MaxWidth(720).Margin(0, ui.Auto).FillWidth().
 			Padding(36, 32, 40, 32).Gap(18).Children(func() {
 			a.settingsHeading(c, p, "General",
-				"How Wada tells you when a chat needs you while you are looking elsewhere.",
+				"How Wada tells you when a chat needs you, and where it keeps its own settings.",
 				"", nil)
 			ui.Text(c, "Notifications").FontSize(13.5).FontWeight(600).TextColor(p.text)
 			a.settingsSwitch(c, p, "Finished turns",
@@ -168,8 +169,36 @@ func (a *app) settingsGeneral(c *ui.Context, p palette) {
 				"Notify when a chat needs approval", &a.preferences.notifyApprovals)
 			ui.Text(c, "Clicking a banner opens that chat. The system asks once whether Wada may notify; banners need a packaged build.").
 				FontSize(12).LineHeight(1.45).TextColor(p.faint)
+
+			ui.Text(c, "Storage").FontSize(13.5).FontWeight(600).TextColor(p.text).
+				Margin(6, 0, 0, 0)
+			path, err := metadataPath()
+			if err != nil {
+				ui.Text(c, "The settings folder is not available: "+err.Error()).
+					FontSize(12.5).TextColor(p.danger)
+			} else {
+				folder := filepath.Dir(path)
+				ui.Text(c, "Settings, drafts and preferences live in one local SQLite database; conversations stay on the server.").
+					FontSize(12.5).LineHeight(1.45).TextColor(p.muted)
+				ui.Row(c).FillWidth().Height(46).Padding(0, 12).AlignItems(ui.Center).Gap(8).
+					Background(p.detailBg).Border(1, p.hairline).Radius(10).Children(func() {
+					ui.Text(c, folder).Font("monospace").FontSize(11.5).TextColor(p.muted).
+						Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+					a.pillButton(c, p, "Copy path", nil, func() { a.copySettingsPath(folder) })
+					a.pillButton(c, p, "Show folder", nil, func() { a.openLocalPath(c, folder) })
+				})
+			}
 		})
 	})
+}
+
+// copySettingsPath puts the settings folder on the clipboard.
+func (a *app) copySettingsPath(path string) {
+	if err := a.runtime.copy(path); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the path", Description: err.Error()})
+		return
+	}
+	a.notify(ui.Toast{Title: "Settings path copied"})
 }
 
 // settingsSwitch is one preference row: what it does beside the switch

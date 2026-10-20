@@ -32,6 +32,8 @@ Global OpenCode configuration is not rewritten by startup.
   walks the catalog with the arrows and Enter as well as the mouse.
 - Servers: managed/local and remote connections, probes, pairing links, scoped
   history, pins, catalogs and workspace folders. One connection is active at a time.
+- Settings: notifications, servers, models, appearance and keyboard, plus the
+  local settings folder with Copy path and Show folder, and the build's version.
 - Workspaces: added local projects or server-reported remote projects, a remote
   folder browser, file search/preview, quoting files by path, picker or drop,
   and working-tree/branch diffs. Local projects can group several folders:

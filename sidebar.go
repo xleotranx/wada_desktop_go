@@ -129,7 +129,7 @@ func (a *app) openChatSearch() {
 
 // sidebarPane holds the workspace switcher, pinned chats and projects.
 func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
-	ui.Column(c).Width(a.layout.sidebarW).Background(p.sidebarBg).Children(func() {
+	ui.Column(c).Width(a.layout.sidebarW).FillHeight().Background(p.sidebarBg).Children(func() {
 		a.headerRow(c, p, headerH)
 
 		ui.Column(c).Grow(1).Padding(4, 10, 6, 10).Gap(2).Children(func() {

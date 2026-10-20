@@ -10,7 +10,7 @@ import (
 
 // browserPane is the native tools and page surface beside the conversation.
 func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
-	ui.Column(c).Grow(1.12).FillHeight().Background(p.bg).Children(func() {
+	ui.Column(c).FillWidth().FillHeight().Background(p.bg).Children(func() {
 		a.browserToolbar(c, p, headerH)
 		ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 		if a.layout.browserTool == "" && a.layout.browserPage == "" {

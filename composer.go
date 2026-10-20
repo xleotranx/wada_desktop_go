@@ -114,18 +114,17 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 }
 
 // conversationWidth is the room the chat column gets: the window less the
-// rail and sidebar, then the content's share of the 1:1.12 split with the
-// tools pane while that pane is open.
+// rail, the sidebar and the tools pane, each with its divider while open.
 func (a *app) conversationWidth(c *ui.Context) float32 {
 	w, _ := c.Size()
 	w -= navRailWidth
 	if !a.layout.sidebarCollapsed {
-		w -= a.layout.sidebarW
+		w -= a.layout.sidebarW + 1
 	}
 	if !a.layout.browserCollapsed {
-		w *= 0.47
+		w -= a.layout.browserW + 1
 	}
-	return w
+	return max(w, 0)
 }
 
 // compactComposer reports a conversation too narrow for labeled chips.

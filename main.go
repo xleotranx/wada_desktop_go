@@ -103,7 +103,8 @@ func newApp() *app {
 			projectPins:         map[string]bool{},
 			unavailableProjects: map[string]bool{}},
 		search: searchState{searches: make(chan searchRequest, 1)},
-		layout: viewState{sidebarW: 320,
+		layout: viewState{sidebarW: sidebarDefaultWidth,
+			browserW:          browserDefaultWidth,
 			selectedRail:      "home",
 			browserCollapsed:  true,
 			projectCollapsed:  map[string]bool{},
@@ -272,15 +273,7 @@ func (a *app) view(c *ui.Context) {
 					a.settingsPane(c, p, headerH)
 					return
 				}
-				if !a.layout.sidebarCollapsed {
-					a.sidebarPane(c, p, headerH)
-					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-				}
-				a.contentPane(c, p)
-				if !a.layout.browserCollapsed {
-					ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-					a.browserPane(c, p, headerH)
-				}
+				a.workspaceLayout(c, p, headerH)
 			})
 		})
 	})
@@ -295,6 +288,78 @@ func (a *app) view(c *ui.Context) {
 		Placement: components.ToastTopEnd,
 		Inset:     headerH,
 	})
+}
+
+// The workspace's panes, their opening sizes and the room each keeps when
+// the window narrows or another pane is dragged wide. The preferred sizes
+// stay in viewState, so a pane that had to give way returns to them when
+// the room does.
+const (
+	sidebarDefaultWidth  float32 = 320
+	sidebarMinWidth      float32 = 220
+	sidebarMaxWidth      float32 = 560
+	browserDefaultWidth  float32 = 440
+	browserMinWidth      float32 = 320
+	browserMaxWidth      float32 = 760
+	conversationMinWidth float32 = 380
+)
+
+// workspaceLayout places the sidebar and the conversation side by side,
+// with Onevra's divider between them. The conversation and the tools pane
+// open on a second divider, so both sides of the window can be resized and
+// both dividers answer arrow keys, Home and End, and a double click that
+// restores the default width.
+func (a *app) workspaceLayout(c *ui.Context, p palette, headerH float32) {
+	body := func() { a.workspaceBody(c, p, headerH) }
+	if a.layout.sidebarCollapsed {
+		body()
+		return
+	}
+	split := components.Split(c, &a.layout.sidebarW, func() {
+		a.sidebarPane(c, p, headerH)
+	}, body, components.SplitOptions{
+		FirstMin:  sidebarMinWidth,
+		SecondMin: conversationMinWidth,
+		Default:   sidebarDefaultWidth,
+	})
+	split.Label("Resize sidebar").Fill()
+	if split.Changed() {
+		a.layout.sidebarW = min(max(a.layout.sidebarW, sidebarMinWidth), sidebarMaxWidth)
+		a.saveState()
+	}
+}
+
+// workspaceBody is the conversation, and the tools pane beside it while
+// that pane is open. The divider stores the chat column's width in the
+// split; the app keeps the tools pane's width, so a wider window gives the
+// conversation the added room instead of stretching the tools.
+func (a *app) workspaceBody(c *ui.Context, p palette, headerH float32) {
+	if a.layout.browserCollapsed {
+		a.contentPane(c, p)
+		return
+	}
+	windowW, _ := c.Size()
+	avail := windowW - navRailWidth
+	if !a.layout.sidebarCollapsed {
+		// The sidebar's own divider takes one DIP before this split.
+		avail -= a.layout.sidebarW + 1
+	}
+	avail = max(avail, 2)
+	contentW := avail - 1 - a.layout.browserW
+	split := components.Split(c, &contentW, func() {
+		a.contentPane(c, p)
+	}, func() {
+		a.browserPane(c, p, headerH)
+	}, components.SplitOptions{
+		FirstMin:  conversationMinWidth,
+		SecondMin: browserMinWidth,
+		Default:   max(0, avail-1-browserDefaultWidth),
+	})
+	split.Label("Resize tools").Fill()
+	if split.Changed() {
+		a.layout.browserW = min(max(avail-1-contentW, browserMinWidth), browserMaxWidth)
+		a.saveState()
+	}
 }
 
 // cardRadius rounds the card's top corners, a little tighter than the

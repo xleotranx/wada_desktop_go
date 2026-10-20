@@ -35,6 +35,9 @@ Global OpenCode configuration is not rewritten by startup.
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
   servers, projects and conversations. Toasts confirm copies and exports.
+- Layout: drag the sidebar or tools divider, nudge it with the arrow keys, or
+  double-click it to restore the default. Cmd+B and Cmd+J fold either side, and
+  the chosen widths carry across restarts.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent

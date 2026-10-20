@@ -30,6 +30,8 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		},
 		active:   "srv-one",
 		modelOff: map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
+		sidebarW: 412,
+		browserW: 536,
 	}
 	if err := db.save(context.Background(), want); err != nil {
 		t.Fatal(err)

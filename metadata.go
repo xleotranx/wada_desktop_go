@@ -6,13 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/plugins/sqlite"
 )
 
 // appMetadata is everything the app keeps between runs: the sidebar's
-// projects and pins, and the settings' servers and model choices.
+// projects and pins, the settings' servers and model choices, and the
+// widths the user dragged the workspace panes to.
 type appMetadata struct {
 	projects    []string
 	projectPins map[string]bool
@@ -20,6 +22,8 @@ type appMetadata struct {
 	servers     []serverConn
 	active      string
 	modelOff    map[string]bool // modelKey of every disabled model
+	sidebarW    float32
+	browserW    float32
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -153,12 +157,24 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 	for _, row := range rows.Values {
 		state.modelOff[modelKey(row[0].(string), row[1].(string), row[2].(string))] = true
 	}
-	rows, err = db.Query(ctx, "SELECT value FROM preferences WHERE key = 'active_server'")
+	rows, err = db.Query(ctx, "SELECT key, value FROM preferences")
 	if err != nil {
 		return state, err
 	}
-	if len(rows.Values) > 0 {
-		state.active = rows.Values[0][0].(string)
+	for _, row := range rows.Values {
+		key, value := row[0].(string), row[1].(string)
+		switch key {
+		case "active_server":
+			state.active = value
+		case "sidebar_width":
+			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
+				state.sidebarW = float32(width)
+			}
+		case "browser_width":
+			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
+				state.browserW = float32(width)
+			}
+		}
 	}
 	return state, nil
 }
@@ -170,6 +186,8 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
 	}
 	for i, dir := range state.projects {
 		statements = append(statements, sqlite.Statement{SQL: "INSERT INTO projects VALUES (?, ?, ?)", Args: []any{dir, i, state.projectPins[dir]}})
@@ -200,6 +218,12 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 	}
 	_, err := db.Transaction(ctx, statements)
 	return err
+}
+
+// formatWidth keeps a pane width in the preferences table as a stable
+// decimal, so a restart reads back the size the divider last showed.
+func formatWidth(width float32) string {
+	return strconv.FormatFloat(float64(width), 'f', -1, 32)
 }
 
 // Pending snapshots are replaced by the newest, and shutdown drains the queue.
@@ -234,6 +258,8 @@ func (a *app) stateSnapshot() appMetadata {
 		servers:     slices.Clone(a.connections.servers),
 		active:      a.connections.activeServer,
 		modelOff:    map[string]bool{},
+		sidebarW:    a.layout.sidebarW,
+		browserW:    a.layout.browserW,
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -279,6 +305,14 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
 	if a.preferences.projectPins == nil {
 		a.preferences.projectPins = map[string]bool{}
+	}
+	// A stored width outside the panes' limits is a layout this version no
+	// longer shows; the default takes over rather than a clipped divider.
+	if state.sidebarW > 0 {
+		a.layout.sidebarW = min(max(state.sidebarW, sidebarMinWidth), sidebarMaxWidth)
+	}
+	if state.browserW > 0 {
+		a.layout.browserW = min(max(state.browserW, browserMinWidth), browserMaxWidth)
 	}
 	a.connections.servers = state.servers
 	if !a.hasServer(localServerID) {

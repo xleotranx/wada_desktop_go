@@ -42,7 +42,7 @@ func newFeed() ui.ListState { return ui.ListState{FollowEnd: true} }
 // contentPane draws the conversation title, transcript and composer.
 func (a *app) contentPane(c *ui.Context, p palette) {
 	a.prepareMarkdown(p)
-	ui.Column(c).Grow(1).Background(p.bg).Children(func() {
+	ui.Column(c).Grow(1).FillHeight().Background(p.bg).Children(func() {
 		// The transcript fills the card: the conversation's name lives in
 		// the sidebar, as macOS 26 draws it.
 		area := ui.Box(c).Grow(1)

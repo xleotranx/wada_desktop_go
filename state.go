@@ -106,6 +106,7 @@ type searchState struct {
 // viewState owns the view fields coordinated on the UI thread.
 type viewState struct {
 	sidebarW           float32
+	browserW           float32
 	sidebarCollapsed   bool
 	browserCollapsed   bool
 	selectedRail       string

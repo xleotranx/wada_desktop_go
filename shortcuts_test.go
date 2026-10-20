@@ -42,6 +42,29 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Ctrl+Shift+G opened %q", but)
 	}
 
+	// Cmd+J folds the tools pane and brings it back, and Cmd+B does the
+	// same for the sidebar, as the reference app's keys do.
+	tt.Key(ui.Cmd, ui.KeyJ)
+	tt.Frame()
+	if !a.layout.browserCollapsed {
+		t.Fatal("Cmd+J did not hide the tools pane")
+	}
+	tt.Key(ui.Cmd, ui.KeyJ)
+	tt.Frame()
+	if a.layout.browserCollapsed {
+		t.Fatal("Cmd+J did not bring the tools pane back")
+	}
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Frame()
+	if !a.layout.sidebarCollapsed {
+		t.Fatal("Cmd+B did not hide the sidebar")
+	}
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Frame()
+	if a.layout.sidebarCollapsed {
+		t.Fatal("Cmd+B did not bring the sidebar back")
+	}
+
 	// Cmd+F aims the sidebar's search field: the key opens it and asks
 	// the field to take the keyboard on its next build.
 	tt.Key(ui.Cmd, ui.KeyF)

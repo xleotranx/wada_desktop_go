@@ -67,18 +67,21 @@ func (a *app) commandItems() []command.Item {
 	}
 	if a.layout.browserCollapsed {
 		items = append(items, command.Item{ID: "action:show-tools", Title: "Show tools",
-			Group: "View", Description: "Open the pane beside the chat", Icon: icPanelRight})
+			Group: "View", Description: "Open the pane beside the chat", Shortcut: "⌘J", Icon: icPanelRight})
 	} else {
 		items = append(items, command.Item{ID: "action:hide-tools", Title: "Hide tools",
-			Group: "View", Description: "Fold the pane beside the chat away", Icon: icPanelRight})
+			Group: "View", Description: "Fold the pane beside the chat away", Shortcut: "⌘J", Icon: icPanelRight})
 	}
 	if a.layout.sidebarCollapsed {
 		items = append(items, command.Item{ID: "action:show-sidebar", Title: "Show sidebar",
-			Group: "View", Description: "Bring the conversations back", Icon: icPanel})
+			Group: "View", Description: "Bring the conversations back", Shortcut: "⌘B", Icon: icPanel})
 	} else {
 		items = append(items, command.Item{ID: "action:hide-sidebar", Title: "Hide sidebar",
-			Group: "View", Description: "Give the chat the whole window", Icon: icPanel})
+			Group: "View", Description: "Give the chat the whole window", Shortcut: "⌘B", Icon: icPanel})
 	}
+	items = append(items, command.Item{ID: "action:reset-layout", Title: "Reset pane widths",
+		Group: "View", Description: "Return both side panes to their default width", Icon: icPanelRight,
+		Keywords: []string{"layout", "resize", "default"}})
 	for _, s := range a.connections.servers {
 		if s.id == a.connections.activeServer {
 			continue
@@ -136,6 +139,11 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:hide-sidebar":
 		a.layout.sidebarCollapsed = true
+		return
+	case "action:reset-layout":
+		a.layout.sidebarW = sidebarDefaultWidth
+		a.layout.browserW = browserDefaultWidth
+		a.saveState()
 		return
 	}
 	switch {

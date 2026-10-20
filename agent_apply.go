@@ -217,6 +217,7 @@ func (a *app) dropSession(sid string) {
 	scope := a.scope()
 	delete(scope.unread, sid)
 	delete(scope.attention, sid)
+	delete(scope.archived, sid)
 	delete(scope.queued, sid)
 	index := -1
 	for i, tab := range scope.tabs {

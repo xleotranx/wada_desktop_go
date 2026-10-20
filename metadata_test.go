@@ -44,7 +44,8 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		recent: map[string][]recentFile{
 			localServerID: {{Dir: "/work/a", Path: "main.go"}},
 		},
-		unread: map[string][]string{localServerID: {"ses_1", "ses_2"}},
+		unread:   map[string][]string{localServerID: {"ses_1", "ses_2"}},
+		archived: map[string][]string{localServerID: {"ses_put_away"}},
 		drafts: map[string]map[string]string{
 			localServerID: {"ses_a": "still typing", "": "a new idea"},
 			"srv-one":     {"ses_remote": "remote words"},

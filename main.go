@@ -81,6 +81,9 @@ type serverScope struct {
 	// show; attention is a background approval waiting for an answer.
 	unread    map[string]bool
 	attention map[string]bool
+	// archived hides chats from the pinned and project lists without
+	// deleting them; the Archived chats filter is where they come back.
+	archived map[string]bool
 	// queued counts accepted prompts waiting for the runner's one active
 	// turn to finish, per chat.
 	queued map[string]int
@@ -160,7 +163,8 @@ func (a *app) scope() *serverScope { return a.scopeFor(a.connections.activeServe
 func (a *app) scopeFor(id string) *serverScope {
 	s := a.connections.scopes[id]
 	if s == nil {
-		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}, queued: map[string]int{}, drafts: map[string]string{}}
+		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{},
+			archived: map[string]bool{}, queued: map[string]int{}, drafts: map[string]string{}}
 		a.connections.scopes[id] = s
 	}
 	return s
@@ -512,7 +516,7 @@ func (a *app) chatMenuButton(c *ui.Context, p palette, title string) {
 	sid := string(a.conversation.target.session)
 	c.Key("chat-menu:" + sid)
 	kebab := ui.ButtonBase(c).Label("Chat options, "+title).Size(22, 22).Radius(6).Center().
-		MarginStart(4).Shrink(0).Tooltip("Rename, export or delete this chat")
+		MarginStart(4).Shrink(0).Tooltip("Rename, export, archive or delete this chat")
 	tint := p.faint
 	kebab.Menu(func(m *ui.Menu) {
 		if m.Item("Rename…").Chosen() {
@@ -521,6 +525,10 @@ func (a *app) chatMenuButton(c *ui.Context, p palette, title string) {
 		if m.Item("Export transcript…").Chosen() {
 			a.exportTranscript()
 		}
+		if m.Item(a.archiveLabel(sid)).Chosen() {
+			a.toggleArchiveChat(opencode.Session{ID: sid, Title: title})
+		}
+		m.Separator()
 		if m.Item("Delete").Chosen() {
 			a.confirmDelete(opencode.Session{ID: sid, Title: title})
 		}
@@ -1269,13 +1277,19 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		a.scope().sessions = ls
 		a.scope().nextCursor = next
 	}
+	settled := false
 	if lerr == nil && len(ls) > 0 {
 		if session, ok := a.restoredTab(ls); ok {
 			a.openConversation(session)
-		} else {
-			a.openConversation(ls[0])
+			settled = true
+		} else if listed := a.listedSessions(); len(listed) > 0 {
+			a.openConversation(listed[0])
+			settled = true
 		}
-	} else {
+	}
+	if !settled {
+		// No conversation to show, or only put-away ones: a clean draft
+		// is less surprising than opening a chat the user archived.
 		a.freshTranscript()
 	}
 	a.scope().sessionsLoaded = true

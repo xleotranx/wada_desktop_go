@@ -11,6 +11,7 @@ const (
 	sidebarFilterUnread    = "unread"
 	sidebarFilterAttention = "attention"
 	sidebarFilterDrafts    = "drafts"
+	sidebarFilterArchived  = "archived"
 )
 
 // setSidebarFilter narrows the sidebar to one kind of chat. The search
@@ -18,7 +19,7 @@ const (
 // closing it.
 func (a *app) setSidebarFilter(value string) {
 	switch value {
-	case sidebarFilterUnread, sidebarFilterAttention, sidebarFilterDrafts:
+	case sidebarFilterUnread, sidebarFilterAttention, sidebarFilterDrafts, sidebarFilterArchived:
 		a.layout.sidebarFilter = value
 	default:
 		a.layout.sidebarFilter = ""
@@ -36,6 +37,8 @@ func sidebarFilterLabel(value string) string {
 		return "Chats needing attention"
 	case sidebarFilterDrafts:
 		return "Chats with drafts"
+	case sidebarFilterArchived:
+		return "Archived chats"
 	}
 	return "Chats"
 }
@@ -46,6 +49,17 @@ func (a *app) filteredSessions() []opencode.Session {
 	scope := a.scope()
 	out := make([]opencode.Session, 0, len(scope.sessions))
 	for _, s := range scope.sessions {
+		archived := scope.archived[s.ID]
+		if a.layout.sidebarFilter == sidebarFilterArchived {
+			// Only the archived filter shows them, and it shows nothing else.
+			if archived {
+				out = append(out, s)
+			}
+			continue
+		}
+		if archived {
+			continue
+		}
 		match := false
 		switch a.layout.sidebarFilter {
 		case sidebarFilterUnread:
@@ -97,6 +111,8 @@ func filterEmptyNoun(value string) string {
 		return "chats needing attention"
 	case sidebarFilterDrafts:
 		return "chats with drafts"
+	case sidebarFilterArchived:
+		return "archived chats"
 	}
 	return "chats"
 }

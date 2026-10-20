@@ -22,7 +22,7 @@ type bellChat struct {
 func (a *app) bellChats() (attention, unread []bellChat) {
 	scope := a.scope()
 	for _, s := range scope.sessions {
-		if !scope.unread[s.ID] {
+		if !scope.unread[s.ID] || scope.archived[s.ID] {
 			continue
 		}
 		row := bellChat{session: s, attention: scope.attention[s.ID]}
@@ -115,7 +115,7 @@ func (a *app) bellPanel(c *ui.Context, p palette, anchor ui.Element) {
 					})
 				}
 			})
-			if len(a.scope().unread) > len(a.scope().attention) {
+			if len(unread) > 0 {
 				ui.Divider(c)
 				if components.Button(c, "Mark all read", components.ButtonGhost).FillWidth().Clicked() {
 					a.markAllRead()

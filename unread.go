@@ -63,7 +63,17 @@ func (a *app) toggleSessionUnread(s opencode.Session) {
 // on an approval, unread is every chat with something new.
 func (a *app) unreadCounts() (attention, unread int) {
 	scope := a.scope()
-	return len(scope.attention), len(scope.unread)
+	for id := range scope.attention {
+		if !scope.archived[id] {
+			attention++
+		}
+	}
+	for id := range scope.unread {
+		if !scope.archived[id] {
+			unread++
+		}
+	}
+	return attention, unread
 }
 
 // openNextMarked visits the next chat needing attention, then any unread
@@ -73,7 +83,7 @@ func (a *app) openNextMarked() {
 	current := string(a.conversation.target.session)
 	for _, onlyAttention := range []bool{true, false} {
 		for _, s := range scope.sessions {
-			if s.ID == current {
+			if s.ID == current || scope.archived[s.ID] {
 				continue
 			}
 			if onlyAttention && scope.attention[s.ID] {

@@ -36,6 +36,7 @@ type appMetadata struct {
 	keymap          map[string]chord
 	recent          map[string][]recentFile
 	unread          map[string][]string          // server id -> chats with news
+	archived        map[string][]string          // server id -> chats put away
 	drafts          map[string]map[string]string // server id -> draft key -> words
 	tabs            map[string][]chatTab         // server id -> its open conversations
 	activeTabs      map[string]string            // server id -> the conversation on show
@@ -233,6 +234,14 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 					}
 					state.activeTabs[strings.TrimPrefix(key, "active_tab:")] = value
 				}
+			case strings.HasPrefix(key, "archived:"):
+				var ids []string
+				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
+					if state.archived == nil {
+						state.archived = map[string][]string{}
+					}
+					state.archived[strings.TrimPrefix(key, "archived:")] = ids
+				}
 			case strings.HasPrefix(key, "unread:"):
 				var ids []string
 				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
@@ -269,7 +278,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
-		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%' OR key LIKE 'drafts:%' OR key LIKE 'recent_files:%'"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%' OR key LIKE 'archived:%' OR key LIKE 'drafts:%' OR key LIKE 'recent_files:%'"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
@@ -301,6 +310,15 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		statements = append(statements, sqlite.Statement{
 			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
 			Args: []any{"unread:" + serverID, encodeIDs(ids)},
+		})
+	}
+	for serverID, ids := range state.archived {
+		if len(ids) == 0 {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"archived:" + serverID, encodeIDs(ids)},
 		})
 	}
 	for serverID, drafts := range state.drafts {
@@ -528,6 +546,17 @@ func (a *app) stateSnapshot() appMetadata {
 			}
 			state.activeTabs[key] = scope.activeTab
 		}
+		if len(scope.archived) > 0 {
+			ids := make([]string, 0, len(scope.archived))
+			for id := range scope.archived {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			if state.archived == nil {
+				state.archived = map[string][]string{}
+			}
+			state.archived[key] = ids
+		}
 		if len(scope.unread) > 0 {
 			ids := make([]string, 0, len(scope.unread))
 			for id := range scope.unread {
@@ -623,6 +652,15 @@ func (a *app) restoreState(state appMetadata) {
 	}
 	for id, pins := range state.pins {
 		a.scopeFor(id).setPins(pins)
+	}
+	for id, ids := range state.archived {
+		scope := a.scopeFor(id)
+		if scope.archived == nil {
+			scope.archived = map[string]bool{}
+		}
+		for _, sid := range ids {
+			scope.archived[sid] = true
+		}
 	}
 	for id, ids := range state.unread {
 		scope := a.scopeFor(id)

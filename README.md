@@ -83,8 +83,12 @@ Global OpenCode configuration is not rewritten by startup.
   the new-chat draft does too. They survive restarts and clear once sent. A
   pencil marks chats and tabs holding words, and New chat wears a Draft badge.
 - Sidebar filters: the title menu and command palette narrow the sidebar to
-  unread chats, chats needing attention or chats with drafts; the list's cross
-  clears the filter.
+  unread chats, chats needing attention, chats with drafts or archived chats;
+  the list's cross clears the filter.
+- Archive: a chat's menu puts it away from the pinned and project lists without
+  deleting it. Show archived chats (title menu or palette) lists them, and each
+  row's menu restores it. Put-away chats drop their pin and leave the unread
+  counts, bell and banners until they are restored.
 - Slash commands: type `/files`, `/new`, `/terminal`, `/help` and the rest for
   local actions. Typing `/` lists matching commands above the composer; ↑↓
   choose and Enter runs the choice, even from a prefix. Words after a command

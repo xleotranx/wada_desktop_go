@@ -60,7 +60,7 @@ func noticeTitle(s opencode.Session) string {
 // notifyTurnEnded banners a turn that finished where the user was not
 // looking: another chat was on show, or the window was in the background.
 func (a *app) notifyTurnEnded(id string, failed bool) {
-	if !a.preferences.notifyFinished || id == "" {
+	if !a.preferences.notifyFinished || id == "" || a.chatArchived(id) {
 		return
 	}
 	s := a.noticeSession(id)
@@ -79,7 +79,7 @@ func (a *app) notifyTurnEnded(id string, failed bool) {
 
 // notifyApproval banners an approval a chat is waiting on.
 func (a *app) notifyApproval(id string, perm *opencode.PermissionData) {
-	if !a.preferences.notifyApprovals || id == "" || perm == nil {
+	if !a.preferences.notifyApprovals || id == "" || perm == nil || a.chatArchived(id) {
 		return
 	}
 	s := a.noticeSession(id)

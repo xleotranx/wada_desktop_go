@@ -95,6 +95,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:filter-drafts", Title: "Show chats with drafts", Group: "Chats",
 			Description: "Narrow the sidebar to unsent words", Icon: icPen,
 			Keywords: []string{"filter", "drafts", "sidebar"}},
+		{ID: "action:filter-archived", Title: "Show archived chats", Group: "Chats",
+			Description: "Narrow the sidebar to chats put away", Icon: icArchive,
+			Keywords: []string{"filter", "archived", "hidden", "sidebar"}},
 		{ID: "action:filter-clear", Title: "Show all chats", Group: "Chats",
 			Description: "Clear the sidebar filter", Icon: icFilter,
 			Keywords: []string{"filter", "all", "clear", "sidebar"}},
@@ -173,7 +176,8 @@ func (a *app) commandItems() []command.Item {
 	// The palette filters on every keystroke, so it carries the newest
 	// slice of history rather than a list that paging can grow without
 	// bound; the sidebar's search still reads the whole store.
-	for _, s := range a.scope().sessions[:min(len(a.scope().sessions), commandChatLimit)] {
+	listed := a.listedSessions()
+	for _, s := range listed[:min(len(listed), commandChatLimit)] {
 		title := s.Title
 		if title == "" {
 			title = "New chat"
@@ -216,6 +220,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:filter-drafts":
 		a.setSidebarFilter(sidebarFilterDrafts)
+		return
+	case "action:filter-archived":
+		a.setSidebarFilter(sidebarFilterArchived)
 		return
 	case "action:filter-clear":
 		a.setSidebarFilter("")

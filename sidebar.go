@@ -235,6 +235,9 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 			if m.Item("Show chats needing attention").Chosen() {
 				a.setSidebarFilter(sidebarFilterAttention)
 			}
+			if m.Item("Show archived chats").Chosen() {
+				a.setSidebarFilter(sidebarFilterArchived)
+			}
 			if m.Item("Show all chats").Chosen() {
 				a.setSidebarFilter("")
 			}
@@ -395,7 +398,7 @@ func (a *app) pinnedSessions() []opencode.Session {
 		order[id] = i
 	}
 	for _, s := range a.scope().sessions {
-		if a.scope().pinned[s.ID] {
+		if a.scope().pinned[s.ID] && !a.chatArchived(s.ID) {
 			out = append(out, s)
 		}
 	}
@@ -592,6 +595,9 @@ func (a *app) projectChats(dir string) []opencode.Session {
 	folders := a.projectFolders(dir)
 	var chats []opencode.Session
 	for _, s := range a.scope().sessions {
+		if a.chatArchived(s.ID) {
+			continue
+		}
 		if slices.ContainsFunc(folders, func(folder string) bool { return sameDir(s.Directory, folder) }) {
 			chats = append(chats, s)
 		}
@@ -748,6 +754,13 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 			}
 			if m.Item(unreadLabel).Chosen() {
 				a.toggleSessionUnread(s)
+			}
+			archiveLabel := "Archive chat"
+			if a.chatArchived(s.ID) {
+				archiveLabel = "Unarchive chat"
+			}
+			if m.Item(archiveLabel).Chosen() {
+				a.toggleArchiveChat(s)
 			}
 			if m.Item("Delete").Chosen() {
 				a.confirmDelete(s)

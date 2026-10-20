@@ -46,11 +46,11 @@ func (a *app) openConversation(session opencode.Session) bool {
 // one, in the order the server listed them. A key past the list or a
 // conversation already open changes nothing.
 func (a *app) openRecentChat(index int) {
-	scope := a.scope()
-	if index < 0 || index >= len(scope.sessions) {
+	chats := a.listedSessions()
+	if index < 0 || index >= len(chats) {
 		return
 	}
-	session := scope.sessions[index]
+	session := chats[index]
 	if session.ID == string(a.conversation.target.session) {
 		return
 	}

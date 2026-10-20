@@ -193,6 +193,9 @@ type viewState struct {
 	browse             *browseState
 	pickerOpen         bool
 	modelFilter        string
+	modelSelected      int
+	modelScrollAt      int
+	modelFocus         bool
 	settingsOpen       bool
 	settingsTab        string
 	serverEditor       *serverEditor

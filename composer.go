@@ -257,6 +257,16 @@ func (a *app) openModelPicker() {
 	}
 	a.layout.modelFilter = ""
 	a.layout.pickerOpen = true
+	a.layout.modelFocus = true
+	a.layout.modelSelected = 0
+	ref := a.sessionModelOf(string(a.conversation.target.session))
+	for i, m := range a.filteredModels() {
+		if m.ProviderID == ref.ProviderID && m.ID == ref.ID {
+			a.layout.modelSelected = i
+			break
+		}
+	}
+	a.layout.modelScrollAt = a.layout.modelSelected
 }
 
 // modelIcon is the model choice where the composer has no room for a
@@ -303,19 +313,55 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 func (a *app) modelPicker(c *ui.Context, p palette, anchor ui.Element, ref opencode.ModelRef, variants []string) {
 	components.Popover(c, anchor, &a.layout.pickerOpen, func(panel ui.Element) {
 		panel.Width(320).MaxHeight(420).Children(func() {
-			textField(c, "Search models", &a.layout.modelFilter, "Search models")
+			in := components.TextBox(c, &a.layout.modelFilter, components.TextBoxOptions{}).
+				FillWidth().Label("Search models").Placeholder("Search models").FontSize(13).
+				OnTextKey(func(k ui.TextKey) bool {
+					models := a.filteredModels()
+					selected := min(max(a.layout.modelSelected, 0), max(len(models)-1, 0))
+					if k.Key == ui.KeyEnter {
+						if len(models) > 0 {
+							a.chooseModel(models[selected], "")
+						}
+						return true
+					}
+					if k.Key == ui.KeyDown && len(models) > 0 {
+						a.layout.modelSelected = min(selected+1, len(models)-1)
+						a.layout.modelScrollAt = a.layout.modelSelected
+						return true
+					}
+					if k.Key == ui.KeyUp && len(models) > 0 {
+						a.layout.modelSelected = max(selected-1, 0)
+						a.layout.modelScrollAt = a.layout.modelSelected
+						return true
+					}
+					return false
+				})
+			if in.Changed() {
+				a.layout.modelSelected, a.layout.modelScrollAt = 0, 0
+			}
+			if a.layout.modelFocus {
+				in.Focus()
+				a.layout.modelFocus = false
+			}
 			models := a.filteredModels()
+			a.layout.modelSelected = min(max(a.layout.modelSelected, 0), max(len(models)-1, 0))
 			ui.Scroll(c).Grow(1).FillWidth().Gap(1).Children(func() {
-				for _, m := range models {
+				for i, m := range models {
 					m := m // fresh per row, the closures keep their own model
+					i := i
 					c.Key("model:" + m.ProviderID + "/" + m.ID)
 					chosen := m.ProviderID == ref.ProviderID && m.ID == ref.ID
 					row := ui.ButtonBase(c).Label("Pick "+m.Name).Height(32).Radius(8).
 						Padding(0, 8).Justify(ui.Start).FillWidth()
 					if row.Hovered() {
 						row.Background(p.hover)
-					} else if chosen {
+						a.layout.modelSelected = i
+					} else if i == a.layout.modelSelected {
 						row.Background(p.selected)
+					}
+					if i == a.layout.modelScrollAt {
+						row.ScrollIntoView()
+						a.layout.modelScrollAt = -1
 					}
 					row.OnClick(func() { a.chooseModel(m, "") })
 					row.Children(func() {

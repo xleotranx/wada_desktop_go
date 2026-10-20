@@ -27,7 +27,9 @@ Global OpenCode configuration is not rewritten by startup.
 - Turns: streaming markdown, copy and quote actions on each message, stop, tool
   activity, shell/edit approvals and usage.
 - Models: server catalogs, per-model enable switches, draft picks and reasoning
-  variants. Settings and the composer share one filtering implementation.
+  variants. Settings and the composer share one filtering implementation. The
+  composer's picker opens on the chat's model, takes a filter as it opens, and
+  walks the catalog with the arrows and Enter as well as the mouse.
 - Servers: managed/local and remote connections, probes, pairing links, scoped
   history, pins, catalogs and workspace folders. One connection is active at a time.
 - Workspaces: added local projects or server-reported remote projects, a remote

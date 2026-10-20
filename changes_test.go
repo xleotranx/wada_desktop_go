@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -500,5 +501,90 @@ func TestReviewNoteEnterAdds(t *testing.T) {
 	}
 	if len(st.review) != 0 {
 		t.Fatalf("the note stayed: %+v", st.review)
+	}
+}
+
+// TestChangesFileActions copies a changed file's path and hands it to this
+// machine's editor and file manager, then previews it in Files.
+func TestChangesFileActions(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	dir := t.TempDir()
+	a.workspace.changes = &changesState{mode: changesWorking, dir: dir, files: []opencode.Change{
+		{File: "src/app.go", Patch: "@@ -1 +1 @@\n-a\n+b\n"},
+	}}
+	var copied string
+	a.runtime.copy = func(text string) error { copied = text; return nil }
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	openActions := func() {
+		t.Helper()
+		if err := tt.Click("File actions for src/app.go"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openActions()
+	if err := tt.ChooseMenuItem("Copy path"); err != nil {
+		t.Fatal(err)
+	}
+	if copied != filepath.Join(dir, "src/app.go") {
+		t.Fatalf("copied %q", copied)
+	}
+	openActions()
+	if err := tt.ChooseMenuItem("Open in editor"); err != nil {
+		t.Fatal(err)
+	}
+	openActions()
+	if err := tt.ChooseMenuItem("Reveal in folder"); err != nil {
+		t.Fatal(err)
+	}
+	urls := tt.OpenedURLs()
+	if len(urls) != 2 {
+		t.Fatalf("opened %d URLs: %v", len(urls), urls)
+	}
+	if !strings.HasSuffix(urls[0], "/src/app.go") || !strings.Contains(urls[1], dir) ||
+		strings.HasSuffix(urls[1], "app.go") {
+		t.Fatalf("opened %v", urls)
+	}
+	openActions()
+	if err := tt.ChooseMenuItem("Preview in Files"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.layout.browserTool != "Files" || a.workspace.files == nil ||
+		a.workspace.files.path != "src/app.go" {
+		t.Fatalf("preview landed in %q at %+v", a.layout.browserTool, a.workspace.files)
+	}
+}
+
+// TestChangesFileActionsKeepRemoteFilesOnTheServer leaves the editor and
+// file manager out for a server's folder, and copies the server's path.
+func TestChangesFileActionsKeepRemoteFilesOnTheServer(t *testing.T) {
+	a := newTestApp(t)
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: "http://10.0.0.12:4096"})
+	a.connections.activeServer = "srv-box"
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, dir: "/srv/app", files: []opencode.Change{
+		{File: "src/app.go", Patch: "@@ -1 +1 @@\n-a\n+b\n"},
+	}}
+	var copied string
+	a.runtime.copy = func(text string) error { copied = text; return nil }
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.Click("File actions for src/app.go"); err != nil {
+		t.Fatal(err)
+	}
+	items := tt.Menu()
+	if slices.Contains(items, "Open in editor") || slices.Contains(items, "Reveal in folder") {
+		t.Fatalf("a remote file offered local actions: %v", items)
+	}
+	if !slices.Contains(items, "Preview in Files") || !slices.Contains(items, "Copy path") {
+		t.Fatalf("the menu lacks its server-safe actions: %v", items)
+	}
+	if err := tt.ChooseMenuItem("Copy path"); err != nil {
+		t.Fatal(err)
+	}
+	if copied != "src/app.go" {
+		t.Fatalf("copied %q", copied)
 	}
 }

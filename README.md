@@ -72,7 +72,9 @@ Global OpenCode configuration is not rewritten by startup.
   a tab strip, each with its own close action. Changes draws the selected
   file's patch with its name and counts above it, opens that file in Files
   from the header, and switches between a unified and a split diff; the
-  choice is saved. Hovering a line and clicking its gutter + opens a review
+  choice is saved. The header's actions menu also hands the file to this
+  machine's editor or file manager, or copies its path; those local actions
+  stay out of a remote workspace. Hovering a line and clicking its gutter + opens a review
   note under that line; Add to message (or Enter in the note) writes it into
   the composer as "In <file> at line N: …", so a review reaches the agent
   without leaving the diff. The bar under the patch counts the notes and

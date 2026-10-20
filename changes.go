@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -224,6 +225,7 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 			ui.Text(c, part.text).Font("monospace").FontSize(11).TextColor(part.tint).Shrink(0)
 		}
 		a.previewChangeButton(c, p, f.File)
+		a.changeFileMenuButton(c, p, f.File)
 		a.diffStyleControl(c, p)
 	})
 	layout := a.diffLayout()
@@ -531,6 +533,77 @@ func (a *app) previewChangeButton(c *ui.Context, p palette, path string) {
 	}
 	b.OnClick(func() { a.previewChangedFile(path) })
 	b.Children(func() { ui.Icon(c, icFileDoc).FontSize(14).TextColor(p.muted) })
+}
+
+// changeFileMenuButton gathers the desktop actions for one changed file:
+// preview, the editor, the file manager and the path. The local actions
+// only appear for a workspace on this machine.
+func (a *app) changeFileMenuButton(c *ui.Context, p palette, file string) {
+	c.Key("change-actions:" + file)
+	b := ui.ButtonBase(c).Label("File actions for "+file).Size(26, 24).Radius(6).Center().
+		Cursor(ui.CursorPointer).Tooltip("File actions")
+	if b.Hovered() {
+		b.Background(p.selected)
+	}
+	b.Menu(func(m *ui.Menu) {
+		if m.Item("Preview in Files").Chosen() {
+			a.previewChangedFile(file)
+		}
+		if a.localActive() && a.changesDir() != "" {
+			if m.Item("Open in editor").Chosen() {
+				a.openChangeFile(c, file)
+			}
+			if m.Item("Reveal in folder").Chosen() {
+				a.revealChangeFile(c, file)
+			}
+		}
+		m.Separator()
+		if m.Item("Copy path").Chosen() {
+			a.copyChangePath(file)
+		}
+	})
+	b.Children(func() { ui.Icon(c, icEllipsis).FontSize(14).TextColor(p.muted) })
+}
+
+// changesDir is the folder the diff compares, empty before its first read.
+func (a *app) changesDir() string {
+	if st := a.workspace.changes; st != nil {
+		return st.dir
+	}
+	return ""
+}
+
+// changePath resolves one changed file against the compared folder.
+func (a *app) changePath(file string) string {
+	if dir := a.changesDir(); dir != "" {
+		return filepath.Join(dir, file)
+	}
+	return file
+}
+
+// openChangeFile hands a changed file to this machine's editor.
+func (a *app) openChangeFile(c *ui.Context, file string) {
+	a.openLocalPath(c, a.changePath(file))
+}
+
+// revealChangeFile shows a changed file's folder in this machine's file
+// manager.
+func (a *app) revealChangeFile(c *ui.Context, file string) {
+	a.openLocalPath(c, filepath.Dir(a.changePath(file)))
+}
+
+// copyChangePath puts one changed file's path on the clipboard, absolute
+// for a folder on this machine and as the server knows it otherwise.
+func (a *app) copyChangePath(file string) {
+	text := file
+	if a.localActive() && a.changesDir() != "" {
+		text = filepath.Join(a.changesDir(), file)
+	}
+	if err := a.runtime.copy(text); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the path", Description: err.Error()})
+		return
+	}
+	a.notify(ui.Toast{Title: "File path copied"})
 }
 
 // previewChangedFile shows one changed file in the Files tool, growing

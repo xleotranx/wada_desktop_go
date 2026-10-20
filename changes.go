@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 	"wada-desktop-go/internal/opencode"
 
@@ -34,6 +36,22 @@ type changesState struct {
 	// Keep the selected patch's buffers and selection across frames.
 	patchFile, patch string
 	diff             *editor.DiffState
+
+	// review holds the notes written on the patches, kept while another
+	// file is on show until they join the message or are discarded.
+	review      []*reviewNote
+	nextReview  uint64
+	reviewFocus uint64
+}
+
+// reviewNote is one comment on a line of a patch: the file and side it
+// belongs to, the line, and the words the user is writing.
+type reviewNote struct {
+	id    uint64
+	file  string
+	side  editor.DiffSide
+	line  int
+	draft string
 }
 
 // changesRead is one read of a workspace's changes: the folder and mode it
@@ -225,9 +243,144 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 			Font("monospace").FontSize(11.5).LineHeight(1.5).FillWidth().Grow(1)
 		return
 	}
+	// The gutter's + opens a review note on its line, and the notes on
+	// this file stand under the lines they belong to.
+	st.diff.OnGutterButton = func(r editor.DiffLineRange) { a.beginReviewNote(f.File, r) }
+	notes := a.reviewNotesFor(f.File)
+	annotations := make([]editor.DiffAnnotation, 0, len(notes))
+	for _, note := range notes {
+		annotations = append(annotations, editor.DiffAnnotation{
+			Side: note.side, Line: note.line, Height: 66, Key: note.id,
+		})
+	}
+	st.diff.Annotations = annotations
+	st.diff.RenderAnnotation = func(c *ui.Context, ann editor.DiffAnnotation) {
+		if id, ok := ann.Key.(uint64); ok {
+			a.reviewNoteView(c, p, id)
+		}
+	}
 	st.diff.Theme = &editor.Theme{Background: p.bg, Text: p.muted,
 		LineNumber: p.faint, Added: p.diffAdd, Deleted: p.diffDel, Modified: p.link}
 	editor.DiffView(c.Key("patch:"+f.File), st.diff).FillWidth().Grow(1)
+}
+
+// beginReviewNote opens a note on one line of the selected patch, or
+// brings the note already there back to the keyboard.
+func (a *app) beginReviewNote(file string, r editor.DiffLineRange) {
+	st := a.workspace.changes
+	if st == nil || file == "" {
+		return
+	}
+	for _, note := range st.review {
+		if note.file == file && note.side == r.Side && note.line == r.Start {
+			st.reviewFocus = note.id
+			return
+		}
+	}
+	st.nextReview++
+	note := &reviewNote{id: st.nextReview, file: file, side: r.Side, line: r.Start}
+	st.review = append(st.review, note)
+	st.reviewFocus = note.id
+}
+
+// reviewNotesFor lists the notes on one file, oldest first.
+func (a *app) reviewNotesFor(file string) []*reviewNote {
+	st := a.workspace.changes
+	if st == nil {
+		return nil
+	}
+	out := make([]*reviewNote, 0, len(st.review))
+	for _, note := range st.review {
+		if note.file == file {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
+// removeReviewNote discards one note.
+func (a *app) removeReviewNote(id uint64) {
+	st := a.workspace.changes
+	if st == nil {
+		return
+	}
+	for i, note := range st.review {
+		if note.id == id {
+			st.review = append(st.review[:i], st.review[i+1:]...)
+			if st.reviewFocus == id {
+				st.reviewFocus = 0
+			}
+			return
+		}
+	}
+}
+
+// addReviewNote writes one note into the composer as a sentence the agent
+// reads with the rest of the message, then puts the keyboard there.
+func (a *app) addReviewNote(note *reviewNote) {
+	if note == nil {
+		return
+	}
+	text := strings.TrimSpace(note.draft)
+	if text == "" {
+		return
+	}
+	entry := fmt.Sprintf("In %s at line %d: %s", note.file, note.line+1, text)
+	draft := strings.TrimRight(a.conversation.draft, "\n")
+	if draft != "" {
+		draft += "\n\n"
+	}
+	a.conversation.draft = draft + entry + "\n"
+	a.removeReviewNote(note.id)
+	a.layout.composerFocus = true
+}
+
+// reviewNoteView draws the note editor an annotation makes room for: the
+// line it belongs to, the words, and the actions that add or drop it.
+func (a *app) reviewNoteView(c *ui.Context, p palette, id uint64) {
+	st := a.workspace.changes
+	if st == nil {
+		return
+	}
+	var note *reviewNote
+	for _, candidate := range st.review {
+		if candidate.id == id {
+			note = candidate
+			break
+		}
+	}
+	if note == nil {
+		return
+	}
+	c.Key("review-note:" + strconv.FormatUint(note.id, 10))
+	ui.Column(c).FillWidth().Padding(5, 8).Gap(4).Radius(8).
+		Background(p.detailBg).Border(1, p.hairline).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.Icon(c, icQuote).FontSize(11).TextColor(p.orange).Shrink(0)
+			ui.Text(c, fmt.Sprintf("%s:%d", note.file, note.line+1)).Font("monospace").
+				FontSize(10.5).TextColor(p.muted).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+			discard := ui.ButtonBase(c).Label("Discard the note").Size(18, 18).Radius(4).Center().
+				Tooltip("Discard the note")
+			if discard.Hovered() {
+				discard.Background(p.hover)
+			}
+			discard.OnClick(func() { a.removeReviewNote(note.id) })
+			discard.Children(func() { ui.Icon(c, icClose).FontSize(10).TextColor(p.faint) })
+		})
+		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+			in := components.TextBox(c, &note.draft, components.TextBoxOptions{}).Grow(1).MinWidth(0).
+				Label("Review note").Placeholder("Ask for a change").FontSize(12)
+			if st.reviewFocus == note.id {
+				in.Focus()
+				st.reviewFocus = 0
+			}
+			add := components.Button(c, "Add to message", components.ButtonSecondary).Shrink(0)
+			add.Disabled(strings.TrimSpace(note.draft) == "")
+			if add.Clicked() {
+				a.addReviewNote(note)
+			}
+		})
+	})
 }
 
 // modePill is one of the Changes tool's reads, the chosen one standing out.

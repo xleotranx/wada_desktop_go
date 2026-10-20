@@ -350,3 +350,97 @@ func TestChangesPreviewsTheSelectedFile(t *testing.T) {
 		t.Fatalf("the strip lost a tab: %v", kinds)
 	}
 }
+
+// TestChangesReviewNotes opens a note from the diff's gutter, writes it,
+// and adds it to the message; the next note appends after it.
+func TestChangesReviewNotes(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "app.go", Patch: "@@ -1,2 +1,3 @@\n package main\n+// added\n \n", Additions: 1},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.changes
+	if st.diff == nil || st.diff.OnGutterButton == nil {
+		t.Fatal("the diff does not offer notes")
+	}
+	st.diff.OnGutterButton(editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1})
+	tt.Frame()
+	if !tt.HasText("app.go:2") || !tt.HasText("Review note") {
+		t.Fatalf("the note editor is missing: %v", tt.Texts())
+	}
+	tt.Type("return early when the list is empty")
+	tt.Frame()
+	if len(st.review) != 1 || st.review[0].draft != "return early when the list is empty" {
+		t.Fatalf("the note reads %+v", st.review)
+	}
+	if err := tt.Click("Add to message"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := a.conversation.draft; got != "In app.go at line 2: return early when the list is empty\n" {
+		t.Fatalf("the note reached the composer as %q", got)
+	}
+	if len(st.review) != 0 {
+		t.Fatalf("the note stayed: %+v", st.review)
+	}
+
+	// A second note adds a sentence of its own after a blank line.
+	st.diff.OnGutterButton(editor.DiffLineRange{Side: editor.DiffNew, Start: 2, End: 2})
+	tt.Frame()
+	tt.Type("this line has no context")
+	tt.Frame()
+	if err := tt.Click("Add to message"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	want := "In app.go at line 2: return early when the list is empty\n\n" +
+		"In app.go at line 3: this line has no context\n"
+	if a.conversation.draft != want {
+		t.Fatalf("the message reads %q, want %q", a.conversation.draft, want)
+	}
+}
+
+// TestReviewNotesStayPerFile keeps a note on one file while another patch
+// is on show, and lets it be discarded.
+func TestReviewNotesStayPerFile(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "app.go", Patch: "@@ -1,2 +1,3 @@\n package main\n+// added\n \n"},
+		{File: "other.txt", Patch: "@@ -1 +1 @@\n-before\n+after\n"},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.changes
+	st.diff.OnGutterButton(editor.DiffLineRange{Side: editor.DiffNew, Start: 0, End: 0})
+	tt.Frame()
+	tt.Type("first note")
+	tt.Frame()
+	if err := tt.Click("Show other.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if notes := a.reviewNotesFor("app.go"); len(notes) != 1 || notes[0].draft != "first note" {
+		t.Fatalf("the note left its file: %+v", notes)
+	}
+	if tt.HasText("Ask for a change") {
+		t.Fatal("the note showed under another file")
+	}
+	if err := tt.Click("Show app.go"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	notes := a.reviewNotesFor("app.go")
+	if len(notes) != 1 || notes[0].draft != "first note" || !tt.HasText("app.go:1") {
+		t.Fatalf("the note did not come back with its file: %+v %v", notes, tt.Texts())
+	}
+	if err := tt.Click("Discard the note"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.reviewNotesFor("app.go")) != 0 {
+		t.Fatal("the discarded note stayed")
+	}
+}

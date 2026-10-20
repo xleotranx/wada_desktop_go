@@ -21,7 +21,7 @@ func TestCommandPalette(t *testing.T) {
 	if !a.layout.commandOpen || !tt.Focused("Command palette") {
 		t.Fatalf("Cmd+K left the palette open=%v focused=%v", a.layout.commandOpen, tt.Focused("Command palette"))
 	}
-	if !tt.HasText("Show unread chats") {
+	if !tt.HasText("Find in chat") {
 		t.Fatalf("the palette lists no action: %v", tt.Texts())
 	}
 

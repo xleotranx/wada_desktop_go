@@ -77,6 +77,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:folder", Title: "Open folder", Group: "Actions",
 			Description: "Add a project folder", Shortcut: "⌘O",
 			Icon: icFolder, Keywords: []string{"project", "workspace", "directory"}},
+		{ID: "action:history", Title: "Chat history", Group: "Chats",
+			Description: "Every chat this app has listed, newest first", Icon: icHistory,
+			Keywords: []string{"history", "recents", "older", "chats"}},
 		{ID: "action:search", Title: "Search chats", Group: "Actions",
 			Description: "Filter the conversation list", Shortcut: "⌘⌥F", Icon: icSearch,
 			Keywords: []string{"find", "history"}},
@@ -284,6 +287,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:search":
 		a.openChatSearch()
+		return
+	case "action:history":
+		a.openHistory()
 		return
 	case "action:find":
 		a.openChatFind()

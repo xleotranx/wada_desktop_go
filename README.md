@@ -60,6 +60,9 @@ Global OpenCode configuration is not rewritten by startup.
   right-click on a tab closes it, the other tabs or the whole strip; all three
   are in the command palette too, and closed tabs stay in the reopen history.
   Dragging a tab onto another moves it to that slot, and the order is saved.
+- History: the rail's clock opens every chat the app has listed, newest first,
+  with its folder and age. Type to filter, use the arrows and Enter to open one,
+  and Load older chats asks the server for the next page.
   The native window title names the open chat. Cmd+F finds text in the open
   transcript and Cmd+Option+F searches chats; its results take the arrows and
   Enter, and a lookup still running waits rather

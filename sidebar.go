@@ -26,7 +26,7 @@ func (a *app) navRail(c *ui.Context, p palette) {
 		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(4).Padding(10, 7).Children(func() {
 			a.railButton(c, p, "home", "Home", icHome, a.startNewChat)
 			a.railButton(c, p, "projects", "Projects", icStack, a.openProjectDialog)
-			a.railButton(c, p, "history", "History", icHistory, a.openChatSearch)
+			a.railButton(c, p, "history", "History", icHistory, a.openHistory)
 			c.Key("rail:more")
 			more := ui.ButtonBase(c).Label("More").Size(36, 36).Radius(9).Center().
 				Cursor(ui.CursorPointer).Tooltip("More navigation")

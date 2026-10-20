@@ -318,6 +318,7 @@ func (a *app) view(c *ui.Context) {
 	})
 	a.attachModal(c, p)
 	a.quickOpenDialog(c, p)
+	a.historyDialog(c, p)
 	a.slashHelpDialog(c, p)
 	a.shortcutsDialog(c, p)
 	a.sessionDialogs(c, p)

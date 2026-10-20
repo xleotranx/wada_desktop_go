@@ -209,6 +209,11 @@ type viewState struct {
 	modelFocus         bool
 	settingsOpen       bool
 	settingsTab        string
+	historyOpen        bool
+	historyFocus       bool
+	historyQuery       string
+	historySelected    int
+	historyList        ui.ListState
 	serverEditor       *serverEditor
 	serverConfirm      *confirmState
 	modelsQuery        string

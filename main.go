@@ -523,6 +523,9 @@ func (a *app) chatMenuButton(c *ui.Context, p palette, title string) {
 		if m.Item("Rename…").Chosen() {
 			a.requestRename(opencode.Session{ID: sid, Title: title})
 		}
+		if m.Item("Copy transcript").Chosen() {
+			a.copyTranscript()
+		}
 		if m.Item("Export transcript…").Chosen() {
 			a.exportTranscript()
 		}

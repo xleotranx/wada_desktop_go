@@ -133,6 +133,9 @@ Global OpenCode configuration is not rewritten by startup.
   model, unread), View toggles for the panes, terminal, full view and pane
   sizes, plus Help for the keyboard reference and slash commands. The app's own
   items leave accelerators to the remappable shortcut map.
+- Chat menu: the title's kebab renames the chat, copies the transcript to the
+  clipboard or exports it as markdown, archives it, or deletes it. The copy
+  writes what the export would, and the command palette carries it too.
 - Shortcuts: the main window commands — tab cycling, folder opening, conversation
   text steps and more — can be rebound from Settings → Keyboard or the command
   palette. The recorder rejects keys another command or a fixed action already

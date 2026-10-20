@@ -73,6 +73,23 @@ func (a *app) exportTranscript() {
 	})
 }
 
+// copyTranscript puts the open conversation on the clipboard as the same
+// markdown the export writes. A draft that never sent has nothing to copy.
+func (a *app) copyTranscript() {
+	sid := string(a.conversation.target.session)
+	title := a.conversation.selected
+	if sid == "" || title == "" {
+		return
+	}
+	text := transcriptMarkdown(title, a.conversation.transcript.Snapshot(), time.Now())
+	if err := a.runtime.copy(text); err != nil {
+		a.notify(ui.Toast{Title: "The transcript did not copy", Description: err.Error(),
+			Type: components.ToastError})
+		return
+	}
+	a.notify(ui.Toast{Title: "Transcript copied", Type: components.ToastSuccess})
+}
+
 // pickSaveDialog is the real export chooser: the system's save panel,
 // opened in the background, its answer landing on the window.
 func (a *app) pickSaveDialog(done func(path string)) {

@@ -166,6 +166,9 @@ func (a *app) commandItems() []command.Item {
 				Group: "View", Description: "Keep this conversation and put the rest away", Icon: icClose,
 				Keywords: []string{"close", "tabs", "others"}})
 		}
+		items = append(items, command.Item{ID: "action:copy-transcript", Title: "Copy transcript",
+			Group: "Actions", Description: "Put this conversation on the clipboard as markdown",
+			Icon: icCopy, Keywords: []string{"copy", "markdown", "export", "clipboard", "transcript"}})
 	}
 	items = append(items, command.Item{ID: "action:reset-layout", Title: "Reset pane widths",
 		Group: "View", Description: "Return both side panes to their default width", Icon: icPanelRight,
@@ -340,6 +343,9 @@ func (a *app) runCommand(id string) {
 		if sid := string(a.conversation.target.session); sid != "" {
 			a.closeTab(sid)
 		}
+		return
+	case "action:copy-transcript":
+		a.copyTranscript()
 		return
 	case "action:close-other-tabs":
 		if sid := string(a.conversation.target.session); sid != "" {

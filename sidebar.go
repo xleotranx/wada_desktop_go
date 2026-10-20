@@ -465,6 +465,15 @@ func (a *app) projectDirectories() []string {
 	return projects
 }
 
+// copyFolderPath puts one workspace folder's path on the clipboard.
+func (a *app) copyFolderPath(dir string) {
+	if err := a.runtime.copy(dir); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the folder path", Description: err.Error()})
+		return
+	}
+	a.notify(ui.Toast{Title: "Folder path copied"})
+}
+
 // moveProjectTo puts a dragged project where another one sits. Projects
 // stay in their pinned group: crossing the line would only snap back, so
 // it says why instead.
@@ -625,6 +634,15 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) ui.Element {
 			}
 			if m.Item(label).Chosen() {
 				a.toggleProjectPin(dir)
+			}
+			if a.localActive() {
+				m.Separator()
+				if m.Item("Copy folder path").Chosen() {
+					a.copyFolderPath(dir)
+				}
+				if m.Item("Show in Finder").Chosen() {
+					a.openLocalPath(c, dir)
+				}
 			}
 			if m.Item("Remove project").Chosen() {
 				a.removeProject(dir)

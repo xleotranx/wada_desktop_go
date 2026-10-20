@@ -67,6 +67,19 @@ func (a *app) workspaceChip(c *ui.Context, p palette, dir string) {
 		b.Background(p.hover)
 	}
 	b.OnClick(func() { a.openTool("Files") })
+	b.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Copy workspace path").Chosen() {
+			a.copyFolderPath(dir)
+		}
+		if a.localActive() {
+			if m.Item("Show in Finder").Chosen() {
+				a.openLocalPath(c, dir)
+			}
+		}
+		if m.Item("Review changes").Chosen() {
+			a.openTool("Changes")
+		}
+	})
 	b.Children(func() {
 		ui.Icon(c, icFolder).FontSize(11).TextColor(p.faint).Shrink(0)
 		ui.Text(c, name).FontSize(11.5).TextColor(p.muted).SingleLine().

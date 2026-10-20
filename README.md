@@ -44,8 +44,10 @@ Global OpenCode configuration is not rewritten by startup.
   Add folder… in a project’s menu nests their chats under one row, each linked
   chat tagged with its folder, and the new-chat project picker lists those
   folders under the project, starting the chat where the chosen folder stands.
-  The picker opens on the draft’s folder; typing filters, the arrows choose and
-  Enter keeps the chat there. The draft page itself offers the first projects
+  A project's menu and the title's workspace chip copy the folder path or
+  reveal it in Finder; a remote folder offers only the copy. The picker opens
+  on the draft’s folder; typing filters, the arrows choose and Enter keeps the
+  chat there. The draft page itself offers the first projects
   as chips, so a new chat can start in one without opening the picker. A file preview can copy its path or hand the
   file to the desktop editor or folder. Cmd+O adds a folder, Cmd+P opens the quick
   file picker where arrows choose and Enter opens; its empty query shows recently

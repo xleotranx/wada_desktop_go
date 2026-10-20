@@ -180,8 +180,8 @@ func (a *app) blockIdentity(i int) any {
 func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 	block := ui.Column(c).FillWidth().MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).Gap(10)
 	// User and answer rows earn copy and quote actions while the pointer
-	// or keyboard is on them; the row is empty otherwise, leaving the
-	// reading rhythm alone.
+	// or keyboard is on them. The pair keeps its room while hidden, so
+	// revealing it on hover pushes nothing around.
 	actions := (b.Kind == chat.KindUser || b.Kind == chat.KindText) && strings.TrimSpace(b.Text) != ""
 	showActions := actions && (block.Hovered() || block.FocusWithin())
 	block.Children(func() {
@@ -217,24 +217,30 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 				ui.Text(c, line).FontSize(a.chatFont(11.5)).TextColor(p.faint).SingleLine()
 			}
 		}
-		if showActions {
-			a.blockActions(c, p, b)
+		if actions {
+			row := a.blockActions(c, p, b)
+			if !showActions {
+				row.Invisible()
+			}
 		}
 	})
 }
 
 // blockActions is the row under a message: copy its words or start a
 // reply that quotes them. The pair sits on the message's own side, under
-// the bubble or answer it acts on.
-func (a *app) blockActions(c *ui.Context, p palette, b chat.Block) {
+// the bubble or answer it acts on. The caller hides unhovered rows, which
+// draw nothing and take neither the pointer nor the focus.
+func (a *app) blockActions(c *ui.Context, p palette, b chat.Block) ui.Element {
 	justify := ui.Start
 	if b.Kind == chat.KindUser {
 		justify = ui.End
 	}
-	ui.Row(c).FillWidth().Justify(justify).Gap(2).Children(func() {
+	row := ui.Row(c).FillWidth().Justify(justify).Gap(2)
+	row.Children(func() {
 		a.blockAction(c, p, "Copy message", "Copy", icCopy, func() { a.copyMessage(b.Text) })
 		a.blockAction(c, p, "Quote in reply", "Quote", icQuote, func() { a.quoteMessage(b.Text) })
 	})
+	return row
 }
 
 func (a *app) blockAction(c *ui.Context, p palette, label, text string, icon *ui.SVG, on func()) {

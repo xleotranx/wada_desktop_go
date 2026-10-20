@@ -597,6 +597,8 @@ func main() {
 			Content:              ui.View(a.view),
 		})
 		a.runtime.win = win
+		a.runtime.menu = func(fn func()) { win.Update(fn) }
+		mygo.App.SetMenu(appMenu(a))
 		a.applyAppearance()
 		if mygo.NotificationsSupported() {
 			a.runtime.notify = showDesktopNotice
@@ -704,6 +706,16 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// resetPaneWidths puts the sidebar, tools pane and terminal back to their
+// default sizes, leaving full view first so the panes are there to size.
+func (a *app) resetPaneWidths() {
+	a.leaveFullView(false)
+	a.layout.sidebarW = sidebarDefaultWidth
+	a.layout.browserW = browserDefaultWidth
+	a.terminal.height = terminalDefaultHeight
+	a.saveState()
 }
 
 // notify queues one Onevra toast for the next frame. Callbacks from

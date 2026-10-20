@@ -116,6 +116,11 @@ Global OpenCode configuration is not rewritten by startup.
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices
   are saved.
+- Menu bar: the native menu carries Settings, New Chat, Open Folder, Close and
+  Reopen Chat Tab, Export Transcript, an Edit menu, Chat actions (find, search,
+  model, unread), View toggles for the panes, terminal, full view and pane
+  sizes, plus Help for the keyboard reference and slash commands. The app's own
+  items leave accelerators to the remappable shortcut map.
 - Shortcuts: the main window commands — tab cycling, folder opening, conversation
   text steps and more — can be rebound from Settings → Keyboard or the command
   palette. The recorder rejects keys another command or a fixed action already

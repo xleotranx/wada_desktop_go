@@ -9,6 +9,7 @@ layers. Do not change the external server protocol to simplify a refactor.
 ## Source map
 
 - `main.go`: bootstrap, native window, theme installation, application queries/actions.
+- `appmenu.go`: the native menu bar and the UI-thread dispatch of its choices.
 - `commands.go`: the Cmd+K command palette over actions, servers, projects and chats.
 - `state.go`: eight named UI-thread state owners: runtime, connections,
   conversation, workspace, preferences, search, layout and terminal.

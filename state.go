@@ -68,6 +68,9 @@ type runtimeState struct {
 	// and where the platform cannot show them.
 	notify       func(desktopNotice)
 	clearNotices func()
+	// menu runs one menu bar choice on the UI thread; a test sets it to
+	// run the work at once, with no window.
+	menu func(func())
 }
 
 // connectionsState owns the connections fields coordinated on the UI thread.

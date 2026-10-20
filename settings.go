@@ -169,8 +169,19 @@ func (a *app) settingsGeneral(c *ui.Context, p palette) {
 			a.settingsSwitch(c, p, "Approvals",
 				"Tell me when a chat waits for an allow or deny.",
 				"Notify when a chat needs approval", &a.preferences.notifyApprovals)
-			ui.Text(c, "Clicking a banner opens that chat. The system asks once whether Wada may notify; banners need a packaged build.").
-				FontSize(12).LineHeight(1.45).TextColor(p.faint)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+				note := "Clicking a banner opens that chat. The system asks once whether Wada may notify."
+				if a.runtime.notify == nil {
+					note = "Banners need a packaged build; they are not available in this one."
+				}
+				ui.Text(c, note).FontSize(12).LineHeight(1.45).TextColor(p.faint).
+					Grow(1).MinWidth(0)
+				test := components.Button(c, "Send a test banner", components.ButtonSecondary).Shrink(0)
+				test.Disabled(a.runtime.notify == nil)
+				if test.Clicked() {
+					a.sendTestBanner()
+				}
+			})
 
 			ui.Text(c, "Storage").FontSize(13.5).FontWeight(600).TextColor(p.text).
 				Margin(6, 0, 0, 0)
@@ -192,6 +203,23 @@ func (a *app) settingsGeneral(c *ui.Context, p palette) {
 			}
 		})
 	})
+}
+
+// sendTestBanner shows one banner through the same path a finished turn
+// uses, so the permission and its look can be checked on the spot.
+func (a *app) sendTestBanner() {
+	if a.runtime.notify == nil {
+		a.notify(ui.Toast{Title: "Banners are not available in this build"})
+		return
+	}
+	a.runtime.notify(desktopNotice{
+		id:       fmt.Sprintf("test-%d", time.Now().UnixNano()),
+		title:    "Wada can notify you",
+		subtitle: "A test banner",
+		body:     "Clicking a banner opens the chat that needs you.",
+		group:    "test",
+	})
+	a.notify(ui.Toast{Title: "Test banner sent"})
 }
 
 // copySettingsPath puts the settings folder on the clipboard.

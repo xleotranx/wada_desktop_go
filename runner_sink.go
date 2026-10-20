@@ -85,6 +85,7 @@ func (s runnerSink) Created(created runner.Created) {
 	if a.conversation.target.revision == created.Draft && a.conversation.target.isDraft() {
 		a.conversation.target.selectSession(chat.SessionID(created.Session.ID))
 		a.conversation.selected = "New chat"
+		a.rememberTab(created.Session)
 	}
 	a.scope().sessions = dedupeSessions([]opencode.Session{created.Session}, a.scope().sessions)
 }

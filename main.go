@@ -45,6 +45,11 @@ type confirmState struct {
 	what string
 }
 
+// chatTab is one open conversation in the strip above the transcript.
+type chatTab struct {
+	id, title string
+}
+
 // serverScope is one server's slice of the app state: the conversations it
 // lists, the paging cursor, the models it offers. Scopes outlive switches,
 // so returning to a server shows its chats while the pipe dials it again;
@@ -58,8 +63,11 @@ type serverScope struct {
 	sessionsLoaded bool
 	nextCursor     string
 	moreLoading    bool
-	models         []opencode.Model
-	modelsLoaded   bool
+	// tabs are the conversations opened in this server's workspace, in the
+	// order their strip shows them.
+	tabs         []chatTab
+	models       []opencode.Model
+	modelsLoaded bool
 	// The personas a conversation can run under ("build", "plan"), zero
 	// until a dial reads the list.
 	agents []opencode.Agent
@@ -1116,6 +1124,7 @@ func (a *app) adoptSession(s opencode.Session) {
 	}
 	a.conversation.selected = label
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
+	a.rememberTab(s)
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.

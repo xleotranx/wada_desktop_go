@@ -174,20 +174,40 @@ func (a *app) dropPerm(requestID string) {
 	a.conversation.transcript.DropPermission(chat.PermissionID(requestID))
 }
 
-// dropSession takes one conversation out of the list and, when it was
-// the one on show, leaves a fresh transcript behind.
+// dropSession takes one conversation out of the list and its tab out of
+// the strip: a deleted open tab hands the view to its neighbour, or leaves
+// a fresh transcript when it was the last one.
 func (a *app) dropSession(sid string) {
-	if a.scope().pinned[sid] {
+	scope := a.scope()
+	index := -1
+	for i, tab := range scope.tabs {
+		if tab.id == sid {
+			index = i
+			break
+		}
+	}
+	if index >= 0 {
+		scope.tabs = removeTab(scope.tabs, sid)
+	}
+	if scope.pinned[sid] {
 		a.togglePin(opencode.Session{ID: sid})
 	}
-	for i, s := range a.scope().sessions {
+	for i, s := range scope.sessions {
 		if s.ID == sid {
-			a.scope().sessions = append(a.scope().sessions[:i], a.scope().sessions[i+1:]...)
+			scope.sessions = append(scope.sessions[:i], scope.sessions[i+1:]...)
 			break
 		}
 	}
 	a.conversation.transcript.DropSession(chat.SessionID(sid))
 	if string(a.conversation.target.session) != sid {
+		return
+	}
+	if len(scope.tabs) > 0 {
+		next := 0
+		if index >= 0 {
+			next = min(index, len(scope.tabs)-1)
+		}
+		a.openTab(scope.tabs[next].id)
 		return
 	}
 	a.resetDraft("")

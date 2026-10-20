@@ -121,6 +121,7 @@ type preferencesState struct {
 	recent              map[string][]recentFile
 	projects            []string
 	projectPins         map[string]bool
+	projectLinks        map[string][]string
 	metadata            *metadataWriter
 	metadataVersion     uint64
 	metadataSaving      bool

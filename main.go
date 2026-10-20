@@ -126,6 +126,7 @@ func newApp() *app {
 			keymap:              map[string]chord{},
 			recent:              map[string][]recentFile{},
 			projectPins:         map[string]bool{},
+			projectLinks:        map[string][]string{},
 			unavailableProjects: map[string]bool{}},
 		search: searchState{searches: make(chan searchRequest, 1)},
 		layout: viewState{sidebarW: sidebarDefaultWidth,
@@ -830,6 +831,11 @@ func (a *app) addFolder(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A folder linked into a project is already represented; adding it as
+	// its own project row would split its chats out of the group.
+	if owner := a.projectPrimaryFor(clean); owner != "" && !sameDir(owner, clean) {
+		return clean, nil
+	}
 	a.addProject(clean)
 	return clean, nil
 }
@@ -1271,7 +1277,7 @@ func (a *app) startNewChat() {
 	projectDir := ""
 	// The folder the view sat on carries into the draft, whatever server
 	// lists it as a project row.
-	if slices.Contains(a.projectDirectories(), dir) {
+	if dir != "" && a.projectPrimaryFor(dir) != "" {
 		projectDir = dir
 	}
 	a.startDraft(projectDir)

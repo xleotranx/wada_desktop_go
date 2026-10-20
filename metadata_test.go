@@ -19,9 +19,10 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := appMetadata{
-		projects:    []string{"/work/b", "/work/a"},
-		pins:        map[string][]string{localServerID: {"old", "new"}, "srv-one": {"a"}},
-		projectPins: map[string]bool{"/work/a": true},
+		projects:     []string{"/work/b", "/work/a"},
+		pins:         map[string][]string{localServerID: {"old", "new"}, "srv-one": {"a"}},
+		projectPins:  map[string]bool{"/work/a": true},
+		projectLinks: map[string][]string{"/work/a": {"/work/b"}},
 		servers: []serverConn{
 			{id: localServerID, name: "Local server", local: true, managed: true, password: "key-1"},
 			{id: "srv-one", name: "Build box", url: "http://10.0.0.12:4096"},

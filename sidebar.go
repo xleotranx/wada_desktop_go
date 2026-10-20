@@ -489,6 +489,7 @@ func (a *app) removeProject(dir string) {
 			a.preferences.projects = append(a.preferences.projects[:i], a.preferences.projects[i+1:]...)
 			delete(a.preferences.projectPins, dir)
 			delete(a.preferences.unavailableProjects, dir)
+			delete(a.preferences.projectLinks, dir)
 			delete(a.layout.projectCollapsed, dir)
 			delete(a.layout.projectChatsShown, dir)
 			a.saveState()
@@ -518,6 +519,7 @@ const projectChatPreview = 5
 // and the hover + starts a fresh chat there.
 func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	name := dirBase(dir)
+	folders := a.projectFolders(dir)
 	chats := a.projectChats(dir)
 	open := !a.layout.projectCollapsed[dir]
 	label := "Show chats in " + name
@@ -533,7 +535,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		}
 	}
 	b := a.row(c, p, label, active)
-	b.Height(30).Tooltip(dir)
+	b.Height(30).Tooltip(strings.Join(folders, "\n"))
 	hovered := b.Hovered()
 	b.OnClick(func() { a.toggleProjectOpen(dir) })
 	b.Children(func() {
@@ -548,6 +550,9 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		}
 		ui.Icon(c, icFolder).FontSize(14).MarginStart(5).TextColor(p.muted)
 		ui.Text(c, name).MarginStart(7).FontSize(13.5).Grow(1).SingleLine()
+		if summary := projectFolderSummary(folders); summary != "" {
+			ui.Text(c, summary).FontSize(10.5).TextColor(p.faint).Shrink(0)
+		}
 		if a.preferences.unavailableProjects[dir] {
 			ui.Text(c, "Unavailable").FontSize(11).TextColor(p.muted)
 		}
@@ -568,6 +573,22 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 		options.Menu(func(m *ui.Menu) {
 			if m.Item("New chat").Chosen() {
 				a.startChatIn(dir)
+			}
+			for _, folder := range folders[1:] {
+				if m.Item("New chat in " + dirBase(folder)).Chosen() {
+					a.startChatIn(folder)
+				}
+			}
+			if a.localActive() {
+				m.Separator()
+				if m.Item("Add folder…").Chosen() {
+					a.beginLinkProjectFolder(dir)
+				}
+				for _, folder := range folders[1:] {
+					if m.Item("Unlink " + dirBase(folder)).Chosen() {
+						a.unlinkProjectFolder(dir, folder)
+					}
+				}
 			}
 			m.Separator()
 			label := "Pin project"
@@ -604,9 +625,10 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 // projectChats lists the conversations working in one project's folder,
 // newest first, the way the tree nests them.
 func (a *app) projectChats(dir string) []opencode.Session {
+	folders := a.projectFolders(dir)
 	var chats []opencode.Session
 	for _, s := range a.scope().sessions {
-		if sameDir(s.Directory, dir) {
+		if slices.ContainsFunc(folders, func(folder string) bool { return sameDir(s.Directory, folder) }) {
 			chats = append(chats, s)
 		}
 	}
@@ -729,6 +751,9 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		ui.Icon(c, icChat).FontSize(13).TextColor(iconTint).Shrink(0)
 		ui.Text(c, label).MarginStart(8).FontSize(13.5).Grow(1).MinWidth(0).
 			SingleLine().Ellipsis("…")
+		if primary := a.projectPrimaryFor(s.Directory); primary != "" && !sameDir(primary, s.Directory) {
+			ui.Text(c, dirBase(s.Directory)).FontSize(10.5).TextColor(p.faint).Shrink(0)
+		}
 		if draft := a.draftFor(s.ID); strings.TrimSpace(draft) != "" {
 			ui.Icon(c, icPen).FontSize(11).MarginStart(6).TextColor(p.faint).
 				Tooltip("Draft: " + draftSnippet(draft))

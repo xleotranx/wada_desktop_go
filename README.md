@@ -32,7 +32,9 @@ Global OpenCode configuration is not rewritten by startup.
   history, pins, catalogs and workspace folders. One connection is active at a time.
 - Workspaces: added local projects or server-reported remote projects, a remote
   folder browser, file search/preview, quoting files by path, picker or drop,
-  and working-tree/branch diffs. A file preview can copy its path or hand the
+  and working-tree/branch diffs. Local projects can group several folders:
+  Add folder… in a project’s menu nests their chats under one row, each linked
+  chat tagged with its folder. A file preview can copy its path or hand the
   file to the desktop editor or folder. Cmd+O adds a folder, Cmd+P opens the quick
   file picker where arrows choose and Enter opens; its empty query shows recently
   opened files first, then the workspace root, with folders under each name.

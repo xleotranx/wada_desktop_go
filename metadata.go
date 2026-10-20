@@ -18,23 +18,24 @@ import (
 // projects and pins, the settings' servers and model choices, the widths
 // the user dragged the workspace panes to, and each server's open tabs.
 type appMetadata struct {
-	projects    []string
-	projectPins map[string]bool
-	pins        map[string][]string // server id -> its chats, in pin order
-	servers     []serverConn
-	active      string
-	modelOff    map[string]bool // modelKey of every disabled model
-	sidebarW    float32
-	browserW    float32
-	terminalH   float32
-	appearance  string
-	chatText    string
-	keymap      map[string]chord
-	recent      map[string][]recentFile
-	unread      map[string][]string          // server id -> chats with news
-	drafts      map[string]map[string]string // server id -> draft key -> words
-	tabs        map[string][]chatTab         // server id -> its open conversations
-	activeTabs  map[string]string            // server id -> the conversation on show
+	projects     []string
+	projectPins  map[string]bool
+	projectLinks map[string][]string
+	pins         map[string][]string // server id -> its chats, in pin order
+	servers      []serverConn
+	active       string
+	modelOff     map[string]bool // modelKey of every disabled model
+	sidebarW     float32
+	browserW     float32
+	terminalH    float32
+	appearance   string
+	chatText     string
+	keymap       map[string]chord
+	recent       map[string][]recentFile
+	unread       map[string][]string          // server id -> chats with news
+	drafts       map[string]map[string]string // server id -> draft key -> words
+	tabs         map[string][]chatTab         // server id -> its open conversations
+	activeTabs   map[string]string            // server id -> the conversation on show
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -177,6 +178,11 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 		switch key {
 		case "active_server":
 			state.active = value
+		case "project_links":
+			var links map[string][]string
+			if json.Unmarshal([]byte(value), &links) == nil && len(links) > 0 {
+				state.projectLinks = links
+			}
 		case "appearance":
 			state.appearance = normalizeAppearance(value)
 		case "chat_text":
@@ -257,6 +263,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('appearance', ?)", Args: []any{normalizeAppearance(state.appearance)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
 	}
 	for serverID, tabs := range state.tabs {
@@ -335,6 +342,18 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 	}
 	_, err := db.Transaction(ctx, statements)
 	return err
+}
+
+// encodeProjectLinks writes local project groups as one JSON object.
+func encodeProjectLinks(links map[string][]string) string {
+	if len(links) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(links)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }
 
 // encodeKeymap writes the overrides as one stable JSON object.
@@ -445,6 +464,14 @@ func (a *app) stateSnapshot() appMetadata {
 	if len(a.preferences.keymap) > 0 {
 		state.keymap = maps.Clone(a.preferences.keymap)
 	}
+	if len(a.preferences.projectLinks) > 0 {
+		state.projectLinks = map[string][]string{}
+		for primary, folders := range a.preferences.projectLinks {
+			if len(folders) > 0 {
+				state.projectLinks[primary] = slices.Clone(folders)
+			}
+		}
+	}
 	if len(a.preferences.recent) > 0 {
 		if state.recent == nil {
 			state.recent = map[string][]recentFile{}
@@ -525,6 +552,12 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
 	a.preferences.appearance = normalizeAppearance(state.appearance)
 	a.preferences.chatText = normalizeChatText(state.chatText)
+	a.preferences.projectLinks = map[string][]string{}
+	for primary, folders := range state.projectLinks {
+		if len(folders) > 0 {
+			a.preferences.projectLinks[primary] = slices.Clone(folders)
+		}
+	}
 	a.preferences.keymap = maps.Clone(state.keymap)
 	if a.preferences.keymap == nil {
 		a.preferences.keymap = map[string]chord{}

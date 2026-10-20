@@ -482,6 +482,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Choose a model", "⌃⇧M"},
 			{"Next chat tab", "⌃⇥"},
 			{"Previous chat tab", "⌃⇧⇥"},
+			{"Reopen closed chat tab", "⌘⇧T"},
 		}},
 		{"Workspace", [][2]string{
 			{"Toggle sidebar", "⌘B"},

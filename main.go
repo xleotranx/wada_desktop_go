@@ -65,9 +65,10 @@ type serverScope struct {
 	moreLoading    bool
 	// tabs are the conversations opened in this server's workspace, in the
 	// order their strip shows them; activeTab is the one on show, empty
-	// while a draft is.
+	// while a draft is. closedTabs keeps what a cross removed, newest last.
 	tabs         []chatTab
 	activeTab    string
+	closedTabs   []chatTab
 	models       []opencode.Model
 	modelsLoaded bool
 	// The personas a conversation can run under ("build", "plan"), zero

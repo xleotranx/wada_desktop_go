@@ -174,3 +174,34 @@ func TestBootRestoresTheLastTab(t *testing.T) {
 		t.Fatalf("boot opened %q, want the last tab", got)
 	}
 }
+
+// TestReopenClosedTab brings back the last tab a cross removed with
+// Cmd+Shift+T, and keeps a deleted conversation out of that history.
+func TestReopenClosedTab(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_alpha", Title: "Alpha"},
+		{ID: "ses_beta", Title: "Beta"},
+	}
+	a.adoptSession(a.scope().sessions[0])
+	a.adoptSession(a.scope().sessions[1])
+	a.closeTab("ses_alpha")
+	if len(a.scope().closedTabs) != 1 {
+		t.Fatalf("closed history: %+v", a.scope().closedTabs)
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyT)
+	tt.Frame()
+	if got := string(a.conversation.target.session); got != "ses_alpha" {
+		t.Fatalf("Cmd+Shift+T reopened %q", got)
+	}
+	if len(a.scope().tabs) != 2 || len(a.scope().closedTabs) != 0 {
+		t.Fatalf("reopened strip: tabs=%d closed=%d", len(a.scope().tabs), len(a.scope().closedTabs))
+	}
+
+	a.dropSession("ses_alpha")
+	if len(a.scope().closedTabs) != 0 {
+		t.Fatalf("a deleted conversation entered closed history: %+v", a.scope().closedTabs)
+	}
+}

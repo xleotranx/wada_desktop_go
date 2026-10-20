@@ -18,6 +18,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	}
 	c.OnShortcut(ui.Ctrl, ui.KeyTab, func() { a.cycleTab(1) })
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyTab, func() { a.cycleTab(-1) })
+	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyT, a.reopenClosedTab)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.toggleFullView)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)

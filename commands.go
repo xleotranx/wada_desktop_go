@@ -98,6 +98,11 @@ func (a *app) commandItems() []command.Item {
 		items = append(items, command.Item{ID: "action:full-view", Title: "Enter full view",
 			Group: "View", Description: "Give the conversation the whole window", Shortcut: "⌘⇧F", Icon: icExpand})
 	}
+	if len(a.scope().closedTabs) > 0 {
+		items = append(items, command.Item{ID: "action:reopen-tab", Title: "Reopen closed chat tab",
+			Group: "View", Description: "Bring back the last tab a cross closed",
+			Shortcut: "⌘⇧T", Icon: icHistory})
+	}
 	items = append(items, command.Item{ID: "action:reset-layout", Title: "Reset pane widths",
 		Group: "View", Description: "Return both side panes to their default width", Icon: icPanelRight,
 		Keywords: []string{"layout", "resize", "default"}})
@@ -161,6 +166,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:full-view":
 		a.toggleFullView()
+		return
+	case "action:reopen-tab":
+		a.reopenClosedTab()
 		return
 	case "action:show-tools":
 		a.showTools()

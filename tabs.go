@@ -7,20 +7,26 @@ import (
 )
 
 // chatTabLimit bounds the strip: enough for a working set, few enough that
-// every title keeps a readable slice of the row.
-const chatTabLimit = 8
+// every title keeps a readable slice of the row. closedTabLimit bounds the
+// history Cmd+Shift+T reopens.
+const (
+	chatTabLimit   = 8
+	closedTabLimit = 12
+)
 
 // tabStripHeight is the tab row above the transcript.
 const tabStripHeight float32 = 33
 
 // rememberTab puts a conversation in this server's strip, or refreshes the
-// title of the one already there. The oldest tab steps aside for a ninth.
+// title of the one already there. The oldest tab steps aside for a ninth,
+// and a conversation opened again leaves the redo history.
 func (a *app) rememberTab(s opencode.Session) {
 	title := s.Title
 	if title == "" {
 		title = "New chat"
 	}
 	scope := a.scope()
+	scope.closedTabs = removeTab(scope.closedTabs, s.ID)
 	for i := range scope.tabs {
 		if scope.tabs[i].id == s.ID {
 			scope.tabs[i].title = title
@@ -93,6 +99,19 @@ func (a *app) cycleTab(step int) {
 	a.openTab(tabs[(at+step+len(tabs))%len(tabs)].id)
 }
 
+// reopenClosedTab brings back the newest tab a cross removed, with its
+// title, and opens it.
+func (a *app) reopenClosedTab() {
+	scope := a.scope()
+	if len(scope.closedTabs) == 0 {
+		return
+	}
+	last := scope.closedTabs[len(scope.closedTabs)-1]
+	scope.closedTabs = scope.closedTabs[:len(scope.closedTabs)-1]
+	a.rememberTab(opencode.Session{ID: last.id, Title: last.title})
+	a.openTab(last.id)
+}
+
 // closeTab takes a tab out of the strip. Closing the open tab hands the
 // view to its neighbour, or to a fresh draft when it was the last.
 func (a *app) closeTab(id string) {
@@ -106,6 +125,10 @@ func (a *app) closeTab(id string) {
 	}
 	if index < 0 {
 		return
+	}
+	scope.closedTabs = append(scope.closedTabs, chatTab{id: id, title: a.tabTitle(id)})
+	if len(scope.closedTabs) > closedTabLimit {
+		scope.closedTabs = scope.closedTabs[1:]
 	}
 	scope.tabs = removeTab(scope.tabs, id)
 	if scope.activeTab == id {

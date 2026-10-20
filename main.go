@@ -682,6 +682,10 @@ func (a *app) send() bool {
 	if a.runSlash(text) {
 		return true
 	}
+	if command, ok := a.slashChoice(text); ok {
+		a.executeSlash(command)
+		return true
+	}
 	if !a.agentSend(text) {
 		return false
 	}

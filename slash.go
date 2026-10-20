@@ -63,9 +63,10 @@ func (a *app) runSlash(text string) bool {
 	return true
 }
 
-// slashMatches suggests commands for the prefix being typed.
-func (a *app) slashMatches() []slashCommand {
-	draft := strings.TrimSpace(a.conversation.draft)
+// slashPrefix lists commands matching a bare slash prefix. A word after
+// the command means the text is a prompt, not a command.
+func slashPrefix(text string) []slashCommand {
+	draft := strings.TrimSpace(text)
 	if !strings.HasPrefix(draft, "/") || strings.ContainsAny(draft, " \t\n") {
 		return nil
 	}
@@ -81,11 +82,28 @@ func (a *app) slashMatches() []slashCommand {
 	return matches
 }
 
+// slashMatches suggests commands for the composer's current words.
+func (a *app) slashMatches() []slashCommand {
+	return slashPrefix(a.conversation.draft)
+}
+
+// slashChoice is the command Enter runs for a prefix that is not exact: the
+// selected match, or the first one.
+func (a *app) slashChoice(text string) (slashCommand, bool) {
+	matches := slashPrefix(text)
+	if len(matches) == 0 {
+		return slashCommand{}, false
+	}
+	index := min(max(a.layout.slashSelected, 0), len(matches)-1)
+	return matches[index], true
+}
+
 // executeSlash empties the composer, saves that, then runs the action.
 func (a *app) executeSlash(command slashCommand) {
 	key := a.draftKey()
 	a.conversation.draft = ""
 	a.conversation.commandError = ""
+	a.layout.slashSelected, a.layout.slashSeen = 0, ""
 	a.forgetDraft(key)
 	a.closeAttach()
 	a.saveState()
@@ -95,28 +113,40 @@ func (a *app) executeSlash(command slashCommand) {
 // slashMenu is the short suggestion list under the composer while a slash
 // command is being typed.
 func (a *app) slashMenu(c *ui.Context, p palette) {
-	if a.layout.slashHelp || a.layout.quickOpen {
-		return
-	}
-	matches := a.slashMatches()
-	if len(matches) == 0 {
-		return
-	}
+	// The slot stays in the tree even when empty: adding a sibling before
+	// the composer would move its focus identity and drop the keyboard.
 	ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().
-		Padding(0, 0, 5, 0).Children(func() {
-		ui.Column(c).FillWidth().Radius(10).Padding(4).Gap(1).
-			Background(p.bg).Border(1, p.hairline).Children(func() {
-			for _, command := range matches {
-				a.slashRow(c, p, command)
+		Children(func() {
+			if a.layout.slashHelp || a.layout.quickOpen {
+				return
 			}
+			matches := a.slashMatches()
+			if len(matches) == 0 {
+				return
+			}
+			if a.layout.slashSeen != a.conversation.draft {
+				a.layout.slashSeen = a.conversation.draft
+				a.layout.slashSelected = 0
+			}
+			a.layout.slashSelected = min(max(a.layout.slashSelected, 0), len(matches)-1)
+			ui.Column(c).Padding(0, 0, 5, 0).Children(func() {
+				ui.Column(c).FillWidth().Radius(10).Padding(4).Gap(1).
+					Background(p.bg).Border(1, p.hairline).Children(func() {
+					for i, command := range matches {
+						a.slashRow(c, p, command, i == a.layout.slashSelected)
+					}
+				})
+			})
 		})
-	})
 }
 
-func (a *app) slashRow(c *ui.Context, p palette, command slashCommand) {
+func (a *app) slashRow(c *ui.Context, p palette, command slashCommand, selected bool) {
 	c.Key("slash:" + command.name)
 	b := ui.ButtonBase(c).Label("Run "+command.name).Height(29).Radius(7).
 		Padding(0, 8).FillWidth().Justify(ui.Start).AlignItems(ui.Center).Gap(8)
+	if selected {
+		b.Background(p.selected)
+	}
 	if b.Hovered() {
 		b.Background(p.hover)
 	}

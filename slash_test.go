@@ -105,3 +105,48 @@ func TestSlashCommandWithWordsGoesToTheAgent(t *testing.T) {
 		t.Fatalf("arguments job %+v", job)
 	}
 }
+
+// TestSlashMenuArrowsChoose picks the second prefix match with Down and
+// runs it with Enter.
+func TestSlashMenuArrowsChoose(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.Click("Compose"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Type("/f")
+	tt.Frame()
+	if a.layout.slashSelected != 0 {
+		t.Fatalf("typing /f selected %d", a.layout.slashSelected)
+	}
+	tt.Key(0, ui.KeyDown)
+	if a.layout.slashSelected != 1 {
+		t.Fatalf("Down selected %d", a.layout.slashSelected)
+	}
+	tt.Key(0, ui.KeyEnter)
+	if a.conversation.draft != "" || !a.layout.fullView {
+		t.Fatalf("Enter on /full: draft=%q full=%v", a.conversation.draft, a.layout.fullView)
+	}
+	if len(a.conversation.transcript.Snapshot()) != 0 {
+		t.Fatal("a slash command entered the transcript")
+	}
+}
+
+// TestSlashPrefixEnterRunsFirst lets Enter run the first prefix match
+// instead of sending a bare "/f" prompt.
+func TestSlashPrefixEnterRunsFirst(t *testing.T) {
+	a := newTestApp(t)
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.draft = "/f"
+	if !a.send() {
+		t.Fatal("the prefix was not accepted")
+	}
+	if !a.layout.quickOpen {
+		t.Fatal("Enter on /f did not run /files")
+	}
+	if a.conversation.transcript.Len() != 0 {
+		t.Fatal("the prefix entered the transcript")
+	}
+}

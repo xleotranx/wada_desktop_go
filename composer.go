@@ -75,6 +75,25 @@ func (a *app) composer(c *ui.Context, p palette) {
 					ui.Text(c, "Shift+Enter for a new line").FontSize(11).TextColor(p.faint).SingleLine()
 				},
 			})
+			result.Input.OnTextKey(func(k ui.TextKey) bool {
+				if k.Key != ui.KeyUp && k.Key != ui.KeyDown {
+					return false
+				}
+				matches := a.slashMatches()
+				if len(matches) == 0 {
+					return false
+				}
+				if a.layout.slashSeen != a.conversation.draft {
+					a.layout.slashSeen = a.conversation.draft
+					a.layout.slashSelected = 0
+				}
+				if k.Key == ui.KeyDown {
+					a.layout.slashSelected = min(a.layout.slashSelected+1, len(matches)-1)
+				} else {
+					a.layout.slashSelected = max(a.layout.slashSelected-1, 0)
+				}
+				return true
+			})
 			if a.layout.composerFocus {
 				result.Input.Focus()
 				a.layout.composerFocus = false

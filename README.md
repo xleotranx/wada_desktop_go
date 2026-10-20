@@ -63,8 +63,9 @@ Global OpenCode configuration is not rewritten by startup.
   the new-chat draft does too. They survive restarts and clear once sent. A
   pencil marks chats and tabs holding words, and New chat wears a Draft badge.
 - Slash commands: type `/files`, `/new`, `/terminal`, `/help` and the rest for
-  local actions. Typing `/` lists matching commands above the composer; words
-  after a command make it an ordinary prompt.
+  local actions. Typing `/` lists matching commands above the composer; ↑↓
+  choose and Enter runs the choice, even from a prefix. Words after a command
+  make it an ordinary prompt.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 	"wada-desktop-go/internal/opencode"
@@ -35,6 +36,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 				SendLabel:   "Send message",
 				StopLabel:   "Stop the agent",
 				Running:     busy,
+				AcceptFiles: true,
 				Accessory: func(c *ui.Context) {
 					attach := onechat.IconAction(c, "Attach", iconRef(icPlus))
 					attach.OnClick(a.openAttachDialog)
@@ -62,6 +64,15 @@ func (a *app) composer(c *ui.Context, p palette) {
 					ui.Text(c, "Shift+Enter for a new line").FontSize(11).TextColor(p.faint).SingleLine()
 				},
 			})
+			if len(result.Dropped) > 0 {
+				a.quoteFiles(result.Dropped)
+			}
+			if _, over := ui.DragOver[fileDrag](result.Card); over {
+				result.Card.BorderColor(p.orange.Alpha(.7))
+			}
+			if dragged, ok := ui.Drop[fileDrag](result.Card); ok {
+				a.insertFileMention(dragged.path)
+			}
 			result.Input.OnTextKey(func(k ui.TextKey) bool {
 				matches := a.slashMatches()
 				if len(matches) > 0 {
@@ -109,6 +120,21 @@ func (a *app) composer(c *ui.Context, p palette) {
 			}
 		})
 	})
+}
+
+// insertFileMention puts a dragged file's path in the composer as an
+// @mention, starting a word of its own and leaving the caret after it.
+func (a *app) insertFileMention(path string) {
+	path = strings.TrimPrefix(filepath.ToSlash(path), "./")
+	if path == "" {
+		return
+	}
+	draft := a.conversation.draft
+	if draft != "" && !strings.HasSuffix(draft, "\n") && !strings.HasSuffix(draft, " ") {
+		draft += " "
+	}
+	a.conversation.draft = draft + "@" + path + " "
+	a.layout.composerFocus = true
 }
 
 // dialog is the frame every dialog shares: Onevra's modal panel over a dimmed

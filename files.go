@@ -303,6 +303,7 @@ func (a *app) filesResults(c *ui.Context, p palette) {
 			c.Key("found:" + e.Path)
 			b := ui.ButtonBase(c).Label("Read "+e.Path).Height(25).Radius(6).
 				Padding(0, 6).Justify(ui.Start).FillWidth()
+			b.Drag(fileDrag{path: e.Path})
 			if b.Hovered() {
 				b.Background(p.hover)
 			} else if chosen {
@@ -435,6 +436,12 @@ func (a *app) openLocalPath(c *ui.Context, path string) {
 	c.OpenURL((&url.URL{Scheme: "file", Path: path}).String())
 }
 
+// fileDrag is one file row's drag payload: the workspace-relative path a
+// drop into the composer writes as an @mention.
+type fileDrag struct {
+	path string
+}
+
 // filesRows draws one folder's children, the unfolded folders' own under
 // them, the way the tree nests.
 func (a *app) filesRows(c *ui.Context, p palette, rel string, depth int) {
@@ -451,6 +458,7 @@ func (a *app) filesRows(c *ui.Context, p palette, rel string, depth int) {
 			} else if chosen {
 				b.Background(p.selected)
 			}
+			b.Drag(fileDrag{path: e.Path})
 			b.OnClick(func() { a.filesRead(e.Path) })
 			b.Children(func() {
 				ui.Icon(c, icFileDoc).FontSize(12).TextColor(p.faint).Shrink(0)

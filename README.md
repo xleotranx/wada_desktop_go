@@ -76,7 +76,9 @@ Global OpenCode configuration is not rewritten by startup.
   choice is saved. The header's actions menu also hands the file to this
   machine's editor or file manager, or copies its path; those local actions
   stay out of a remote workspace. In Files, Show in tree unfolds the read
-  file's folders (clearing a search) and the cross closes the viewer. Hovering
+  file's folders (clearing a search) and the cross closes the viewer. A file
+  row dragged into the composer writes its path as an @mention; files dropped
+  from the desktop are quoted like the Attach picker's. Hovering
   a line and clicking its gutter + opens a review
   note under that line; Add to message (or Enter in the note) writes it into
   the composer as "In <file> at line N: …", so a review reaches the agent
@@ -213,6 +215,6 @@ This removes only the app metadata database and its SQLite sidecars. It does not
 remove OpenCode conversations or workspace files. With `WADA_DATA_DIR` set, reset
 is scoped to that directory.
 
-Links render but do not open yet. Attachments quote text files by typed path,
-native picker or drag-and-drop; image parts, dictation and conversation archival
-are not implemented.
+Links render but do not open yet. Attachments quote text files by the native
+picker or files dropped from the desktop; image parts, dictation and
+conversation archival are not implemented.

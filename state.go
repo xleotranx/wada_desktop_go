@@ -162,6 +162,9 @@ type viewState struct {
 	expanded          map[string]bool
 	projectPickerOpen bool
 	projectFilter     string
+	projectSelected   int
+	projectFocus      bool
+	projectList       ui.ListState
 	feed              ui.ListState
 	md                markdown.Options
 	mdTheme           markdown.Theme

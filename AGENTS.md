@@ -35,7 +35,8 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `quickopen.go`: the centered file picker and its search.
 - `slash.go`: local composer commands, suggestions and their help sheet.
 - `chatfilter.go`: the sidebar filters for unread, attention and drafts.
-- `project_links.go`: local projects that group several folders and their chats.
+- `project_links.go`, `project_picker.go`: local projects that group several
+  folders and their chats, and the new-chat picker that offers each folder.
 - `commandscope.go`: the command palette’s command/chat scopes and prefixes.
 - `recentfiles.go`: the quick picker’s recently opened files per workspace.
 - `keymap.go`: remappable window shortcuts, their recorder and persistence.

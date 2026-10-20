@@ -150,3 +150,94 @@ func TestProjectAddFolderMenu(t *testing.T) {
 		t.Fatalf("picking made %d projects", len(a.preferences.projects))
 	}
 }
+
+// TestProjectPickerOffersLinkedFolders lists a project's linked folders
+// under it, starts the draft in the one chosen, and reopens on the draft's
+// own folder so Enter keeps the chat where it is.
+func TestProjectPickerOffersLinkedFolders(t *testing.T) {
+	a := newTestApp(t)
+	a.connections.activeServer = localServerID
+	root := t.TempDir()
+	primary := filepath.Join(root, "primary")
+	linked := filepath.Join(root, "linked")
+	for _, dir := range []string{primary, linked} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.preferences.projects = []string{canonDir(primary)}
+	a.linkProjectFolder(primary, linked)
+	a.layout.projectCollapsed[canonDir(primary)] = true
+	a.openProjectPicker()
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if !tt.HasText("Use project primary") || !tt.HasText("Use folder linked in primary") {
+		t.Fatalf("picker rows: %v", tt.Texts())
+	}
+	if !tt.HasText("2 folders") {
+		t.Fatalf("the project row misses its folder count: %v", tt.Texts())
+	}
+	if err := tt.Click("Use folder linked in primary"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.conversation.draftProject != canonDir(linked) {
+		t.Fatalf("the draft landed in %q", a.conversation.draftProject)
+	}
+	if a.layout.projectPickerOpen {
+		t.Fatal("the picker stayed open after choosing a folder")
+	}
+	if a.layout.projectCollapsed[canonDir(primary)] {
+		t.Fatal("choosing a linked folder left its project folded")
+	}
+
+	// The picker opens on the draft's folder; Enter keeps it there.
+	a.openProjectPicker()
+	tt.Frame()
+	choices := a.projectChoices()
+	if got := choices[a.layout.projectSelected]; got.dir != canonDir(linked) {
+		t.Fatalf("the picker opened on %+v", got)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.layout.projectPickerOpen || a.conversation.draftProject != canonDir(linked) {
+		t.Fatalf("Enter moved the draft to %q (open=%v)",
+			a.conversation.draftProject, a.layout.projectPickerOpen)
+	}
+
+	// A filter naming the linked folder keeps its project row for context;
+	// typing starts the selection over at the first match, and the arrows
+	// walk it.
+	a.openProjectPicker()
+	tt.Frame()
+	tt.Type("linked")
+	tt.Frame()
+	if !tt.HasText("Use project primary") || !tt.HasText("Use folder linked in primary") {
+		t.Fatalf("filtered rows: %v", tt.Texts())
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.conversation.draftProject != canonDir(linked) {
+		t.Fatalf("the keyboard picked %q", a.conversation.draftProject)
+	}
+
+	// A filter that matches nothing leaves the picker open, not a crash.
+	a.openProjectPicker()
+	tt.Frame()
+	tt.Type("nothing-here")
+	tt.Frame()
+	if !tt.HasText("No projects match") {
+		t.Fatalf("the empty picker read wrong: %v", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !a.layout.projectPickerOpen || a.conversation.draftProject != canonDir(linked) {
+		t.Fatalf("Enter without matches changed the draft to %q", a.conversation.draftProject)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.layout.projectPickerOpen {
+		t.Fatal("Escape did not close the picker while the filter had the focus")
+	}
+}

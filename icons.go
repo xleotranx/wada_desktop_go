@@ -28,6 +28,7 @@ var (
 	icSearch     = lucide.Search()
 	icPen        = lucide.SquarePen()
 	icFolder     = lucide.Folder()
+	icFolderLink = lucide.FolderSymlink()
 	icFileDoc    = lucide.FileText()
 	icTerminal   = lucide.Terminal()
 	icBook       = lucide.BookOpen()

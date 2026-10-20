@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -99,8 +98,5 @@ func (a *app) beginLinkProjectFolder(primary string) {
 
 // projectFolderSummary names how many folders a project groups.
 func projectFolderSummary(folders []string) string {
-	if len(folders) <= 1 {
-		return ""
-	}
-	return fmt.Sprintf("%d folders", len(folders))
+	return folderCountSummary(len(folders))
 }

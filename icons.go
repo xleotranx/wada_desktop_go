@@ -43,6 +43,8 @@ var (
 	icLoad       = lucide.RefreshCw()
 	icSparkle    = lucide.Sparkles()
 	icChat       = lucide.MessageSquare()
+	icCopy       = lucide.Copy()
+	icQuote      = lucide.TextQuote()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

@@ -150,7 +150,13 @@ func (a *app) blockIdentity(i int) any {
 // said, a line of what the agent ran, or the loader of the turn in
 // flight.
 func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
-	ui.Column(c).FillWidth().MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).Gap(10).Children(func() {
+	block := ui.Column(c).FillWidth().MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).Gap(10)
+	// User and answer rows earn copy and quote actions while the pointer
+	// or keyboard is on them; the row is empty otherwise, leaving the
+	// reading rhythm alone.
+	actions := (b.Kind == chat.KindUser || b.Kind == chat.KindText) && strings.TrimSpace(b.Text) != ""
+	showActions := actions && (block.Hovered() || block.FocusWithin())
+	block.Children(func() {
 		switch b.Kind {
 		case chat.KindUser:
 			onechat.Message(c, true, func(c *ui.Context) {
@@ -183,7 +189,63 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 				ui.Text(c, line).FontSize(11.5).TextColor(p.faint).SingleLine()
 			}
 		}
+		if showActions {
+			a.blockActions(c, p, b)
+		}
 	})
+}
+
+// blockActions is the row under a message: copy its words or start a
+// reply that quotes them. The pair sits on the message's own side, under
+// the bubble or answer it acts on.
+func (a *app) blockActions(c *ui.Context, p palette, b chat.Block) {
+	justify := ui.Start
+	if b.Kind == chat.KindUser {
+		justify = ui.End
+	}
+	ui.Row(c).FillWidth().Justify(justify).Gap(2).Children(func() {
+		a.blockAction(c, p, "Copy message", "Copy", icCopy, func() { a.copyMessage(b.Text) })
+		a.blockAction(c, p, "Quote in reply", "Quote", icQuote, func() { a.quoteMessage(b.Text) })
+	})
+}
+
+func (a *app) blockAction(c *ui.Context, p palette, label, text string, icon *ui.SVG, on func()) {
+	b := ui.ButtonBase(c).Label(label).Height(24).Radius(6).Padding(0, 7).
+		Center().Gap(4).Tooltip(label)
+	if b.Hovered() {
+		b.Background(p.hover)
+	}
+	b.OnClick(on)
+	b.Children(func() {
+		ui.Icon(c, icon).FontSize(12).TextColor(p.muted)
+		ui.Text(c, text).FontSize(11.5).TextColor(p.muted).SingleLine()
+	})
+}
+
+// copyMessage puts one message's words on the clipboard.
+func (a *app) copyMessage(text string) {
+	if err := a.runtime.copy(text); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the message", Description: err.Error(),
+			Type: components.ToastError})
+		return
+	}
+	a.notify(ui.Toast{Title: "Message copied", Type: components.ToastSuccess})
+}
+
+// quoteMessage starts a reply that quotes the message line by line, after
+// whatever the composer already held.
+func (a *app) quoteMessage(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	quoted := "> " + strings.ReplaceAll(text, "\n", "\n> ")
+	if draft := strings.TrimRight(a.conversation.draft, "\n"); draft != "" {
+		a.conversation.draft = draft + "\n\n" + quoted + "\n\n"
+	} else {
+		a.conversation.draft = quoted + "\n\n"
+	}
+	a.layout.composerFocus = true
 }
 
 // activityRow is one line the agent ran, opening its detail below it.

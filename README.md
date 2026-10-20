@@ -24,7 +24,8 @@ Global OpenCode configuration is not rewritten by startup.
 ## Capabilities
 
 - Conversations: list, search, paginate, create, restore, rename and delete.
-- Turns: streaming markdown, stop, tool activity, shell/edit approvals and usage.
+- Turns: streaming markdown, copy and quote actions on each message, stop, tool
+  activity, shell/edit approvals and usage.
 - Models: server catalogs, per-model enable switches, draft picks and reasoning
   variants. Settings and the composer share one filtering implementation.
 - Servers: managed/local and remote connections, probes, pairing links, scoped

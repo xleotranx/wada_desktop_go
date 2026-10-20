@@ -156,9 +156,15 @@ func (a *app) applyUpdate(ev opencode.Update) {
 				a.scope().sessions[i].Title = ev.Title
 			}
 		}
+		for i := range a.scope().tabs {
+			if a.scope().tabs[i].id == ev.SessionID {
+				a.scope().tabs[i].title = ev.Title
+			}
+		}
 		if ev.SessionID == string(a.conversation.target.session) {
 			a.conversation.selected = ev.Title
 		}
+		a.saveState()
 	}
 }
 
@@ -189,6 +195,9 @@ func (a *app) dropSession(sid string) {
 	if index >= 0 {
 		scope.tabs = removeTab(scope.tabs, sid)
 	}
+	if scope.activeTab == sid {
+		scope.activeTab = ""
+	}
 	if scope.pinned[sid] {
 		a.togglePin(opencode.Session{ID: sid})
 	}
@@ -200,6 +209,7 @@ func (a *app) dropSession(sid string) {
 	}
 	a.conversation.transcript.DropSession(chat.SessionID(sid))
 	if string(a.conversation.target.session) != sid {
+		a.saveState()
 		return
 	}
 	if len(scope.tabs) > 0 {

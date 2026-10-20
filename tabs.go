@@ -108,7 +108,11 @@ func (a *app) closeTab(id string) {
 		return
 	}
 	scope.tabs = removeTab(scope.tabs, id)
+	if scope.activeTab == id {
+		scope.activeTab = ""
+	}
 	if id != string(a.conversation.target.session) {
+		a.saveState()
 		return
 	}
 	if len(scope.tabs) > 0 {

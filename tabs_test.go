@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"wada-desktop-go/internal/opencode"
 
@@ -119,5 +120,57 @@ func TestChatTabsStartADraft(t *testing.T) {
 	}
 	if len(a.scope().tabs) != 2 || !tt.HasText("Alpha") || !tt.HasText("Beta") {
 		t.Fatalf("the draft dropped the strip: tabs=%d", len(a.scope().tabs))
+	}
+}
+
+// TestChatTabsSurviveRestart writes the strip and its active tab through
+// the metadata writer and restores them into a second app.
+func TestChatTabsSurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.db")
+	a := newTestApp(t)
+	db, err := a.loadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.preferences.metadata = startMetadataWriter(db, func(uint64, error) {})
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_alpha", Title: "Alpha"},
+		{ID: "ses_beta", Title: "Beta"},
+	}
+	a.adoptSession(a.scope().sessions[0])
+	a.adoptSession(a.scope().sessions[1])
+	a.closeMetadata()
+
+	b := newTestApp(t)
+	db, err = b.loadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	scope := b.scopeFor(localServerID)
+	if len(scope.tabs) != 2 || scope.tabs[0].id != "ses_alpha" || scope.tabs[1].title != "Beta" {
+		t.Fatalf("restored tabs: %+v", scope.tabs)
+	}
+	if scope.activeTab != "ses_beta" {
+		t.Fatalf("restored active tab %q", scope.activeTab)
+	}
+}
+
+// TestBootRestoresTheLastTab opens the conversation that was on show
+// before the restart instead of the newest one.
+func TestBootRestoresTheLastTab(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().tabs = []chatTab{
+		{id: "ses_alpha", title: "Alpha"},
+		{id: "ses_beta", title: "Beta"},
+	}
+	a.scope().activeTab = "ses_beta"
+	a.settleBoot([]opencode.Session{
+		{ID: "ses_alpha", Title: "Alpha"},
+		{ID: "ses_beta", Title: "Beta"},
+	}, "", nil)
+	if got := string(a.conversation.target.session); got != "ses_beta" {
+		t.Fatalf("boot opened %q, want the last tab", got)
 	}
 }

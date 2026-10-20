@@ -64,8 +64,10 @@ type serverScope struct {
 	nextCursor     string
 	moreLoading    bool
 	// tabs are the conversations opened in this server's workspace, in the
-	// order their strip shows them.
+	// order their strip shows them; activeTab is the one on show, empty
+	// while a draft is.
 	tabs         []chatTab
+	activeTab    string
 	models       []opencode.Model
 	modelsLoaded bool
 	// The personas a conversation can run under ("build", "plan"), zero
@@ -1133,11 +1135,13 @@ func (a *app) adoptSession(s opencode.Session) {
 	}
 	a.conversation.selected = label
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
+	a.scope().activeTab = s.ID
 	a.rememberTab(s)
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
 	a.workspaceChanged()
+	a.saveState()
 }
 
 // settleBoot finishes the boot: the conversation list lands and the view
@@ -1149,11 +1153,42 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		a.scope().nextCursor = next
 	}
 	if lerr == nil && len(ls) > 0 {
-		a.openConversation(ls[0])
+		if session, ok := a.restoredTab(ls); ok {
+			a.openConversation(session)
+		} else {
+			a.openConversation(ls[0])
+		}
 	} else {
 		a.freshTranscript()
 	}
 	a.scope().sessionsLoaded = true
+}
+
+// restoredTab names the conversation that was on show when the app last
+// closed, when its tab survived. A tab the server no longer lists is
+// still opened by ID: the server answers for it, and the strip would not
+// show a tab it could not open.
+func (a *app) restoredTab(ls []opencode.Session) (opencode.Session, bool) {
+	scope := a.scope()
+	if scope.activeTab == "" {
+		return opencode.Session{}, false
+	}
+	found := false
+	for _, tab := range scope.tabs {
+		if tab.id == scope.activeTab {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return opencode.Session{}, false
+	}
+	for _, session := range ls {
+		if session.ID == scope.activeTab {
+			return session, true
+		}
+	}
+	return opencode.Session{ID: scope.activeTab, Title: a.tabTitle(scope.activeTab)}, true
 }
 
 // startNewChat clears the view; the conversation itself comes into being
@@ -1185,8 +1220,10 @@ func (a *app) resetDraft(dir string) {
 	a.conversation.draftModel = opencode.ModelRef{}
 	a.conversation.commandError = ""
 	a.layout.projectPickerOpen = false
+	a.scope().activeTab = ""
 	a.freshTranscript()
 	a.workspaceChanged()
+	a.saveState()
 }
 
 // freshTranscript empties the transcript for another conversation,

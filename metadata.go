@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +14,8 @@ import (
 )
 
 // appMetadata is everything the app keeps between runs: the sidebar's
-// projects and pins, the settings' servers and model choices, and the
-// widths the user dragged the workspace panes to.
+// projects and pins, the settings' servers and model choices, the widths
+// the user dragged the workspace panes to, and each server's open tabs.
 type appMetadata struct {
 	projects    []string
 	projectPins map[string]bool
@@ -25,6 +26,8 @@ type appMetadata struct {
 	sidebarW    float32
 	browserW    float32
 	terminalH   float32
+	tabs        map[string][]chatTab // server id -> its open conversations
+	activeTabs  map[string]string    // server id -> the conversation on show
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -179,6 +182,23 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			if height, err := strconv.ParseFloat(value, 32); err == nil && height > 0 {
 				state.terminalH = float32(height)
 			}
+		default:
+			switch {
+			case strings.HasPrefix(key, "tabs:"):
+				if tabs, ok := decodeTabs(value); ok {
+					if state.tabs == nil {
+						state.tabs = map[string][]chatTab{}
+					}
+					state.tabs[strings.TrimPrefix(key, "tabs:")] = tabs
+				}
+			case strings.HasPrefix(key, "active_tab:"):
+				if value != "" {
+					if state.activeTabs == nil {
+						state.activeTabs = map[string]string{}
+					}
+					state.activeTabs[strings.TrimPrefix(key, "active_tab:")] = value
+				}
+			}
 		}
 	}
 	return state, nil
@@ -190,10 +210,23 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%'"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
+	}
+	for serverID, tabs := range state.tabs {
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"tabs:" + serverID, encodeTabs(tabs)},
+		})
+	}
+	for serverID, id := range state.activeTabs {
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"active_tab:" + serverID, id},
+		})
 	}
 	for i, dir := range state.projects {
 		statements = append(statements, sqlite.Statement{SQL: "INSERT INTO projects VALUES (?, ?, ?)", Args: []any{dir, i, state.projectPins[dir]}})
@@ -230,6 +263,42 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 // decimal, so a restart reads back the size the divider last showed.
 func formatWidth(width float32) string {
 	return strconv.FormatFloat(float64(width), 'f', -1, 32)
+}
+
+// storedTab is a chat tab as it sits in the preferences table.
+type storedTab struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// decodeTabs reads one server's tab list, treating a malformed row as no
+// tabs rather than failing the whole store.
+func decodeTabs(value string) ([]chatTab, bool) {
+	var stored []storedTab
+	if err := json.Unmarshal([]byte(value), &stored); err != nil {
+		return nil, false
+	}
+	tabs := make([]chatTab, 0, len(stored))
+	for _, tab := range stored {
+		if tab.ID == "" {
+			continue
+		}
+		tabs = append(tabs, chatTab{id: tab.ID, title: tab.Title})
+	}
+	return tabs, true
+}
+
+// encodeTabs writes a server's tab list for the next launch.
+func encodeTabs(tabs []chatTab) string {
+	stored := make([]storedTab, 0, len(tabs))
+	for _, tab := range tabs {
+		stored = append(stored, storedTab{ID: tab.id, Title: tab.title})
+	}
+	data, err := json.Marshal(stored)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 // Pending snapshots are replaced by the newest, and shutdown drains the queue.
@@ -276,6 +345,18 @@ func (a *app) stateSnapshot() appMetadata {
 	for key, scope := range a.connections.scopes {
 		if len(scope.pinOrder) > 0 {
 			state.pins[key] = slices.Clone(scope.pinOrder)
+		}
+		if len(scope.tabs) > 0 {
+			if state.tabs == nil {
+				state.tabs = map[string][]chatTab{}
+			}
+			state.tabs[key] = slices.Clone(scope.tabs)
+		}
+		if scope.activeTab != "" {
+			if state.activeTabs == nil {
+				state.activeTabs = map[string]string{}
+			}
+			state.activeTabs[key] = scope.activeTab
 		}
 	}
 	for key := range a.connections.modelOff {
@@ -340,6 +421,12 @@ func (a *app) restoreState(state appMetadata) {
 	}
 	for id, pins := range state.pins {
 		a.scopeFor(id).setPins(pins)
+	}
+	for id, tabs := range state.tabs {
+		a.scopeFor(id).tabs = tabs
+	}
+	for id, active := range state.activeTabs {
+		a.scopeFor(id).activeTab = active
 	}
 	a.connections.modelOff = state.modelOff
 	if a.connections.modelOff == nil {

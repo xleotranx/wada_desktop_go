@@ -583,3 +583,61 @@ func TestComposerSends(t *testing.T) {
 		t.Fatal("the idle send button submitted a turn")
 	}
 }
+
+// TestSidebarSearchKeyboard walks the results with the arrows and opens
+// one with Enter; a lookup still running waits rather than opening a stale
+// row, and typing starts the walk over.
+func TestSidebarSearchKeyboard(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Grep wiring"}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	if err := tt.Click("Search"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("wire")
+	select {
+	case <-a.search.searches:
+	default:
+		t.Fatal("typing did not queue a search")
+	}
+	if a.search.searchSelected != -1 {
+		t.Fatalf("typing left a row chosen: %d", a.search.searchSelected)
+	}
+	a.search.searchResults = []opencode.Session{
+		{ID: "ses_b", Title: "Wiring the wings"},
+		{ID: "ses_c", Title: "Wired for sound"},
+	}
+	a.search.searchLoading = true
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.conversation.target.session != "" {
+		t.Fatal("Enter opened a row while the search was still running")
+	}
+	a.search.searchLoading = false
+	a.search.searchSelected = -1
+	tt.Key(0, ui.KeyUp)
+	if a.search.searchSelected != 1 {
+		t.Fatalf("Up from nothing chose %d", a.search.searchSelected)
+	}
+	tt.Key(0, ui.KeyUp)
+	if a.search.searchSelected != 0 {
+		t.Fatalf("a second Up chose %d", a.search.searchSelected)
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyDown)
+	if a.search.searchSelected != 1 {
+		t.Fatalf("Down past the end chose %d", a.search.searchSelected)
+	}
+	tt.Key(0, ui.KeyUp)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.conversation.target.session != "ses_b" {
+		t.Fatalf("Enter opened %q", a.conversation.target.session)
+	}
+	job := <-commandsOf(a)
+	if job.kind != "open" || job.sid != "ses_b" {
+		t.Fatalf("Enter queued %+v", job)
+	}
+}

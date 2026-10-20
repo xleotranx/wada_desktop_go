@@ -139,14 +139,15 @@ type preferencesState struct {
 
 // searchState owns the search fields coordinated on the UI thread.
 type searchState struct {
-	searchOpen    bool
-	resultsList   ui.ListState
-	searchText    string
-	searchResults []opencode.Session
-	searchLoading bool
-	searchVersion uint64
-	searches      chan searchRequest
-	focusSearch   bool
+	searchOpen     bool
+	resultsList    ui.ListState
+	searchText     string
+	searchResults  []opencode.Session
+	searchSelected int
+	searchLoading  bool
+	searchVersion  uint64
+	searches       chan searchRequest
+	focusSearch    bool
 }
 
 // viewState owns the view fields coordinated on the UI thread.

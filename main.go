@@ -247,6 +247,7 @@ func modelLess(one, two opencode.Model) bool {
 // once.
 func (a *app) reviseSearch() {
 	a.search.searchVersion++
+	a.search.searchSelected = -1
 	a.search.searchLoading = a.search.searchText != ""
 	if !a.search.searchLoading {
 		a.search.searchResults = nil

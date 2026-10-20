@@ -353,6 +353,34 @@ func (a *app) searchField(c *ui.Context) {
 		in := components.TextBox(c, &a.search.searchText,
 			components.TextBoxOptions{LeadingIcon: icSearch}).
 			FillWidth().Label("Search chats").Placeholder("Search chats").FontSize(13)
+		in.OnTextKey(func(k ui.TextKey) bool {
+			rows := a.search.searchResults
+			if k.Key == ui.KeyEnter {
+				if len(rows) > 0 && !a.search.searchLoading {
+					index := a.search.searchSelected
+					if index < 0 || index >= len(rows) {
+						index = 0
+					}
+					a.openConversation(rows[index])
+				}
+				return true
+			}
+			if k.Key == ui.KeyDown && len(rows) > 0 {
+				a.search.searchSelected = min(a.search.searchSelected+1, len(rows)-1)
+				a.search.resultsList.ScrollTo(a.search.searchSelected, ui.Center)
+				return true
+			}
+			if k.Key == ui.KeyUp && len(rows) > 0 {
+				if a.search.searchSelected < 0 {
+					a.search.searchSelected = len(rows) - 1
+				} else {
+					a.search.searchSelected = max(a.search.searchSelected-1, 0)
+				}
+				a.search.resultsList.ScrollTo(a.search.searchSelected, ui.Center)
+				return true
+			}
+			return false
+		})
 		if in.Changed() {
 			a.reviseSearch()
 		}
@@ -369,6 +397,7 @@ func (a *app) searchField(c *ui.Context) {
 func (a *app) closeChatSearch() {
 	a.search.searchOpen = false
 	a.search.focusSearch = false
+	a.search.searchSelected = -1
 	if a.search.searchText != "" {
 		a.search.searchText = ""
 		a.reviseSearch()
@@ -675,7 +704,7 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 			return "session:" + rows[i].ID
 		}).Rows(func(row ui.ListRow) {
 		if row.Index < len(rows) {
-			a.sessionRow(row.Context, p, rows[row.Index])
+			a.chatRow(row.Context, p, rows[row.Index], "session:", 8, row.Index == a.search.searchSelected)
 		} else {
 			ui.Row(row.Context).Padding(4, 8).Children(func() {
 				ui.Text(row.Context, "No chats match.").FontSize(13).TextColor(p.muted)
@@ -688,23 +717,23 @@ func (a *app) searchResultsPane(c *ui.Context, p palette) {
 // swaps the transcript while the runner brings the stored one back, and
 // the kebab at its end renames, pins or deletes it.
 func (a *app) sessionRow(c *ui.Context, p palette, s opencode.Session) {
-	a.chatRow(c, p, s, "session:", 8)
+	a.chatRow(c, p, s, "session:", 8, false)
 }
 
 // projectChatRow nests one conversation under its project folder.
 func (a *app) projectChatRow(c *ui.Context, p palette, s opencode.Session) {
-	a.chatRow(c, p, s, "projectchat:"+s.Directory+":", 30)
+	a.chatRow(c, p, s, "projectchat:"+s.Directory+":", 30, false)
 }
 
 // chatRow draws one conversation row in either place, indented by the
 // tree it sits in.
-func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, indent float32) {
+func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, indent float32, highlight bool) {
 	label := s.Title
 	if label == "" {
 		label = "New chat"
 	}
 	c.Key(key + s.ID)
-	b := a.row(c, p, label, s.ID == string(a.conversation.target.session))
+	b := a.row(c, p, label, s.ID == string(a.conversation.target.session) || highlight)
 	b.PaddingStart(indent)
 	b.OnClick(func() {
 		a.openConversation(s)

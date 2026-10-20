@@ -193,6 +193,7 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		}
 		if ev.SessionID == string(a.conversation.target.session) {
 			a.conversation.selected = ev.Title
+			a.syncWindowTitle()
 		}
 		a.saveState()
 	}

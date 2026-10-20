@@ -606,6 +606,7 @@ func main() {
 		})
 		a.runtime.win = win
 		a.runtime.menu = func(fn func()) { win.Update(fn) }
+		a.runtime.setTitle = win.SetTitle
 		mygo.App.SetMenu(appMenu(a))
 		a.applyAppearance()
 		if mygo.NotificationsSupported() {
@@ -714,6 +715,22 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// syncWindowTitle names the open chat in the window title, or the page when
+// the settings are up. The window starts as plain Codex.
+func (a *app) syncWindowTitle() {
+	if a.runtime.setTitle == nil {
+		return
+	}
+	title := "Codex"
+	switch {
+	case a.layout.settingsOpen:
+		title = "Settings — Codex"
+	case a.conversation.selected != "":
+		title = a.conversation.selected + " — Codex"
+	}
+	a.runtime.setTitle(title)
 }
 
 // resetPaneWidths puts the sidebar, tools pane and terminal back to their
@@ -1286,6 +1303,7 @@ func (a *app) adoptSession(s opencode.Session) {
 	a.workspaceChanged()
 	a.ensureVcs()
 	a.saveState()
+	a.syncWindowTitle()
 }
 
 // settleBoot finishes the boot: the conversation list lands and the view
@@ -1380,6 +1398,7 @@ func (a *app) resetDraft(dir string) {
 	a.freshTranscript()
 	a.workspaceChanged()
 	a.saveState()
+	a.syncWindowTitle()
 }
 
 // freshTranscript empties the transcript for another conversation,

@@ -86,6 +86,7 @@ func (s runnerSink) Created(created runner.Created) {
 	if a.conversation.target.revision == created.Draft && a.conversation.target.isDraft() {
 		a.conversation.target.selectSession(chat.SessionID(created.Session.ID))
 		a.conversation.selected = "New chat"
+		a.syncWindowTitle()
 		a.scope().activeTab = created.Session.ID
 		a.rememberTab(created.Session)
 	}

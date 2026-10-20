@@ -51,6 +51,7 @@ func (a *app) openSettings(tab string) {
 		a.layout.settingsTab = tab
 	}
 	a.probeUntried()
+	a.syncWindowTitle()
 }
 
 // closeSettings returns to the view the rail had selected.
@@ -58,6 +59,7 @@ func (a *app) closeSettings() {
 	a.layout.settingsOpen = false
 	a.closeServerEditor()
 	a.layout.serverConfirm = nil
+	a.syncWindowTitle()
 }
 
 // settingsDialogOpen reports a settings dialog working: the guard that

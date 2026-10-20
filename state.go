@@ -72,7 +72,8 @@ type runtimeState struct {
 	clearNotices func()
 	// menu runs one menu bar choice on the UI thread; a test sets it to
 	// run the work at once, with no window.
-	menu func(func())
+	menu     func(func())
+	setTitle func(string)
 }
 
 // connectionsState owns the connections fields coordinated on the UI thread.

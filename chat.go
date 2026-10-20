@@ -64,34 +64,29 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 						ui.Text(c, "Send a message below to start it.").FontSize(12.5).
 							TextColor(p.faint)
 					})
-					// Find has nothing to count here, but the key still
-					// answers with its bar rather than looking dead.
-					if a.layout.findOpen {
-						a.chatFindBar(c, p)
-					}
-					return
-				}
-				ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().
-					Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
-					Rows(func(row ui.ListRow) {
-						if row.Index == a.conversation.transcript.Len() {
-							a.blockRow(row.Context, p, chat.Block{Kind: chat.KindWorking, Text: "Working…"})
-						} else {
-							a.blockRow(row.Context, p, a.conversation.transcript.Row(row.Index))
-						}
-					})
-				// Reading history leaves the newest rows out of sight; the
-				// pill brings them back and resumes following the stream.
-				if !a.layout.feed.AtEnd() {
-					ui.Row(c).Absolute().Left(0).Right(0).Bottom(12).Justify(ui.Center).Children(func() {
-						jump := components.Button(c, "", components.ButtonSecondary).
-							Label("Jump to latest").Height(28).Radius(14).Padding(0, 12)
-						jump.OnClick(func() { a.layout.feed.ScrollToEnd() })
-						jump.Children(func() {
-							ui.Icon(c, icChevDown).FontSize(12).TextColor(p.muted)
-							components.Text(c, "Latest").FontSize(12).MarginStart(5).TextColor(p.text)
+				} else {
+					ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().
+						Padding(26, 24, 18, 24).Gap(13).ItemKey(a.blockIdentity).
+						Rows(func(row ui.ListRow) {
+							if row.Index == a.conversation.transcript.Len() {
+								a.blockRow(row.Context, p, chat.Block{Kind: chat.KindWorking, Text: "Working…"})
+							} else {
+								a.blockRow(row.Context, p, a.conversation.transcript.Row(row.Index))
+							}
 						})
-					})
+					// Reading history leaves the newest rows out of sight; the
+					// pill brings them back and resumes following the stream.
+					if !a.layout.feed.AtEnd() {
+						ui.Row(c).Absolute().Left(0).Right(0).Bottom(12).Justify(ui.Center).Children(func() {
+							jump := components.Button(c, "", components.ButtonSecondary).
+								Label("Jump to latest").Height(28).Radius(14).Padding(0, 12)
+							jump.OnClick(func() { a.layout.feed.ScrollToEnd() })
+							jump.Children(func() {
+								ui.Icon(c, icChevDown).FontSize(12).TextColor(p.muted)
+								components.Text(c, "Latest").FontSize(12).MarginStart(5).TextColor(p.text)
+							})
+						})
+					}
 				}
 			}
 			ui.Box(c).Absolute().Start(0).End(0).Bottom(0).Height(26).
@@ -99,6 +94,7 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 			if a.layout.findOpen {
 				a.chatFindBar(c, p)
 			}
+			a.chatDropZone(c, p, area)
 		})
 
 		a.composer(c, p)

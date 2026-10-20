@@ -30,7 +30,8 @@ Global OpenCode configuration is not rewritten by startup.
 - Servers: managed/local and remote connections, probes, pairing links, scoped
   history, pins, catalogs and workspace folders. One connection is active at a time.
 - Workspaces: added local projects or server-reported remote projects, a remote
-  folder browser, file search/preview, file quoting, and working-tree/branch diffs.
+  folder browser, file search/preview, quoting files by path, picker or drop,
+  and working-tree/branch diffs.
 - Shell policy: read and update the selected workspace's OpenCode configuration,
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
@@ -121,5 +122,6 @@ This removes only the app metadata database and its SQLite sidecars. It does not
 remove OpenCode conversations or workspace files. With `WADA_DATA_DIR` set, reset
 is scoped to that directory.
 
-Links render but do not open yet. Attachments take a typed path; dictation and
-conversation archival are not implemented.
+Links render but do not open yet. Attachments quote text files by typed path,
+native picker or drag-and-drop; image parts, dictation and conversation archival
+are not implemented.

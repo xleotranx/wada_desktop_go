@@ -95,10 +95,22 @@ func (a *app) attachModal(c *ui.Context, p palette) {
 	if st == nil || !st.open {
 		return
 	}
-	dialog(c, p, &st.open, 400, "Quote a file", func() {
+	dialog(c, p, &st.open, 440, "Quote a file", func() {
 		ui.Text(c, "Quote a file").FontSize(15).FontWeight(600)
-		ui.Text(c, "Its path in this chat's folder, or an absolute one.").FontSize(12.5).TextColor(p.muted)
-		textField(c, "File path", &st.draft, "src/main.go")
+		ui.Text(c, "Name a path in this chat's folder, or choose files from this Mac.").
+			FontSize(12.5).TextColor(p.muted)
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			components.TextBox(c, &st.draft, components.TextBoxOptions{}).Grow(1).MinWidth(0).
+				Label("File path").Placeholder("src/main.go").FontSize(13)
+			if a.localActive() {
+				browse := components.Button(c, "Browse…", components.ButtonSecondary).Shrink(0)
+				browse.Tooltip("Choose one or more files to quote")
+				if browse.Clicked() {
+					a.closeAttach()
+					a.runtime.pickAttach(a.quoteFiles)
+				}
+			}
+		})
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			if components.Button(c, "Cancel", components.ButtonGhost).Clicked() {
 				a.closeAttach()

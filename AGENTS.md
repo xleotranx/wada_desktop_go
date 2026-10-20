@@ -25,7 +25,8 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `internal/runner`: command queue, connection attempts, independent switch/stop
   control, retries and bounded event batches. No native UI dependency.
 - `servers.go`, `server_folders.go`, `files.go`, `changes.go`, `policy.go`,
-  `search.go`, `background.go`, `dialog_lifetime.go`: operations and lifetime ownership.
+  `search.go`, `background.go`, `attach.go`, `dialog_lifetime.go`: operations
+  and lifetime ownership.
 - `metadata.go`: transactional SQLite settings and asynchronous snapshots.
 - `palette.go`, `icons.go`: the app's semantic colors read from the Onevra theme,
   and Lucide icon accessors.

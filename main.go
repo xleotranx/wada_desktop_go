@@ -119,6 +119,7 @@ func newApp() *app {
 		terminal: terminalState{height: terminalDefaultHeight, exitCode: -1}}
 	a.runtime.pickFolder = a.pickFolderDialog
 	a.runtime.pickExport = a.pickSaveDialog
+	a.runtime.pickAttach = a.pickAttachDialog
 	a.runtime.newTerminal = terminal.New
 	a.runtime.probe = a.runProbe
 	a.runtime.pair = a.runPair
@@ -868,7 +869,7 @@ func (a *app) attachQuote(st *attachState, abs string, data []byte) {
 		st.note = "That file is already in the draft."
 		return
 	}
-	a.conversation.draft += "\n\n" + mark + "\n```" + codeLang(abs) + "\n" + string(data) + "\n```\n"
+	a.conversation.draft += quoteMarkup(abs, data)
 	a.closeAttach()
 }
 

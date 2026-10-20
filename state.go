@@ -48,6 +48,7 @@ type runtimeState struct {
 	win           *mygo.Window
 	pickFolder    func(done func(path string))
 	pickExport    func(done func(path string))
+	pickAttach    func(done func(paths []string))
 	newTerminal   func(terminal.Options) (*terminal.Terminal, error)
 	probe         func(cfg serverConn)
 	pair          func(link string, done func(addr, token string, err error))
@@ -154,6 +155,7 @@ type viewState struct {
 	findQuerySeen      string
 	selectAddedProject bool
 	attach             *attachState
+	quoteRequest       requestState
 	rename             *renameState
 	confirm            *confirmState
 	browse             *browseState

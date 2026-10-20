@@ -1186,6 +1186,10 @@ func (a *app) adoptSession(s opencode.Session) {
 // settles onto the newest conversation, as its click would have; with
 // none, the transcript starts clean instead of showing the mock.
 func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
+	// The new-chat composer is restored before the first conversation, so
+	// adopting that conversation stashes these words instead of deleting
+	// a draft the user has not seen yet.
+	a.restoreDraft("")
 	if lerr == nil {
 		a.scope().sessions = ls
 		a.scope().nextCursor = next
@@ -1198,7 +1202,6 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		}
 	} else {
 		a.freshTranscript()
-		a.restoreDraft("")
 	}
 	a.scope().sessionsLoaded = true
 }

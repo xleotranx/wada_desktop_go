@@ -86,6 +86,9 @@ type conversationState struct {
 	draft        string
 	draftProject string
 	draftModel   opencode.ModelRef
+	// draftLoaded names the draft key the composer holds, so clearing the
+	// words removes only that key instead of an unloaded new-chat draft.
+	draftLoaded string
 	// agent names the persona the next conversation is born under ("plan"
 	// answers read-only). The picker holds it; a session's own agent is
 	// the server's word and stays what it was born with.

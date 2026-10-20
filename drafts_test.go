@@ -137,3 +137,45 @@ func TestCloseWorkFlushesTheDraft(t *testing.T) {
 		t.Fatalf("saved draft %q", got)
 	}
 }
+
+// TestBootKeepsNewChatDraftWhileOpeningChat makes sure adopting the first
+// conversation cannot erase new-chat words that were never loaded.
+func TestBootKeepsNewChatDraftWhileOpeningChat(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().drafts[""] = "new idea"
+	a.scope().drafts["ses_a"] = "chat words"
+	a.settleBoot([]opencode.Session{{ID: "ses_a", Title: "Alpha"}}, "", nil)
+	if a.conversation.draft != "chat words" {
+		t.Fatalf("opened chat draft %q", a.conversation.draft)
+	}
+	if a.scope().drafts[""] != "new idea" {
+		t.Fatalf("new-chat draft was erased: %v", a.scope().drafts)
+	}
+	a.startDraft("")
+	if a.conversation.draft != "new idea" {
+		t.Fatalf("new-chat draft came back as %q", a.conversation.draft)
+	}
+}
+
+// TestClearingADraftForgetsIt removes the stored words when the user
+// empties a draft they had loaded, rather than bringing it back later.
+func TestClearingADraftForgetsIt(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_a", Title: "Alpha"},
+		{ID: "ses_b", Title: "Beta"},
+	}
+	a.adoptSession(a.scope().sessions[0])
+	a.conversation.draft = "clear me"
+	a.adoptSession(a.scope().sessions[1])
+	a.adoptSession(a.scope().sessions[0])
+	if a.conversation.draft != "clear me" {
+		t.Fatalf("loaded draft %q", a.conversation.draft)
+	}
+	a.conversation.draft = ""
+	a.adoptSession(a.scope().sessions[1])
+	a.adoptSession(a.scope().sessions[0])
+	if a.conversation.draft != "" {
+		t.Fatalf("cleared draft returned as %q", a.conversation.draft)
+	}
+}

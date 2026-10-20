@@ -33,6 +33,7 @@ type appMetadata struct {
 	notifyFinished  bool
 	notifyApprovals bool
 	diffSplit       bool
+	commandRecents  []string
 	keymap          map[string]chord
 	recent          map[string][]recentFile
 	unread          map[string][]string          // server id -> chats with news
@@ -201,6 +202,11 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			state.notifyApprovals = value != "0"
 		case "diff_split":
 			state.diffSplit = value == "1"
+		case "command_recents":
+			var recents []string
+			if json.Unmarshal([]byte(value), &recents) == nil && len(recents) > 0 {
+				state.commandRecents = recents
+			}
 		case "keymap":
 			var keymap map[string]chord
 			if json.Unmarshal([]byte(value), &keymap) == nil && len(keymap) > 0 {
@@ -288,6 +294,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_finished', ?)", Args: []any{encodeSwitch(state.notifyFinished)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_approvals', ?)", Args: []any{encodeSwitch(state.notifyApprovals)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('diff_split', ?)", Args: []any{encodeSwitch(state.diffSplit)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('command_recents', ?)", Args: []any{encodeCommandRecents(state.commandRecents)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
 	}
@@ -408,6 +415,19 @@ func formatWidth(width float32) string {
 	return strconv.FormatFloat(float64(width), 'f', -1, 32)
 }
 
+// encodeCommandRecents stores the palette's remembered actions as JSON, an
+// empty list when there are none so a cleared history stays cleared.
+func encodeCommandRecents(ids []string) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
 // encodeSwitch stores a preference switch as one digit, the form the
 // loader reads back.
 func encodeSwitch(on bool) string {
@@ -503,6 +523,7 @@ func (a *app) stateSnapshot() appMetadata {
 		notifyFinished:  a.preferences.notifyFinished,
 		notifyApprovals: a.preferences.notifyApprovals,
 		diffSplit:       a.preferences.diffSplit,
+		commandRecents:  slices.Clone(a.preferences.commandRecents),
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -612,6 +633,7 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.notifyFinished = state.notifyFinished
 	a.preferences.notifyApprovals = state.notifyApprovals
 	a.preferences.diffSplit = state.diffSplit
+	a.preferences.commandRecents = slices.Clone(state.commandRecents)
 	a.preferences.projectLinks = map[string][]string{}
 	for primary, folders := range state.projectLinks {
 		if len(folders) > 0 {

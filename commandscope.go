@@ -38,7 +38,7 @@ func splitCommandScope(query string) (scope, rest string) {
 func commandGroupInScope(group, scope string) bool {
 	switch scope {
 	case commandScopeCommands:
-		return group == "Actions" || group == "Tools" || group == "View"
+		return group == "Actions" || group == "Tools" || group == "View" || group == "Recent"
 	case commandScopeChats:
 		return group == "Chats" || group == "Projects"
 	}

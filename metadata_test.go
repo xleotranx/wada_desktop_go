@@ -40,6 +40,7 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		notifyFinished:  true,
 		notifyApprovals: false,
 		diffSplit:       true,
+		commandRecents:  []string{"action:activity", "action:new-chat"},
 		keymap:          map[string]chord{"palette": {Mods: ui.Cmd | ui.Alt, Key: ui.KeyK}},
 		recent: map[string][]recentFile{
 			localServerID: {{Dir: "/work/a", Path: "main.go"}},

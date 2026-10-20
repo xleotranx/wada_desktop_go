@@ -49,7 +49,8 @@ Global OpenCode configuration is not rewritten by startup.
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
   servers, projects and conversations. Its scope rows or `>` / `@` prefixes
-  narrow the palette to commands or chats. Opened chats stay in a tab strip that
+  narrow the palette to commands or chats; the actions last run gather in a
+  Recent group, five at most, newest first, saved with the settings. Opened chats stay in a tab strip that
   comes back with its last active tab on the next launch; Ctrl+Tab and
   Ctrl+Shift+Tab cycle it, and Cmd+Shift+T reopens the last closed tab. A
   right-click on a tab closes it, the other tabs or the whole strip; all three

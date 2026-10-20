@@ -201,11 +201,77 @@ func (a *app) commandItems() []command.Item {
 			items[i].Shortcut = a.shortcutKeys(id)
 		}
 	}
-	return items
+	return a.withRecentCommands(items)
 }
 
-// runCommand executes one palette choice by its stable ID.
+// commandRecentsLimit bounds the palette's Recent group.
+const commandRecentsLimit = 5
+
+// rememberCommand puts one action at the front of the palette's history,
+// newest first, once each.
+func (a *app) rememberCommand(id string) {
+	recents := []string{id}
+	for _, recent := range a.preferences.commandRecents {
+		if recent != id && len(recents) < commandRecentsLimit {
+			recents = append(recents, recent)
+		}
+	}
+	a.preferences.commandRecents = recents
+	a.saveState()
+}
+
+// withRecentCommands lifts the remembered actions into a Recent group at
+// the top of the palette and takes their old rows out, so each action
+// stands once.
+func (a *app) withRecentCommands(items []command.Item) []command.Item {
+	if len(a.preferences.commandRecents) == 0 {
+		return items
+	}
+	byID := make(map[string]command.Item, len(items))
+	for _, item := range items {
+		if _, exists := byID[item.ID]; !exists {
+			byID[item.ID] = item
+		}
+	}
+	recent := make([]command.Item, 0, len(a.preferences.commandRecents))
+	for _, id := range a.preferences.commandRecents {
+		item, ok := byID[id]
+		if !ok {
+			continue
+		}
+		item.Group = "Recent"
+		recent = append(recent, item)
+	}
+	if len(recent) == 0 {
+		return items
+	}
+	skip := make(map[string]bool, len(recent))
+	for _, item := range recent {
+		skip[item.ID] = true
+	}
+	// The scope switcher keeps the top of the list; the history sits just
+	// under it, ahead of the ordinary groups.
+	lead := 0
+	for lead < len(items) && items[lead].Group == "Filter" {
+		lead++
+	}
+	out := make([]command.Item, 0, len(items))
+	out = append(out, items[:lead]...)
+	out = append(out, recent...)
+	for _, item := range items[lead:] {
+		if !skip[item.ID] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// runCommand executes one palette choice by its stable ID, remembering
+// the actions for the palette's Recent group.
 func (a *app) runCommand(id string) {
+	if strings.HasPrefix(id, "action:") {
+		a.rememberCommand(id)
+	}
 	switch id {
 	case "action:new-chat":
 		a.startNewChat()

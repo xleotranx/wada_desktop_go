@@ -99,7 +99,9 @@ Global OpenCode configuration is not rewritten by startup.
   next file. A right-click on the preview path copies the path or the file's
   contents, opens the editor or folder, and shows or closes the preview. The
   search's matches take the arrows and Enter: a completed search opens the
-  chosen match, while a changed query searches again. A file row dragged into
+  chosen match, while a changed query searches again. A link to a workspace
+  file in the transcript opens that file in Files; web and mail links open in
+  the desktop. A file row dragged into
   the composer writes its path as an @mention; files dropped
   from the desktop are quoted like the Attach picker's. Hovering
   a line and clicking its gutter + opens a review
@@ -241,6 +243,7 @@ This removes only the app metadata database and its SQLite sidecars. It does not
 remove OpenCode conversations or workspace files. With `WADA_DATA_DIR` set, reset
 is scoped to that directory.
 
-Links render but do not open yet. Attachments quote text files by the native
-picker or files dropped from the desktop; image parts, dictation and
-conversation archival are not implemented.
+Transcript links to web and mail addresses open in the desktop, and a
+workspace file link opens in Files. Attachments quote text files by the native
+picker or files dropped from the desktop; image parts and dictation are not
+implemented.

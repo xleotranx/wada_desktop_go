@@ -14,7 +14,7 @@ import (
 // frame's palette: the app's colors over the package's own meters of
 // spacing, heading and code. The selection stays one across the message
 // blocks, as the wrapping scroll gives it.
-func (a *app) prepareMarkdown(p palette) {
+func (a *app) prepareMarkdown(c *ui.Context, p palette) {
 	a.layout.mdTheme = markdown.Theme{
 		FontSize:            a.chatFont(14),
 		Text:                p.text,
@@ -32,6 +32,34 @@ func (a *app) prepareMarkdown(p palette) {
 	}
 	a.layout.md.Theme = &a.layout.mdTheme
 	a.layout.md.ShareSelection = true
+	a.layout.md.OnLink = func(url string) { a.openChatLink(c, url) }
+}
+
+// openChatLink sends a transcript link where it belongs: web and mail
+// addresses to the desktop, a link to a workspace file into the Files
+// tool. A link to a heading inside the message has nowhere of its own to
+// go in a chat that scrolls as one, so it stays put.
+func (a *app) openChatLink(c *ui.Context, url string) {
+	url = strings.TrimSpace(url)
+	switch {
+	case url == "" || strings.HasPrefix(url, "#"):
+		return
+	case strings.HasPrefix(url, "http://"), strings.HasPrefix(url, "https://"),
+		strings.HasPrefix(url, "mailto:"):
+		c.OpenURL(url)
+	case strings.Contains(url, "://"):
+		// Another scheme is not this app's to open.
+	default:
+		path := strings.TrimPrefix(strings.TrimPrefix(url, "./"), "/")
+		if i := strings.IndexAny(path, "#?"); i >= 0 {
+			path = path[:i]
+		}
+		if path == "" {
+			return
+		}
+		a.openTool("Files")
+		a.filesRead(path)
+	}
 }
 
 // newFeed is the transcript's list: it opens at its end and keeps the
@@ -41,7 +69,7 @@ func newFeed() ui.ListState { return ui.ListState{FollowEnd: true} }
 
 // contentPane draws the conversation title, transcript and composer.
 func (a *app) contentPane(c *ui.Context, p palette) {
-	a.prepareMarkdown(p)
+	a.prepareMarkdown(c, p)
 	ui.Column(c).Grow(1).FillHeight().Background(p.bg).Children(func() {
 		a.chatTabs(c, p)
 		// The transcript fills the card: the conversation's name lives in

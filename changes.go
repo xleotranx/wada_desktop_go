@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -241,27 +242,30 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 		// Binary, metadata-only and malformed patches still show their raw text.
 		ui.TextAreaBase(c, &st.patch).Label("Raw patch").ReadOnly(true).
 			Font("monospace").FontSize(11.5).LineHeight(1.5).FillWidth().Grow(1)
-		return
-	}
-	// The gutter's + opens a review note on its line, and the notes on
-	// this file stand under the lines they belong to.
-	st.diff.OnGutterButton = func(r editor.DiffLineRange) { a.beginReviewNote(f.File, r) }
-	notes := a.reviewNotesFor(f.File)
-	annotations := make([]editor.DiffAnnotation, 0, len(notes))
-	for _, note := range notes {
-		annotations = append(annotations, editor.DiffAnnotation{
-			Side: note.side, Line: note.line, Height: 66, Key: note.id,
-		})
-	}
-	st.diff.Annotations = annotations
-	st.diff.RenderAnnotation = func(c *ui.Context, ann editor.DiffAnnotation) {
-		if id, ok := ann.Key.(uint64); ok {
-			a.reviewNoteView(c, p, id)
+	} else {
+		// The gutter's + opens a review note on its line, and the notes on
+		// this file stand under the lines they belong to.
+		st.diff.OnGutterButton = func(r editor.DiffLineRange) { a.beginReviewNote(f.File, r) }
+		notes := a.reviewNotesFor(f.File)
+		annotations := make([]editor.DiffAnnotation, 0, len(notes))
+		for _, note := range notes {
+			annotations = append(annotations, editor.DiffAnnotation{
+				Side: note.side, Line: note.line, Height: 66, Key: note.id,
+			})
 		}
+		st.diff.Annotations = annotations
+		st.diff.RenderAnnotation = func(c *ui.Context, ann editor.DiffAnnotation) {
+			if id, ok := ann.Key.(uint64); ok {
+				a.reviewNoteView(c, p, id)
+			}
+		}
+		st.diff.Theme = &editor.Theme{Background: p.bg, Text: p.muted,
+			LineNumber: p.faint, Added: p.diffAdd, Deleted: p.diffDel, Modified: p.link}
+		editor.DiffView(c.Key("patch:"+f.File), st.diff).FillWidth().Grow(1)
 	}
-	st.diff.Theme = &editor.Theme{Background: p.bg, Text: p.muted,
-		LineNumber: p.faint, Added: p.diffAdd, Deleted: p.diffDel, Modified: p.link}
-	editor.DiffView(c.Key("patch:"+f.File), st.diff).FillWidth().Grow(1)
+	if len(st.review) > 0 {
+		a.reviewTray(c, p)
+	}
 }
 
 // beginReviewNote opens a note on one line of the selected patch, or
@@ -369,7 +373,14 @@ func (a *app) reviewNoteView(c *ui.Context, p palette, id uint64) {
 		})
 		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
 			in := components.TextBox(c, &note.draft, components.TextBoxOptions{}).Grow(1).MinWidth(0).
-				Label("Review note").Placeholder("Ask for a change").FontSize(12)
+				Label("Review note").Placeholder("Ask for a change").FontSize(12).
+				OnTextKey(func(k ui.TextKey) bool {
+					if k.Key != ui.KeyEnter {
+						return false
+					}
+					a.addReviewNote(note)
+					return true
+				})
 			if st.reviewFocus == note.id {
 				in.Focus()
 				st.reviewFocus = 0
@@ -380,6 +391,62 @@ func (a *app) reviewNoteView(c *ui.Context, p palette, id uint64) {
 				a.addReviewNote(note)
 			}
 		})
+	})
+}
+
+// addAllReviewNotes writes every note into the composer, in file and line
+// order, and clears the tray.
+func (a *app) addAllReviewNotes() {
+	st := a.workspace.changes
+	if st == nil || len(st.review) == 0 {
+		return
+	}
+	notes := slices.Clone(st.review)
+	slices.SortStableFunc(notes, func(one, two *reviewNote) int {
+		if one.file != two.file {
+			return strings.Compare(one.file, two.file)
+		}
+		if one.line != two.line {
+			return one.line - two.line
+		}
+		return int(one.id) - int(two.id)
+	})
+	entries := make([]string, 0, len(notes))
+	for _, note := range notes {
+		text := strings.TrimSpace(note.draft)
+		if text == "" {
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("In %s at line %d: %s", note.file, note.line+1, text))
+	}
+	if len(entries) > 0 {
+		draft := strings.TrimRight(a.conversation.draft, "\n")
+		if draft != "" {
+			draft += "\n\n"
+		}
+		a.conversation.draft = draft + strings.Join(entries, "\n\n") + "\n"
+	}
+	st.review = nil
+	a.layout.composerFocus = true
+}
+
+// reviewTray is the bar under the patch while notes are waiting: how many
+// there are and the action that takes them all to the message.
+func (a *app) reviewTray(c *ui.Context, p palette) {
+	st := a.workspace.changes
+	n := len(st.review)
+	label := "1 review note"
+	if n > 1 {
+		label = fmt.Sprintf("%d review notes", n)
+	}
+	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+	ui.Row(c).FillWidth().Height(34).AlignItems(ui.Center).Gap(7).Children(func() {
+		ui.Icon(c, icQuote).FontSize(12).TextColor(p.orange).Shrink(0)
+		ui.Text(c, label).FontSize(11.5).TextColor(p.muted).SingleLine()
+		ui.Spacer(c)
+		if components.Button(c, "Add all to message", components.ButtonSecondary).Clicked() {
+			a.addAllReviewNotes()
+		}
 	})
 }
 

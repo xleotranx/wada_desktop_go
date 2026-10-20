@@ -444,3 +444,61 @@ func TestReviewNotesStayPerFile(t *testing.T) {
 		t.Fatal("the discarded note stayed")
 	}
 }
+
+// TestReviewTrayAddsAllNotes collects notes from more than one file into
+// one message, in file and line order, and clears the tray.
+func TestReviewTrayAddsAllNotes(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "app.go", Patch: "@@ -1,2 +1,3 @@\n package main\n+// added\n \n"},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.changes
+	a.beginReviewNote("app.go", editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1})
+	a.beginReviewNote("other.txt", editor.DiffLineRange{Side: editor.DiffNew, Start: 4, End: 4})
+	a.beginReviewNote("zzz.txt", editor.DiffLineRange{Side: editor.DiffNew, Start: 0, End: 0})
+	st.review[0].draft = "return early"
+	st.review[1].draft = "fix the name"
+	tt.Frame()
+	if !tt.HasText("3 review notes") || !tt.HasText("Add all to message") {
+		t.Fatalf("the tray is missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Add all to message"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	want := "In app.go at line 2: return early\n\nIn other.txt at line 5: fix the name\n"
+	if a.conversation.draft != want {
+		t.Fatalf("the tray wrote %q, want %q", a.conversation.draft, want)
+	}
+	if len(st.review) != 0 || tt.HasText("review notes") {
+		t.Fatalf("the tray outlived its notes: %+v", st.review)
+	}
+}
+
+// TestReviewNoteEnterAdds writes a note and presses Enter in its field to
+// take it to the message.
+func TestReviewNoteEnterAdds(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "app.go", Patch: "@@ -1,2 +1,3 @@\n package main\n+// added\n \n"},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.changes
+	st.diff.OnGutterButton(editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1})
+	tt.Frame()
+	tt.Type("quick note")
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.conversation.draft != "In app.go at line 2: quick note\n" {
+		t.Fatalf("Enter left the draft as %q", a.conversation.draft)
+	}
+	if len(st.review) != 0 {
+		t.Fatalf("the note stayed: %+v", st.review)
+	}
+}

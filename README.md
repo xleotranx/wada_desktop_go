@@ -71,9 +71,10 @@ Global OpenCode configuration is not rewritten by startup.
   file's patch with its name and counts above it, opens that file in Files
   from the header, and switches between a unified and a split diff; the
   choice is saved. Hovering a line and clicking its gutter + opens a review
-  note under that line; Add to message writes it into the composer as
-  "In <file> at line N: …", so a review reaches the agent without leaving
-  the diff.
+  note under that line; Add to message (or Enter in the note) writes it into
+  the composer as "In <file> at line N: …", so a review reaches the agent
+  without leaving the diff. The bar under the patch counts the notes and
+  adds them all at once in file and line order.
 - Attention: chats that finish or ask for an approval while another chat is on
   show wear unread dots in the sidebar, tab strip and bell. The bell opens a
   notification center listing approvals waiting in this chat, chats needing

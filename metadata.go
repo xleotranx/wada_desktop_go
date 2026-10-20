@@ -28,6 +28,7 @@ type appMetadata struct {
 	browserW    float32
 	terminalH   float32
 	appearance  string
+	chatText    string
 	unread      map[string][]string          // server id -> chats with news
 	drafts      map[string]map[string]string // server id -> draft key -> words
 	tabs        map[string][]chatTab         // server id -> its open conversations
@@ -176,6 +177,8 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			state.active = value
 		case "appearance":
 			state.appearance = normalizeAppearance(value)
+		case "chat_text":
+			state.chatText = normalizeChatText(value)
 		case "sidebar_width":
 			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
 				state.sidebarW = float32(width)
@@ -238,6 +241,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('appearance', ?)", Args: []any{normalizeAppearance(state.appearance)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
 	}
 	for serverID, tabs := range state.tabs {
 		statements = append(statements, sqlite.Statement{
@@ -392,6 +396,7 @@ func (a *app) stateSnapshot() appMetadata {
 		browserW:    a.layout.browserW,
 		terminalH:   a.terminal.height,
 		appearance:  a.preferences.appearance,
+		chatText:    a.preferences.chatText,
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -465,6 +470,7 @@ func (a *app) acceptMetadataWrite(version uint64, err error) {
 func (a *app) restoreState(state appMetadata) {
 	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
 	a.preferences.appearance = normalizeAppearance(state.appearance)
+	a.preferences.chatText = normalizeChatText(state.chatText)
 	if a.preferences.projectPins == nil {
 		a.preferences.projectPins = map[string]bool{}
 	}

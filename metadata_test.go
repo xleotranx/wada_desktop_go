@@ -34,6 +34,7 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		browserW:   536,
 		terminalH:  248,
 		appearance: appearanceDark,
+		chatText:   chatTextLarge,
 		unread:     map[string][]string{localServerID: {"ses_1", "ses_2"}},
 		drafts: map[string]map[string]string{
 			localServerID: {"ses_a": "still typing", "": "a new idea"},
@@ -119,7 +120,7 @@ func TestMetadataSaveRollsBackOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	want := appMetadata{projects: []string{"/original"}, pins: map[string][]string{localServerID: {"saved"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}, appearance: appearanceSystem}
+	want := appMetadata{projects: []string{"/original"}, pins: map[string][]string{localServerID: {"saved"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}, appearance: appearanceSystem, chatText: chatTextDefault}
 	if err := db.save(context.Background(), want); err != nil {
 		t.Fatal(err)
 	}

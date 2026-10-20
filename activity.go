@@ -25,7 +25,7 @@ func (a *app) toggleActivity() {
 func (a *app) activityBody(c *ui.Context, p palette) {
 	entries := a.activityEntries()
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, fmt.Sprintf("%d steps", len(entries))).FontSize(12).
+		ui.Text(c, fmt.Sprintf("%d steps", len(entries))).FontSize(a.chatFont(12)).
 			TextColor(p.faint).SingleLine()
 		ui.Spacer(c)
 		if a.turnRunning() {
@@ -36,7 +36,7 @@ func (a *app) activityBody(c *ui.Context, p palette) {
 	if len(entries) == 0 {
 		if a.turnWorking() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Margin(4, 0, 0, 0).Children(func() {
-				onechat.Shimmer(c, "Working…", 13, p.muted, p.text)
+				onechat.Shimmer(c, "Working…", a.chatFont(13), p.muted, p.text)
 			})
 			return
 		}
@@ -48,7 +48,7 @@ func (a *app) activityBody(c *ui.Context, p palette) {
 	ui.Scroll(c).Grow(1).FillWidth().Gap(3).Children(func() {
 		if a.turnWorking() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(4, 8).Children(func() {
-				onechat.Shimmer(c, "Working…", 12.5, p.muted, p.text)
+				onechat.Shimmer(c, "Working…", a.chatFont(12.5), p.muted, p.text)
 			})
 		}
 		for _, entry := range entries {
@@ -85,7 +85,7 @@ func (a *app) activityEntry(c *ui.Context, p palette, entry activityEntry) {
 	switch block.Kind {
 	case chat.KindNote:
 		ui.Row(c).FillWidth().Padding(4, 8).Children(func() {
-			ui.Text(c, block.Text).FontSize(12.5).LineHeight(1.45).TextColor(p.faint)
+			ui.Text(c, block.Text).FontSize(a.chatFont(12.5)).LineHeight(1.45).TextColor(p.faint)
 		})
 		return
 	case chat.KindPermission:
@@ -117,7 +117,7 @@ func (a *app) activityEntry(c *ui.Context, p palette, entry activityEntry) {
 		})
 		row.Children(func() {
 			ui.Icon(c, toolIcon(block.Icon)).FontSize(12).TextColor(p.muted).Shrink(0)
-			ui.Text(c, block.Text).FontSize(12.5).FontWeight(500).TextColor(p.muted).
+			ui.Text(c, block.Text).FontSize(a.chatFont(12.5)).FontWeight(500).TextColor(p.muted).
 				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 			chev := icChevRight
 			if open {
@@ -127,7 +127,7 @@ func (a *app) activityEntry(c *ui.Context, p palette, entry activityEntry) {
 		})
 		if open && block.Detail != nil {
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-			drawCommandDetail(c, p, block.Detail)
+			a.drawCommandDetail(c, p, block.Detail)
 		}
 	})
 }
@@ -145,11 +145,11 @@ func (a *app) activityPermission(c *ui.Context, p palette, block chat.Block) {
 		ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
 			ui.Icon(c, icShield).FontSize(13).TextColor(p.orange)
 			ui.Text(c, "Approval needed — "+permAsk(request.Action)).
-				FontSize(12.5).FontWeight(500).TextColor(p.text).
+				FontSize(a.chatFont(12.5)).FontWeight(500).TextColor(p.text).
 				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		})
 		for _, resource := range request.Resources {
-			ui.Text(c, "$ "+resource).Font("monospace").FontSize(11).
+			ui.Text(c, "$ "+resource).Font("monospace").FontSize(a.chatFont(11)).
 				TextColor(p.muted).SingleLine().Ellipsis("…")
 		}
 	})

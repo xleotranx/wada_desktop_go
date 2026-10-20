@@ -62,7 +62,9 @@ Global OpenCode configuration is not rewritten by startup.
 - Drafts: every chat keeps its unsent composer words when switching tabs, and
   the new-chat draft does too. They survive restarts and clear once sent.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
-  palette across the chrome and every surface. The choice is saved.
+  palette across the chrome and every surface. Conversation text can be Small,
+  Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices
+  are saved.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent

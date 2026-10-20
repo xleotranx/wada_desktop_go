@@ -16,7 +16,7 @@ import (
 // blocks, as the wrapping scroll gives it.
 func (a *app) prepareMarkdown(p palette) {
 	a.layout.mdTheme = markdown.Theme{
-		FontSize:            14,
+		FontSize:            a.chatFont(14),
 		Text:                p.text,
 		Muted:               p.muted,
 		Link:                p.link,
@@ -162,7 +162,7 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 		case chat.KindUser:
 			onechat.Message(c, true, func(c *ui.Context) {
 				onechat.Bubble(c, func(c *ui.Context) {
-					ui.Text(c, b.Text).FontSize(14).LineHeight(1.45)
+					ui.Text(c, b.Text).FontSize(a.chatFont(14)).LineHeight(1.45)
 				})
 			})
 		case chat.KindActivity:
@@ -178,7 +178,7 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 		case chat.KindNote:
 			// Engine trouble stays a faint note under the answers; it
 			// wraps, so an error's "at" lines stay readable.
-			ui.Text(c, b.Text).FontSize(14).LineHeight(1.45).TextColor(p.faint)
+			ui.Text(c, b.Text).FontSize(a.chatFont(14)).LineHeight(1.45).TextColor(p.faint)
 		case chat.KindStream:
 			// Markdown still being written: the package parses the new
 			// words alone, shows half-written syntax as what it will
@@ -187,7 +187,7 @@ func (a *app) blockRow(c *ui.Context, p palette, b chat.Block) {
 		case chat.KindText:
 			markdown.View(c, b.Text, &a.layout.md)
 			if line := usageLine(b.Cost, b.Tokens); line != "" {
-				ui.Text(c, line).FontSize(11.5).TextColor(p.faint).SingleLine()
+				ui.Text(c, line).FontSize(a.chatFont(11.5)).TextColor(p.faint).SingleLine()
 			}
 		}
 		if showActions {
@@ -269,7 +269,7 @@ func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
 		row.OnClick(func() { a.layout.expanded[b.Key] = !a.layout.expanded[b.Key] })
 		row.Children(func() {
 			ui.Icon(c, toolIcon(b.Icon)).FontSize(12).TextColor(p.muted).Shrink(0)
-			ui.Text(c, b.Text).FontSize(12.5).FontWeight(500).TextColor(p.muted).
+			ui.Text(c, b.Text).FontSize(a.chatFont(12.5)).FontWeight(500).TextColor(p.muted).
 				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 			chev := icChevRight
 			if open {
@@ -279,7 +279,7 @@ func (a *app) activityRow(c *ui.Context, p palette, b chat.Block) {
 		})
 		if open && b.Detail != nil {
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-			drawCommandDetail(c, p, b.Detail)
+			a.drawCommandDetail(c, p, b.Detail)
 		}
 	})
 }
@@ -298,12 +298,12 @@ func (a *app) permissionRow(c *ui.Context, p palette, b chat.Block) {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, icShield).FontSize(15).TextColor(p.orange)
 				ui.Text(c, "Approval needed — "+permAsk(r.Action)).
-					FontSize(13).FontWeight(600).SingleLine()
+					FontSize(a.chatFont(13)).FontWeight(600).SingleLine()
 			})
 			for _, res := range r.Resources {
 				ui.Box(c).FillWidth().Radius(7).Padding(6, 10).
 					Background(p.bg).Border(1, p.hairline).Children(func() {
-					ui.Text(c, "$ "+res).Font("monospace").FontSize(12).LineHeight(1.5).
+					ui.Text(c, "$ "+res).Font("monospace").FontSize(a.chatFont(12)).LineHeight(1.5).
 						TextColor(p.text).SingleLine()
 				})
 			}
@@ -326,7 +326,7 @@ func (a *app) permissionRow(c *ui.Context, p palette, b chat.Block) {
 			})
 			if len(r.Save) > 0 {
 				ui.Text(c, "Always would remember "+strings.Join(r.Save, ", ")+".").
-					FontSize(12).TextColor(p.muted).SingleLine()
+					FontSize(a.chatFont(12)).TextColor(p.muted).SingleLine()
 			}
 		})
 	})
@@ -347,11 +347,11 @@ func permAsk(action string) string {
 
 // drawCommandDetail is the expanded detail of an activity: what ran, written
 // as a terminal keeps it, inside the activity card's outline.
-func drawCommandDetail(c *ui.Context, p palette, lines []string) {
+func (a *app) drawCommandDetail(c *ui.Context, p palette, lines []string) {
 	ui.Box(c).FillWidth().Padding(9, 12).Children(func() {
 		ui.Column(c).Gap(3).Children(func() {
 			for _, l := range lines {
-				ui.Text(c, l).Font("monospace").FontSize(12).LineHeight(1.55).
+				ui.Text(c, l).Font("monospace").FontSize(a.chatFont(12)).LineHeight(1.55).
 					TextColor(p.text).SingleLine()
 			}
 		})

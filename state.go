@@ -114,6 +114,7 @@ type workspaceState struct {
 type preferencesState struct {
 	home                string
 	appearance          string
+	chatText            string
 	projects            []string
 	projectPins         map[string]bool
 	metadata            *metadataWriter

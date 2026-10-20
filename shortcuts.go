@@ -21,6 +21,13 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyT, a.reopenClosedTab)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.toggleFullView)
+	c.OnShortcut(ui.Cmd, ui.KeyEqual, func() { a.bumpChatText(1) })
+	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyEqual, func() { a.bumpChatText(1) })
+	c.OnShortcut(ui.Cmd, ui.KeyMinus, func() { a.bumpChatText(-1) })
+	c.OnShortcut(ui.Cmd, ui.Key0, func() {
+		a.setChatText(chatTextDefault)
+		a.notify(ui.Toast{Title: "Conversation text: Default"})
+	})
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyU, a.toggleActivity)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyU, a.toggleUnread)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyA, a.openNextMarked)

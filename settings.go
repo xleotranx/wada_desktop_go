@@ -510,6 +510,38 @@ func (a *app) settingsAppearance(c *ui.Context, p palette) {
 			})
 			ui.Text(c, "The appearance is saved for the next launch. System follows macOS, Windows or the Linux desktop as it changes.").
 				FontSize(12).LineHeight(1.45).TextColor(p.faint)
+
+			ui.Text(c, "Conversation text").FontSize(13.5).FontWeight(600).TextColor(p.text)
+			ui.Text(c, "Answers, notes, approvals and the Activity view grow together; the window's controls and the composer keep their size.").
+				FontSize(12).LineHeight(1.45).TextColor(p.muted)
+			currentText := normalizeChatText(a.preferences.chatText)
+			ui.Row(c).FillWidth().Gap(6).Wrap().Children(func() {
+				for _, choice := range chatTextChoices {
+					chosen := currentText == choice.value
+					c.Key("chat-text:" + choice.value)
+					b := ui.ButtonBase(c).Label("Conversation text: "+choice.label).
+						Height(32).Radius(8).PaddingX(12).Cursor(ui.CursorPointer).
+						Border(1, p.hairline).Background(p.bg)
+					if chosen {
+						b.Background(p.selected).BorderColor(p.orange.Alpha(.6))
+					}
+					if b.Hovered() {
+						b.Background(p.hover)
+					}
+					b.OnClick(func() { a.setChatText(choice.value) })
+					b.Children(func() {
+						ui.Text(c, choice.label).FontSize(12.5).
+							TextColor(p.text).FontWeight(500).SingleLine()
+					})
+				}
+			})
+			ui.Column(c).FillWidth().Radius(10).Padding(12, 14).Gap(6).
+				Background(p.detailBg).Border(1, p.hairline).Children(func() {
+				ui.Text(c, "The policy now has one owner. The watcher publishes changes, and the pane reads only the current scope.").
+					FontSize(a.chatFont(14)).LineHeight(1.5).TextColor(p.text)
+				ui.Text(c, "$ go test ./…   ok  wada-desktop-go  0.42s").
+					Font("monospace").FontSize(a.chatFont(11.5)).TextColor(p.muted).SingleLine()
+			})
 		})
 	})
 }
@@ -529,6 +561,9 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Keyboard shortcuts", "⌘/"},
 			{"Open a folder", "⌘O"},
 			{"Close a dialog or find", "Esc"},
+			{"Conversation text larger", "⌘="},
+			{"Conversation text smaller", "⌘-"},
+			{"Reset conversation text", "⌘0"},
 		}},
 		{"Chats", [][2]string{
 			{"New chat", "⌘N"},

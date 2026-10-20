@@ -39,6 +39,7 @@ func (a *app) rememberTab(s opencode.Session) {
 	if len(scope.tabs) > chatTabLimit {
 		scope.tabs = scope.tabs[1:]
 	}
+	a.revealTab(s.ID)
 }
 
 // tabTitle reads a tab's name from the freshest list the server sent, so a
@@ -74,10 +75,18 @@ func (a *app) openTab(id string) bool {
 	}
 	for _, s := range a.scope().sessions {
 		if s.ID == id {
-			return a.openConversation(s)
+			if !a.openConversation(s) {
+				return false
+			}
+			a.revealTab(id)
+			return true
 		}
 	}
-	return a.openConversation(opencode.Session{ID: id, Title: a.tabTitle(id)})
+	if !a.openConversation(opencode.Session{ID: id, Title: a.tabTitle(id)}) {
+		return false
+	}
+	a.revealTab(id)
+	return true
 }
 
 // cycleTab moves the view through the strip, wrapping at either end. With
@@ -252,12 +261,24 @@ func (a *app) chatTabs(c *ui.Context, p palette) {
 	}
 	ui.Row(c).FillWidth().Height(tabStripHeight).Padding(0, 8).Gap(2).
 		AlignItems(ui.Center).Children(func() {
-		for _, tab := range tabs {
-			a.chatTab(c, p, tab)
+		if a.layout.tabScroll.MaxX > 0 {
+			a.tabScrollButton(c, p, "Scroll tabs left", icChevLeft, -240, a.layout.tabScroll.X <= 0)
 		}
-		ui.Spacer(c)
+		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(tabStripHeight).
+			TrackScroll(&a.layout.tabScroll).Children(func() {
+			ui.Row(c).Height(tabStripHeight).Padding(0, 2).Gap(2).
+				AlignItems(ui.Center).Children(func() {
+				for _, tab := range tabs {
+					a.chatTab(c, p, tab)
+				}
+			})
+		})
+		if a.layout.tabScroll.MaxX > 0 {
+			a.tabScrollButton(c, p, "Scroll tabs right", icChevRight, 240,
+				a.layout.tabScroll.X >= a.layout.tabScroll.MaxX)
+		}
 		plus := ui.ButtonBase(c).Label("New chat tab").Size(24, 24).Radius(6).
-			Center().Tooltip("New chat")
+			Center().MarginStart(2).Tooltip("New chat")
 		if plus.Hovered() {
 			plus.Background(p.hover)
 		}
@@ -269,13 +290,39 @@ func (a *app) chatTabs(c *ui.Context, p palette) {
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 }
 
+// tabScrollButton moves the tab strip a page, disabled at its edge.
+func (a *app) tabScrollButton(c *ui.Context, p palette, label string, icon *ui.SVG, step float32, disabled bool) {
+	b := ui.ButtonBase(c).Label(label).Size(22, 22).Radius(5).Center().
+		Disabled(disabled).Cursor(ui.CursorPointer)
+	if b.Hovered() && !disabled {
+		b.Background(p.hover)
+	}
+	b.OnClick(func() {
+		x := min(max(a.layout.tabScroll.X+step, 0), a.layout.tabScroll.MaxX)
+		a.layout.tabScroll.ScrollTo(x, 0, ui.Smooth)
+	})
+	b.Children(func() { ui.Icon(c, icon).FontSize(12).TextColor(p.muted) })
+}
+
+// revealTab scrolls the strip to the tab with this ID, keeping a tab
+// opened by cycling or creating in sight.
+func (a *app) revealTab(id string) {
+	for i, tab := range a.scope().tabs {
+		if tab.id != id {
+			continue
+		}
+		a.layout.tabScroll.ScrollTo(float32(i)*172, 0, ui.Smooth)
+		return
+	}
+}
+
 // chatTab is one tab: the title takes the press, the cross closes, and the
 // open tab wears the selected face.
 func (a *app) chatTab(c *ui.Context, p palette, tab chatTab) {
 	title := a.tabTitle(tab.id)
 	active := string(a.conversation.target.session) == tab.id
 	c.Key("tab:" + tab.id)
-	row := ui.Row(c).Height(28).MaxWidth(200).Shrink(1).MinWidth(0).
+	row := ui.Row(c).Height(28).Width(170).Shrink(0).
 		Radius(7).Clip().AlignItems(ui.Center)
 	if active {
 		row.Background(p.selected)

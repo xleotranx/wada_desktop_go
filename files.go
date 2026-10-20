@@ -30,20 +30,23 @@ type filesState struct {
 	readRequest, findRequest requestState
 	listRequests             map[string]*requestState
 
-	location string
-	open     map[string]bool                 // folder rel -> unfolded
-	entries  map[string][]opencode.FileEntry // folder rel -> what the server listed
-	loading  map[string]bool                 // folder rel -> a listing is on its way
-	path     string                          // the file on show, relative to the location
-	content  string
-	viewer   *editor.State
-	clipped  bool   // the file runs past what the viewer shows
-	note     string // trouble or an explanation, instead of a tree
-	fileErr  string // the file on show refused to read
-	query    string // what the search field holds
-	results  []opencode.FileEntry
-	finding  bool   // a search is on its way
-	findErr  string // the search refused to run
+	location       string
+	open           map[string]bool                 // folder rel -> unfolded
+	entries        map[string][]opencode.FileEntry // folder rel -> what the server listed
+	loading        map[string]bool                 // folder rel -> a listing is on its way
+	path           string                          // the file on show, relative to the location
+	content        string
+	viewer         *editor.State
+	clipped        bool   // the file runs past what the viewer shows
+	note           string // trouble or an explanation, instead of a tree
+	fileErr        string // the file on show refused to read
+	query          string // what the search field holds
+	resultsQuery   string // the query the results answered
+	results        []opencode.FileEntry
+	searchSelected int // the result the arrows chose, -1 before one is
+	searchScroll   ui.ScrollState
+	finding        bool   // a search is on its way
+	findErr        string // the search refused to run
 }
 
 // openFiles reads the open chat's folder into the Files tool. A remote chat
@@ -74,7 +77,8 @@ func (a *app) openFiles() {
 	st.open, st.entries, st.loading = map[string]bool{}, map[string][]opencode.FileEntry{}, map[string]bool{}
 	st.path, st.content, st.clipped = "", "", false
 	st.viewer = nil
-	st.query, st.results, st.finding, st.findErr = "", nil, false, ""
+	st.query, st.resultsQuery, st.results = "", "", nil
+	st.searchSelected, st.finding, st.findErr = -1, false, ""
 	a.filesList(".")
 }
 
@@ -151,8 +155,9 @@ func (a *app) filesFind() {
 	}
 	st.findRequest.stop()
 	st.query = strings.TrimSpace(st.query)
-	st.results, st.findErr, st.finding = nil, "", false
+	st.results, st.searchSelected, st.findErr, st.finding = nil, -1, "", false
 	if st.query == "" {
+		st.resultsQuery = ""
 		return
 	}
 	st.finding = true
@@ -175,6 +180,7 @@ func (a *app) filesFind() {
 			return
 		}
 		st.results = entries
+		st.resultsQuery = query
 	})
 }
 
@@ -259,15 +265,39 @@ func (a *app) filesBody(c *ui.Context, p palette) {
 // the files whose paths match it, and Enter runs it.
 func (a *app) filesField(c *ui.Context, p palette) {
 	st := a.workspace.files
-	components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
-		FillWidth().Placeholder("Search files").Label("Search files").FontSize(12.5).
-		OnTextKey(func(k ui.TextKey) bool {
-			if k.Key == ui.KeyEnter && k.Mods == 0 {
-				a.filesFind()
+	in := components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
+		FillWidth().Placeholder("Search files").Label("Search files").FontSize(12.5)
+	in.OnTextKey(func(k ui.TextKey) bool {
+		if k.Key == ui.KeyEnter && k.Mods == 0 {
+			// Enter opens the chosen match when the results answer what the
+			// field holds; otherwise it runs the search.
+			if !st.finding && len(st.results) > 0 && st.query == st.resultsQuery {
+				index := st.searchSelected
+				if index < 0 || index >= len(st.results) {
+					index = 0
+				}
+				a.filesRead(st.results[index].Path)
 				return true
 			}
-			return false
-		})
+			a.filesFind()
+			return true
+		}
+		if (k.Key == ui.KeyDown || k.Key == ui.KeyUp) && !st.finding && len(st.results) > 0 {
+			if k.Key == ui.KeyDown {
+				st.searchSelected = min(st.searchSelected+1, len(st.results)-1)
+			} else if st.searchSelected < 0 {
+				st.searchSelected = len(st.results) - 1
+			} else {
+				st.searchSelected = max(st.searchSelected-1, 0)
+			}
+			a.scrollToResult(st.searchSelected)
+			return true
+		}
+		return false
+	})
+	if in.Changed() {
+		st.searchSelected = -1
+	}
 }
 
 // toggleFiles opens the Files tool, or folds the pane when that tool is
@@ -282,6 +312,12 @@ func (a *app) toggleFiles() {
 
 // filesResults draws what the search found in place of the tree: the
 // files' names, the folders they sit in beside them.
+// scrollToResult keeps the chosen match in sight under the field.
+func (a *app) scrollToResult(index int) {
+	st := a.workspace.files
+	st.searchScroll.ScrollTo(0, max(0, float32(index*25)-100), ui.Animation{})
+}
+
 func (a *app) filesResults(c *ui.Context, p palette) {
 	st := a.workspace.files
 	if st.finding {
@@ -296,10 +332,10 @@ func (a *app) filesResults(c *ui.Context, p palette) {
 		ui.Text(c, "No files match "+st.query+".").FontSize(12.5).TextColor(p.muted)
 		return
 	}
-	ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).Children(func() {
-		for _, e := range st.results {
+	ui.Scroll(c).FillWidth().MaxHeight(260).Gap(0).TrackScroll(&st.searchScroll).Children(func() {
+		for i, e := range st.results {
 			e := e
-			chosen := e.Path == st.path
+			chosen := e.Path == st.path || i == st.searchSelected
 			c.Key("found:" + e.Path)
 			b := ui.ButtonBase(c).Label("Read "+e.Path).Height(25).Radius(6).
 				Padding(0, 6).Justify(ui.Start).FillWidth()
@@ -382,7 +418,8 @@ func (a *app) filesShowInTree() {
 	}
 	if st.query != "" {
 		st.findRequest.stop()
-		st.query, st.results, st.finding, st.findErr = "", nil, false, ""
+		st.query, st.resultsQuery, st.results = "", "", nil
+		st.searchSelected, st.finding, st.findErr = -1, false, ""
 	}
 	parts := strings.Split(st.path, "/")
 	for i := 1; i < len(parts); i++ {

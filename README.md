@@ -76,8 +76,10 @@ Global OpenCode configuration is not rewritten by startup.
   choice is saved. The header's actions menu also hands the file to this
   machine's editor or file manager, or copies its path; those local actions
   stay out of a remote workspace. In Files, Show in tree unfolds the read
-  file's folders (clearing a search) and the cross closes the viewer. A file
-  row dragged into the composer writes its path as an @mention; files dropped
+  file's folders (clearing a search) and the cross closes the viewer. The
+  search's matches take the arrows and Enter: a completed search opens the
+  chosen match, while a changed query searches again. A file row dragged into
+  the composer writes its path as an @mention; files dropped
   from the desktop are quoted like the Attach picker's. Hovering
   a line and clicking its gutter + opens a review
   note under that line; Add to message (or Enter in the note) writes it into

@@ -472,3 +472,58 @@ func TestFilesShowInTreeClearsAQuery(t *testing.T) {
 		t.Fatalf("the tree did not unfold: %+v", st)
 	}
 }
+
+// TestFilesSearchKeyboard walks the matches with the arrows, opens one
+// with Enter, and makes a changed query search again rather than reopen
+// the old choice.
+func TestFilesSearchKeyboard(t *testing.T) {
+	srv, _ := filesServer(t)
+	a := newTestApp(t)
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Remote turn"
+	tt := ui.NewTester(a.view, 1400, 920)
+	a.openTool("Files")
+	tt.Frame()
+	if err := tt.Click("Search files"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("notes")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	st := a.workspace.files
+	if len(st.results) != 2 || st.resultsQuery != "notes" {
+		t.Fatalf("the search reads %+v", st)
+	}
+	if st.path != "" {
+		t.Fatalf("the first Enter opened %q instead of searching", st.path)
+	}
+	tt.Key(0, ui.KeyUp)
+	if st.searchSelected != 1 {
+		t.Fatalf("Up from nothing chose %d", st.searchSelected)
+	}
+	tt.Key(0, ui.KeyUp)
+	if st.searchSelected != 0 {
+		t.Fatalf("a second Up chose %d", st.searchSelected)
+	}
+	tt.Key(0, ui.KeyDown)
+	if st.searchSelected != 1 {
+		t.Fatalf("Down chose %d", st.searchSelected)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if st.path != "src/deep/notes.txt" || !strings.Contains(st.content, "a long line") {
+		t.Fatalf("Enter opened %q with %q", st.path, st.content)
+	}
+	tt.Type("z")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if st.resultsQuery != "notesz" {
+		t.Fatalf("the changed query did not search: %+v", st)
+	}
+	if st.path != "src/deep/notes.txt" {
+		t.Fatalf("the changed query reopened %q", st.path)
+	}
+}

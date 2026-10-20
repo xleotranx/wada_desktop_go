@@ -24,6 +24,7 @@ type appMetadata struct {
 	modelOff    map[string]bool // modelKey of every disabled model
 	sidebarW    float32
 	browserW    float32
+	terminalH   float32
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -174,6 +175,10 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
 				state.browserW = float32(width)
 			}
+		case "terminal_height":
+			if height, err := strconv.ParseFloat(value, 32); err == nil && height > 0 {
+				state.terminalH = float32(height)
+			}
 		}
 	}
 	return state, nil
@@ -188,6 +193,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
 	}
 	for i, dir := range state.projects {
 		statements = append(statements, sqlite.Statement{SQL: "INSERT INTO projects VALUES (?, ?, ?)", Args: []any{dir, i, state.projectPins[dir]}})
@@ -260,6 +266,7 @@ func (a *app) stateSnapshot() appMetadata {
 		modelOff:    map[string]bool{},
 		sidebarW:    a.layout.sidebarW,
 		browserW:    a.layout.browserW,
+		terminalH:   a.terminal.height,
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -313,6 +320,9 @@ func (a *app) restoreState(state appMetadata) {
 	}
 	if state.browserW > 0 {
 		a.layout.browserW = min(max(state.browserW, browserMinWidth), browserMaxWidth)
+	}
+	if state.terminalH > 0 {
+		a.terminal.height = min(max(state.terminalH, terminalMinHeight), terminalMaxHeight)
 	}
 	a.connections.servers = state.servers
 	if !a.hasServer(localServerID) {

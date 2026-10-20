@@ -36,9 +36,11 @@ Global OpenCode configuration is not rewritten by startup.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
   servers, projects and conversations. Cmd+F finds text in the open transcript
   and Cmd+Shift+F searches chats. Toasts confirm copies and exports.
-- Layout: drag the sidebar or tools divider, nudge it with the arrow keys, or
-  double-click it to restore the default. Cmd+B and Cmd+J fold either side, and
-  the chosen widths carry across restarts.
+- Layout: drag the sidebar, tools or terminal divider, nudge it with the arrow
+  keys, or double-click it to restore the default. Cmd+B folds the sidebar,
+  Cmd+Shift+J the tools pane, and the chosen sizes carry across restarts.
+- Terminal: a bottom shell starts in the chat's local folder, keeps running
+  while folded away, and restarts on demand. Cmd+J or Ctrl+` toggles it.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent
@@ -91,6 +93,7 @@ Capture the native window without clicking:
 ```sh
 WADA_DATA_DIR=/tmp/wada-preview WADA_CAPTURE=/tmp/wada-chat.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_SETTINGS=servers WADA_CAPTURE=/tmp/wada-settings.png go run .
+WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=1 WADA_CAPTURE=/tmp/wada-terminal.png go run .
 ```
 
 Capture output excludes macOS traffic lights. Dev builds include the F12 inspector;

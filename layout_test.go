@@ -108,11 +108,14 @@ func TestWorkspaceDividerKeys(t *testing.T) {
 // an older window returns within the current limits.
 func TestPaneWidthsRestoreClamped(t *testing.T) {
 	a := newTestApp(t)
-	a.restoreState(appMetadata{sidebarW: 80, browserW: 5000})
+	a.restoreState(appMetadata{sidebarW: 80, browserW: 5000, terminalH: 9000})
 	if a.layout.sidebarW != sidebarMinWidth {
 		t.Fatalf("narrow sidebar restored as %v, want %v", a.layout.sidebarW, sidebarMinWidth)
 	}
 	if a.layout.browserW != browserMaxWidth {
 		t.Fatalf("wide tools pane restored as %v, want %v", a.layout.browserW, browserMaxWidth)
+	}
+	if a.terminal.height != terminalMaxHeight {
+		t.Fatalf("tall terminal restored as %v, want %v", a.terminal.height, terminalMaxHeight)
 	}
 }

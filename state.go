@@ -8,10 +8,28 @@ import (
 	"wada-desktop-go/internal/runner"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/oneo-me/onevra/source/components/command"
 )
+
+// terminalState owns the bottom panel's shell and its geometry. The shell
+// keeps running while the panel is folded away, so opening it again shows
+// the same scrollback; a generation separates a restarted shell from the
+// title and exit notices of the one it replaced.
+type terminalState struct {
+	open       bool
+	height     float32
+	term       *terminal.Terminal
+	title      string
+	starting   bool
+	exited     bool
+	exitCode   int
+	err        string
+	generation uint64
+	focus      bool
+}
 
 // runtimeState owns the runtime fields coordinated on the UI thread.
 type runtimeState struct {
@@ -30,6 +48,7 @@ type runtimeState struct {
 	win           *mygo.Window
 	pickFolder    func(done func(path string))
 	pickExport    func(done func(path string))
+	newTerminal   func(terminal.Options) (*terminal.Terminal, error)
 	probe         func(cfg serverConn)
 	pair          func(link string, done func(addr, token string, err error))
 	copy          func(text string) error

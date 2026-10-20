@@ -55,17 +55,27 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Ctrl+Shift+G opened %q", but)
 	}
 
-	// Cmd+J folds the tools pane and brings it back, and Cmd+B does the
-	// same for the sidebar, as the reference app's keys do.
-	tt.Key(ui.Cmd, ui.KeyJ)
+	// Cmd+Shift+J folds the tools pane and brings it back, Cmd+B does the
+	// same for the sidebar, and Cmd+J opens the bottom terminal.
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyJ)
 	tt.Frame()
 	if !a.layout.browserCollapsed {
-		t.Fatal("Cmd+J did not hide the tools pane")
+		t.Fatal("Cmd+Shift+J did not hide the tools pane")
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyJ)
+	tt.Frame()
+	if a.layout.browserCollapsed {
+		t.Fatal("Cmd+Shift+J did not bring the tools pane back")
 	}
 	tt.Key(ui.Cmd, ui.KeyJ)
 	tt.Frame()
-	if a.layout.browserCollapsed {
-		t.Fatal("Cmd+J did not bring the tools pane back")
+	if !a.terminal.open || !tt.HasText("The terminal did not start") {
+		t.Fatalf("Cmd+J opened no terminal: open=%v", a.terminal.open)
+	}
+	tt.Key(ui.Cmd, ui.KeyJ)
+	tt.Frame()
+	if a.terminal.open {
+		t.Fatal("Cmd+J did not fold the terminal away")
 	}
 	tt.Key(ui.Cmd, ui.KeyB)
 	tt.Frame()

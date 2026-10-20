@@ -70,13 +70,16 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:shortcuts", Title: "Keyboard shortcuts", Group: "Tools",
 			Description: "Every command key the window answers", Shortcut: "⌘/",
 			Icon: icKey, Keywords: []string{"keys", "help", "reference"}},
+		{ID: "action:terminal", Title: "Toggle terminal", Group: "Tools",
+			Description: "Open the shell beneath the chat", Shortcut: "⌘J", Icon: icTerminal,
+			Keywords: []string{"shell", "console", "bottom", "panel"}},
 	}
 	if a.layout.browserCollapsed {
 		items = append(items, command.Item{ID: "action:show-tools", Title: "Show tools",
-			Group: "View", Description: "Open the pane beside the chat", Shortcut: "⌘J", Icon: icPanelRight})
+			Group: "View", Description: "Open the pane beside the chat", Shortcut: "⌘⇧J", Icon: icPanelRight})
 	} else {
 		items = append(items, command.Item{ID: "action:hide-tools", Title: "Hide tools",
-			Group: "View", Description: "Fold the pane beside the chat away", Shortcut: "⌘J", Icon: icPanelRight})
+			Group: "View", Description: "Fold the pane beside the chat away", Shortcut: "⌘⇧J", Icon: icPanelRight})
 	}
 	if a.layout.sidebarCollapsed {
 		items = append(items, command.Item{ID: "action:show-sidebar", Title: "Show sidebar",
@@ -140,6 +143,9 @@ func (a *app) runCommand(id string) {
 	case "action:shortcuts":
 		a.openSettings(tabShortcuts)
 		return
+	case "action:terminal":
+		a.toggleTerminal()
+		return
 	case "action:show-tools":
 		a.layout.browserCollapsed = false
 		return
@@ -155,6 +161,7 @@ func (a *app) runCommand(id string) {
 	case "action:reset-layout":
 		a.layout.sidebarW = sidebarDefaultWidth
 		a.layout.browserW = browserDefaultWidth
+		a.terminal.height = terminalDefaultHeight
 		a.saveState()
 		return
 	}

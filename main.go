@@ -15,6 +15,7 @@ import (
 	"wada-desktop-go/internal/runner"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/theme"
@@ -79,6 +80,7 @@ type app struct {
 	preferences  preferencesState
 	search       searchState
 	layout       viewState
+	terminal     terminalState
 }
 
 func newApp() *app {
@@ -113,9 +115,11 @@ func newApp() *app {
 			expanded:          map[string]bool{},
 			feed:              newFeed(),
 			findShownMatch:    -1,
-			settingsTab:       tabServers}}
+			settingsTab:       tabServers},
+		terminal: terminalState{height: terminalDefaultHeight, exitCode: -1}}
 	a.runtime.pickFolder = a.pickFolderDialog
 	a.runtime.pickExport = a.pickSaveDialog
+	a.runtime.newTerminal = terminal.New
 	a.runtime.probe = a.runProbe
 	a.runtime.pair = a.runPair
 	a.runtime.copy = a.copyToClipboard
@@ -330,11 +334,38 @@ func (a *app) workspaceLayout(c *ui.Context, p palette, headerH float32) {
 	}
 }
 
-// workspaceBody is the conversation, and the tools pane beside it while
+// workspaceBody stacks the bottom terminal panel under the conversation
+// when the panel is open, with a divider that resizes it. The chat side
+// keeps the added room when the window grows, as the tools pane does.
+func (a *app) workspaceBody(c *ui.Context, p palette, headerH float32) {
+	main := func() { a.workspaceMain(c, p, headerH) }
+	if !a.terminal.open {
+		main()
+		return
+	}
+	_, windowH := c.Size()
+	avail := max(windowH-headerH, 2)
+	contentH := avail - 1 - a.terminal.height
+	split := components.Split(c, &contentH, main, func() {
+		a.terminalPanel(c, p)
+	}, components.SplitOptions{
+		Orientation: components.Vertical,
+		FirstMin:    220,
+		SecondMin:   terminalMinHeight,
+		Default:     max(0, avail-1-terminalDefaultHeight),
+	})
+	split.Label("Resize terminal").Fill()
+	if split.Changed() {
+		a.terminal.height = min(max(avail-1-contentH, terminalMinHeight), terminalMaxHeight)
+		a.saveState()
+	}
+}
+
+// workspaceMain is the conversation, and the tools pane beside it while
 // that pane is open. The divider stores the chat column's width in the
 // split; the app keeps the tools pane's width, so a wider window gives the
 // conversation the added room instead of stretching the tools.
-func (a *app) workspaceBody(c *ui.Context, p palette, headerH float32) {
+func (a *app) workspaceMain(c *ui.Context, p palette, headerH float32) {
 	if a.layout.browserCollapsed {
 		a.contentPane(c, p)
 		return
@@ -532,6 +563,7 @@ func main() {
 		// a way to see the interface without clicking through it. The wait
 		// lets the boot settle onto the newest conversation first, and
 		// WADA_SETTINGS=(1|servers|models) opens the settings page for it.
+		// WADA_TERMINAL=1 opens the bottom shell before the capture.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
 				wait := 3 * time.Second
@@ -541,6 +573,10 @@ func main() {
 					}
 					win.Update(func() { a.openSettings(tab) })
 					wait = 6 * time.Second // the catalog fills in behind the page
+				}
+				if _, terminal := os.LookupEnv("WADA_TERMINAL"); terminal {
+					win.Update(func() { a.toggleTerminal() })
+					wait = 7 * time.Second // the shell paints its first screen
 				}
 				if _, remote := os.LookupEnv("WADA_CAPTURE_WAIT"); remote {
 					wait = 8 * time.Second // a quiet server takes its dial

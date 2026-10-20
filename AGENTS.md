@@ -10,10 +10,11 @@ layers. Do not change the external server protocol to simplify a refactor.
 
 - `main.go`: bootstrap, native window, theme installation, application queries/actions.
 - `commands.go`: the Cmd+K command palette over actions, servers, projects and chats.
-- `state.go`: seven named UI-thread state owners: runtime, connections,
-  conversation, workspace, preferences, search, and layout.
+- `state.go`: eight named UI-thread state owners: runtime, connections,
+  conversation, workspace, preferences, search, layout and terminal.
 - `conversation.go`, `workspace.go`: complete navigation and workspace transitions.
-- `sidebar.go`, `chat.go`, `composer.go`, `browser.go`, `settings.go`: native views.
+- `sidebar.go`, `chat.go`, `composer.go`, `browser.go`, `settings.go`,
+  `terminal.go`: native views.
 - `runner_sink.go`: the runner's typed results applied on the UI thread;
   `agent_jobs.go`: typed command admission; `agent_apply.go`: decoded events and
   stored messages adapted to chat data.
@@ -79,7 +80,8 @@ input actions. Comments are compact prose explaining intent or constraints.
 ## Native checks and development data
 
 `WADA_CAPTURE=/path/window.png go run .` captures the content and exits.
-`WADA_SETTINGS=servers` or `models` opens settings before capture. Use
+`WADA_SETTINGS=servers` or `models` opens settings before capture, and
+`WADA_TERMINAL=1` opens the bottom shell. Use
 `WADA_DATA_DIR=/temporary/directory` to isolate settings for captures and experiments.
 Tests use temporary stores. Never reset the developer's data as part of verification.
 

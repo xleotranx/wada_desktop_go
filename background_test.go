@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
+
+	"github.com/egoist/mygo/plugins/terminal"
 )
 
 // Interaction tests explicitly finish requests immediately. Ordering tests
@@ -14,6 +17,11 @@ func newTestApp(t testing.TB) *app {
 	a := newApp()
 	installCommandFixture(a, 16)
 	a.runtime.background = func(work func() func()) { work()() }
+	// The terminal's native library may not be present under go test, and
+	// no test should download it; the panel's error face is enough there.
+	a.runtime.newTerminal = func(terminal.Options) (*terminal.Terminal, error) {
+		return nil, errors.New("terminal unavailable in tests")
+	}
 	t.Cleanup(func() { a.closeWork(); testCommandQueues.Delete(a) })
 	return a
 }

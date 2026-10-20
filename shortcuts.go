@@ -21,7 +21,9 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyG, func() { a.openTool("Changes") })
 	c.OnShortcut(ui.Cmd, ui.KeyB, func() { a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed })
-	c.OnShortcut(ui.Cmd, ui.KeyJ, func() { a.layout.browserCollapsed = !a.layout.browserCollapsed })
+	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyJ, func() { a.layout.browserCollapsed = !a.layout.browserCollapsed })
+	c.OnShortcut(ui.Cmd, ui.KeyJ, a.toggleTerminal)
+	c.OnShortcut(ui.Ctrl, ui.KeyBackquote, a.toggleTerminal)
 	c.OnShortcut(ui.Cmd, ui.KeyComma, func() { a.openSettings("") })
 	c.OnShortcut(ui.Cmd, ui.KeySlash, func() { a.openSettings(tabShortcuts) })
 	if a.layout.findOpen {

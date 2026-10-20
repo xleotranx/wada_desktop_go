@@ -481,10 +481,11 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 		}},
 		{"Workspace", [][2]string{
 			{"Toggle sidebar", "⌘B"},
-			{"Toggle tools", "⌘J"},
+			{"Toggle terminal", "⌘J / ⌃`"},
+			{"Toggle tools", "⌘⇧J"},
 			{"Open Files", "⌘P"},
 			{"Open Changes", "⌃⇧G"},
-			{"Move a focused divider", "← →"},
+			{"Move a focused divider", "← → / ↑ ↓"},
 			{"Reset a focused divider", "Home / End"},
 		}},
 	}

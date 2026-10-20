@@ -28,10 +28,11 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 			{id: "srv-two", name: "Home box", url: "https://box.tailnet:4096", password: "token-1",
 				paired: true, pairedAt: 1792314306306},
 		},
-		active:   "srv-one",
-		modelOff: map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
-		sidebarW: 412,
-		browserW: 536,
+		active:    "srv-one",
+		modelOff:  map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
+		sidebarW:  412,
+		browserW:  536,
+		terminalH: 248,
 	}
 	if err := db.save(context.Background(), want); err != nil {
 		t.Fatal(err)

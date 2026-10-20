@@ -102,7 +102,9 @@ Global OpenCode configuration is not rewritten by startup.
   unread chats, chats needing attention, chats with drafts or archived chats;
   the list's cross clears the filter.
 - Pinned chats: a conversation's menu pins it to the top section; dragging one
-  pinned row onto another reorders that section, and the order is saved.
+  pinned row onto another reorders that section, and the order is saved. Local
+  project rows drag the same way inside their pinned group; a cross-group drop
+  keeps the line and explains why.
 - Archive: a chat's menu puts it away from the pinned and project lists without
   deleting it. Show archived chats (title menu or palette) lists them, and each
   row's menu restores it. Put-away chats drop their pin and leave the unread

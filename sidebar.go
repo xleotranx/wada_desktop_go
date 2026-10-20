@@ -194,7 +194,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 					}
 					ui.Column(c).FillWidth().Gap(2).Children(func() {
 						for _, dir := range projects[:visible] {
-							a.projectRow(c, p, dir)
+							a.projectDragRow(c, p, dir)
 						}
 						if visible < len(projects) || a.layout.projectsExpanded {
 							a.moreProjectsRow(c, p, len(projects)-visible)
@@ -465,6 +465,38 @@ func (a *app) projectDirectories() []string {
 	return projects
 }
 
+// moveProjectTo puts a dragged project where another one sits. Projects
+// stay in their pinned group: crossing the line would only snap back, so
+// it says why instead.
+func (a *app) moveProjectTo(dir, target string) {
+	if !a.localActive() {
+		return
+	}
+	from, to := -1, -1
+	for i, project := range a.preferences.projects {
+		if sameDir(project, dir) {
+			from = i
+		}
+		if sameDir(project, target) {
+			to = i
+		}
+	}
+	if from < 0 || to < 0 || from == to {
+		return
+	}
+	if a.preferences.projectPins[dir] != a.preferences.projectPins[target] {
+		a.notify(ui.Toast{Title: "Pinned projects stay on top",
+			Description: "Unpin one of them to move it below the others."})
+		return
+	}
+	projects := slices.Clone(a.preferences.projects)
+	project := projects[from]
+	projects = slices.Delete(projects, from, from+1)
+	projects = slices.Insert(projects, min(to, len(projects)), project)
+	a.preferences.projects = projects
+	a.saveState()
+}
+
 func (a *app) addProject(dir string) {
 	dir = canonDir(dir)
 	for _, project := range a.preferences.projects {
@@ -513,7 +545,7 @@ const projectChatPreview = 5
 // projectRow is one folder of the Projects list, with its chats nested
 // under it while it is open: clicking the row folds them away or back,
 // and the hover + starts a fresh chat there.
-func (a *app) projectRow(c *ui.Context, p palette, dir string) {
+func (a *app) projectRow(c *ui.Context, p palette, dir string) ui.Element {
 	name := dirBase(dir)
 	folders := a.projectFolders(dir)
 	chats := a.projectChats(dir)
@@ -602,7 +634,7 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 	})
 
 	if !open || len(chats) == 0 {
-		return
+		return b
 	}
 	visible := len(chats)
 	if !a.layout.projectChatsShown[dir] && visible > projectChatPreview {
@@ -616,6 +648,27 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) {
 			a.moreProjectChatsRow(c, p, dir, len(chats)-projectChatPreview)
 		}
 	})
+	return b
+}
+
+// projectDragRow lets a local project be dragged over another to change
+// the list's order. A server's projects come from its own report and have
+// nothing here to reorder.
+func (a *app) projectDragRow(c *ui.Context, p palette, dir string) {
+	row := a.projectRow(c, p, dir)
+	if !a.localActive() {
+		return
+	}
+	row.Drag(dir)
+	if dragged, over := ui.DragOver[string](row); over && !sameDir(dragged, dir) {
+		row.Background(p.hover).Border(1, p.orange.Alpha(.55))
+	}
+	if dragged, ok := ui.Drop[string](row); ok {
+		a.moveProjectTo(dragged, dir)
+	}
+	if row.Dragging() {
+		row.Opacity(.55)
+	}
 }
 
 // projectChats lists the conversations working in one project's folder,

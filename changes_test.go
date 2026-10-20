@@ -588,3 +588,67 @@ func TestChangesFileActionsKeepRemoteFilesOnTheServer(t *testing.T) {
 		t.Fatalf("copied %q", copied)
 	}
 }
+
+// TestChangesMarkViewedAdvances marks files read, moves to the next, and
+// hides the read ones until every file is done.
+func TestChangesMarkViewedAdvances(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	patch := "@@ -1 +1 @@\n-a\n+b\n"
+	a.workspace.changes = &changesState{mode: changesWorking, dir: t.TempDir(), files: []opencode.Change{
+		{File: "a.go", Patch: patch},
+		{File: "b.go", Patch: patch},
+		{File: "c.go", Patch: patch},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.changes
+	if err := tt.Click("Mark a.go as viewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !st.viewed["a.go"] || st.selected != 1 {
+		t.Fatalf("marking a moved to %d with %+v", st.selected, st.viewed)
+	}
+	if !tt.HasText("1 viewed") || !tt.HasText("Hide viewed") {
+		t.Fatalf("the review count is missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Mark b.go as viewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if st.selected != 2 {
+		t.Fatalf("marking b moved to %d", st.selected)
+	}
+	if err := tt.Click("Hide viewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("Show a.go") || tt.HasText("Show b.go") {
+		t.Fatalf("viewed files stayed in the list: %v", tt.Texts())
+	}
+	if !tt.HasText("Show c.go") {
+		t.Fatalf("the unread file left the list: %v", tt.Texts())
+	}
+	if err := tt.Click("Mark c.go as viewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Every file is marked viewed.") {
+		t.Fatalf("the finished list says %v", tt.Texts())
+	}
+	if err := tt.Click("Show viewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("Show b.go"); !ok {
+		t.Fatalf("the viewed files did not come back: %v", tt.Texts())
+	}
+	if err := tt.Click("Mark b.go as unviewed"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if st.viewed["b.go"] {
+		t.Fatal("unmarking kept the file viewed")
+	}
+}

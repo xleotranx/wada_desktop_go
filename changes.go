@@ -44,6 +44,11 @@ type changesState struct {
 	review      []*reviewNote
 	nextReview  uint64
 	reviewFocus uint64
+
+	// viewed marks the files a review has already read, and hideViewed
+	// narrows the list to the rest.
+	viewed     map[string]bool
+	hideViewed bool
 }
 
 // reviewNote is one comment on a line of a patch: the file and side it
@@ -113,6 +118,9 @@ func (a *app) openChanges(mode string) {
 		}
 		dir = a.preferences.home
 	}
+	if st.mode != mode || st.dir != dir {
+		st.viewed, st.hideViewed = nil, false
+	}
 	st.loading, st.note, st.dir, st.mode = true, "", dir, mode
 	st.files, st.selected = nil, 0
 	cfg := a.activeServerConn()
@@ -130,6 +138,13 @@ func (a *app) openChanges(mode string) {
 			return
 		}
 		st.info, st.files = read.info, read.files
+		// A mark belongs to a file still in the diff; one that left it
+		// has nothing left to look at.
+		for file := range st.viewed {
+			if !slices.ContainsFunc(read.files, func(f opencode.Change) bool { return f.File == file }) {
+				delete(st.viewed, file)
+			}
+		}
 	})
 }
 
@@ -179,6 +194,14 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 			a.modePill(c, p, "Branch", changesBranch, st.mode == changesBranch)
 		})
 		ui.Spacer(c)
+		if viewed := a.viewedChangeCount(); viewed > 0 {
+			ui.Text(c, fmt.Sprintf("%d viewed", viewed)).FontSize(12).TextColor(p.faint).SingleLine()
+			label := "Hide viewed"
+			if st.hideViewed {
+				label = "Show viewed"
+			}
+			a.linkButton(c, p, "Toggle viewed files", label, a.toggleHideViewed)
+		}
 		ui.Text(c, pluralFiles(len(st.files))).FontSize(12).TextColor(p.faint).SingleLine()
 	})
 
@@ -186,9 +209,15 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 		ui.Text(c, "Nothing changed here.").FontSize(12.5).TextColor(p.muted)
 		return
 	}
+	shown := 0
 	ui.Scroll(c).FillWidth().MaxHeight(190).Gap(1).Children(func() {
 		for i, f := range st.files {
 			i, f := i, f
+			viewed := st.viewed[f.File]
+			if st.hideViewed && viewed {
+				continue
+			}
+			shown++
 			c.Key("change:" + f.File)
 			b := ui.ButtonBase(c).Label("Show "+f.File).Height(26).Radius(6).
 				Padding(0, 8).Justify(ui.Start).FillWidth()
@@ -206,9 +235,29 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 				for _, part := range changesCounts(p, f.Additions, f.Deletions) {
 					ui.Text(c, part.text).Font("monospace").FontSize(11).TextColor(part.tint).Shrink(0)
 				}
+				c.Key("viewed:" + f.File)
+				label := "Mark " + f.File + " as viewed"
+				if viewed {
+					label = "Mark " + f.File + " as unviewed"
+				}
+				check := ui.ButtonBase(c).Label(label).Size(20, 20).Radius(5).Center().Shrink(0)
+				check.OnClick(func() { a.toggleChangeViewed(f.File) })
+				if check.Hovered() {
+					check.Background(p.hover)
+				}
+				check.Children(func() {
+					icon, tint := icCircle, p.faint
+					if viewed {
+						icon, tint = icCheck, p.orange
+					}
+					ui.Icon(c, icon).FontSize(12).TextColor(tint)
+				})
 			})
 		}
 	})
+	if st.hideViewed && shown == 0 {
+		ui.Text(c, "Every file is marked viewed.").FontSize(12).TextColor(p.faint)
+	}
 
 	if st.selected >= len(st.files) {
 		st.selected = 0
@@ -394,6 +443,73 @@ func (a *app) reviewNoteView(c *ui.Context, p palette, id uint64) {
 			}
 		})
 	})
+}
+
+// viewedChangeCount counts the marks on files still in the diff.
+func (a *app) viewedChangeCount() int {
+	st := a.workspace.changes
+	if st == nil {
+		return 0
+	}
+	n := 0
+	for _, f := range st.files {
+		if st.viewed[f.File] {
+			n++
+		}
+	}
+	return n
+}
+
+// toggleChangeViewed marks or unmarks one file. Marking the file on show
+// moves to the next unread one, as a review pass runs.
+func (a *app) toggleChangeViewed(file string) {
+	st := a.workspace.changes
+	if st == nil {
+		return
+	}
+	if st.viewed == nil {
+		st.viewed = map[string]bool{}
+	}
+	st.viewed[file] = !st.viewed[file]
+	if !st.viewed[file] || len(st.files) == 0 {
+		return
+	}
+	if st.files[st.selected].File == file {
+		if next := a.nextUnviewedChange(st.selected); next >= 0 {
+			st.selected = next
+		}
+	}
+}
+
+// nextUnviewedChange finds the next file without a mark, wrapping once.
+func (a *app) nextUnviewedChange(from int) int {
+	st := a.workspace.changes
+	if st == nil || len(st.files) == 0 {
+		return -1
+	}
+	for step := 1; step <= len(st.files); step++ {
+		i := (from + step) % len(st.files)
+		if !st.viewed[st.files[i].File] {
+			return i
+		}
+	}
+	return -1
+}
+
+// toggleHideViewed narrows the file list to the unread ones, moving off a
+// file that would hide itself.
+func (a *app) toggleHideViewed() {
+	st := a.workspace.changes
+	if st == nil {
+		return
+	}
+	st.hideViewed = !st.hideViewed
+	if !st.hideViewed || len(st.files) == 0 || !st.viewed[st.files[st.selected].File] {
+		return
+	}
+	if next := a.nextUnviewedChange(st.selected); next >= 0 {
+		st.selected = next
+	}
 }
 
 // addAllReviewNotes writes every note into the composer, in file and line

@@ -80,7 +80,10 @@ Global OpenCode configuration is not rewritten by startup.
   from the header, and switches between a unified and a split diff; the
   choice is saved. The header's actions menu also hands the file to this
   machine's editor or file manager, or copies its path; those local actions
-  stay out of a remote workspace. In Files, Show in tree unfolds the read
+  stay out of a remote workspace. Each changed-file row carries a check that
+  marks it read; marking the file on show moves to the next unread one, the
+  header counts the read files, and Hide viewed narrows the list. In Files,
+  Show in tree unfolds the read
   file's folders (clearing a search) and the cross closes the viewer. The
   search's matches take the arrows and Enter: a completed search opens the
   chosen match, while a changed query searches again. A file row dragged into

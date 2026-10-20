@@ -35,6 +35,7 @@ type terminalTab struct {
 	term       *terminal.Terminal
 	title      string
 	shell      string
+	custom     string
 	starting   bool
 	exited     bool
 	exitCode   int
@@ -190,51 +191,53 @@ type viewState struct {
 	// The transcript's find bar: its open state, query, the match it
 	// shows, and the match and query it last scrolled to, so a reader can
 	// still scroll away between searches.
-	findOpen           bool
-	findQuery          string
-	findMatch          int
-	findShownMatch     int
-	findShownQuery     string
-	findQuerySeen      string
-	selectAddedProject bool
-	attach             *attachState
-	quoteRequest       requestState
-	rename             *renameState
-	confirm            *confirmState
-	browse             *browseState
-	pickerOpen         bool
-	modelFilter        string
-	modelSelected      int
-	modelScrollAt      int
-	modelFocus         bool
-	settingsOpen       bool
-	settingsTab        string
-	historyOpen        bool
-	historyFocus       bool
-	historyQuery       string
-	historySelected    int
-	historyList        ui.ListState
-	serverEditor       *serverEditor
-	serverConfirm      *confirmState
-	modelsQuery        string
-	modelsList         ui.ListState
-	composerFocus      bool
-	toasts             []ui.Toast
-	commandOpen        bool
-	commandScope       string
-	commands           command.State
-	quickOpen          bool
-	quickFocus         bool
-	quickSelected      int
-	quickList          ui.ListState
-	slashHelp          bool
-	slashSelected      int
-	slashSeen          string
-	mention            mentionState
-	bellOpen           bool
-	queueOpen          bool
-	shortcutOpen       bool
-	shortcutRecord     string
+	findOpen            bool
+	findQuery           string
+	findMatch           int
+	findShownMatch      int
+	findShownQuery      string
+	findQuerySeen       string
+	selectAddedProject  bool
+	attach              *attachState
+	quoteRequest        requestState
+	rename              *renameState
+	confirm             *confirmState
+	browse              *browseState
+	pickerOpen          bool
+	modelFilter         string
+	modelSelected       int
+	modelScrollAt       int
+	modelFocus          bool
+	settingsOpen        bool
+	settingsTab         string
+	historyOpen         bool
+	historyFocus        bool
+	historyQuery        string
+	historySelected     int
+	historyList         ui.ListState
+	terminalRename      *terminalRenameState
+	terminalRenameFocus bool
+	serverEditor        *serverEditor
+	serverConfirm       *confirmState
+	modelsQuery         string
+	modelsList          ui.ListState
+	composerFocus       bool
+	toasts              []ui.Toast
+	commandOpen         bool
+	commandScope        string
+	commands            command.State
+	quickOpen           bool
+	quickFocus          bool
+	quickSelected       int
+	quickList           ui.ListState
+	slashHelp           bool
+	slashSelected       int
+	slashSeen           string
+	mention             mentionState
+	bellOpen            bool
+	queueOpen           bool
+	shortcutOpen        bool
+	shortcutRecord      string
 	// fullView hides the side panes for a conversation-only page, keeping
 	// the states it found so leaving it restores the workspace.
 	fullView         bool

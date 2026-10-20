@@ -322,6 +322,7 @@ func (a *app) view(c *ui.Context) {
 	a.slashHelpDialog(c, p)
 	a.shortcutsDialog(c, p)
 	a.sessionDialogs(c, p)
+	a.terminalRenameDialog(c, p)
 	a.settingsDialogs(c, p)
 	a.browseModal(c, p)
 	a.commandDialog(c)

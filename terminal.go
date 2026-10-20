@@ -27,6 +27,9 @@ const (
 
 // terminalTabLabel is the name a tab shows before its shell names itself.
 func terminalTabLabel(tab *terminalTab) string {
+	if tab.custom != "" {
+		return tab.custom
+	}
 	if tab.title != "" {
 		return tab.title
 	}
@@ -287,6 +290,84 @@ func (a *app) closeTerminalTabAt(index int) {
 	a.ensureTerminal()
 }
 
+// terminalRenameState is the name dialog of one shell tab.
+type terminalRenameState struct {
+	open  bool
+	id    uint64
+	draft string
+}
+
+// requestTerminalRename opens the name dialog for one shell tab.
+func (a *app) requestTerminalRename(tab *terminalTab) {
+	if tab == nil {
+		return
+	}
+	a.layout.terminalRename = &terminalRenameState{open: true, id: tab.id, draft: tab.custom}
+	a.layout.terminalRenameFocus = true
+}
+
+// saveTerminalRename keeps the typed name on its tab; an empty name hands
+// the tab back to the shell's own title.
+func (a *app) saveTerminalRename() {
+	st := a.layout.terminalRename
+	if st == nil {
+		return
+	}
+	if index := a.terminalTabIndex(st.id); index >= 0 {
+		a.terminal.tabs[index].custom = strings.TrimSpace(st.draft)
+	}
+	a.layout.terminalRename = nil
+}
+
+// clearTerminalName hands one tab back to its shell's title.
+func (a *app) clearTerminalName(id uint64) {
+	if index := a.terminalTabIndex(id); index >= 0 {
+		a.terminal.tabs[index].custom = ""
+	}
+}
+
+// terminalRenameDialog names one shell tab, with the shell's own title
+// standing in until a name is kept.
+func (a *app) terminalRenameDialog(c *ui.Context, p palette) {
+	st := a.layout.terminalRename
+	if st == nil || !st.open {
+		return
+	}
+	placeholder := "Terminal"
+	if index := a.terminalTabIndex(st.id); index >= 0 {
+		placeholder = terminalTabLabel(a.terminal.tabs[index])
+	}
+	dialog(c, p, &st.open, 380, "Rename terminal", func() {
+		ui.Text(c, "Rename terminal").FontSize(14).FontWeight(600)
+		ui.Text(c, "The name stays with this tab; emptying it brings the shell's own title back.").
+			FontSize(12.5).TextColor(p.muted)
+		in := components.TextBox(c, &st.draft, components.TextBoxOptions{}).
+			FillWidth().Label("Terminal name").Placeholder(placeholder).FontSize(13)
+		in.OnTextKey(func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEnter {
+				a.saveTerminalRename()
+				return true
+			}
+			return false
+		})
+		if a.layout.terminalRenameFocus {
+			in.Focus()
+			a.layout.terminalRenameFocus = false
+		}
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if components.Button(c, "Cancel", components.ButtonSecondary).Clicked() {
+				a.layout.terminalRename = nil
+			}
+			if components.Button(c, "Save", components.ButtonPrimary).Clicked() {
+				a.saveTerminalRename()
+			}
+		})
+	})
+	if !st.open && a.layout.terminalRename == st {
+		a.layout.terminalRename = nil
+	}
+}
+
 // closeOtherTerminalTabs stops every shell but one, which stays on show.
 func (a *app) closeOtherTerminalTabs(index int) {
 	if index < 0 || index >= len(a.terminal.tabs) {
@@ -417,6 +498,13 @@ func (a *app) terminalTabButton(c *ui.Context, p palette, index int, tab *termin
 		row.Background(p.hover)
 	}
 	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Rename tab…").Chosen() {
+			a.requestTerminalRename(tab)
+		}
+		if tab.custom != "" && m.Item("Clear name").Chosen() {
+			a.clearTerminalName(tab.id)
+		}
+		m.Separator()
 		if m.Item("Close tab").Chosen() {
 			a.closeTerminalTabAt(index)
 		}

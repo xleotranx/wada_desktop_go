@@ -26,7 +26,7 @@ func TestAppMenuShape(t *testing.T) {
 	menu := appMenu(a)
 	for _, label := range []string{
 		"File", "Chat", "View", "Help",
-		"New Chat", "Open Folder…", "Close Chat Tab", "Reopen Closed Chat Tab",
+		"New Chat", "Open Folder…",
 		"Export Transcript…", "Quick Open File…", "Find…", "Search Chats…",
 		"Chat History…", "Copy Transcript", "Choose Model…",
 		"Toggle Sidebar", "Toggle Tools", "Toggle Terminal", "Toggle Full View",
@@ -89,15 +89,6 @@ func TestAppMenuActions(t *testing.T) {
 	click("Toggle Sidebar")
 	if a.layout.sidebarCollapsed {
 		t.Fatal("Toggle Sidebar did not unfold the sidebar")
-	}
-
-	// Closing the open tab from the File menu hands the view to a draft.
-	a.scope().tabs = []chatTab{{id: "ses_a", title: "Alpha"}}
-	a.scope().activeTab = "ses_a"
-	a.conversation.target.selectSession("ses_a")
-	click("Close Chat Tab")
-	if len(a.scope().tabs) != 0 || !a.conversation.target.isDraft() {
-		t.Fatalf("Close Chat Tab left %+v, %q", a.scope().tabs, a.conversation.target.session)
 	}
 
 	// A new chat from the menu starts a draft revision.

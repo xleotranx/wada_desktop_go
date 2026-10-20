@@ -16,9 +16,6 @@ func (a *app) appShortcuts(c *ui.Context) {
 		ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
 		c.OnShortcut(ui.Cmd, key, func() { a.openRecentChat(i) })
 	}
-	a.bindShortcut(c, "next-tab", func() { a.cycleTab(1) })
-	a.bindShortcut(c, "prev-tab", func() { a.cycleTab(-1) })
-	a.bindShortcut(c, "reopen-tab", a.reopenClosedTab)
 	a.bindShortcut(c, "search", a.openChatSearch)
 	a.bindShortcut(c, "full-view", a.toggleFullView)
 	a.bindShortcut(c, "text-larger", func() { a.bumpChatText(1) })

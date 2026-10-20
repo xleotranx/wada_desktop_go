@@ -45,11 +45,6 @@ type confirmState struct {
 	what string
 }
 
-// chatTab is one open conversation in the strip above the transcript.
-type chatTab struct {
-	id, title string
-}
-
 // serverScope is one server's slice of the app state: the conversations it
 // lists, the paging cursor, the models it offers. Scopes outlive switches,
 // so returning to a server shows its chats while the pipe dials it again;
@@ -63,14 +58,8 @@ type serverScope struct {
 	sessionsLoaded bool
 	nextCursor     string
 	moreLoading    bool
-	// tabs are the conversations opened in this server's workspace, in the
-	// order their strip shows them; activeTab is the one on show, empty
-	// while a draft is. closedTabs keeps what a cross removed, newest last.
-	tabs         []chatTab
-	activeTab    string
-	closedTabs   []chatTab
-	models       []opencode.Model
-	modelsLoaded bool
+	models         []opencode.Model
+	modelsLoaded   bool
 	// The personas a conversation can run under ("build", "plan"), zero
 	// until a dial reads the list.
 	agents []opencode.Agent
@@ -1313,8 +1302,6 @@ func (a *app) adoptSession(s opencode.Session) {
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
 	a.restoreDraft(s.ID)
 	a.clearUnread(s.ID)
-	a.scope().activeTab = s.ID
-	a.rememberTab(s)
 	a.freshTranscript()
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
@@ -1338,10 +1325,7 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 	}
 	settled := false
 	if lerr == nil && len(ls) > 0 {
-		if session, ok := a.restoredTab(ls); ok {
-			a.openConversation(session)
-			settled = true
-		} else if listed := a.listedSessions(); len(listed) > 0 {
+		if listed := a.listedSessions(); len(listed) > 0 {
 			a.openConversation(listed[0])
 			settled = true
 		}
@@ -1352,33 +1336,6 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		a.freshTranscript()
 	}
 	a.scope().sessionsLoaded = true
-}
-
-// restoredTab names the conversation that was on show when the app last
-// closed, when its tab survived. A tab the server no longer lists is
-// still opened by ID: the server answers for it, and the strip would not
-// show a tab it could not open.
-func (a *app) restoredTab(ls []opencode.Session) (opencode.Session, bool) {
-	scope := a.scope()
-	if scope.activeTab == "" {
-		return opencode.Session{}, false
-	}
-	found := false
-	for _, tab := range scope.tabs {
-		if tab.id == scope.activeTab {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return opencode.Session{}, false
-	}
-	for _, session := range ls {
-		if session.ID == scope.activeTab {
-			return session, true
-		}
-	}
-	return opencode.Session{ID: scope.activeTab, Title: a.tabTitle(scope.activeTab)}, true
 }
 
 // startNewChat clears the view; the conversation itself comes into being
@@ -1412,7 +1369,6 @@ func (a *app) resetDraft(dir string) {
 	a.conversation.commandError = ""
 	a.layout.projectPickerOpen = false
 	a.layout.queueOpen = false
-	a.scope().activeTab = ""
 	a.freshTranscript()
 	a.workspaceChanged()
 	a.saveState()

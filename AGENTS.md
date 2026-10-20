@@ -16,7 +16,7 @@ layers. Do not change the external server protocol to simplify a refactor.
   conversation, workspace, preferences, search, layout and terminal.
 - `conversation.go`, `workspace.go`: complete navigation and workspace transitions.
 - `sidebar.go`, `chat.go`, `composer.go`, `browser.go`, `settings.go`,
-  `terminal.go`, `tabs.go`, `activity.go`: native views.
+  `terminal.go`, `activity.go`: native views.
 - `runner_sink.go`: the runner's typed results applied on the UI thread;
   `agent_jobs.go`: typed command admission; `agent_apply.go`: decoded events and
   stored messages adapted to chat data.

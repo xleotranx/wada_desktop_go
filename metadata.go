@@ -15,8 +15,8 @@ import (
 )
 
 // appMetadata is everything the app keeps between runs: the sidebar's
-// projects and pins, the settings' servers and model choices, the widths
-// the user dragged the workspace panes to, and each server's open tabs.
+// projects and pins, the settings' servers and model choices, and the
+// widths the user dragged the workspace panes to.
 type appMetadata struct {
 	projects        []string
 	projectPins     map[string]bool
@@ -40,8 +40,6 @@ type appMetadata struct {
 	unread          map[string][]string          // server id -> chats with news
 	archived        map[string][]string          // server id -> chats put away
 	drafts          map[string]map[string]string // server id -> draft key -> words
-	tabs            map[string][]chatTab         // server id -> its open conversations
-	activeTabs      map[string]string            // server id -> the conversation on show
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -229,20 +227,6 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			}
 		default:
 			switch {
-			case strings.HasPrefix(key, "tabs:"):
-				if tabs, ok := decodeTabs(value); ok {
-					if state.tabs == nil {
-						state.tabs = map[string][]chatTab{}
-					}
-					state.tabs[strings.TrimPrefix(key, "tabs:")] = tabs
-				}
-			case strings.HasPrefix(key, "active_tab:"):
-				if value != "" {
-					if state.activeTabs == nil {
-						state.activeTabs = map[string]string{}
-					}
-					state.activeTabs[strings.TrimPrefix(key, "active_tab:")] = value
-				}
 			case strings.HasPrefix(key, "archived:"):
 				var ids []string
 				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
@@ -301,18 +285,6 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('command_recents', ?)", Args: []any{encodeCommandRecents(state.commandRecents)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
-	}
-	for serverID, tabs := range state.tabs {
-		statements = append(statements, sqlite.Statement{
-			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
-			Args: []any{"tabs:" + serverID, encodeTabs(tabs)},
-		})
-	}
-	for serverID, id := range state.activeTabs {
-		statements = append(statements, sqlite.Statement{
-			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
-			Args: []any{"active_tab:" + serverID, id},
-		})
 	}
 	for serverID, ids := range state.unread {
 		if len(ids) == 0 {
@@ -441,42 +413,6 @@ func encodeSwitch(on bool) string {
 	return "0"
 }
 
-// storedTab is a chat tab as it sits in the preferences table.
-type storedTab struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
-// decodeTabs reads one server's tab list, treating a malformed row as no
-// tabs rather than failing the whole store.
-func decodeTabs(value string) ([]chatTab, bool) {
-	var stored []storedTab
-	if err := json.Unmarshal([]byte(value), &stored); err != nil {
-		return nil, false
-	}
-	tabs := make([]chatTab, 0, len(stored))
-	for _, tab := range stored {
-		if tab.ID == "" {
-			continue
-		}
-		tabs = append(tabs, chatTab{id: tab.ID, title: tab.Title})
-	}
-	return tabs, true
-}
-
-// encodeTabs writes a server's tab list for the next launch.
-func encodeTabs(tabs []chatTab) string {
-	stored := make([]storedTab, 0, len(tabs))
-	for _, tab := range tabs {
-		stored = append(stored, storedTab{ID: tab.id, Title: tab.title})
-	}
-	data, err := json.Marshal(stored)
-	if err != nil {
-		return "[]"
-	}
-	return string(data)
-}
-
 // encodeIDs stores an unread list in a stable order, so two saves of the
 // same marks write the same preference.
 func encodeIDs(ids []string) string {
@@ -559,18 +495,6 @@ func (a *app) stateSnapshot() appMetadata {
 	for key, scope := range a.connections.scopes {
 		if len(scope.pinOrder) > 0 {
 			state.pins[key] = slices.Clone(scope.pinOrder)
-		}
-		if len(scope.tabs) > 0 {
-			if state.tabs == nil {
-				state.tabs = map[string][]chatTab{}
-			}
-			state.tabs[key] = slices.Clone(scope.tabs)
-		}
-		if scope.activeTab != "" {
-			if state.activeTabs == nil {
-				state.activeTabs = map[string]string{}
-			}
-			state.activeTabs[key] = scope.activeTab
 		}
 		if len(scope.archived) > 0 {
 			ids := make([]string, 0, len(scope.archived))
@@ -707,12 +631,6 @@ func (a *app) restoreState(state appMetadata) {
 		if len(files) > 0 {
 			a.preferences.recent[id] = slices.Clone(files)
 		}
-	}
-	for id, tabs := range state.tabs {
-		a.scopeFor(id).tabs = tabs
-	}
-	for id, active := range state.activeTabs {
-		a.scopeFor(id).activeTab = active
 	}
 	a.connections.modelOff = state.modelOff
 	if a.connections.modelOff == nil {

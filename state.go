@@ -215,7 +215,6 @@ type viewState struct {
 	historyQuery        string
 	historySelected     int
 	historyList         ui.ListState
-	tabScroll           ui.ScrollState
 	terminalRename      *terminalRenameState
 	terminalRenameFocus bool
 	serverEditor        *serverEditor

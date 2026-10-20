@@ -37,15 +37,15 @@ func showDesktopNotice(n desktopNotice) {
 	}()
 }
 
-// noticeSession names the freshest row a banner is about, falling back to
-// the tab's title for a chat the list has not caught up with.
+// noticeSession names the freshest row a banner is about, so the banner
+// uses the title a row carries even when the list has not sorted one.
 func (a *app) noticeSession(id string) opencode.Session {
 	for _, s := range a.scope().sessions {
 		if s.ID == id {
 			return s
 		}
 	}
-	return opencode.Session{ID: id, Title: a.tabTitle(id)}
+	return opencode.Session{ID: id}
 }
 
 // noticeTitle is the name a banner gives a chat: an untitled one is still
@@ -117,5 +117,5 @@ func (a *app) openNoticeChat(id string) {
 	if !ok || sid == "" || a.runtime.closed {
 		return
 	}
-	a.openTab(sid)
+	a.openConversation(opencode.Session{ID: sid})
 }

@@ -38,9 +38,6 @@ var shortcutSpecs = []shortcutSpec{
 	{"changes", "Open Changes", ui.Ctrl | ui.Shift, ui.KeyG},
 	{"model", "Choose a model", ui.Ctrl | ui.Shift, ui.KeyM},
 	{"settings", "Settings", ui.Cmd, ui.KeyComma},
-	{"next-tab", "Next chat tab", ui.Ctrl, ui.KeyTab},
-	{"prev-tab", "Previous chat tab", ui.Ctrl | ui.Shift, ui.KeyTab},
-	{"reopen-tab", "Reopen closed chat tab", ui.Cmd | ui.Shift, ui.KeyT},
 	{"text-larger", "Conversation text larger", ui.Cmd, ui.KeyEqual},
 	{"text-smaller", "Conversation text smaller", ui.Cmd, ui.KeyMinus},
 	{"text-reset", "Reset conversation text", ui.Cmd, ui.Key0},
@@ -235,7 +232,6 @@ var shortcutActionIDs = map[string]string{
 	"action:full-view":    "full-view",
 	"action:folder":       "open-folder",
 	"action:shortcuts":    "shortcuts",
-	"action:reopen-tab":   "reopen-tab",
 }
 
 // openShortcuts shows the customization dialog.

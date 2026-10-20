@@ -87,8 +87,6 @@ func (s runnerSink) Created(created runner.Created) {
 		a.conversation.target.selectSession(chat.SessionID(created.Session.ID))
 		a.conversation.selected = "New chat"
 		a.syncWindowTitle()
-		a.scope().activeTab = created.Session.ID
-		a.rememberTab(created.Session)
 	}
 	a.scope().sessions = dedupeSessions([]opencode.Session{created.Session}, a.scope().sessions)
 	a.saveState()

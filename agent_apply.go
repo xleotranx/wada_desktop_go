@@ -186,11 +186,6 @@ func (a *app) applyUpdate(ev opencode.Update) {
 				a.scope().sessions[i].Title = ev.Title
 			}
 		}
-		for i := range a.scope().tabs {
-			if a.scope().tabs[i].id == ev.SessionID {
-				a.scope().tabs[i].title = ev.Title
-			}
-		}
 		if ev.SessionID == string(a.conversation.target.session) {
 			a.conversation.selected = ev.Title
 			a.syncWindowTitle()
@@ -211,28 +206,14 @@ func (a *app) dropPerm(requestID string) {
 	a.conversation.transcript.DropPermission(chat.PermissionID(requestID))
 }
 
-// dropSession takes one conversation out of the list and its tab out of
-// the strip: a deleted open tab hands the view to its neighbour, or leaves
-// a fresh transcript when it was the last one.
+// dropSession takes one conversation out of the list: deleting the
+// conversation on show leaves a fresh transcript.
 func (a *app) dropSession(sid string) {
 	scope := a.scope()
 	delete(scope.unread, sid)
 	delete(scope.attention, sid)
 	delete(scope.archived, sid)
 	delete(scope.queued, sid)
-	index := -1
-	for i, tab := range scope.tabs {
-		if tab.id == sid {
-			index = i
-			break
-		}
-	}
-	if index >= 0 {
-		scope.tabs = removeTab(scope.tabs, sid)
-	}
-	if scope.activeTab == sid {
-		scope.activeTab = ""
-	}
 	if scope.pinned[sid] {
 		a.togglePin(opencode.Session{ID: sid})
 	}
@@ -246,15 +227,6 @@ func (a *app) dropSession(sid string) {
 	if string(a.conversation.target.session) != sid {
 		a.saveState()
 		return
-	}
-	if len(scope.tabs) > 0 {
-		next := 0
-		if index >= 0 {
-			next = min(index, len(scope.tabs)-1)
-		}
-		if a.openTab(scope.tabs[next].id) {
-			return
-		}
 	}
 	a.resetDraft("")
 }

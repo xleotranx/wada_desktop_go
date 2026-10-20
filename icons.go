@@ -34,7 +34,6 @@ var (
 	icBook       = lucide.BookOpen()
 	icPlug       = lucide.Plug()
 	icChevRight  = lucide.ChevronRight()
-	icChevLeft   = lucide.ChevronLeft()
 	icChevUp     = lucide.ChevronUp()
 	icChevDown   = lucide.ChevronDown()
 	icEllipsis   = lucide.Ellipsis()

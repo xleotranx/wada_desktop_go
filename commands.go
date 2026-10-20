@@ -155,20 +155,7 @@ func (a *app) commandItems() []command.Item {
 		items = append(items, command.Item{ID: "action:full-view", Title: "Enter full view",
 			Group: "View", Description: "Give the conversation the whole window", Shortcut: "⌘⇧F", Icon: icExpand})
 	}
-	if len(a.scope().closedTabs) > 0 {
-		items = append(items, command.Item{ID: "action:reopen-tab", Title: "Reopen closed chat tab",
-			Group: "View", Description: "Bring back the last tab a cross closed",
-			Shortcut: "⌘⇧T", Icon: icHistory})
-	}
 	if sid := string(a.conversation.target.session); sid != "" {
-		items = append(items, command.Item{ID: "action:close-tab", Title: "Close chat tab",
-			Group: "View", Description: "Put this conversation's tab away", Icon: icClose,
-			Keywords: []string{"close", "tab", "conversation"}})
-		if len(a.scope().tabs) > 1 {
-			items = append(items, command.Item{ID: "action:close-other-tabs", Title: "Close other chat tabs",
-				Group: "View", Description: "Keep this conversation and put the rest away", Icon: icClose,
-				Keywords: []string{"close", "tabs", "others"}})
-		}
 		items = append(items, command.Item{ID: "action:copy-transcript", Title: "Copy transcript",
 			Group: "Actions", Description: "Put this conversation on the clipboard as markdown",
 			Icon: icCopy, Keywords: []string{"copy", "markdown", "export", "clipboard", "transcript"}})
@@ -342,21 +329,8 @@ func (a *app) runCommand(id string) {
 	case "action:full-view":
 		a.toggleFullView()
 		return
-	case "action:reopen-tab":
-		a.reopenClosedTab()
-		return
-	case "action:close-tab":
-		if sid := string(a.conversation.target.session); sid != "" {
-			a.closeTab(sid)
-		}
-		return
 	case "action:copy-transcript":
 		a.copyTranscript()
-		return
-	case "action:close-other-tabs":
-		if sid := string(a.conversation.target.session); sid != "" {
-			a.closeOtherTabs(sid)
-		}
 		return
 	case "action:show-tools":
 		a.showTools()

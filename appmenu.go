@@ -31,14 +31,6 @@ func appMenu(a *app) *mygo.Menu {
 			{Label: "New Chat", Click: run(a.startNewChat)},
 			{Label: "Open Folder…", Click: run(a.openProjectDialog)},
 			{Label: "Quick Open File…", Click: run(a.openQuickOpen)},
-			mygo.Separator(),
-			{Label: "Close Chat Tab", Click: run(func() {
-				if id := string(a.conversation.target.session); id != "" {
-					a.closeTab(id)
-				}
-			})},
-			{Label: "Reopen Closed Chat Tab", Click: run(a.reopenClosedTab)},
-			mygo.Separator(),
 			{Label: "Export Transcript…", Click: run(a.exportTranscript)},
 			mygo.Separator(),
 			{Role: mygo.RoleClose},

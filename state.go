@@ -129,6 +129,7 @@ type preferencesState struct {
 	projectLinks        map[string][]string
 	notifyFinished      bool
 	notifyApprovals     bool
+	diffSplit           bool
 	metadata            *metadataWriter
 	metadataVersion     uint64
 	metadataSaving      bool

@@ -195,9 +195,21 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 	}
 	f := st.files[st.selected]
 	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-	if st.diff == nil || st.patchFile != f.File || st.patch != f.Patch {
+	// The file on show gets its own header: the name the patch belongs to
+	// and the reading it is drawn in, so a long list never hides which
+	// file the diff below describes.
+	ui.Row(c).FillWidth().Height(30).AlignItems(ui.Center).Gap(8).Children(func() {
+		ui.Text(c, f.File).Font("monospace").FontSize(12).FontWeight(500).TextColor(p.text).
+			Grow(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(f.File)
+		for _, part := range changesCounts(p, f.Additions, f.Deletions) {
+			ui.Text(c, part.text).Font("monospace").FontSize(11).TextColor(part.tint).Shrink(0)
+		}
+		a.diffStyleControl(c, p)
+	})
+	layout := a.diffLayout()
+	if st.diff == nil || st.patchFile != f.File || st.patch != f.Patch || st.diff.Layout != layout {
 		st.patchFile, st.patch = f.File, f.Patch
-		st.diff = &editor.DiffState{Layout: editor.DiffUnified, Indicators: editor.DiffClassic,
+		st.diff = &editor.DiffState{Layout: layout, Indicators: editor.DiffClassic,
 			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
 		if patches, err := editor.ParsePatch(f.Patch); err == nil && len(patches) == 1 && len(patches[0].Hunks) > 0 {
 			st.diff.SetPatch(patches[0])
@@ -237,6 +249,53 @@ func (a *app) modePill(c *ui.Context, p palette, label, mode string, chosen bool
 			t.FontWeight(500)
 		}
 	})
+}
+
+// diffLayout is the reading the selected file's patch is drawn in: one
+// column by default, two when the split was chosen.
+func (a *app) diffLayout() editor.DiffLayout {
+	if a.preferences.diffSplit {
+		return editor.DiffSplit
+	}
+	return editor.DiffUnified
+}
+
+// setDiffSplit switches the diff's reading and saves it for the next
+// visit, as the pane's own preference.
+func (a *app) setDiffSplit(split bool) {
+	if a.preferences.diffSplit == split {
+		return
+	}
+	a.preferences.diffSplit = split
+	a.saveState()
+}
+
+// diffStyleControl is the two-state reading switch in the selected file's
+// header: the rows glyph for a unified diff, the columns glyph for a split
+// one.
+func (a *app) diffStyleControl(c *ui.Context, p palette) {
+	ui.Row(c).Shrink(0).Gap(2).Padding(2).Radius(8).Background(p.hover).Children(func() {
+		a.diffStyleButton(c, p, "Unified diff", icDiffRows, false)
+		a.diffStyleButton(c, p, "Split diff", icDiffSplit, true)
+	})
+}
+
+func (a *app) diffStyleButton(c *ui.Context, p palette, label string, icon *ui.SVG, split bool) {
+	chosen := a.preferences.diffSplit == split
+	c.Key("diff-style:" + label)
+	b := ui.ButtonBase(c).Label(label).Size(26, 24).Radius(6).Center().
+		Cursor(ui.CursorPointer).Tooltip(label)
+	if chosen {
+		b.Background(c.Theme().Background).Border(1, p.hairline)
+	} else if b.Hovered() {
+		b.Background(p.selected)
+	}
+	b.OnClick(func() { a.setDiffSplit(split) })
+	tint := p.muted
+	if chosen {
+		tint = p.text
+	}
+	b.Children(func() { ui.Icon(c, icon).FontSize(14).TextColor(tint) })
 }
 
 // changesCount is one piece of a file's count line, colored by what it

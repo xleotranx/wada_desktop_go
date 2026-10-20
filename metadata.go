@@ -32,6 +32,7 @@ type appMetadata struct {
 	chatText        string
 	notifyFinished  bool
 	notifyApprovals bool
+	diffSplit       bool
 	keymap          map[string]chord
 	recent          map[string][]recentFile
 	unread          map[string][]string          // server id -> chats with news
@@ -197,6 +198,8 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			state.notifyFinished = value != "0"
 		case "notify_approvals":
 			state.notifyApprovals = value != "0"
+		case "diff_split":
+			state.diffSplit = value == "1"
 		case "keymap":
 			var keymap map[string]chord
 			if json.Unmarshal([]byte(value), &keymap) == nil && len(keymap) > 0 {
@@ -275,6 +278,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_finished', ?)", Args: []any{encodeSwitch(state.notifyFinished)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_approvals', ?)", Args: []any{encodeSwitch(state.notifyApprovals)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('diff_split', ?)", Args: []any{encodeSwitch(state.diffSplit)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
 	}
@@ -480,6 +484,7 @@ func (a *app) stateSnapshot() appMetadata {
 		chatText:        a.preferences.chatText,
 		notifyFinished:  a.preferences.notifyFinished,
 		notifyApprovals: a.preferences.notifyApprovals,
+		diffSplit:       a.preferences.diffSplit,
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -577,6 +582,7 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.chatText = normalizeChatText(state.chatText)
 	a.preferences.notifyFinished = state.notifyFinished
 	a.preferences.notifyApprovals = state.notifyApprovals
+	a.preferences.diffSplit = state.diffSplit
 	a.preferences.projectLinks = map[string][]string{}
 	for primary, folders := range state.projectLinks {
 		if len(folders) > 0 {

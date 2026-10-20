@@ -39,6 +39,7 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		// One kind of banner off and one on proves both keys round-trip.
 		notifyFinished:  true,
 		notifyApprovals: false,
+		diffSplit:       true,
 		keymap:          map[string]chord{"palette": {Mods: ui.Cmd | ui.Alt, Key: ui.KeyK}},
 		recent: map[string][]recentFile{
 			localServerID: {{Dir: "/work/a", Path: "main.go"}},

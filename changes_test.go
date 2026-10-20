@@ -10,6 +10,7 @@ import (
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 )
 
 // changesServer is a fake server with one workspace's changes: the working
@@ -271,5 +272,51 @@ func TestChangesRawPatch(t *testing.T) {
 func TestChangeStatusLetters(t *testing.T) {
 	if statusLetter("added") != "A" || statusLetter("deleted") != "D" || statusLetter("modified") != "M" {
 		t.Fatal("the status letters drifted")
+	}
+}
+
+// TestChangesDiffStyle switches the file on show between one column and
+// two, keeps that reading while another file is picked, and saves the
+// choice with the rest of the settings.
+func TestChangesDiffStyle(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "app.go", Patch: "@@ -1,2 +1,3 @@\n package main\n+// added\n \n", Additions: 1},
+		{File: "other.txt", Patch: "@@ -1 +1 @@\n-before\n+after\n", Additions: 1, Deletions: 1},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if got := a.workspace.changes.diff.Layout; got != editor.DiffUnified {
+		t.Fatalf("the diff started in layout %v", got)
+	}
+	if !tt.HasText("app.go") || !tt.HasText("+1") {
+		t.Fatalf("the selected file's header is missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Split diff"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.preferences.diffSplit || a.workspace.changes.diff.Layout != editor.DiffSplit {
+		t.Fatalf("split choice %v, layout %v", a.preferences.diffSplit, a.workspace.changes.diff.Layout)
+	}
+	if snap := a.stateSnapshot(); !snap.diffSplit {
+		t.Fatal("the split reading did not reach the settings snapshot")
+	}
+	// Another file keeps the reading the user chose.
+	if err := tt.Click("Show other.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.workspace.changes.diff.Layout != editor.DiffSplit ||
+		a.workspace.changes.diff.New.String() != "after" {
+		t.Fatalf("the second file lost the split reading: %v", tt.Texts())
+	}
+	if err := tt.Click("Unified diff"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.preferences.diffSplit || a.workspace.changes.diff.Layout != editor.DiffUnified {
+		t.Fatalf("back to unified: %v, %v", a.preferences.diffSplit, a.workspace.changes.diff.Layout)
 	}
 }

@@ -55,6 +55,8 @@ var (
 	icAppearance = lucide.Palette()
 	icSun        = lucide.Sun()
 	icMoon       = lucide.Moon()
+	icDiffRows   = lucide.Rows3()
+	icDiffSplit  = lucide.Columns2()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

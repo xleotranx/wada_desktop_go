@@ -81,6 +81,9 @@ type serverScope struct {
 	// show; attention is a background approval waiting for an answer.
 	unread    map[string]bool
 	attention map[string]bool
+	// queued counts accepted prompts waiting for the runner's one active
+	// turn to finish, per chat.
+	queued map[string]int
 	// The folders the server works in, as its project list says them;
 	// empty until a dial reads it.
 	projects []string
@@ -149,7 +152,7 @@ func (a *app) scope() *serverScope { return a.scopeFor(a.connections.activeServe
 func (a *app) scopeFor(id string) *serverScope {
 	s := a.connections.scopes[id]
 	if s == nil {
-		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}}
+		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}, queued: map[string]int{}}
 		a.connections.scopes[id] = s
 	}
 	return s
@@ -709,7 +712,12 @@ func agentTitle(agents []opencode.Agent, picked string) string {
 // settings enabled.
 func (a *app) agentSend(text string) bool {
 	def := a.draftModelRef()
-	return a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Agent: a.conversation.agent, Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
+	queued := !a.conversation.target.isDraft() && a.conversation.transcript.Busy() != ""
+	accepted := a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Agent: a.conversation.agent, Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
+	if accepted && queued {
+		a.queueTurn(string(a.conversation.target.session))
+	}
+	return accepted
 }
 
 // stopTurn asks the runner to interrupt the running conversation.

@@ -120,6 +120,8 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		switch ev.Kind {
 		case opencode.PermissionAsked:
 			a.markUnread(ev.SessionID, true)
+		case opencode.ExecutionStarted:
+			a.startQueuedTurn(ev.SessionID)
 		case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
 			// The turn ended elsewhere: the chat has news, and any
 			// approval it was waiting on is no longer pending.
@@ -127,7 +129,7 @@ func (a *app) applyUpdate(ev opencode.Update) {
 			delete(a.scope().attention, ev.SessionID)
 		case opencode.TextStarted, opencode.TextDelta, opencode.TextEnded,
 			opencode.ToolStarted, opencode.ToolCalled, opencode.ToolSucceeded,
-			opencode.ExecutionStarted, opencode.ModelSelected, opencode.SessionRenamed:
+			opencode.ModelSelected, opencode.SessionRenamed:
 			// The stream of another chat is not this app's transcript;
 			// its end is what the marks above report.
 		}
@@ -154,6 +156,7 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		d := ev.Permission
 		a.conversation.transcript.Ask(&chat.Permission{ID: chat.PermissionID(d.ID), Session: chat.SessionID(d.SessionID), Action: d.Action, Resources: d.Resources, Save: d.Save})
 	case opencode.ExecutionStarted:
+		a.startQueuedTurn(ev.SessionID)
 		a.conversation.transcript.Start(chat.SessionID(ev.SessionID))
 	case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
 		if a.conversation.transcript.Finish() {
@@ -203,6 +206,7 @@ func (a *app) dropSession(sid string) {
 	scope := a.scope()
 	delete(scope.unread, sid)
 	delete(scope.attention, sid)
+	delete(scope.queued, sid)
 	index := -1
 	for i, tab := range scope.tabs {
 		if tab.id == sid {

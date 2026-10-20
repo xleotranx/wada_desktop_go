@@ -57,6 +57,8 @@ Global OpenCode configuration is not rewritten by startup.
   show wear unread dots in the sidebar, tab strip and bell. Cmd+Shift+U marks
   the open chat unread or read; Cmd+Option+A visits the next marked chat.
   Unread marks are saved across launches.
+- Queue: a message sent while the agent is working waits for the current turn
+  to finish, and the composer names how many messages are queued.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. The choice is saved.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"wada-desktop-go/internal/opencode"
@@ -21,6 +22,21 @@ func (a *app) composer(c *ui.Context, p palette) {
 		}
 		if a.conversation.target.isDraft() {
 			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
+		}
+		if n := a.queuedTurns(string(a.conversation.target.session)); n > 0 {
+			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().
+				Padding(0, 0, 4, 0).Children(func() {
+				ui.Row(c).Height(24).Radius(999).Padding(0, 10).Gap(5).
+					Background(p.detailBg).Children(func() {
+					ui.Icon(c, icHistory).FontSize(12).TextColor(p.muted)
+					label := "1 message queued"
+					if n > 1 {
+						label = fmt.Sprintf("%d messages queued", n)
+					}
+					ui.Text(c, label).FontSize(11.5).TextColor(p.muted)
+					ui.Text(c, "· runs after this turn").FontSize(11.5).TextColor(p.faint)
+				})
+			})
 		}
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			busy := a.conversation.transcript.Busy() != ""

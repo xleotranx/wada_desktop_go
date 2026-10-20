@@ -29,6 +29,7 @@ layers. Do not change the external server protocol to simplify a refactor.
   and lifetime ownership.
 - `metadata.go`: transactional SQLite settings and asynchronous snapshots.
 - `unread.go`: background chat and approval marks, the bell and their navigation.
+- `queue.go`: prompts waiting behind the runner's one active turn.
 - `appearance.go`: the saved System/Light/Dark palette and MyGo theme source.
 - `palette.go`, `icons.go`: the app's semantic colors read from the Onevra theme,
   and Lucide icon accessors.

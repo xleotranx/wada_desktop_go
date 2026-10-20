@@ -41,3 +41,18 @@ func (a *app) openConversation(session opencode.Session) bool {
 	a.adoptSession(session)
 	return true
 }
+
+// openRecentChat follows the numbered command keys: the newest chat is
+// one, in the order the server listed them. A key past the list or a
+// conversation already open changes nothing.
+func (a *app) openRecentChat(index int) {
+	scope := a.scope()
+	if index < 0 || index >= len(scope.sessions) {
+		return
+	}
+	session := scope.sessions[index]
+	if session.ID == string(a.conversation.target.session) {
+		return
+	}
+	a.openConversation(session)
+}

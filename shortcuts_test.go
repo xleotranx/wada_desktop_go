@@ -28,6 +28,19 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Cmd+N left pages open: settings=%v search=%v", a.layout.settingsOpen, a.search.searchOpen)
 	}
 
+	// Cmd+2 opens the second chat the server listed, counting from the
+	// newest.
+	a.scope().sessionsLoaded = true
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_newest", Title: "Newest"},
+		{ID: "ses_second", Title: "Second"},
+	}
+	tt.Key(ui.Cmd, ui.Key2)
+	tt.Frame()
+	if got := string(a.conversation.target.session); got != "ses_second" {
+		t.Fatalf("Cmd+2 opened %q", got)
+	}
+
 	// Cmd+P opens the Files pane the tools grid advertises.
 	tt.Key(ui.Cmd, ui.KeyP)
 	tt.Frame()

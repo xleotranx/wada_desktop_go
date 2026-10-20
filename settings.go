@@ -473,6 +473,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 		}},
 		{"Chats", [][2]string{
 			{"New chat", "⌘N"},
+			{"Open a recent chat", "⌘1…9"},
 			{"Find in chat", "⌘F"},
 			{"Find next match", "⌘G"},
 			{"Find previous match", "⌘⇧G"},

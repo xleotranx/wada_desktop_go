@@ -12,6 +12,10 @@ func (a *app) appShortcuts(c *ui.Context) {
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyK, a.openCommandPalette)
 	c.OnShortcut(ui.Cmd, ui.KeyN, a.startNewChat)
+	for i, key := range [...]ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5,
+		ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
+		c.OnShortcut(ui.Cmd, key, func() { a.openRecentChat(i) })
+	}
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })

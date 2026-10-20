@@ -287,3 +287,72 @@ func TestCloseTabCommands(t *testing.T) {
 		t.Fatalf("close-tab left %+v, view %q", a.scope().tabs, a.conversation.target.session)
 	}
 }
+
+// TestTabDragReorders drags the first tab over the last one and expects it
+// to take that slot, with the conversation on show unchanged.
+func TestTabDragReorders(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_a", Title: "Alpha"},
+		{ID: "ses_b", Title: "Beta"},
+		{ID: "ses_c", Title: "Gamma"},
+	}
+	a.scope().sessionsLoaded = true
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.selected = "Alpha"
+	a.scope().tabs = []chatTab{
+		{id: "ses_a", title: "Alpha"},
+		{id: "ses_b", title: "Beta"},
+		{id: "ses_c", title: "Gamma"},
+	}
+	a.scope().activeTab = "ses_a"
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	src, ok := tt.Find("Open Alpha")
+	if !ok {
+		t.Fatal("the first tab is not drawn")
+	}
+	dst, ok := tt.Find("Open Gamma")
+	if !ok {
+		t.Fatal("the last tab is not drawn")
+	}
+	tt.Press(src.X+src.W/2, src.Y+src.H/2)
+	tt.Move(src.X+src.W/2+12, src.Y+src.H/2)
+	tt.Move(dst.X+dst.W/2, dst.Y+dst.H/2)
+	tt.Release(dst.X+dst.W/2, dst.Y+dst.H/2)
+	tt.Frame()
+	ids := []string{}
+	for _, tab := range a.scope().tabs {
+		ids = append(ids, tab.id)
+	}
+	if !slices.Equal(ids, []string{"ses_b", "ses_c", "ses_a"}) {
+		t.Fatalf("the dragged strip reads %v", ids)
+	}
+	if a.conversation.target.session != "ses_a" {
+		t.Fatalf("the drag moved the view to %q", a.conversation.target.session)
+	}
+}
+
+// TestMoveTabBackwards puts a tab back over its neighbour, and leaves a
+// miss alone.
+func TestMoveTabBackwards(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().tabs = []chatTab{
+		{id: "ses_a", title: "Alpha"},
+		{id: "ses_b", title: "Beta"},
+		{id: "ses_c", title: "Gamma"},
+	}
+	a.moveTabTo("ses_c", "ses_a")
+	ids := []string{}
+	for _, tab := range a.scope().tabs {
+		ids = append(ids, tab.id)
+	}
+	if !slices.Equal(ids, []string{"ses_c", "ses_a", "ses_b"}) {
+		t.Fatalf("backwards drag reads %v", ids)
+	}
+	a.moveTabTo("ses_c", "missing")
+	a.moveTabTo("missing", "ses_a")
+	if len(a.scope().tabs) != 3 || a.scope().tabs[0].id != "ses_c" {
+		t.Fatalf("a miss moved the strip: %+v", a.scope().tabs)
+	}
+}

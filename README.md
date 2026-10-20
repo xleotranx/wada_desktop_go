@@ -53,6 +53,7 @@ Global OpenCode configuration is not rewritten by startup.
   Ctrl+Shift+Tab cycle it, and Cmd+Shift+T reopens the last closed tab. A
   right-click on a tab closes it, the other tabs or the whole strip; all three
   are in the command palette too, and closed tabs stay in the reopen history.
+  Dragging a tab onto another moves it to that slot, and the order is saved.
   Cmd+F finds text in the open transcript and Cmd+Option+F searches chats.
   Toasts confirm copies and exports.
 - Layout: drag the sidebar, tools or terminal divider, nudge it with the arrow

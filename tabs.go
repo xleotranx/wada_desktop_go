@@ -203,6 +203,31 @@ func (a *app) closeAllTabs() {
 	a.startNewChat()
 }
 
+// moveTabTo puts a dragged tab where another one sits, the rest keeping
+// their order. The target's slot is where the dragged tab lands, so a tab
+// dragged right over its neighbour swaps with it.
+func (a *app) moveTabTo(id, target string) {
+	scope := a.scope()
+	from, to := -1, -1
+	for i, tab := range scope.tabs {
+		if tab.id == id {
+			from = i
+		}
+		if tab.id == target {
+			to = i
+		}
+	}
+	if from < 0 || to < 0 || from == to {
+		return
+	}
+	tabs := slices.Clone(scope.tabs)
+	tab := tabs[from]
+	tabs = slices.Delete(tabs, from, from+1)
+	tabs = slices.Insert(tabs, min(to, len(tabs)), tab)
+	scope.tabs = tabs
+	a.saveState()
+}
+
 // removeTab drops one ID from a strip without disturbing the rest.
 func removeTab(tabs []chatTab, id string) []chatTab {
 	for i, tab := range tabs {
@@ -256,6 +281,16 @@ func (a *app) chatTab(c *ui.Context, p palette, tab chatTab) {
 		row.Background(p.selected)
 	} else if row.Hovered() {
 		row.Background(p.hover)
+	}
+	row.Drag(tab.id)
+	if dragged, over := ui.DragOver[string](row); over && dragged != tab.id {
+		row.Background(p.hover).Border(1, p.orange.Alpha(.55))
+	}
+	if dragged, ok := ui.Drop[string](row); ok {
+		a.moveTabTo(dragged, tab.id)
+	}
+	if row.Dragging() {
+		row.Opacity(.55)
 	}
 	row.ContextMenu(func(m *ui.Menu) {
 		if m.Item("Close tab").Chosen() {

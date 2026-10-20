@@ -64,6 +64,11 @@ func (a *app) contentPane(c *ui.Context, p palette) {
 						ui.Text(c, "Send a message below to start it.").FontSize(12.5).
 							TextColor(p.faint)
 					})
+					// Find has nothing to count here, but the key still
+					// answers with its bar rather than looking dead.
+					if a.layout.findOpen {
+						a.chatFindBar(c, p)
+					}
 					return
 				}
 				ui.List(c.Key(a.conversation.target.session), &a.layout.feed, count).Fill().Selectable().

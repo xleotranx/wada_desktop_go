@@ -48,6 +48,26 @@ func TestChatFindMovesThroughMatches(t *testing.T) {
 	}
 }
 
+// TestChatFindOpensInAnEmptyConversation keeps Cmd+F answering before the
+// first message: the bar appears with nothing to count rather than the key
+// looking dead.
+func TestChatFindOpensInAnEmptyConversation(t *testing.T) {
+	a := newTestApp(t)
+	a.conversation.target.selectSession("ses_empty")
+	a.conversation.selected = "Empty"
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !a.layout.findOpen || !tt.HasText("Done") {
+		t.Fatalf("find did not open over an empty conversation: open=%v", a.layout.findOpen)
+	}
+	tt.Type("anything")
+	tt.Frame()
+	if !tt.HasText("No matches") {
+		t.Fatalf("find did not say it found nothing: %v", tt.Texts())
+	}
+}
+
 // TestChatFindBringsTheMatchIntoView keeps find useful in a long
 // transcript: choosing a match scrolls the virtual list to the row that
 // holds it instead of only changing the count.

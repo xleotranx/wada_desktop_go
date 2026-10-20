@@ -714,6 +714,12 @@ func (a *app) send() bool {
 	if text == "" {
 		return false
 	}
+	// While the @-file menu answers the words, Enter takes its choice —
+	// or waits for the search — instead of sending a half-typed word.
+	if a.mentionOpen() {
+		a.completeMention()
+		return true
+	}
 	if a.runSlash(text) {
 		return true
 	}
@@ -731,6 +737,7 @@ func (a *app) send() bool {
 	a.conversation.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.conversation.draft})
 	a.conversation.draft = ""
 	a.forgetDraft(key)
+	a.closeMention()
 	a.closeAttach()
 	a.layout.feed.ScrollToEnd()
 	a.saveState()

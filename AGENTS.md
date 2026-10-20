@@ -36,6 +36,7 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `chattext.go`: the saved conversation text size and its shortcuts.
 - `quickopen.go`: the centered file picker and its search.
 - `slash.go`: local composer commands, suggestions and their help sheet.
+- `mentions.go`: the composer’s @-file menu, its workspace search and insertion.
 - `chatfilter.go`: the sidebar filters for unread, attention and drafts.
 - `project_links.go`, `project_picker.go`: local projects that group several
   folders and their chats, and the new-chat picker that offers each folder.

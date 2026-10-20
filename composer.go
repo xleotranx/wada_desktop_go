@@ -16,6 +16,7 @@ import (
 // the send/stop affordance; the app supplies the chips that decide how the
 // next turn runs.
 func (a *app) composer(c *ui.Context, p palette) {
+	a.syncMention()
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		if a.conversation.commandError != "" {
 			ui.Text(c, a.conversation.commandError).FontSize(12).TextColor(p.danger)
@@ -24,6 +25,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Padding(0, 0, 4, 0).Children(func() { a.projectPicker(c, p) })
 		}
 		a.slashMenu(c, p)
+		a.mentionMenu(c, p)
 		if n := a.queuedTurns(string(a.conversation.target.session)); n > 0 {
 			ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().
 				Padding(0, 0, 4, 0).Children(func() {
@@ -76,23 +78,39 @@ func (a *app) composer(c *ui.Context, p palette) {
 				},
 			})
 			result.Input.OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyUp && k.Key != ui.KeyDown {
-					return false
-				}
 				matches := a.slashMatches()
-				if len(matches) == 0 {
+				if len(matches) > 0 {
+					if k.Key != ui.KeyUp && k.Key != ui.KeyDown {
+						return false
+					}
+					if a.layout.slashSeen != a.conversation.draft {
+						a.layout.slashSeen = a.conversation.draft
+						a.layout.slashSelected = 0
+					}
+					if k.Key == ui.KeyDown {
+						a.layout.slashSelected = min(a.layout.slashSelected+1, len(matches)-1)
+					} else {
+						a.layout.slashSelected = max(a.layout.slashSelected-1, 0)
+					}
+					return true
+				}
+				if !a.mentionOpen() {
 					return false
 				}
-				if a.layout.slashSeen != a.conversation.draft {
-					a.layout.slashSeen = a.conversation.draft
-					a.layout.slashSelected = 0
+				m, choices := &a.layout.mention, a.mentionChoices()
+				if k.Key == ui.KeyEscape {
+					a.muteMention()
+					return true
 				}
-				if k.Key == ui.KeyDown {
-					a.layout.slashSelected = min(a.layout.slashSelected+1, len(matches)-1)
-				} else {
-					a.layout.slashSelected = max(a.layout.slashSelected-1, 0)
+				if k.Key == ui.KeyDown && len(choices) > 0 {
+					m.selected = min(m.selected+1, len(choices)-1)
+					return true
 				}
-				return true
+				if k.Key == ui.KeyUp && len(choices) > 0 {
+					m.selected = max(m.selected-1, 0)
+					return true
+				}
+				return false
 			})
 			if a.layout.composerFocus {
 				result.Input.Focus()

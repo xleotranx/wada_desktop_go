@@ -86,6 +86,10 @@ Global OpenCode configuration is not rewritten by startup.
   local actions. Typing `/` lists matching commands above the composer; ↑↓
   choose and Enter runs the choice, even from a prefix. Words after a command
   make it an ordinary prompt.
+- File mentions: an @-word at the end of the composer opens a menu of the
+  chat's files — recent ones first, then a search as the word grows. ↑↓ choose
+  and Enter writes the path into the draft; Escape keeps the menu away until
+  the word ends.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices

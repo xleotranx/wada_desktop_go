@@ -35,6 +35,10 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		terminalH:  248,
 		appearance: appearanceDark,
 		unread:     map[string][]string{localServerID: {"ses_1", "ses_2"}},
+		drafts: map[string]map[string]string{
+			localServerID: {"ses_a": "still typing", "": "a new idea"},
+			"srv-one":     {"ses_remote": "remote words"},
+		},
 		tabs: map[string][]chatTab{
 			localServerID: {{id: "ses_a", title: "Alpha"}, {id: "ses_b", title: "Beta"}},
 			"srv-one":     {{id: "ses_remote", title: "Remote chat"}},

@@ -443,6 +443,10 @@ func (a *app) useServer(id string) {
 		return
 	}
 	old := a.connections.activeServer
+	// The unsent words belong to the server that was on show; the next
+	// server's composer starts from its own draft, not this one's.
+	a.stashDraft()
+	a.conversation.draft = ""
 	a.connections.activeServer = id
 	if last, ok := a.serverByID(old); ok && last.managed {
 		// The app runs its own server only while it is the active one.

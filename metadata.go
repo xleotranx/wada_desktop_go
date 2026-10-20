@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,9 +28,10 @@ type appMetadata struct {
 	browserW    float32
 	terminalH   float32
 	appearance  string
-	unread      map[string][]string  // server id -> chats with news
-	tabs        map[string][]chatTab // server id -> its open conversations
-	activeTabs  map[string]string    // server id -> the conversation on show
+	unread      map[string][]string          // server id -> chats with news
+	drafts      map[string]map[string]string // server id -> draft key -> words
+	tabs        map[string][]chatTab         // server id -> its open conversations
+	activeTabs  map[string]string            // server id -> the conversation on show
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -210,6 +212,14 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 					}
 					state.unread[strings.TrimPrefix(key, "unread:")] = ids
 				}
+			case strings.HasPrefix(key, "drafts:"):
+				var drafts map[string]string
+				if json.Unmarshal([]byte(value), &drafts) == nil && len(drafts) > 0 {
+					if state.drafts == nil {
+						state.drafts = map[string]map[string]string{}
+					}
+					state.drafts[strings.TrimPrefix(key, "drafts:")] = drafts
+				}
 			}
 		}
 	}
@@ -222,7 +232,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
-		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%'"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%' OR key LIKE 'drafts:%'"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
@@ -248,6 +258,19 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		statements = append(statements, sqlite.Statement{
 			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
 			Args: []any{"unread:" + serverID, encodeIDs(ids)},
+		})
+	}
+	for serverID, drafts := range state.drafts {
+		if len(drafts) == 0 {
+			continue
+		}
+		data, err := json.Marshal(drafts)
+		if err != nil {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"drafts:" + serverID, string(data)},
 		})
 	}
 	for i, dir := range state.projects {
@@ -357,6 +380,7 @@ func startMetadataWriter(db *metadataStore, publish func(uint64, error)) *metada
 }
 
 func (a *app) stateSnapshot() appMetadata {
+	a.stashDraft()
 	state := appMetadata{
 		projects:    slices.Clone(a.preferences.projects),
 		projectPins: map[string]bool{},
@@ -400,6 +424,12 @@ func (a *app) stateSnapshot() appMetadata {
 				state.unread = map[string][]string{}
 			}
 			state.unread[key] = ids
+		}
+		if len(scope.drafts) > 0 {
+			if state.drafts == nil {
+				state.drafts = map[string]map[string]string{}
+			}
+			state.drafts[key] = maps.Clone(scope.drafts)
 		}
 	}
 	for key := range a.connections.modelOff {
@@ -475,6 +505,9 @@ func (a *app) restoreState(state appMetadata) {
 			scope.unread[sid] = true
 		}
 	}
+	for id, drafts := range state.drafts {
+		a.scopeFor(id).drafts = maps.Clone(drafts)
+	}
 	for id, tabs := range state.tabs {
 		a.scopeFor(id).tabs = tabs
 	}
@@ -517,6 +550,8 @@ func (a *app) closeMetadata() {
 	if a.preferences.metadata == nil {
 		return
 	}
-	close(a.preferences.metadata.queue)
-	<-a.preferences.metadata.done
+	writer := a.preferences.metadata
+	a.preferences.metadata = nil
+	close(writer.queue)
+	<-writer.done
 }

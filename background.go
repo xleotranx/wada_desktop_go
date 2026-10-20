@@ -51,7 +51,9 @@ func runOwned[T any](a *app, request *requestState, parent context.Context, work
 
 func (a *app) closeWork() {
 	a.runtime.closed = true
+	a.saveState()
 	a.closeTerminal()
 	a.runtime.stopWork()
 	a.runtime.stopLifetime()
+	a.closeMetadata()
 }

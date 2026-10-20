@@ -59,6 +59,8 @@ Global OpenCode configuration is not rewritten by startup.
   Unread marks are saved across launches.
 - Queue: a message sent while the agent is working waits for the current turn
   to finish, and the composer names how many messages are queued.
+- Drafts: every chat keeps its unsent composer words when switching tabs, and
+  the new-chat draft does too. They survive restarts and clear once sent.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. The choice is saved.
 

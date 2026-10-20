@@ -84,6 +84,9 @@ type serverScope struct {
 	// queued counts accepted prompts waiting for the runner's one active
 	// turn to finish, per chat.
 	queued map[string]int
+	// drafts holds each chat's unsent words, keyed by session id; the empty
+	// key is the new-chat composer.
+	drafts map[string]string
 	// The folders the server works in, as its project list says them;
 	// empty until a dial reads it.
 	projects []string
@@ -152,7 +155,7 @@ func (a *app) scope() *serverScope { return a.scopeFor(a.connections.activeServe
 func (a *app) scopeFor(id string) *serverScope {
 	s := a.connections.scopes[id]
 	if s == nil {
-		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}, queued: map[string]int{}}
+		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{}, queued: map[string]int{}, drafts: map[string]string{}}
 		a.connections.scopes[id] = s
 	}
 	return s
@@ -658,13 +661,16 @@ func (a *app) send() bool {
 	if text == "" || !a.agentSend(text) {
 		return false
 	}
+	key := a.draftKey()
 	if a.conversation.target.isDraft() {
 		a.freshTranscript()
 	}
 	a.conversation.transcript.Append(chat.Block{Kind: chat.KindUser, Text: a.conversation.draft})
 	a.conversation.draft = ""
+	a.forgetDraft(key)
 	a.closeAttach()
 	a.layout.feed.ScrollToEnd()
+	a.saveState()
 	return true
 }
 
@@ -1163,7 +1169,9 @@ func (a *app) adoptSession(s opencode.Session) {
 		label = "New chat"
 	}
 	a.conversation.selected = label
+	a.stashDraft()
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
+	a.restoreDraft(s.ID)
 	a.clearUnread(s.ID)
 	a.scope().activeTab = s.ID
 	a.rememberTab(s)
@@ -1190,6 +1198,7 @@ func (a *app) settleBoot(ls []opencode.Session, next string, lerr error) {
 		}
 	} else {
 		a.freshTranscript()
+		a.restoreDraft("")
 	}
 	a.scope().sessionsLoaded = true
 }
@@ -1243,9 +1252,10 @@ func (a *app) startDraft(dir string) {
 
 // resetDraft is the complete conversation reset shared by navigation paths.
 func (a *app) resetDraft(dir string) {
+	a.stashDraft()
 	a.conversation.target.selectSession("")
 	a.conversation.selected = ""
-	a.conversation.draft = ""
+	a.restoreDraft("")
 	a.conversation.draftProject = dir
 	a.conversation.draftModel = opencode.ModelRef{}
 	a.conversation.commandError = ""

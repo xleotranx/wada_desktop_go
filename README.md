@@ -33,7 +33,7 @@ Global OpenCode configuration is not rewritten by startup.
 - Workspaces: added local projects or server-reported remote projects, a remote
   folder browser, file search/preview, quoting files by path, picker or drop,
   and working-tree/branch diffs. Cmd+O adds a folder, Cmd+P opens the quick file
-  picker, and Cmd+Shift+E folds the Files pane.
+  picker where arrows choose and Enter opens, and Cmd+Shift+E folds the Files pane.
 - Shell policy: read and update the selected workspace's OpenCode configuration,
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
@@ -48,7 +48,7 @@ Global OpenCode configuration is not rewritten by startup.
   and restores the panes on exit. The chosen sizes carry across restarts.
 - Terminal: a bottom panel of up to six shells, each starting in the chat's
   local folder. Tabs keep running while folded away; Cmd+J or Ctrl+` toggles
-  the panel.
+  the panel, and its header can maximize or restore it.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
 - Tools pane: Files, Changes, Activity and page previews stay open together in
@@ -118,7 +118,7 @@ Capture the native window without clicking:
 ```sh
 WADA_DATA_DIR=/tmp/wada-preview WADA_CAPTURE=/tmp/wada-chat.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_SETTINGS=servers WADA_CAPTURE=/tmp/wada-settings.png go run .
-WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=2 WADA_CAPTURE=/tmp/wada-terminal.png go run .
+WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=2 WADA_TERMINAL_MAX=1 WADA_CAPTURE=/tmp/wada-terminal.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_APPEARANCE=dark WADA_SETTINGS=appearance WADA_CAPTURE=/tmp/wada-dark.png go run .
 ```
 

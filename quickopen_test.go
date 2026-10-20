@@ -72,3 +72,39 @@ func TestQuickOpenEntriesFollowsTheQuery(t *testing.T) {
 		t.Fatalf("root entries %+v", entries)
 	}
 }
+
+// TestQuickOpenArrowsChoose walks the picker with Down and opens the
+// selected row with Enter.
+func TestQuickOpenArrowsChoose(t *testing.T) {
+	a := newTestApp(t)
+	a.runtime.background = func(func() func()) {}
+	dir := a.chatDir()
+	if dir == "" {
+		dir = a.preferences.home
+	}
+	a.workspace.files = &filesState{
+		location: dir,
+		open:     map[string]bool{},
+		entries: map[string][]opencode.FileEntry{".": {
+			{Path: "alpha.go"}, {Path: "beta.go"}, {Path: "gamma.go"},
+		}},
+		loading: map[string]bool{},
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Cmd, ui.KeyP)
+	tt.Frame()
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyDown)
+	if a.layout.quickSelected != 2 {
+		t.Fatalf("two Downs chose %d", a.layout.quickSelected)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.workspace.files.path != "gamma.go" {
+		t.Fatalf("Enter opened %q", a.workspace.files.path)
+	}
+	if a.layout.quickOpen {
+		t.Fatal("the picker stayed open after Enter")
+	}
+}

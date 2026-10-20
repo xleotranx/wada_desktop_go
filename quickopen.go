@@ -24,6 +24,8 @@ func (a *app) openQuickOpen() {
 	st.query, st.results, st.findErr, st.finding = "", nil, "", false
 	a.layout.quickOpen = true
 	a.layout.quickFocus = true
+	a.layout.quickSelected = 0
+	a.layout.quickList.ScrollTo(0, ui.Start)
 }
 
 // quickOpenEntries is what the picker lists: the search's matches, or the
@@ -69,9 +71,25 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 		in := components.TextBox(c, &st.query, components.TextBoxOptions{LeadingIcon: icSearch}).
 			FillWidth().Label("Search files").Placeholder("Search files by name").
 			FontSize(13.5).OnTextKey(func(k ui.TextKey) bool {
-			if k.Key == ui.KeyEnter && k.Mods == 0 {
-				if entries := a.quickOpenEntries(st); len(entries) > 0 {
-					a.openQuickFile(entries[0].Path)
+			entries := a.quickOpenEntries(st)
+			if k.Key == ui.KeyEnter {
+				if len(entries) > 0 {
+					index := min(max(a.layout.quickSelected, 0), len(entries)-1)
+					a.openQuickFile(entries[index].Path)
+				}
+				return true
+			}
+			if k.Key == ui.KeyDown {
+				if len(entries) > 0 {
+					a.layout.quickSelected = min(a.layout.quickSelected+1, len(entries)-1)
+					a.layout.quickList.ScrollTo(a.layout.quickSelected, ui.Center)
+				}
+				return true
+			}
+			if k.Key == ui.KeyUp {
+				if len(entries) > 0 {
+					a.layout.quickSelected = max(a.layout.quickSelected-1, 0)
+					a.layout.quickList.ScrollTo(a.layout.quickSelected, ui.Center)
 				}
 				return true
 			}
@@ -79,6 +97,7 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 		})
 		if in.Changed() {
 			st.results, st.findErr, st.finding = nil, "", false
+			a.layout.quickSelected = 0
 			a.filesFind()
 		}
 		if a.layout.quickFocus {
@@ -87,6 +106,9 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 		}
 
 		entries := a.quickOpenEntries(st)
+		if a.layout.quickSelected >= len(entries) {
+			a.layout.quickSelected = max(0, len(entries)-1)
+		}
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			label := "Workspace files"
 			if st.query != "" {
@@ -116,14 +138,13 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 			}
 			ui.Text(c, text).FontSize(12.5).TextColor(p.muted)
 		default:
-			ui.Scroll(c).FillWidth().MaxHeight(330).Gap(2).Children(func() {
-				for _, entry := range entries {
-					a.quickOpenRow(c, p, entry)
-				}
+			ui.List(c, &a.layout.quickList, len(entries)).MaxHeight(330).FillWidth().Gap(2).
+				ItemKey(func(i int) any { return entries[i].Path }).Rows(func(row ui.ListRow) {
+				a.quickOpenRow(row.Context, p, entries[row.Index], row.Index == a.layout.quickSelected)
 			})
 		}
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-			ui.Text(c, "Enter opens the first match").FontSize(11).TextColor(p.faint).
+			ui.Text(c, "↑↓ choose · Enter opens").FontSize(11).TextColor(p.faint).
 				SingleLine()
 			ui.Spacer(c)
 			ui.Text(c, "Esc closes").FontSize(11).TextColor(p.faint).SingleLine()
@@ -131,11 +152,14 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 	})
 }
 
-func (a *app) quickOpenRow(c *ui.Context, p palette, entry opencode.FileEntry) {
+func (a *app) quickOpenRow(c *ui.Context, p palette, entry opencode.FileEntry, selected bool) {
 	c.Key("quickopen:" + entry.Path)
 	b := ui.ButtonBase(c).Label("Open "+entry.Path).Height(30).Radius(7).
 		Padding(0, 8).FillWidth().Justify(ui.Start).AlignItems(ui.Center).Gap(8).
 		Cursor(ui.CursorPointer)
+	if selected {
+		b.Background(p.selected)
+	}
 	if b.Hovered() {
 		b.Background(p.hover)
 	}

@@ -19,11 +19,13 @@ import (
 // same scrollback; each shell's generation separates a restart from the
 // title and exit notices of the one it replaced.
 type terminalState struct {
-	open   bool
-	height float32
-	tabs   []*terminalTab
-	active int
-	nextID uint64
+	open      bool
+	height    float32
+	maximized bool
+	savedH    float32
+	tabs      []*terminalTab
+	active    int
+	nextID    uint64
 }
 
 // terminalTab is one shell in the bottom panel.
@@ -188,6 +190,8 @@ type viewState struct {
 	commands           command.State
 	quickOpen          bool
 	quickFocus         bool
+	quickSelected      int
+	quickList          ui.ListState
 	// fullView hides the side panes for a conversation-only page, keeping
 	// the states it found so leaving it restores the workspace.
 	fullView         bool

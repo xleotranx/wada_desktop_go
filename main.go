@@ -370,7 +370,11 @@ func (a *app) workspaceBody(c *ui.Context, p palette, headerH float32) {
 	}
 	_, windowH := c.Size()
 	avail := max(windowH-headerH, 2)
-	contentH := avail - 1 - a.terminal.height
+	panelH := a.terminal.height
+	if a.terminal.maximized {
+		panelH = max(terminalMinHeight, avail-1-terminalMaximizedChatMin)
+	}
+	contentH := avail - 1 - panelH
 	split := components.Split(c, &contentH, main, func() {
 		a.terminalPanel(c, p)
 	}, components.SplitOptions{
@@ -381,6 +385,7 @@ func (a *app) workspaceBody(c *ui.Context, p palette, headerH float32) {
 	})
 	split.Label("Resize terminal").Fill()
 	if split.Changed() {
+		a.terminal.maximized = false
 		a.terminal.height = min(max(avail-1-contentH, terminalMinHeight), terminalMaxHeight)
 		a.saveState()
 	}
@@ -598,7 +603,7 @@ func main() {
 		// WADA_SETTINGS=(1|servers|models) opens the settings page for it.
 		// WADA_APPEARANCE=(system|light|dark) fixes the palette, and
 		// WADA_TERMINAL=N opens the bottom panel with N shells before the
-		// capture, N defaulting to one.
+		// capture, N defaulting to one; WADA_TERMINAL_MAX=1 maximizes it.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
 				wait := 3 * time.Second
@@ -625,6 +630,17 @@ func main() {
 						}
 					})
 					wait = 8 * time.Second // the shells paint their first screens
+				}
+				if _, maximize := os.LookupEnv("WADA_TERMINAL_MAX"); maximize {
+					win.Update(func() {
+						if !a.terminal.open {
+							a.toggleTerminal()
+						}
+						if !a.terminal.maximized {
+							a.toggleTerminalMaximize()
+						}
+					})
+					wait = 8 * time.Second
 				}
 				if _, remote := os.LookupEnv("WADA_CAPTURE_WAIT"); remote {
 					wait = 8 * time.Second // a quiet server takes its dial

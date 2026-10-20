@@ -121,3 +121,40 @@ func TestTerminalTabs(t *testing.T) {
 		t.Fatalf("closing the last tab: tabs=%d open=%v", len(a.terminal.tabs), a.terminal.open)
 	}
 }
+
+// TestTerminalMaximize gives the panel most of the window and restores
+// the divider's height afterwards.
+func TestTerminalMaximize(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Ctrl, ui.KeyBackquote)
+	tt.Frame()
+	normal, ok := tt.Find("Maximize terminal")
+	if !ok {
+		t.Fatalf("no maximize control: %v", tt.Texts())
+	}
+	if err := tt.Click("Maximize terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.terminal.maximized {
+		t.Fatal("the panel did not maximize")
+	}
+	large, ok := tt.Find("Restore terminal")
+	if !ok {
+		t.Fatalf("no restore control: %v", tt.Texts())
+	}
+	if large.Y >= normal.Y {
+		t.Fatalf("maximized header Y=%v, normal Y=%v", large.Y, normal.Y)
+	}
+	if err := tt.Click("Restore terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.terminal.maximized {
+		t.Fatal("the panel did not restore")
+	}
+	if a.terminal.height != terminalDefaultHeight {
+		t.Fatalf("restored height %v", a.terminal.height)
+	}
+}

@@ -18,6 +18,8 @@ const (
 	terminalMaxHeight     float32 = 480
 	terminalHeaderHeight  float32 = 34
 	terminalTabLimit              = 6
+	// A maximized panel keeps this much conversation above it.
+	terminalMaximizedChatMin float32 = 240
 )
 
 // terminalTabLabel is the name a tab shows before its shell names itself.
@@ -64,6 +66,22 @@ func (a *app) selectTerminalTab(index int) {
 	a.terminal.active = index
 	a.terminal.tabs[index].focus = true
 	a.ensureTerminal()
+}
+
+// toggleTerminalMaximize gives the panel most of the window, leaving a
+// readable strip of conversation, and restores the divider's height.
+func (a *app) toggleTerminalMaximize() {
+	if !a.terminal.maximized {
+		a.terminal.savedH = a.terminal.height
+		a.terminal.maximized = true
+		return
+	}
+	a.terminal.maximized = false
+	height := a.terminal.savedH
+	if height <= 0 {
+		height = terminalDefaultHeight
+	}
+	a.terminal.height = min(max(height, terminalMinHeight), terminalMaxHeight)
 }
 
 // toggleTerminal folds the panel in or out. Opening it from the settings
@@ -274,6 +292,11 @@ func (a *app) terminalHeader(c *ui.Context, p palette) {
 			a.terminalTabButton(c, p, i, tab)
 		}
 		ui.Spacer(c)
+		maxLabel, maxIcon := "Maximize terminal", icExpand
+		if a.terminal.maximized {
+			maxLabel, maxIcon = "Restore terminal", icCollapse
+		}
+		a.browserIconButton(c, p, maxLabel, maxIcon, a.toggleTerminalMaximize, false)
 		a.browserIconButton(c, p, "New terminal", icPlus, a.newTerminalTab,
 			len(a.terminal.tabs) >= terminalTabLimit)
 		a.browserIconButton(c, p, "Close terminal", icClose, a.closeTerminalTab,

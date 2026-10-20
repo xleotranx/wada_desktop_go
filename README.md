@@ -67,6 +67,10 @@ Global OpenCode configuration is not rewritten by startup.
   show wear unread dots in the sidebar, tab strip and bell. Cmd+Shift+U marks
   the open chat unread or read; Cmd+Option+A visits the next marked chat.
   Unread marks are saved across launches.
+- Notifications: the General settings tab turns desktop banners for finished
+  turns and approvals on or off. A chat off screen, or the open chat while the
+  window is in the background, raises one; clicking it opens that chat.
+  Banners need a packaged build and the system's permission.
 - Queue: a message sent while the agent is working waits for the current turn
   to finish, and the composer names how many messages are queued.
 - Drafts: every chat keeps its unsent composer words when switching tabs, and

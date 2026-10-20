@@ -29,6 +29,8 @@ layers. Do not change the external server protocol to simplify a refactor.
   and lifetime ownership.
 - `metadata.go`: transactional SQLite settings and asynchronous snapshots.
 - `unread.go`: background chat and approval marks, the bell and their navigation.
+- `notifications.go`: the desktop banners for background turns and approvals,
+  the preference gates and the click that opens their chat.
 - `queue.go`: prompts waiting behind the runner's one active turn.
 - `drafts.go`: each chat's unsent composer words and their metadata.
 - `chattext.go`: the saved conversation text size and its shortcuts.

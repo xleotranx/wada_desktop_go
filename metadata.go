@@ -18,24 +18,26 @@ import (
 // projects and pins, the settings' servers and model choices, the widths
 // the user dragged the workspace panes to, and each server's open tabs.
 type appMetadata struct {
-	projects     []string
-	projectPins  map[string]bool
-	projectLinks map[string][]string
-	pins         map[string][]string // server id -> its chats, in pin order
-	servers      []serverConn
-	active       string
-	modelOff     map[string]bool // modelKey of every disabled model
-	sidebarW     float32
-	browserW     float32
-	terminalH    float32
-	appearance   string
-	chatText     string
-	keymap       map[string]chord
-	recent       map[string][]recentFile
-	unread       map[string][]string          // server id -> chats with news
-	drafts       map[string]map[string]string // server id -> draft key -> words
-	tabs         map[string][]chatTab         // server id -> its open conversations
-	activeTabs   map[string]string            // server id -> the conversation on show
+	projects        []string
+	projectPins     map[string]bool
+	projectLinks    map[string][]string
+	pins            map[string][]string // server id -> its chats, in pin order
+	servers         []serverConn
+	active          string
+	modelOff        map[string]bool // modelKey of every disabled model
+	sidebarW        float32
+	browserW        float32
+	terminalH       float32
+	appearance      string
+	chatText        string
+	notifyFinished  bool
+	notifyApprovals bool
+	keymap          map[string]chord
+	recent          map[string][]recentFile
+	unread          map[string][]string          // server id -> chats with news
+	drafts          map[string]map[string]string // server id -> draft key -> words
+	tabs            map[string][]chatTab         // server id -> its open conversations
+	activeTabs      map[string]string            // server id -> the conversation on show
 }
 
 type metadataStore struct{ *sqlite.DB }
@@ -126,6 +128,10 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 		projectPins: map[string]bool{},
 		pins:        map[string][]string{},
 		modelOff:    map[string]bool{},
+		// Banners are on until the user turns them off: a store written
+		// before they existed keeps that default.
+		notifyFinished:  true,
+		notifyApprovals: true,
 	}
 	rows, err := db.Query(ctx, "SELECT directory, pinned FROM projects ORDER BY position")
 	if err != nil {
@@ -187,6 +193,10 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 			state.appearance = normalizeAppearance(value)
 		case "chat_text":
 			state.chatText = normalizeChatText(value)
+		case "notify_finished":
+			state.notifyFinished = value != "0"
+		case "notify_approvals":
+			state.notifyApprovals = value != "0"
 		case "keymap":
 			var keymap map[string]chord
 			if json.Unmarshal([]byte(value), &keymap) == nil && len(keymap) > 0 {
@@ -263,6 +273,8 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('terminal_height', ?)", Args: []any{formatWidth(state.terminalH)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('appearance', ?)", Args: []any{normalizeAppearance(state.appearance)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_finished', ?)", Args: []any{encodeSwitch(state.notifyFinished)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_approvals', ?)", Args: []any{encodeSwitch(state.notifyApprovals)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
 	}
@@ -374,6 +386,15 @@ func formatWidth(width float32) string {
 	return strconv.FormatFloat(float64(width), 'f', -1, 32)
 }
 
+// encodeSwitch stores a preference switch as one digit, the form the
+// loader reads back.
+func encodeSwitch(on bool) string {
+	if on {
+		return "1"
+	}
+	return "0"
+}
+
 // storedTab is a chat tab as it sits in the preferences table.
 type storedTab struct {
 	ID    string `json:"id"`
@@ -446,17 +467,19 @@ func startMetadataWriter(db *metadataStore, publish func(uint64, error)) *metada
 func (a *app) stateSnapshot() appMetadata {
 	a.stashDraft()
 	state := appMetadata{
-		projects:    slices.Clone(a.preferences.projects),
-		projectPins: map[string]bool{},
-		pins:        map[string][]string{},
-		servers:     slices.Clone(a.connections.servers),
-		active:      a.connections.activeServer,
-		modelOff:    map[string]bool{},
-		sidebarW:    a.layout.sidebarW,
-		browserW:    a.layout.browserW,
-		terminalH:   a.terminal.height,
-		appearance:  a.preferences.appearance,
-		chatText:    a.preferences.chatText,
+		projects:        slices.Clone(a.preferences.projects),
+		projectPins:     map[string]bool{},
+		pins:            map[string][]string{},
+		servers:         slices.Clone(a.connections.servers),
+		active:          a.connections.activeServer,
+		modelOff:        map[string]bool{},
+		sidebarW:        a.layout.sidebarW,
+		browserW:        a.layout.browserW,
+		terminalH:       a.terminal.height,
+		appearance:      a.preferences.appearance,
+		chatText:        a.preferences.chatText,
+		notifyFinished:  a.preferences.notifyFinished,
+		notifyApprovals: a.preferences.notifyApprovals,
 	}
 	for dir, pinned := range a.preferences.projectPins {
 		state.projectPins[dir] = pinned
@@ -552,6 +575,8 @@ func (a *app) restoreState(state appMetadata) {
 	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
 	a.preferences.appearance = normalizeAppearance(state.appearance)
 	a.preferences.chatText = normalizeChatText(state.chatText)
+	a.preferences.notifyFinished = state.notifyFinished
+	a.preferences.notifyApprovals = state.notifyApprovals
 	a.preferences.projectLinks = map[string][]string{}
 	for primary, folders := range state.projectLinks {
 		if len(folders) > 0 {

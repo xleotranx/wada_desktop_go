@@ -63,6 +63,11 @@ type runtimeState struct {
 	probe         func(cfg serverConn)
 	pair          func(link string, done func(addr, token string, err error))
 	copy          func(text string) error
+	// notify shows one desktop banner; clearNotices takes them down when
+	// the app comes forward or changes server. Both are nil under tests
+	// and where the platform cannot show them.
+	notify       func(desktopNotice)
+	clearNotices func()
 }
 
 // connectionsState owns the connections fields coordinated on the UI thread.
@@ -122,6 +127,8 @@ type preferencesState struct {
 	projects            []string
 	projectPins         map[string]bool
 	projectLinks        map[string][]string
+	notifyFinished      bool
+	notifyApprovals     bool
 	metadata            *metadataWriter
 	metadataVersion     uint64
 	metadataSaving      bool

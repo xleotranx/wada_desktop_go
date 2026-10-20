@@ -448,6 +448,11 @@ func (a *app) useServer(id string) {
 	a.stashDraft()
 	a.conversation.draft = ""
 	a.connections.activeServer = id
+	// A banner names a chat of the server that raised it: one left over
+	// must not open that ID in the server now on show.
+	if a.runtime.clearNotices != nil {
+		a.runtime.clearNotices()
+	}
 	if last, ok := a.serverByID(old); ok && last.managed {
 		// The app runs its own server only while it is the active one.
 		a.setHealth(old, serverHealth{status: healthStopped})

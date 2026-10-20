@@ -36,7 +36,10 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		terminalH:  248,
 		appearance: appearanceDark,
 		chatText:   chatTextLarge,
-		keymap:     map[string]chord{"palette": {Mods: ui.Cmd | ui.Alt, Key: ui.KeyK}},
+		// One kind of banner off and one on proves both keys round-trip.
+		notifyFinished:  true,
+		notifyApprovals: false,
+		keymap:          map[string]chord{"palette": {Mods: ui.Cmd | ui.Alt, Key: ui.KeyK}},
 		recent: map[string][]recentFile{
 			localServerID: {{Dir: "/work/a", Path: "main.go"}},
 		},
@@ -73,6 +76,23 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 	if err != nil || len(got.projects) != 0 || len(got.pins) != 0 || len(got.servers) != 0 ||
 		len(got.modelOff) != 0 || got.active != "" {
 		t.Fatalf("empty restore: %+v, %v", got, err)
+	}
+}
+
+// TestMetadataNoticesDefaultOn keeps banners on for a store written before
+// they were a preference: a missing key means the default, not "off".
+func TestMetadataNoticesDefaultOn(t *testing.T) {
+	db, err := openMetadata(filepath.Join(t.TempDir(), "metadata.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	state, err := db.load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.notifyFinished || !state.notifyApprovals {
+		t.Fatalf("a fresh store has banners %+v", state)
 	}
 }
 

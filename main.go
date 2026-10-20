@@ -127,7 +127,9 @@ func newApp() *app {
 			recent:              map[string][]recentFile{},
 			projectPins:         map[string]bool{},
 			projectLinks:        map[string][]string{},
-			unavailableProjects: map[string]bool{}},
+			unavailableProjects: map[string]bool{},
+			notifyFinished:      true,
+			notifyApprovals:     true},
 		search: searchState{searches: make(chan searchRequest, 1)},
 		layout: viewState{sidebarW: sidebarDefaultWidth,
 			browserW:          browserDefaultWidth,
@@ -544,6 +546,20 @@ func main() {
 	}
 	a := newApp()
 	mygo.App.OnQuit(a.closeWork)
+	// A banner's click can be what launched this run, so the listening
+	// starts before Run and the window catches up when it is ready.
+	clickedNotices := make(chan string, 4)
+	mygo.App.OnNotificationClick(func(id string) {
+		select {
+		case clickedNotices <- id:
+		default:
+		}
+	})
+	mygo.App.OnDidBecomeActive(func() {
+		if a.runtime.clearNotices != nil {
+			a.runtime.clearNotices()
+		}
+	})
 	mygo.App.WhenReady(func() {
 		// A fixed app directory is shared by plain, dev and packaged builds.
 		var db *metadataStore
@@ -573,6 +589,21 @@ func main() {
 		})
 		a.runtime.win = win
 		a.applyAppearance()
+		if mygo.NotificationsSupported() {
+			a.runtime.notify = showDesktopNotice
+			a.runtime.clearNotices = mygo.ClearNotifications
+		}
+		go func() {
+			for {
+				select {
+				case id := <-clickedNotices:
+					win.Show()
+					win.Update(func() { a.openNoticeChat(id) })
+				case <-a.runtime.lifetime.Done():
+					return
+				}
+			}
+		}()
 		a.runtime.background = func(work func() func()) {
 			go func() { win.Update(work()) }()
 		}

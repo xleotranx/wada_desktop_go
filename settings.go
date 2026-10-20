@@ -13,6 +13,7 @@ import (
 
 // The settings tabs.
 const (
+	tabGeneral    = "general"
 	tabServers    = "servers"
 	tabModels     = "models"
 	tabAppearance = "appearance"
@@ -75,6 +76,8 @@ func (a *app) settingsPane(c *ui.Context, p palette, headerH float32) {
 		a.settingsNav(c, p, headerH)
 		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 		switch a.layout.settingsTab {
+		case tabGeneral:
+			a.settingsGeneral(c, p)
 		case tabModels:
 			a.settingsModels(c, p)
 		case tabAppearance:
@@ -98,6 +101,7 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 			a.navButton(c, p, "Close settings", icClose, a.closeSettings, p.muted)
 		})
 		ui.Scroll(c).Grow(1).FillWidth().Padding(4, 10).Gap(2).Children(func() {
+			a.settingsNavItem(c, p, tabGeneral, "General", icGear)
 			a.settingsNavItem(c, p, tabServers, "Servers", icServer)
 			a.settingsNavItem(c, p, tabModels, "Models", icCpu)
 			a.settingsNavItem(c, p, tabAppearance, "Appearance", icAppearance)
@@ -143,6 +147,44 @@ func (a *app) settingsHeading(c *ui.Context, p palette, title, blurb, action str
 			}
 		})
 		ui.Text(c, blurb).FontSize(13).LineHeight(1.45).TextColor(p.muted)
+	})
+}
+
+// settingsGeneral is the General tab: how the app keeps the user posted
+// about chats working while another one, or another app, is in front.
+func (a *app) settingsGeneral(c *ui.Context, p palette) {
+	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+		ui.Column(c).MaxWidth(720).Margin(0, ui.Auto).FillWidth().
+			Padding(36, 32, 40, 32).Gap(18).Children(func() {
+			a.settingsHeading(c, p, "General",
+				"How Wada tells you when a chat needs you while you are looking elsewhere.",
+				"", nil)
+			ui.Text(c, "Notifications").FontSize(13.5).FontWeight(600).TextColor(p.text)
+			a.settingsSwitch(c, p, "Finished turns",
+				"Tell me when a chat finishes while I am elsewhere.",
+				"Notify when a turn finishes", &a.preferences.notifyFinished)
+			a.settingsSwitch(c, p, "Approvals",
+				"Tell me when a chat waits for an allow or deny.",
+				"Notify when a chat needs approval", &a.preferences.notifyApprovals)
+			ui.Text(c, "Clicking a banner opens that chat. The system asks once whether Wada may notify; banners need a packaged build.").
+				FontSize(12).LineHeight(1.45).TextColor(p.faint)
+		})
+	})
+}
+
+// settingsSwitch is one preference row: what it does beside the switch
+// that turns it. The switch edits the preference directly and saves the
+// new value as it changes.
+func (a *app) settingsSwitch(c *ui.Context, p palette, title, detail, label string, on *bool) {
+	ui.Row(c).FillWidth().Height(54).Padding(0, 12).AlignItems(ui.Center).Gap(12).
+		Background(p.detailBg).Border(1, p.hairline).Radius(10).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(13.5).FontWeight(500).TextColor(p.text).SingleLine()
+			ui.Text(c, detail).FontSize(12).TextColor(p.muted).SingleLine()
+		})
+		c.Key("preference:" + label)
+		sw := ui.Switch(c, on).Label(label)
+		sw.OnClick(func() { a.saveState() })
 	})
 }
 

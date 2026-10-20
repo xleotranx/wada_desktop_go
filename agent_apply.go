@@ -120,6 +120,7 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		switch ev.Kind {
 		case opencode.PermissionAsked:
 			a.markUnread(ev.SessionID, true)
+			a.notifyApproval(ev.SessionID, ev.Permission)
 		case opencode.ExecutionStarted:
 			a.startQueuedTurn(ev.SessionID)
 		case opencode.ExecutionSucceeded, opencode.ExecutionFailed, opencode.ExecutionInterrupted:
@@ -127,6 +128,10 @@ func (a *app) applyUpdate(ev opencode.Update) {
 			// approval it was waiting on is no longer pending.
 			a.markUnread(ev.SessionID, false)
 			delete(a.scope().attention, ev.SessionID)
+			if ev.Kind != opencode.ExecutionInterrupted {
+				// A turn the user stopped is no news to banner.
+				a.notifyTurnEnded(ev.SessionID, ev.Kind == opencode.ExecutionFailed)
+			}
 		case opencode.TextStarted, opencode.TextDelta, opencode.TextEnded,
 			opencode.ToolStarted, opencode.ToolCalled, opencode.ToolSucceeded,
 			opencode.ModelSelected, opencode.SessionRenamed:
@@ -155,6 +160,9 @@ func (a *app) applyUpdate(ev opencode.Update) {
 	case opencode.PermissionAsked:
 		d := ev.Permission
 		a.conversation.transcript.Ask(&chat.Permission{ID: chat.PermissionID(d.ID), Session: chat.SessionID(d.SessionID), Action: d.Action, Resources: d.Resources, Save: d.Save})
+		if a.noticeUnseen() {
+			a.notifyApproval(d.SessionID, d)
+		}
 	case opencode.ExecutionStarted:
 		a.startQueuedTurn(ev.SessionID)
 		a.conversation.transcript.Start(chat.SessionID(ev.SessionID))
@@ -162,6 +170,9 @@ func (a *app) applyUpdate(ev opencode.Update) {
 		if a.conversation.transcript.Finish() {
 			a.refreshSessions()
 			a.refreshUsage(ev.SessionID)
+			if ev.Kind != opencode.ExecutionInterrupted && a.noticeUnseen() {
+				a.notifyTurnEnded(ev.SessionID, ev.Kind == opencode.ExecutionFailed)
+			}
 		}
 	case opencode.ModelSelected:
 		for i := range a.scope().sessions {

@@ -69,3 +69,55 @@ func TestTerminalPanelResizes(t *testing.T) {
 			a.terminal.height, terminalDefaultHeight)
 	}
 }
+
+// TestTerminalTabs opens a second shell, switches between tabs, and
+// closes them one at a time; folding the panel keeps the strips alive.
+func TestTerminalTabs(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Ctrl, ui.KeyBackquote)
+	tt.Frame()
+	if len(a.terminal.tabs) != 1 {
+		t.Fatalf("opening the panel made %d tabs", len(a.terminal.tabs))
+	}
+	if err := tt.Click("New terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.terminal.tabs) != 2 || a.terminal.active != 1 {
+		t.Fatalf("new tab: tabs=%d active=%d", len(a.terminal.tabs), a.terminal.active)
+	}
+	if !tt.HasText("Terminal 1") || !tt.HasText("Terminal 2") {
+		t.Fatalf("the tab strip is missing a title: %v", tt.Texts())
+	}
+	if err := tt.Click("Terminal 1"); err != nil {
+		t.Fatal(err)
+	}
+	if a.terminal.active != 0 {
+		t.Fatalf("clicking Terminal 1 left active=%d", a.terminal.active)
+	}
+	tt.Key(ui.Cmd, ui.KeyJ)
+	tt.Frame()
+	if a.terminal.open || len(a.terminal.tabs) != 2 {
+		t.Fatalf("folding the panel: open=%v tabs=%d", a.terminal.open, len(a.terminal.tabs))
+	}
+	tt.Key(ui.Cmd, ui.KeyJ)
+	tt.Frame()
+	if !a.terminal.open || a.terminal.active != 0 {
+		t.Fatalf("reopening the panel: open=%v active=%d", a.terminal.open, a.terminal.active)
+	}
+	if err := tt.Click("Close terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.terminal.tabs) != 1 || !a.terminal.open {
+		t.Fatalf("closing a tab: tabs=%d open=%v", len(a.terminal.tabs), a.terminal.open)
+	}
+	if err := tt.Click("Close terminal"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.terminal.tabs) != 0 || a.terminal.open {
+		t.Fatalf("closing the last tab: tabs=%d open=%v", len(a.terminal.tabs), a.terminal.open)
+	}
+}

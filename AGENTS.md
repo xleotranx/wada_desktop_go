@@ -84,7 +84,7 @@ input actions. Comments are compact prose explaining intent or constraints.
 `WADA_CAPTURE=/path/window.png go run .` captures the content and exits.
 `WADA_SETTINGS=servers` or `models` opens settings before capture,
 `WADA_APPEARANCE=(system|light|dark)` fixes the palette, and
-`WADA_TERMINAL=1` opens the bottom shell. Use
+`WADA_TERMINAL=N` opens the bottom panel with N shells. Use
 `WADA_DATA_DIR=/temporary/directory` to isolate settings for captures and experiments.
 Tests use temporary stores. Never reset the developer's data as part of verification.
 

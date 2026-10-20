@@ -14,13 +14,21 @@ import (
 	"github.com/oneo-me/onevra/source/components/command"
 )
 
-// terminalState owns the bottom panel's shell and its geometry. The shell
-// keeps running while the panel is folded away, so opening it again shows
-// the same scrollback; a generation separates a restarted shell from the
+// terminalState owns the bottom panel's shells and its geometry. Tabs keep
+// running while the panel is folded away, so opening it again shows the
+// same scrollback; each shell's generation separates a restart from the
 // title and exit notices of the one it replaced.
 type terminalState struct {
-	open       bool
-	height     float32
+	open   bool
+	height float32
+	tabs   []*terminalTab
+	active int
+	nextID uint64
+}
+
+// terminalTab is one shell in the bottom panel.
+type terminalTab struct {
+	id         uint64
 	term       *terminal.Terminal
 	title      string
 	starting   bool

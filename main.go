@@ -127,7 +127,7 @@ func newApp() *app {
 			feed:              newFeed(),
 			findShownMatch:    -1,
 			settingsTab:       tabServers},
-		terminal: terminalState{height: terminalDefaultHeight, exitCode: -1}}
+		terminal: terminalState{height: terminalDefaultHeight, active: -1}}
 	a.runtime.pickFolder = a.pickFolderDialog
 	a.runtime.pickExport = a.pickSaveDialog
 	a.runtime.pickAttach = a.pickAttachDialog
@@ -586,7 +586,8 @@ func main() {
 		// lets the boot settle onto the newest conversation first, and
 		// WADA_SETTINGS=(1|servers|models) opens the settings page for it.
 		// WADA_APPEARANCE=(system|light|dark) fixes the palette, and
-		// WADA_TERMINAL=1 opens the bottom shell before the capture.
+		// WADA_TERMINAL=N opens the bottom panel with N shells before the
+		// capture, N defaulting to one.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
 				wait := 3 * time.Second
@@ -601,9 +602,18 @@ func main() {
 					win.Update(func() { a.openSettings(tab) })
 					wait = 6 * time.Second // the catalog fills in behind the page
 				}
-				if _, terminal := os.LookupEnv("WADA_TERMINAL"); terminal {
-					win.Update(func() { a.toggleTerminal() })
-					wait = 7 * time.Second // the shell paints its first screen
+				if value, terminal := os.LookupEnv("WADA_TERMINAL"); terminal {
+					tabs := 1
+					if n, err := strconv.Atoi(value); err == nil && n > 1 {
+						tabs = min(n, terminalTabLimit)
+					}
+					win.Update(func() {
+						a.toggleTerminal()
+						for range tabs - 1 {
+							a.newTerminalTab()
+						}
+					})
+					wait = 8 * time.Second // the shells paint their first screens
 				}
 				if _, remote := os.LookupEnv("WADA_CAPTURE_WAIT"); remote {
 					wait = 8 * time.Second // a quiet server takes its dial

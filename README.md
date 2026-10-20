@@ -46,8 +46,9 @@ Global OpenCode configuration is not rewritten by startup.
   keys, or double-click it to restore the default. Cmd+B folds the sidebar,
   Cmd+Shift+J the tools pane, Cmd+Shift+F enters a conversation-only full view
   and restores the panes on exit. The chosen sizes carry across restarts.
-- Terminal: a bottom shell starts in the chat's local folder, keeps running
-  while folded away, and restarts on demand. Cmd+J or Ctrl+` toggles it.
+- Terminal: a bottom panel of up to six shells, each starting in the chat's
+  local folder. Tabs keep running while folded away; Cmd+J or Ctrl+` toggles
+  the panel.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
@@ -104,7 +105,7 @@ Capture the native window without clicking:
 ```sh
 WADA_DATA_DIR=/tmp/wada-preview WADA_CAPTURE=/tmp/wada-chat.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_SETTINGS=servers WADA_CAPTURE=/tmp/wada-settings.png go run .
-WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=1 WADA_CAPTURE=/tmp/wada-terminal.png go run .
+WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=2 WADA_CAPTURE=/tmp/wada-terminal.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_APPEARANCE=dark WADA_SETTINGS=appearance WADA_CAPTURE=/tmp/wada-dark.png go run .
 ```
 

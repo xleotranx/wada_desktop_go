@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"wada-desktop-go/internal/opencode"
 
@@ -203,5 +204,86 @@ func TestReopenClosedTab(t *testing.T) {
 	a.dropSession("ses_alpha")
 	if len(a.scope().closedTabs) != 0 {
 		t.Fatalf("a deleted conversation entered closed history: %+v", a.scope().closedTabs)
+	}
+}
+
+// TestTabContextMenuClosesTabs closes the other tabs, then all of them,
+// from one tab's context menu, keeping the closed ones for reopening.
+func TestTabContextMenuClosesTabs(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_a", Title: "Alpha"},
+		{ID: "ses_b", Title: "Beta"},
+		{ID: "ses_c", Title: "Gamma"},
+	}
+	a.scope().sessionsLoaded = true
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.selected = "Alpha"
+	a.scope().tabs = []chatTab{
+		{id: "ses_a", title: "Alpha"},
+		{id: "ses_b", title: "Beta"},
+		{id: "ses_c", title: "Gamma"},
+	}
+	a.scope().activeTab = "ses_a"
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.RightClick("Open Alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(tt.Menu(), "Close other tabs") || !slices.Contains(tt.Menu(), "Close all tabs") {
+		t.Fatalf("the tab menu reads %v", tt.Menu())
+	}
+	if err := tt.ChooseMenuItem("Close other tabs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.scope().tabs) != 1 || a.scope().tabs[0].id != "ses_a" {
+		t.Fatalf("the strip kept %+v", a.scope().tabs)
+	}
+	if len(a.scope().closedTabs) != 2 ||
+		a.scope().closedTabs[0].id != "ses_b" || a.scope().closedTabs[1].id != "ses_c" {
+		t.Fatalf("the reopen history is %+v", a.scope().closedTabs)
+	}
+	if a.conversation.target.session != "ses_a" {
+		t.Fatalf("the kept tab is not on show: %q", a.conversation.target.session)
+	}
+
+	// The strip hides with one tab; seed a second one to reach the menu
+	// again, then close the whole strip.
+	a.scope().tabs = []chatTab{{id: "ses_a", title: "Alpha"}, {id: "ses_b", title: "Beta"}}
+	a.scope().activeTab = "ses_a"
+	tt.Frame()
+	if err := tt.RightClick("Open Alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Close all tabs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.scope().tabs) != 0 || !a.conversation.target.isDraft() {
+		t.Fatalf("closing all left tabs %+v, view %q", a.scope().tabs, a.conversation.target.session)
+	}
+}
+
+// TestCloseTabCommands runs the palette's close-tab and close-other-tabs
+// actions against the open conversation.
+func TestCloseTabCommands(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{
+		{ID: "ses_a", Title: "Alpha"},
+		{ID: "ses_b", Title: "Beta"},
+	}
+	a.scope().sessionsLoaded = true
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.selected = "Alpha"
+	a.scope().tabs = []chatTab{{id: "ses_a", title: "Alpha"}, {id: "ses_b", title: "Beta"}}
+	a.scope().activeTab = "ses_a"
+	a.runCommand("action:close-other-tabs")
+	if len(a.scope().tabs) != 1 || a.scope().tabs[0].id != "ses_a" {
+		t.Fatalf("close-other-tabs left %+v", a.scope().tabs)
+	}
+	a.runCommand("action:close-tab")
+	if len(a.scope().tabs) != 0 || !a.conversation.target.isDraft() {
+		t.Fatalf("close-tab left %+v, view %q", a.scope().tabs, a.conversation.target.session)
 	}
 }

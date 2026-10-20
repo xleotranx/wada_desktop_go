@@ -157,6 +157,16 @@ func (a *app) commandItems() []command.Item {
 			Group: "View", Description: "Bring back the last tab a cross closed",
 			Shortcut: "⌘⇧T", Icon: icHistory})
 	}
+	if sid := string(a.conversation.target.session); sid != "" {
+		items = append(items, command.Item{ID: "action:close-tab", Title: "Close chat tab",
+			Group: "View", Description: "Put this conversation's tab away", Icon: icClose,
+			Keywords: []string{"close", "tab", "conversation"}})
+		if len(a.scope().tabs) > 1 {
+			items = append(items, command.Item{ID: "action:close-other-tabs", Title: "Close other chat tabs",
+				Group: "View", Description: "Keep this conversation and put the rest away", Icon: icClose,
+				Keywords: []string{"close", "tabs", "others"}})
+		}
+	}
 	items = append(items, command.Item{ID: "action:reset-layout", Title: "Reset pane widths",
 		Group: "View", Description: "Return both side panes to their default width", Icon: icPanelRight,
 		Keywords: []string{"layout", "resize", "default"}})
@@ -259,6 +269,16 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:reopen-tab":
 		a.reopenClosedTab()
+		return
+	case "action:close-tab":
+		if sid := string(a.conversation.target.session); sid != "" {
+			a.closeTab(sid)
+		}
+		return
+	case "action:close-other-tabs":
+		if sid := string(a.conversation.target.session); sid != "" {
+			a.closeOtherTabs(sid)
+		}
 		return
 	case "action:show-tools":
 		a.showTools()

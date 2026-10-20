@@ -48,9 +48,11 @@ Global OpenCode configuration is not rewritten by startup.
   servers, projects and conversations. Its scope rows or `>` / `@` prefixes
   narrow the palette to commands or chats. Opened chats stay in a tab strip that
   comes back with its last active tab on the next launch; Ctrl+Tab and
-  Ctrl+Shift+Tab cycle it, and Cmd+Shift+T reopens the last closed tab. Cmd+F
-  finds text in the open transcript and Cmd+Option+F searches chats. Toasts
-  confirm copies and exports.
+  Ctrl+Shift+Tab cycle it, and Cmd+Shift+T reopens the last closed tab. A
+  right-click on a tab closes it, the other tabs or the whole strip; all three
+  are in the command palette too, and closed tabs stay in the reopen history.
+  Cmd+F finds text in the open transcript and Cmd+Option+F searches chats.
+  Toasts confirm copies and exports.
 - Layout: drag the sidebar, tools or terminal divider, nudge it with the arrow
   keys, or double-click it to restore the default. Cmd+B folds the sidebar,
   Cmd+Shift+J the tools pane, Cmd+Shift+F enters a conversation-only full view

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"wada-desktop-go/internal/opencode"
 
@@ -127,14 +128,7 @@ func (a *app) closeTab(id string) {
 	if index < 0 {
 		return
 	}
-	scope.closedTabs = append(scope.closedTabs, chatTab{id: id, title: a.tabTitle(id)})
-	if len(scope.closedTabs) > closedTabLimit {
-		scope.closedTabs = scope.closedTabs[1:]
-	}
-	scope.tabs = removeTab(scope.tabs, id)
-	if scope.activeTab == id {
-		scope.activeTab = ""
-	}
+	a.forgetTab(id)
 	if id != string(a.conversation.target.session) {
 		a.saveState()
 		return
@@ -144,6 +138,68 @@ func (a *app) closeTab(id string) {
 			return
 		}
 	}
+	a.startNewChat()
+}
+
+// forgetTab takes a tab out of the strip and keeps it for the reopen
+// history, without choosing what the view shows next.
+func (a *app) forgetTab(id string) {
+	scope := a.scope()
+	if !slices.ContainsFunc(scope.tabs, func(tab chatTab) bool { return tab.id == id }) {
+		return
+	}
+	a.rememberClosed(chatTab{id: id})
+	scope.tabs = removeTab(scope.tabs, id)
+	if scope.activeTab == id {
+		scope.activeTab = ""
+	}
+}
+
+// rememberClosed adds one tab to the reopen history, newest last and the
+// history's oldest stepped aside past its limit.
+func (a *app) rememberClosed(tab chatTab) {
+	scope := a.scope()
+	scope.closedTabs = append(scope.closedTabs, chatTab{id: tab.id, title: a.tabTitle(tab.id)})
+	if len(scope.closedTabs) > closedTabLimit {
+		scope.closedTabs = scope.closedTabs[1:]
+	}
+}
+
+// closeOtherTabs closes every tab but one and shows that conversation.
+// The strip is built from new slices rather than shortened in place: a
+// context menu's choice runs while the strip's frame is still iterating
+// it, and shortening the same array would draw a tab twice.
+func (a *app) closeOtherTabs(keep string) {
+	scope := a.scope()
+	kept := make([]chatTab, 0, 1)
+	for _, tab := range slices.Clone(scope.tabs) {
+		if tab.id == keep {
+			kept = append(kept, tab)
+			continue
+		}
+		a.rememberClosed(tab)
+	}
+	scope.tabs = kept
+	if scope.activeTab != keep {
+		scope.activeTab = ""
+	}
+	if string(a.conversation.target.session) != keep {
+		if !a.openTab(keep) {
+			a.startNewChat()
+		}
+	}
+	a.saveState()
+}
+
+// closeAllTabs puts every tab away, keeping them for the reopen history,
+// and starts a fresh chat.
+func (a *app) closeAllTabs() {
+	scope := a.scope()
+	for _, tab := range slices.Clone(scope.tabs) {
+		a.rememberClosed(tab)
+	}
+	scope.tabs = nil
+	scope.activeTab = ""
 	a.startNewChat()
 }
 
@@ -162,7 +218,10 @@ func removeTab(tabs []chatTab, id string) []chatTab {
 // One open conversation already names itself in the title bar, so the
 // strip waits for a second and keeps the single-chat page chrome-free.
 func (a *app) chatTabs(c *ui.Context, p palette) {
-	tabs := a.scope().tabs
+	// A tab's context menu acts while this frame still walks the strip, so
+	// the walk keeps its own copy: changing the strip must not move or
+	// repeat the rows being drawn.
+	tabs := slices.Clone(a.scope().tabs)
 	if len(tabs) <= 1 {
 		return
 	}
@@ -198,6 +257,21 @@ func (a *app) chatTab(c *ui.Context, p palette, tab chatTab) {
 	} else if row.Hovered() {
 		row.Background(p.hover)
 	}
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Close tab").Chosen() {
+			a.closeTab(tab.id)
+		}
+		if m.Item("Close other tabs").Disabled(len(a.scope().tabs) <= 1).Chosen() {
+			a.closeOtherTabs(tab.id)
+		}
+		if m.Item("Close all tabs").Chosen() {
+			a.closeAllTabs()
+		}
+		m.Separator()
+		if m.Item("Reopen closed tab").Disabled(len(a.scope().closedTabs) == 0).Chosen() {
+			a.reopenClosedTab()
+		}
+	})
 	row.Children(func() {
 		open := ui.ButtonBase(c).Label("Open "+title).Height(28).Radius(7).
 			Padding(0, 8).Justify(ui.Start).Grow(1).Shrink(1).MinWidth(0)

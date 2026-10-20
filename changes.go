@@ -38,6 +38,7 @@ type changesState struct {
 	// Keep the selected patch's buffers and selection across frames.
 	patchFile, patch string
 	diff             *editor.DiffState
+	hunk             int
 
 	// review holds the notes written on the patches, kept while another
 	// file is on show until they join the message or are discarded.
@@ -275,10 +276,14 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 		}
 		a.previewChangeButton(c, p, f.File)
 		a.changeFileMenuButton(c, p, f.File)
+		a.diffHunkControl(c, p, f.File)
 		a.diffStyleControl(c, p)
 	})
 	layout := a.diffLayout()
 	if st.diff == nil || st.patchFile != f.File || st.patch != f.Patch || st.diff.Layout != layout {
+		if st.patchFile != f.File || st.patch != f.Patch {
+			st.hunk = 0
+		}
 		st.patchFile, st.patch = f.File, f.Patch
 		st.diff = &editor.DiffState{Layout: layout, Indicators: editor.DiffClassic,
 			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
@@ -720,6 +725,44 @@ func (a *app) copyChangePath(file string) {
 		return
 	}
 	a.notify(ui.Toast{Title: "File path copied"})
+}
+
+// diffHunkControl walks the diff's changes: previous, next, and where the
+// walk stands. It shows once the patch has more than one hunk.
+func (a *app) diffHunkControl(c *ui.Context, p palette, file string) {
+	st := a.workspace.changes
+	if st == nil || st.diff == nil || st.diff.New == nil || st.patchFile != file {
+		return
+	}
+	hunks := st.diff.Hunks()
+	if len(hunks) <= 1 {
+		return
+	}
+	st.hunk = min(max(st.hunk, 0), len(hunks)-1)
+	c.Key("diff-hunks")
+	ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(1).Children(func() {
+		a.hunkButton(c, p, "Previous change", icChevUp, st.hunk == 0, func() {
+			st.hunk--
+			st.diff.GoToHunk(st.hunk)
+		})
+		ui.Text(c, fmt.Sprintf("%d/%d", st.hunk+1, len(hunks))).FontSize(11).
+			TextColor(p.faint).SingleLine()
+		a.hunkButton(c, p, "Next change", icChevDown, st.hunk == len(hunks)-1, func() {
+			st.hunk++
+			st.diff.GoToHunk(st.hunk)
+		})
+	})
+}
+
+// hunkButton is one step of the hunk walk, disabled at either end.
+func (a *app) hunkButton(c *ui.Context, p palette, label string, icon *ui.SVG, disabled bool, on func()) {
+	b := ui.ButtonBase(c).Label(label).Size(22, 22).Radius(5).Center().
+		Disabled(disabled).Cursor(ui.CursorPointer).Tooltip(label)
+	if b.Hovered() && !disabled {
+		b.Background(p.hover)
+	}
+	b.OnClick(on)
+	b.Children(func() { ui.Icon(c, icon).FontSize(12).TextColor(p.muted) })
 }
 
 // previewChangedFile shows one changed file in the Files tool, growing

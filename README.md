@@ -82,7 +82,9 @@ Global OpenCode configuration is not rewritten by startup.
   machine's editor or file manager, or copies its path; those local actions
   stay out of a remote workspace. Each changed-file row carries a check that
   marks it read; marking the file on show moves to the next unread one, the
-  header counts the read files, and Hide viewed narrows the list. In Files,
+  header counts the read files, and Hide viewed narrows the list. A patch with
+  several hunks gets arrows in the header that walk them and name the place
+  (1/2). In Files,
   Show in tree unfolds the read
   file's folders (clearing a search) and the cross closes the viewer. The
   search's matches take the arrows and Enter: a completed search opens the

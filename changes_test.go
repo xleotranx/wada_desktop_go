@@ -652,3 +652,45 @@ func TestChangesMarkViewedAdvances(t *testing.T) {
 		t.Fatal("unmarking kept the file viewed")
 	}
 }
+
+// TestChangesWalkHunks walks a multi-hunk patch with the header buttons
+// and hides the walk for a patch with one change.
+func TestChangesWalkHunks(t *testing.T) {
+	a := newTestApp(t)
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	patch := "@@ -2,3 +2,3 @@\n line 2\n-line 3\n+LINE 3\n line 4\n@@ -20,3 +20,3 @@\n line 20\n-line 21\n+LINE 21\n line 22\n"
+	a.workspace.changes = &changesState{mode: changesWorking, dir: t.TempDir(), files: []opencode.Change{{
+		File: "long.txt", Patch: patch, Additions: 2, Deletions: 2,
+	}}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	tt.Frame()
+	st := a.workspace.changes
+	if st.diff == nil || len(st.diff.Hunks()) != 2 {
+		t.Fatalf("the patch built %+v", st.diff)
+	}
+	if !tt.HasText("1/2") {
+		t.Fatalf("the hunk walk is missing: %v", tt.Texts())
+	}
+	if err := tt.Click("Next change"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if st.hunk != 1 || !tt.HasText("2/2") {
+		t.Fatalf("next left %d, %v", st.hunk, tt.Texts())
+	}
+	if err := tt.Click("Previous change"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if st.hunk != 0 || !tt.HasText("1/2") {
+		t.Fatalf("previous left %d, %v", st.hunk, tt.Texts())
+	}
+	st.files = []opencode.Change{{File: "long.txt", Patch: "@@ -1 +1 @@\n-a\n+b\n"}}
+	st.selected = 0
+	tt.Frame()
+	tt.Frame()
+	if tt.HasText("1/2") || tt.HasText("Next change") {
+		t.Fatalf("a single change kept the walk: %v", tt.Texts())
+	}
+}

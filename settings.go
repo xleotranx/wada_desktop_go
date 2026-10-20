@@ -13,9 +13,10 @@ import (
 
 // The settings tabs.
 const (
-	tabServers   = "servers"
-	tabModels    = "models"
-	tabShortcuts = "shortcuts"
+	tabServers    = "servers"
+	tabModels     = "models"
+	tabAppearance = "appearance"
+	tabShortcuts  = "shortcuts"
 )
 
 // settingsNavWidth is the settings page's own navigation column.
@@ -76,6 +77,8 @@ func (a *app) settingsPane(c *ui.Context, p palette, headerH float32) {
 		switch a.layout.settingsTab {
 		case tabModels:
 			a.settingsModels(c, p)
+		case tabAppearance:
+			a.settingsAppearance(c, p)
 		case tabShortcuts:
 			a.settingsShortcuts(c, p)
 		default:
@@ -97,6 +100,7 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 		ui.Scroll(c).Grow(1).FillWidth().Padding(4, 10).Gap(2).Children(func() {
 			a.settingsNavItem(c, p, tabServers, "Servers", icServer)
 			a.settingsNavItem(c, p, tabModels, "Models", icCpu)
+			a.settingsNavItem(c, p, tabAppearance, "Appearance", icAppearance)
 			a.settingsNavItem(c, p, tabShortcuts, "Keyboard", icKey)
 			ui.Spacer(c)
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline).Margin(4, 2)
@@ -453,6 +457,59 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 						a.modelRow(row.Context, p, *r.model)
 					}
 				})
+		})
+	})
+}
+
+// settingsAppearance is the Appearance tab: system, light or dark, applied
+// at once to the window chrome, menus, dialogs and every native surface.
+func (a *app) settingsAppearance(c *ui.Context, p palette) {
+	current := normalizeAppearance(a.preferences.appearance)
+	options := []struct {
+		value, title, detail string
+		icon                 *ui.SVG
+	}{
+		{appearanceSystem, "System", "Follow the desktop's light or dark appearance", icAppearance},
+		{appearanceLight, "Light", "Keep the warm light palette", icSun},
+		{appearanceDark, "Dark", "Keep the warm dark palette", icMoon},
+	}
+	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+		ui.Column(c).MaxWidth(720).Margin(0, ui.Auto).FillWidth().
+			Padding(36, 32, 40, 32).Gap(18).Children(func() {
+			a.settingsHeading(c, p, "Appearance",
+				"The window chrome, menus and every surface share one palette. Following the desktop lets macOS switch it with the time of day; a fixed choice keeps the app in that appearance.",
+				"", nil)
+			ui.Column(c).FillWidth().Gap(8).Children(func() {
+				for _, option := range options {
+					chosen := current == option.value
+					c.Key("appearance:" + option.value)
+					card := ui.ButtonBase(c).Label(option.title+". "+option.detail).
+						FillWidth().Height(62).Radius(11).Padding(0, 14).
+						Justify(ui.Start).AlignItems(ui.Center).Gap(12).Border(1, p.hairline)
+					if chosen {
+						card.Background(p.detailBg).BorderColor(p.orange.Alpha(.6))
+					} else {
+						card.Background(p.bg)
+					}
+					if card.Hovered() {
+						card.Background(p.hover)
+					}
+					card.OnClick(func() { a.setAppearance(option.value) })
+					card.Children(func() {
+						ui.Icon(c, option.icon).FontSize(17).TextColor(p.muted).Shrink(0)
+						ui.Column(c).Grow(1).MinWidth(0).Gap(2).AlignItems(ui.Start).Children(func() {
+							ui.Text(c, option.title).FontSize(13.5).FontWeight(600).
+								TextColor(p.text).SingleLine()
+							ui.Text(c, option.detail).FontSize(12).TextColor(p.muted).SingleLine()
+						})
+						if chosen {
+							ui.Icon(c, icCheck).FontSize(14).TextColor(p.orange).Shrink(0)
+						}
+					})
+				}
+			})
+			ui.Text(c, "The appearance is saved for the next launch. System follows macOS, Windows or the Linux desktop as it changes.").
+				FontSize(12).LineHeight(1.45).TextColor(p.faint)
 		})
 	})
 }

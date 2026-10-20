@@ -551,6 +551,7 @@ func main() {
 			Content:              ui.View(a.view),
 		})
 		a.runtime.win = win
+		a.applyAppearance()
 		a.runtime.background = func(work func() func()) {
 			go func() { win.Update(work()) }()
 		}
@@ -584,10 +585,15 @@ func main() {
 		// a way to see the interface without clicking through it. The wait
 		// lets the boot settle onto the newest conversation first, and
 		// WADA_SETTINGS=(1|servers|models) opens the settings page for it.
+		// WADA_APPEARANCE=(system|light|dark) fixes the palette, and
 		// WADA_TERMINAL=1 opens the bottom shell before the capture.
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {
 				wait := 3 * time.Second
+				if appearance, ok := os.LookupEnv("WADA_APPEARANCE"); ok && appearance != "" {
+					win.Update(func() { a.setAppearance(appearance) })
+					wait = 5 * time.Second // the new palette reaches the chrome
+				}
 				if tab, ok := os.LookupEnv("WADA_SETTINGS"); ok {
 					if tab == "" || tab == "1" {
 						tab = tabServers

@@ -49,6 +49,8 @@ Global OpenCode configuration is not rewritten by startup.
   while folded away, and restarts on demand. Cmd+J or Ctrl+` toggles it.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
+- Appearance: System follows the desktop, Light and Dark fix Onevra's warm
+  palette across the chrome and every surface. The choice is saved.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent
@@ -102,6 +104,7 @@ Capture the native window without clicking:
 WADA_DATA_DIR=/tmp/wada-preview WADA_CAPTURE=/tmp/wada-chat.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_SETTINGS=servers WADA_CAPTURE=/tmp/wada-settings.png go run .
 WADA_DATA_DIR=/tmp/wada-preview WADA_TERMINAL=1 WADA_CAPTURE=/tmp/wada-terminal.png go run .
+WADA_DATA_DIR=/tmp/wada-preview WADA_APPEARANCE=dark WADA_SETTINGS=appearance WADA_CAPTURE=/tmp/wada-dark.png go run .
 ```
 
 Capture output excludes macOS traffic lights. Dev builds include the F12 inspector;

@@ -48,6 +48,9 @@ var (
 	icExpand     = lucide.Maximize2()
 	icCollapse   = lucide.Minimize2()
 	icActivity   = lucide.Activity()
+	icAppearance = lucide.Palette()
+	icSun        = lucide.Sun()
+	icMoon       = lucide.Moon()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

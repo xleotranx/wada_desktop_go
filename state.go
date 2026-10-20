@@ -102,6 +102,7 @@ type workspaceState struct {
 // preferencesState owns the preferences fields coordinated on the UI thread.
 type preferencesState struct {
 	home                string
+	appearance          string
 	projects            []string
 	projectPins         map[string]bool
 	metadata            *metadataWriter

@@ -28,6 +28,7 @@ layers. Do not change the external server protocol to simplify a refactor.
   `search.go`, `background.go`, `attach.go`, `dialog_lifetime.go`: operations
   and lifetime ownership.
 - `metadata.go`: transactional SQLite settings and asynchronous snapshots.
+- `appearance.go`: the saved System/Light/Dark palette and MyGo theme source.
 - `palette.go`, `icons.go`: the app's semantic colors read from the Onevra theme,
   and Lucide icon accessors.
 
@@ -81,7 +82,8 @@ input actions. Comments are compact prose explaining intent or constraints.
 ## Native checks and development data
 
 `WADA_CAPTURE=/path/window.png go run .` captures the content and exits.
-`WADA_SETTINGS=servers` or `models` opens settings before capture, and
+`WADA_SETTINGS=servers` or `models` opens settings before capture,
+`WADA_APPEARANCE=(system|light|dark)` fixes the palette, and
 `WADA_TERMINAL=1` opens the bottom shell. Use
 `WADA_DATA_DIR=/temporary/directory` to isolate settings for captures and experiments.
 Tests use temporary stores. Never reset the developer's data as part of verification.

@@ -28,11 +28,12 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 			{id: "srv-two", name: "Home box", url: "https://box.tailnet:4096", password: "token-1",
 				paired: true, pairedAt: 1792314306306},
 		},
-		active:    "srv-one",
-		modelOff:  map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
-		sidebarW:  412,
-		browserW:  536,
-		terminalH: 248,
+		active:     "srv-one",
+		modelOff:   map[string]bool{modelKey(localServerID, "opencode-go", "minimax-m3"): true},
+		sidebarW:   412,
+		browserW:   536,
+		terminalH:  248,
+		appearance: appearanceDark,
 		tabs: map[string][]chatTab{
 			localServerID: {{id: "ses_a", title: "Alpha"}, {id: "ses_b", title: "Beta"}},
 			"srv-one":     {{id: "ses_remote", title: "Remote chat"}},
@@ -113,7 +114,7 @@ func TestMetadataSaveRollsBackOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	want := appMetadata{projects: []string{"/original"}, pins: map[string][]string{localServerID: {"saved"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}}
+	want := appMetadata{projects: []string{"/original"}, pins: map[string][]string{localServerID: {"saved"}}, projectPins: map[string]bool{}, modelOff: map[string]bool{}, appearance: appearanceSystem}
 	if err := db.save(context.Background(), want); err != nil {
 		t.Fatal(err)
 	}

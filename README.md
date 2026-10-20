@@ -75,7 +75,9 @@ Global OpenCode configuration is not rewritten by startup.
   from the header, and switches between a unified and a split diff; the
   choice is saved. The header's actions menu also hands the file to this
   machine's editor or file manager, or copies its path; those local actions
-  stay out of a remote workspace. Hovering a line and clicking its gutter + opens a review
+  stay out of a remote workspace. In Files, Show in tree unfolds the read
+  file's folders (clearing a search) and the cross closes the viewer. Hovering
+  a line and clicking its gutter + opens a review
   note under that line; Add to message (or Enter in the note) writes it into
   the composer as "In <file> at line N: …", so a review reaches the agent
   without leaving the diff. The bar under the patch counts the notes and

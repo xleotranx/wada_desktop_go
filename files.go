@@ -345,6 +345,8 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 			a.browserIconButton(c, p, "Open in editor", icExternal, func() { a.openFileExternally(c) }, false)
 			a.browserIconButton(c, p, "Reveal in folder", icFolder, func() { a.revealFile(c) }, false)
 		}
+		a.browserIconButton(c, p, "Show in tree", icTree, a.filesShowInTree, false)
+		a.browserIconButton(c, p, "Close file preview", icClose, a.filesCloseViewer, false)
 	})
 	if st.fileErr != "" {
 		ui.Text(c, st.fileErr).FontSize(12).TextColor(p.danger).SingleLine()
@@ -356,6 +358,40 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 	}
 	st.viewer.Theme = &editor.Theme{Background: p.bg, Text: p.muted, LineNumber: p.faint}
 	editor.View(c.Key("preview:"+st.path), st.viewer).FillWidth().Grow(1)
+}
+
+// filesCloseViewer puts the tree back in place of the read file, which
+// also frees the text the viewer held.
+func (a *app) filesCloseViewer() {
+	st := a.workspace.files
+	if st == nil {
+		return
+	}
+	st.path, st.content, st.viewer = "", "", nil
+	st.fileErr, st.clipped = "", false
+}
+
+// filesShowInTree unfolds every folder on the way to the file on show,
+// clearing a search so the tree is visible, then closes the viewer there.
+// Folders not read yet are asked for; the tree says they are coming.
+func (a *app) filesShowInTree() {
+	st := a.workspace.files
+	if st == nil || st.path == "" {
+		return
+	}
+	if st.query != "" {
+		st.findRequest.stop()
+		st.query, st.results, st.finding, st.findErr = "", nil, false, ""
+	}
+	parts := strings.Split(st.path, "/")
+	for i := 1; i < len(parts); i++ {
+		parent := strings.Join(parts[:i], "/")
+		st.open[parent] = true
+		if _, loaded := st.entries[parent]; !loaded {
+			a.filesList(parent)
+		}
+	}
+	a.filesCloseViewer()
 }
 
 // copyFilesPath puts the open file's path on the clipboard.

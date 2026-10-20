@@ -58,6 +58,7 @@ var (
 	icDiffRows   = lucide.Rows3()
 	icDiffSplit  = lucide.Columns2()
 	icArchive    = lucide.Archive()
+	icTree       = lucide.ListTree()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

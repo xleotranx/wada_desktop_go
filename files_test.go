@@ -409,3 +409,66 @@ func TestFilesPaneActions(t *testing.T) {
 		t.Fatalf("opened %v", urls)
 	}
 }
+
+// TestFilesViewerClosesAndShowsInTree unfolds a read file's folder to put
+// the tree in view, and the cross closes the viewer on its own.
+func TestFilesViewerClosesAndShowsInTree(t *testing.T) {
+	a := newTestApp(t)
+	a.openTool("Files")
+	a.workspace.files = &filesState{
+		location: t.TempDir(),
+		open:     map[string]bool{},
+		entries: map[string][]opencode.FileEntry{
+			".":   {{Path: "src", Name: "src", Directory: true}},
+			"src": {{Path: "src/app.go", Name: "app.go"}},
+		},
+		loading: map[string]bool{},
+		path:    "src/app.go",
+		content: "package main",
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.Click("Show in tree"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	st := a.workspace.files
+	if st.path != "" || st.content != "" || st.viewer != nil || !st.open["src"] {
+		t.Fatalf("Show in tree left %+v", st)
+	}
+	if !tt.HasText("app.go") {
+		t.Fatalf("the tree does not show the file: %v", tt.Texts())
+	}
+	st.path, st.content = "src/app.go", "package main"
+	tt.Frame()
+	if err := tt.Click("Close file preview"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if st.path != "" || st.content != "" || st.fileErr != "" {
+		t.Fatalf("the cross left %+v", st)
+	}
+}
+
+// TestFilesShowInTreeClearsAQuery brings the tree back from a search.
+func TestFilesShowInTreeClearsAQuery(t *testing.T) {
+	a := newTestApp(t)
+	a.workspace.files = &filesState{
+		open: map[string]bool{},
+		entries: map[string][]opencode.FileEntry{
+			"src": {{Path: "src/app.go", Name: "app.go"}},
+		},
+		path:    "src/app.go",
+		query:   "app",
+		finding: true,
+		results: []opencode.FileEntry{{Path: "src/app.go", Name: "app.go"}},
+	}
+	a.filesShowInTree()
+	st := a.workspace.files
+	if st.query != "" || st.finding || st.results != nil {
+		t.Fatalf("the search stayed over the tree: %+v", st)
+	}
+	if !st.open["src"] || st.path != "" {
+		t.Fatalf("the tree did not unfold: %+v", st)
+	}
+}

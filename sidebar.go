@@ -158,6 +158,10 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 				// The lists scroll once they outgrow the pane, under the
 				// New chat and search rows, which stay put.
 				ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
+					if a.layout.sidebarFilter != "" {
+						a.filteredChats(c, p)
+						return
+					}
 					a.sectionHeading(c, p, "Pinned", nil)
 					pins := a.pinnedSessions()
 					if len(pins) == 0 {
@@ -221,6 +225,19 @@ func (a *app) headerRow(c *ui.Context, p palette, headerH float32) {
 			m.Separator()
 			if m.Item("Open folder…").Chosen() {
 				a.openProjectDialog()
+			}
+			m.Separator()
+			if m.Item("Show unread chats").Chosen() {
+				a.setSidebarFilter(sidebarFilterUnread)
+			}
+			if m.Item("Show chats with drafts").Chosen() {
+				a.setSidebarFilter(sidebarFilterDrafts)
+			}
+			if m.Item("Show chats needing attention").Chosen() {
+				a.setSidebarFilter(sidebarFilterAttention)
+			}
+			if m.Item("Show all chats").Chosen() {
+				a.setSidebarFilter("")
 			}
 		})
 		if title.Hovered() {

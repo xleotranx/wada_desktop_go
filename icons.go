@@ -48,6 +48,7 @@ var (
 	icExpand     = lucide.Maximize2()
 	icCollapse   = lucide.Minimize2()
 	icActivity   = lucide.Activity()
+	icFilter     = lucide.Funnel()
 	icAppearance = lucide.Palette()
 	icSun        = lucide.Sun()
 	icMoon       = lucide.Moon()

@@ -62,6 +62,9 @@ Global OpenCode configuration is not rewritten by startup.
 - Drafts: every chat keeps its unsent composer words when switching tabs, and
   the new-chat draft does too. They survive restarts and clear once sent. A
   pencil marks chats and tabs holding words, and New chat wears a Draft badge.
+- Sidebar filters: the title menu and command palette narrow the sidebar to
+  unread chats, chats needing attention or chats with drafts; the list's cross
+  clears the filter.
 - Slash commands: type `/files`, `/new`, `/terminal`, `/help` and the rest for
   local actions. Typing `/` lists matching commands above the composer; ↑↓
   choose and Enter runs the choice, even from a prefix. Words after a command

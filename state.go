@@ -145,6 +145,7 @@ type viewState struct {
 	browserW          float32
 	sidebarCollapsed  bool
 	browserCollapsed  bool
+	sidebarFilter     string
 	selectedRail      string
 	projectsExpanded  bool
 	projectCollapsed  map[string]bool

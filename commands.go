@@ -68,6 +68,18 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:model", Title: "Choose model", Group: "Chats",
 			Description: "Pick what this chat runs on", Shortcut: "⌃⇧M", Icon: icCpu,
 			Keywords: []string{"model", "reasoning", "provider"}},
+		{ID: "action:filter-unread", Title: "Show unread chats", Group: "Chats",
+			Description: "Narrow the sidebar to chats with news", Icon: icFilter,
+			Keywords: []string{"filter", "unread", "sidebar"}},
+		{ID: "action:filter-attention", Title: "Show chats needing attention", Group: "Chats",
+			Description: "Narrow the sidebar to waiting approvals", Icon: icFilter,
+			Keywords: []string{"filter", "attention", "approval", "sidebar"}},
+		{ID: "action:filter-drafts", Title: "Show chats with drafts", Group: "Chats",
+			Description: "Narrow the sidebar to unsent words", Icon: icPen,
+			Keywords: []string{"filter", "drafts", "sidebar"}},
+		{ID: "action:filter-clear", Title: "Show all chats", Group: "Chats",
+			Description: "Clear the sidebar filter", Icon: icFilter,
+			Keywords: []string{"filter", "all", "clear", "sidebar"}},
 		{ID: "action:unread", Title: unreadTitle, Group: "Chats",
 			Description: "Keep a dot on this chat until it is opened again",
 			Shortcut:    "⌘⇧U", Icon: icBell,
@@ -177,6 +189,18 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:model":
 		a.openModelPicker()
+		return
+	case "action:filter-unread":
+		a.setSidebarFilter(sidebarFilterUnread)
+		return
+	case "action:filter-attention":
+		a.setSidebarFilter(sidebarFilterAttention)
+		return
+	case "action:filter-drafts":
+		a.setSidebarFilter(sidebarFilterDrafts)
+		return
+	case "action:filter-clear":
+		a.setSidebarFilter("")
 		return
 	case "action:unread":
 		a.toggleUnread()

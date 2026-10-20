@@ -100,6 +100,14 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Cmd+Shift+F did not keep the search open")
 	}
 
+	// Ctrl+Shift+M opens the model picker over the composer.
+	tt.Key(ui.Ctrl|ui.Shift, ui.KeyM)
+	tt.Frame()
+	if !a.layout.pickerOpen {
+		t.Fatal("Ctrl+Shift+M did not open the model picker")
+	}
+	a.layout.pickerOpen = false
+
 	// Cmd+, opens the settings page, and Cmd+/ opens its keyboard tab.
 	tt.Key(ui.Cmd, ui.KeyComma)
 	tt.Frame()

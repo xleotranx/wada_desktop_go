@@ -478,6 +478,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Find next match", "⌘G"},
 			{"Find previous match", "⌘⇧G"},
 			{"Search chats", "⌘⇧F"},
+			{"Choose a model", "⌃⇧M"},
 		}},
 		{"Workspace", [][2]string{
 			{"Toggle sidebar", "⌘B"},

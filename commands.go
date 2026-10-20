@@ -58,6 +58,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:find", Title: "Find in chat", Group: "Actions",
 			Description: "Find text in the open transcript", Shortcut: "⌘F", Icon: icSearch,
 			Keywords: []string{"find", "search", "transcript", "match"}},
+		{ID: "action:model", Title: "Choose model", Group: "Chats",
+			Description: "Pick what this chat runs on", Shortcut: "⌃⇧M", Icon: icCpu,
+			Keywords: []string{"model", "reasoning", "provider"}},
 		{ID: "action:files", Title: "Open Files", Group: "Tools",
 			Description: "Browse the workspace beside the chat", Shortcut: "⌘P",
 			Icon: icFolder, Keywords: []string{"tree", "explorer", "read"}},
@@ -130,6 +133,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:find":
 		a.openChatFind()
+		return
+	case "action:model":
+		a.openModelPicker()
 		return
 	case "action:files":
 		a.openTool("Files")

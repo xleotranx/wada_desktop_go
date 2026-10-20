@@ -20,6 +20,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyG, func() { a.openTool("Changes") })
+	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyM, a.openModelPicker)
 	c.OnShortcut(ui.Cmd, ui.KeyB, func() { a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed })
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyJ, func() { a.layout.browserCollapsed = !a.layout.browserCollapsed })
 	c.OnShortcut(ui.Cmd, ui.KeyJ, a.toggleTerminal)

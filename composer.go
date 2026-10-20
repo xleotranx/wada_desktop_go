@@ -192,6 +192,17 @@ func (a *app) fullAccessButton(c *ui.Context, p palette) {
 	chip.Menu(a.accessMenu())
 }
 
+// openModelPicker opens the model choice from the command keys, with the
+// filter cleared so the catalog starts whole. The settings page has no
+// composer to anchor the panel under.
+func (a *app) openModelPicker() {
+	if a.layout.settingsOpen {
+		return
+	}
+	a.layout.modelFilter = ""
+	a.layout.pickerOpen = true
+}
+
 // modelIcon is the model choice where the composer has no room for a
 // label: the same picker, opened from the loading glyph.
 func (a *app) modelIcon(c *ui.Context, p palette) {
@@ -199,10 +210,7 @@ func (a *app) modelIcon(c *ui.Context, p palette) {
 	name, variants := a.modelLabel(ref)
 	b := onechat.IconAction(c, "Model "+name, iconRef(icLoad))
 	b.Tooltip("Model " + name)
-	b.OnClick(func() {
-		a.layout.modelFilter = ""
-		a.layout.pickerOpen = true
-	})
+	b.OnClick(a.openModelPicker)
 	a.modelPicker(c, p, b, ref, variants)
 }
 
@@ -218,10 +226,7 @@ func (a *app) modelButton(c *ui.Context, p palette) {
 	if b.Hovered() || b.Focused() {
 		b.Background(p.hover)
 	}
-	b.OnClick(func() {
-		a.layout.modelFilter = ""
-		a.layout.pickerOpen = true
-	})
+	b.OnClick(a.openModelPicker)
 	b.Children(func() {
 		ui.Icon(c, icLoad).FontSize(12).TextColor(p.muted).Shrink(0)
 		ui.Text(c, name).FontSize(12.5).TextColor(p.text).SingleLine().

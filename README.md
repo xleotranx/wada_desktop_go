@@ -51,6 +51,8 @@ Global OpenCode configuration is not rewritten by startup.
   the panel.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
+- Tools pane: Files, Changes, Activity and page previews stay open together in
+  a tab strip, each with its own close action.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. The choice is saved.
 

@@ -145,6 +145,8 @@ type viewState struct {
 	browserAddress    string
 	browserPage       string
 	browserTool       string
+	// paneTabs are the right pane's open tools and pages, in strip order.
+	paneTabs          []paneTab
 	browserHistory    []string
 	browserHistoryAt  int
 	expanded          map[string]bool

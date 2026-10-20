@@ -8,9 +8,113 @@ import (
 	"github.com/oneo-me/onevra/source/components"
 )
 
+// paneTab is one tab of the right pane: a tool or a page preview.
+type paneTab struct {
+	kind    string // Files, Changes, Activity, New page, or page
+	address string // the page's address, empty for tools
+}
+
+// paneTabTitle names a tab in the strip.
+func paneTabTitle(tab paneTab) string {
+	if tab.kind == "page" {
+		return pageTitle(tab.address)
+	}
+	return tab.kind
+}
+
+// pageTitle shortens an address to the host the tab can show.
+func pageTitle(address string) string {
+	if address == "" {
+		return "New page"
+	}
+	if parsed, err := url.Parse(address); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return address
+}
+
+// paneTabActive reports whether a tab is the one the pane shows.
+func (a *app) paneTabActive(tab paneTab) bool {
+	if tab.kind == "page" {
+		return a.layout.browserTool == "" && a.layout.browserPage == tab.address
+	}
+	return a.layout.browserTool == tab.kind && a.layout.browserPage == ""
+}
+
+// activePaneTabIndex is the strip position of the tab on show, -1 at home.
+func (a *app) activePaneTabIndex() int {
+	for i, tab := range a.layout.paneTabs {
+		if a.paneTabActive(tab) {
+			return i
+		}
+	}
+	return -1
+}
+
+// ensurePaneTab finds or appends a tab for a tool or address.
+func (a *app) ensurePaneTab(kind, address string) int {
+	for i, tab := range a.layout.paneTabs {
+		if tab.kind == kind && (kind != "page" || tab.address == address) {
+			return i
+		}
+	}
+	a.layout.paneTabs = append(a.layout.paneTabs, paneTab{kind: kind, address: address})
+	return len(a.layout.paneTabs) - 1
+}
+
+// activatePaneTab brings one tab back, loading its tool when it has one.
+func (a *app) activatePaneTab(tab paneTab) {
+	if tab.kind == "page" {
+		a.layout.browserTool = ""
+		a.layout.browserPage = tab.address
+		a.layout.browserAddress = tab.address
+		return
+	}
+	a.openTool(tab.kind)
+}
+
+// closePaneTab removes a tab. Closing the active tab shows its neighbour,
+// and the last one folds the pane back to the tools home.
+func (a *app) closePaneTab(index int) {
+	if index < 0 || index >= len(a.layout.paneTabs) {
+		return
+	}
+	active := a.paneTabActive(a.layout.paneTabs[index])
+	a.layout.paneTabs = append(a.layout.paneTabs[:index], a.layout.paneTabs[index+1:]...)
+	if !active {
+		return
+	}
+	if len(a.layout.paneTabs) == 0 {
+		a.layout.browserTool, a.layout.browserPage, a.layout.browserAddress = "", "", ""
+		a.layout.browserCollapsed = true
+		return
+	}
+	a.activatePaneTab(a.layout.paneTabs[min(index, len(a.layout.paneTabs)-1)])
+}
+
+// showPageAddress points the active page tab at another address, turning
+// a fresh New page tab into that page.
+func (a *app) showPageAddress(address string) {
+	index := a.activePaneTabIndex()
+	if index >= 0 {
+		tab := &a.layout.paneTabs[index]
+		if tab.kind == "page" || tab.kind == "New page" {
+			tab.kind, tab.address = "page", address
+		} else {
+			a.ensurePaneTab("page", address)
+		}
+	} else {
+		a.ensurePaneTab("page", address)
+	}
+	a.layout.browserTool = ""
+	a.layout.browserPage = address
+	a.layout.browserAddress = address
+}
+
 // browserPane is the native tools and page surface beside the conversation.
 func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).FillWidth().FillHeight().Background(p.bg).Children(func() {
+		a.paneTabsBar(c, p)
 		a.browserToolbar(c, p, headerH)
 		ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 		if a.layout.browserTool == "" && a.layout.browserPage == "" {
@@ -21,20 +125,76 @@ func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 	})
 }
 
-func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
-	ui.Row(c).Height(headerH).FillWidth().AlignItems(ui.Center).Gap(3).Padding(0, 8).Children(func() {
-		a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.layout.browserPage == "")
+// paneTabsBar is the strip of open tools and pages. One tab already names
+// itself in the toolbar, so the strip waits for a second.
+func (a *app) paneTabsBar(c *ui.Context, p palette) {
+	if len(a.layout.paneTabs) <= 1 {
+		return
+	}
+	ui.Row(c).FillWidth().Height(32).Padding(0, 8).Gap(2).
+		AlignItems(ui.Center).Background(p.sidebarBg).Children(func() {
+		for i, tab := range a.layout.paneTabs {
+			a.paneTabButton(c, p, i, tab)
+		}
+	})
+	ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+}
 
-		components.TextBox(c, &a.layout.browserAddress,
-			components.TextBoxOptions{LeadingIcon: icGlobe}).Grow(1).
-			Placeholder("Search or enter a URL").Label("Search or enter a URL").FontSize(12.5).
-			OnTextKey(func(k ui.TextKey) bool {
-				if k.Key == ui.KeyEnter && k.Mods == 0 {
-					a.openBrowserAddress()
-					return true
-				}
-				return false
-			})
+func (a *app) paneTabButton(c *ui.Context, p palette, index int, tab paneTab) {
+	title := paneTabTitle(tab)
+	active := a.paneTabActive(tab)
+	c.Key("pane-tab:" + tab.kind + ":" + tab.address)
+	row := ui.Row(c).Height(26).MaxWidth(170).Shrink(1).MinWidth(0).
+		Radius(6).Clip().AlignItems(ui.Center)
+	if active {
+		row.Background(p.selected)
+	} else if row.Hovered() {
+		row.Background(p.hover)
+	}
+	row.Children(func() {
+		open := ui.ButtonBase(c).Label("Open "+title).Height(26).Radius(6).
+			Padding(0, 8).Justify(ui.Start).Grow(1).Shrink(1).MinWidth(0)
+		open.OnClick(func() { a.activatePaneTab(tab) })
+		open.Children(func() {
+			tint := p.muted
+			if active {
+				tint = p.text
+			}
+			ui.Text(c, title).FontSize(12).TextColor(tint).SingleLine().Ellipsis("…")
+		})
+		close := ui.ButtonBase(c).Label("Close "+title).Size(18, 18).Radius(5).Center().
+			Tooltip("Close " + title)
+		if close.Hovered() {
+			close.Background(p.hover)
+		}
+		close.OnClick(func() { a.closePaneTab(index) })
+		close.Children(func() {
+			ui.Icon(c, icClose).FontSize(10).TextColor(p.faint)
+		})
+	})
+}
+
+func (a *app) browserToolbar(c *ui.Context, p palette, headerH float32) {
+	toolPage := a.layout.browserTool != "" && a.layout.browserTool != "New page"
+	ui.Row(c).Height(headerH).FillWidth().AlignItems(ui.Center).Gap(3).Padding(0, 8).Children(func() {
+		if toolPage {
+			ui.Text(c, a.layout.browserTool).FontSize(12.5).FontWeight(500).
+				TextColor(p.muted).SingleLine()
+			ui.Spacer(c)
+			a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, false)
+		} else {
+			a.browserIconButton(c, p, "Reload", icLoad, a.reloadBrowserPage, a.layout.browserPage == "")
+			components.TextBox(c, &a.layout.browserAddress,
+				components.TextBoxOptions{LeadingIcon: icGlobe}).Grow(1).
+				Placeholder("Search or enter a URL").Label("Search or enter a URL").FontSize(12.5).
+				OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						a.openBrowserAddress()
+						return true
+					}
+					return false
+				})
+		}
 		more := ui.ButtonBase(c).Label("Browser options").Size(28, 28).Radius(8).Center().
 			Tooltip("Browser options").Menu(func(m *ui.Menu) {
 			if m.Item("New page").Chosen() {
@@ -192,13 +352,10 @@ func (a *app) openTool(name string) {
 		a.layout.browserAddress = ""
 		return
 	}
+	a.ensurePaneTab(name, "")
 	a.layout.browserTool = name
 	a.layout.browserPage = ""
-	if name == "New page" {
-		a.layout.browserAddress = ""
-	} else {
-		a.layout.browserAddress = "codex://tools/" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-	}
+	a.layout.browserAddress = ""
 	// The pane's first look at the workspace it is open over.
 	if name == "Changes" {
 		a.openChanges(changesWorking)
@@ -229,9 +386,7 @@ func (a *app) navigateToAddress(address string) {
 	}
 	a.layout.browserHistory = append(a.layout.browserHistory, address)
 	a.layout.browserHistoryAt = len(a.layout.browserHistory) - 1
-	a.layout.browserAddress = address
-	a.layout.browserPage = address
-	a.layout.browserTool = ""
+	a.showPageAddress(address)
 }
 
 func (a *app) browserBack() {
@@ -239,9 +394,7 @@ func (a *app) browserBack() {
 		return
 	}
 	a.layout.browserHistoryAt--
-	a.layout.browserAddress = a.layout.browserHistory[a.layout.browserHistoryAt]
-	a.layout.browserPage = a.layout.browserAddress
-	a.layout.browserTool = ""
+	a.showPageAddress(a.layout.browserHistory[a.layout.browserHistoryAt])
 }
 
 func (a *app) browserForward() {
@@ -249,9 +402,7 @@ func (a *app) browserForward() {
 		return
 	}
 	a.layout.browserHistoryAt++
-	a.layout.browserAddress = a.layout.browserHistory[a.layout.browserHistoryAt]
-	a.layout.browserPage = a.layout.browserAddress
-	a.layout.browserTool = ""
+	a.showPageAddress(a.layout.browserHistory[a.layout.browserHistoryAt])
 }
 
 // reloadBrowserPage reads a page again, or the workspace the tools pane is

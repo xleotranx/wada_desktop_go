@@ -26,6 +26,7 @@ func (a *app) composer(c *ui.Context, p palette) {
 		}
 		a.slashMenu(c, p)
 		a.mentionMenu(c, p)
+		a.pendingApprovalPill(c, p)
 		a.queuedMessages(c, p)
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			busy := a.conversation.transcript.Busy() != ""

@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	onechat "github.com/oneo-me/onevra/source/components/chat"
 )
 
 // bellChat is one chat the bell lists: a row of the scope's list with
@@ -49,6 +50,37 @@ func (a *app) pendingAsks() []*chat.Permission {
 		out = append(out, pending[k])
 	}
 	return out
+}
+
+// pendingApprovalPill is the composer's reminder that this chat waits on an
+// allow or deny; choosing it brings the request into view. The decision
+// itself stays on the card, so a stray Enter cannot approve anything.
+func (a *app) pendingApprovalPill(c *ui.Context, p palette) {
+	asks := a.pendingAsks()
+	if len(asks) == 0 {
+		return
+	}
+	label := "1 approval waiting"
+	review := "Review the approval"
+	if len(asks) > 1 {
+		label = fmt.Sprintf("%d approvals waiting", len(asks))
+		review = "Review the approvals"
+	}
+	ui.Row(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().
+		Padding(0, 0, 4, 0).Children(func() {
+		b := ui.ButtonBase(c).Label(review).Height(26).Radius(999).Padding(0, 11).
+			Gap(6).Background(p.orange.Alpha(.12)).Border(1, p.orange.Alpha(.35)).
+			Cursor(ui.CursorPointer).Tooltip(review)
+		if b.Hovered() {
+			b.Background(p.orange.Alpha(.2))
+		}
+		b.OnClick(func() { a.revealApproval(asks[0]) })
+		b.Children(func() {
+			ui.Icon(c, icShield).FontSize(12).TextColor(p.orange)
+			ui.Text(c, label).FontSize(11.5).TextColor(p.orange)
+			ui.Text(c, "· Review").FontSize(11.5).TextColor(p.orange.Alpha(.8))
+		})
+	})
 }
 
 // bellLabel names the bell for assistive technology: what the count is

@@ -489,6 +489,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Toggle terminal", "⌘J / ⌃`"},
 			{"Toggle tools", "⌘⇧J"},
 			{"Toggle full view", "⌘⇧F"},
+			{"Activity view", "⌥⌘U"},
 			{"Open Files", "⌘P"},
 			{"Open Changes", "⌃⇧G"},
 			{"Move a focused divider", "← → / ↑ ↓"},

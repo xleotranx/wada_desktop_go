@@ -47,6 +47,8 @@ Global OpenCode configuration is not rewritten by startup.
   and restores the panes on exit. The chosen sizes carry across restarts.
 - Terminal: a bottom shell starts in the chat's local folder, keeps running
   while folded away, and restarts on demand. Cmd+J or Ctrl+` toggles it.
+- Activity: a live list of the turn's tool calls and approvals, newest first,
+  with the transcript's folded detail. Cmd+Option+U toggles the view.
 
 The transcript uses MyGo markdown with Onevra's message and activity surfaces;
 the composer is Onevra's chat composer. Files and Changes use persistent

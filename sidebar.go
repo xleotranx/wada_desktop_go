@@ -46,6 +46,9 @@ func (a *app) navRail(c *ui.Context, p palette) {
 				if m.Item("Command palette…").Chosen() {
 					a.openCommandPalette()
 				}
+				if m.Item("Activity view").Chosen() {
+					a.toggleActivity()
+				}
 				m.Separator()
 				if m.Item("Settings").Chosen() {
 					a.openSettings("")
@@ -55,7 +58,7 @@ func (a *app) navRail(c *ui.Context, p palette) {
 					label = "Show sidebar"
 				}
 				if m.Item(label).Chosen() {
-					a.layout.sidebarCollapsed = !a.layout.sidebarCollapsed
+					a.toggleSidebar()
 				}
 			})
 			more.Children(func() { ui.Icon(c, icEllipsis).FontSize(18).TextColor(p.muted) })

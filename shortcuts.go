@@ -21,6 +21,7 @@ func (a *app) appShortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyT, a.reopenClosedTab)
 	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyF, a.openChatSearch)
 	c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyF, a.toggleFullView)
+	c.OnShortcut(ui.Cmd|ui.Alt, ui.KeyU, a.toggleActivity)
 	c.OnShortcut(ui.Cmd, ui.KeyF, a.openChatFind)
 	c.OnShortcut(ui.Cmd, ui.KeyP, func() { a.openTool("Files") })
 	c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyG, func() { a.openTool("Changes") })

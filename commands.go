@@ -61,6 +61,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:model", Title: "Choose model", Group: "Chats",
 			Description: "Pick what this chat runs on", Shortcut: "⌃⇧M", Icon: icCpu,
 			Keywords: []string{"model", "reasoning", "provider"}},
+		{ID: "action:activity", Title: "Activity view", Group: "Tools",
+			Description: "Watch what the agent has run in this chat", Shortcut: "⌥⌘U",
+			Icon: icActivity, Keywords: []string{"tools", "steps", "running", "shell"}},
 		{ID: "action:files", Title: "Open Files", Group: "Tools",
 			Description: "Browse the workspace beside the chat", Shortcut: "⌘P",
 			Icon: icFolder, Keywords: []string{"tree", "explorer", "read"}},
@@ -148,6 +151,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:model":
 		a.openModelPicker()
+		return
+	case "action:activity":
+		a.toggleActivity()
 		return
 	case "action:files":
 		a.openTool("Files")

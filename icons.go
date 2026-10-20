@@ -47,6 +47,7 @@ var (
 	icQuote      = lucide.TextQuote()
 	icExpand     = lucide.Maximize2()
 	icCollapse   = lucide.Minimize2()
+	icActivity   = lucide.Activity()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

@@ -77,6 +77,7 @@ func (a *app) browserHome(c *ui.Context, p palette) {
 			name, detail, shortcut string
 			icon                   *ui.SVG
 		}{
+			{"Activity", "See what the agent has run", "⌥⌘U", icActivity},
 			{"Changes", "Review the working tree or a branch", "⌃⇧G", icGitBranch},
 			{"Files", "Browse and read the project's files", "⌘P", icFolder},
 			{"New page", "Open an address beside the chat", "", icPlus},
@@ -138,6 +139,10 @@ func (a *app) browserDestination(c *ui.Context, p palette) {
 				a.filesBody(c, p)
 				return
 			}
+			if a.layout.browserTool == "Activity" {
+				a.activityBody(c, p)
+				return
+			}
 		} else {
 			ui.Icon(c, icGlobe).FontSize(28).TextColor(p.faint).Margin(18, 0, 0, 0)
 			ui.Text(c, "Page preview").FontSize(14).FontWeight(500).TextColor(p.text)
@@ -163,6 +168,8 @@ func (a *app) browserDestination(c *ui.Context, p palette) {
 
 func (a *app) toolDescription() string {
 	switch a.layout.browserTool {
+	case "Activity":
+		return "Watch what the turn and the conversation have run, newest first."
 	case "Changes":
 		return "Review the files changed in this workspace."
 	case "Files":

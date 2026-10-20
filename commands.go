@@ -67,6 +67,9 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:settings", Title: "Open Settings", Group: "Tools",
 			Description: "Servers, models and this app's version", Shortcut: "⌘,",
 			Icon: icGear, Keywords: []string{"preferences", "config"}},
+		{ID: "action:shortcuts", Title: "Keyboard shortcuts", Group: "Tools",
+			Description: "Every command key the window answers", Shortcut: "⌘/",
+			Icon: icKey, Keywords: []string{"keys", "help", "reference"}},
 	}
 	if a.layout.browserCollapsed {
 		items = append(items, command.Item{ID: "action:show-tools", Title: "Show tools",
@@ -133,6 +136,9 @@ func (a *app) runCommand(id string) {
 		return
 	case "action:settings":
 		a.openSettings("")
+		return
+	case "action:shortcuts":
+		a.openSettings(tabShortcuts)
 		return
 	case "action:show-tools":
 		a.layout.browserCollapsed = false

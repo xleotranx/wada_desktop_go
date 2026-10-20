@@ -13,8 +13,9 @@ import (
 
 // The settings tabs.
 const (
-	tabServers = "servers"
-	tabModels  = "models"
+	tabServers   = "servers"
+	tabModels    = "models"
+	tabShortcuts = "shortcuts"
 )
 
 // settingsNavWidth is the settings page's own navigation column.
@@ -71,9 +72,12 @@ func (a *app) settingsPane(c *ui.Context, p palette, headerH float32) {
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 		a.settingsNav(c, p, headerH)
 		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-		if a.layout.settingsTab == tabModels {
+		switch a.layout.settingsTab {
+		case tabModels:
 			a.settingsModels(c, p)
-		} else {
+		case tabShortcuts:
+			a.settingsShortcuts(c, p)
+		default:
 			a.settingsServers(c, p)
 		}
 	})
@@ -92,6 +96,7 @@ func (a *app) settingsNav(c *ui.Context, p palette, headerH float32) {
 		ui.Scroll(c).Grow(1).FillWidth().Padding(4, 10).Gap(2).Children(func() {
 			a.settingsNavItem(c, p, tabServers, "Servers", icServer)
 			a.settingsNavItem(c, p, tabModels, "Models", icCpu)
+			a.settingsNavItem(c, p, tabShortcuts, "Keyboard", icKey)
 			ui.Spacer(c)
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline).Margin(4, 2)
 			// The About foot: the app's own name and version, so a bug
@@ -448,6 +453,77 @@ func (a *app) settingsModels(c *ui.Context, p palette) {
 					}
 				})
 		})
+	})
+}
+
+// settingsShortcuts is the Keyboard tab: every command key the window
+// answers, grouped by what it moves, so the keys are discoverable without
+// a manual. The divider keys ride under the groups because they belong to
+// a focused divider rather than to the window.
+func (a *app) settingsShortcuts(c *ui.Context, p palette) {
+	groups := []struct {
+		title string
+		rows  [][2]string
+	}{
+		{"General", [][2]string{
+			{"Command palette", "⌘K"},
+			{"Settings", "⌘,"},
+			{"Keyboard shortcuts", "⌘/"},
+			{"Close a dialog or find", "Esc"},
+		}},
+		{"Chats", [][2]string{
+			{"New chat", "⌘N"},
+			{"Find in chat", "⌘F"},
+			{"Find next match", "⌘G"},
+			{"Find previous match", "⌘⇧G"},
+			{"Search chats", "⌘⇧F"},
+		}},
+		{"Workspace", [][2]string{
+			{"Toggle sidebar", "⌘B"},
+			{"Toggle tools", "⌘J"},
+			{"Open Files", "⌘P"},
+			{"Open Changes", "⌃⇧G"},
+			{"Move a focused divider", "← →"},
+			{"Reset a focused divider", "Home / End"},
+		}},
+	}
+	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+		ui.Column(c).MaxWidth(720).Margin(0, ui.Auto).FillWidth().
+			Padding(36, 32, 40, 32).Gap(20).Children(func() {
+			a.settingsHeading(c, p, "Keyboard",
+				"Every command the window answers. Dragging a workspace divider resizes its pane; double-clicking it returns the pane to its opening width.",
+				"", nil)
+			for _, group := range groups {
+				ui.Column(c).FillWidth().Gap(5).Children(func() {
+					ui.Text(c, group.title).FontSize(12).FontWeight(600).
+						TextColor(p.faint).MarginStart(2)
+					ui.Box(c).FillWidth().Radius(12).Background(p.detailBg).
+						Border(1, p.hairline).Clip().Children(func() {
+						ui.Column(c).Children(func() {
+							for i, row := range group.rows {
+								if i > 0 {
+									ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+								}
+								ui.Row(c).FillWidth().Height(40).Padding(0, 14).
+									AlignItems(ui.Center).Children(func() {
+									ui.Text(c, row[0]).FontSize(13).TextColor(p.text).SingleLine()
+									ui.Spacer(c)
+									a.keycap(c, p, row[1])
+								})
+							}
+						})
+					})
+				})
+			}
+		})
+	})
+}
+
+// keycap is the quiet bordered badge a shortcut is written in.
+func (a *app) keycap(c *ui.Context, p palette, keys string) {
+	ui.Box(c).Height(23).PaddingX(7).Radius(5).Center().
+		Background(p.bg).Border(1, p.hairline).Children(func() {
+		ui.Text(c, keys).FontSize(11.5).Font("monospace").TextColor(p.muted).SingleLine()
 	})
 }
 

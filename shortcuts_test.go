@@ -77,11 +77,19 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Cmd+Shift+F did not keep the search open")
 	}
 
-	// Cmd+, opens the settings page.
+	// Cmd+, opens the settings page, and Cmd+/ opens its keyboard tab.
 	tt.Key(ui.Cmd, ui.KeyComma)
 	tt.Frame()
 	if !a.layout.settingsOpen {
 		t.Fatal("Cmd+, did not open the settings")
+	}
+	tt.Key(ui.Cmd, ui.KeySlash)
+	tt.Frame()
+	if !a.layout.settingsOpen || a.layout.settingsTab != tabShortcuts {
+		t.Fatalf("Cmd+/ left the settings on tab %q", a.layout.settingsTab)
+	}
+	if !tt.HasText("Keyboard") || !tt.HasText("⌘B") || !tt.HasText("⌘F") {
+		t.Fatalf("the keyboard tab is missing its groups: %v", tt.Texts())
 	}
 }
 

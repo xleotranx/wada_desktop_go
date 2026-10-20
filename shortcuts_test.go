@@ -41,11 +41,32 @@ func TestAppShortcuts(t *testing.T) {
 		t.Fatalf("Cmd+2 opened %q", got)
 	}
 
-	// Cmd+P opens the Files pane the tools grid advertises.
+	// Cmd+O opens a folder and saves it as a project.
+	dir := t.TempDir()
+	a.runtime.pickFolder = func(done func(path string)) { done(dir) }
+	tt.Key(ui.Cmd, ui.KeyO)
+	tt.Frame()
+	if len(a.projectDirectories()) == 0 {
+		t.Fatal("Cmd+O did not add a project")
+	}
+
+	// Cmd+P opens the Files pane and puts the keyboard in its search
+	// field; Cmd+Shift+E folds that pane and brings it back.
 	tt.Key(ui.Cmd, ui.KeyP)
+	tt.Frame()
 	tt.Frame()
 	if but := a.layout.browserTool; but != "Files" || a.layout.browserCollapsed {
 		t.Fatalf("Cmd+P opened %q (collapsed=%v)", but, a.layout.browserCollapsed)
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyE)
+	tt.Frame()
+	if !a.layout.browserCollapsed {
+		t.Fatal("Cmd+Shift+E did not fold the file pane")
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyE)
+	tt.Frame()
+	if a.layout.browserCollapsed || a.layout.browserTool != "Files" {
+		t.Fatal("Cmd+Shift+E did not bring the file pane back")
 	}
 
 	// Ctrl+Shift+G opens Changes.
@@ -147,5 +168,29 @@ func TestShortcutsHoldWhileDialogsUp(t *testing.T) {
 	if a.layout.settingsOpen || a.layout.browserTool != "" {
 		t.Fatalf("a dialog shortcut opened panes: settings=%v tool=%q",
 			a.layout.settingsOpen, a.layout.browserTool)
+	}
+}
+
+// TestFileSearchShortcutFocusesField opens Files with a ready tree and a
+// quiet background so the search field is the thing the shortcut reaches.
+func TestFileSearchShortcutFocusesField(t *testing.T) {
+	a := newTestApp(t)
+	a.runtime.background = func(func() func()) {}
+	dir := a.chatDir()
+	if dir == "" {
+		dir = a.preferences.home
+	}
+	a.workspace.files = &filesState{
+		location: dir,
+		open:     map[string]bool{},
+		entries:  map[string][]opencode.FileEntry{".": {}},
+		loading:  map[string]bool{},
+	}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Key(ui.Cmd, ui.KeyP)
+	tt.Frame()
+	tt.Frame()
+	if !tt.Focused("Search files") {
+		t.Fatalf("Cmd+P did not focus the file search: %v", tt.Texts())
 	}
 }

@@ -527,6 +527,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Command palette", "⌘K"},
 			{"Settings", "⌘,"},
 			{"Keyboard shortcuts", "⌘/"},
+			{"Open a folder", "⌘O"},
 			{"Close a dialog or find", "Esc"},
 		}},
 		{"Chats", [][2]string{
@@ -547,7 +548,8 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 			{"Toggle tools", "⌘⇧J"},
 			{"Toggle full view", "⌘⇧F"},
 			{"Activity view", "⌥⌘U"},
-			{"Open Files", "⌘P"},
+			{"Search files", "⌘P"},
+			{"Toggle file pane", "⌘⇧E"},
 			{"Open Changes", "⌃⇧G"},
 			{"Move a focused divider", "← → / ↑ ↓"},
 			{"Reset a focused divider", "Home / End"},

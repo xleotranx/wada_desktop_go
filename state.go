@@ -135,6 +135,7 @@ type preferencesState struct {
 	notifyFinished      bool
 	notifyApprovals     bool
 	diffSplit           bool
+	filesWrap           bool
 	commandRecents      []string
 	metadata            *metadataWriter
 	metadataVersion     uint64

@@ -220,7 +220,8 @@ func (a *app) filesRead(rel string) {
 		buf := editor.NewBuffer(st.content)
 		buf.SetLanguage(editor.LanguageFor(rel))
 		st.viewer = &editor.State{Buffer: buf, ReadOnly: true, Label: "File preview",
-			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5}
+			Font: ui.Font{Family: "monospace", Size: 11.5}, LineHeight: 1.5,
+			SoftWrap: a.preferences.filesWrap}
 	})
 }
 
@@ -377,6 +378,7 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Children(func() {
 		ui.Text(c, line).FontSize(12).TextColor(p.faint).Grow(1).MinWidth(0).
 			SingleLine().Ellipsis("…")
+		a.filesWrapControl(c, p)
 		a.browserIconButton(c, p, "Copy file path", icCopy, a.copyFilesPath, false)
 		if a.localActive() {
 			a.browserIconButton(c, p, "Open in editor", icExternal, func() { a.openFileExternally(c) }, false)
@@ -393,6 +395,7 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 		ui.Text(c, st.content).FontSize(12).TextColor(p.muted)
 		return
 	}
+	st.viewer.SoftWrap = a.preferences.filesWrap
 	st.viewer.Theme = &editor.Theme{Background: p.bg, Text: p.muted, LineNumber: p.faint}
 	editor.View(c.Key("preview:"+st.path), st.viewer).FillWidth().Grow(1)
 }
@@ -430,6 +433,33 @@ func (a *app) filesShowInTree() {
 		}
 	}
 	a.filesCloseViewer()
+}
+
+// filesWrapControl wraps long lines in the viewer, or unwraps them; the
+// choice holds for the next file too.
+func (a *app) filesWrapControl(c *ui.Context, p palette) {
+	wrapped := a.preferences.filesWrap
+	label := "Wrap long lines"
+	if wrapped {
+		label = "Unwrap long lines"
+	}
+	c.Key("files-wrap")
+	b := ui.ButtonBase(c).Label(label).Size(26, 24).Radius(6).Center().
+		Cursor(ui.CursorPointer).Tooltip(label)
+	if b.Hovered() {
+		b.Background(p.hover)
+	} else if wrapped {
+		b.Background(p.selected)
+	}
+	b.OnClick(func() {
+		a.preferences.filesWrap = !wrapped
+		a.saveState()
+	})
+	tint := p.muted
+	if wrapped {
+		tint = p.orange
+	}
+	b.Children(func() { ui.Icon(c, icWrap).FontSize(13).TextColor(tint) })
 }
 
 // copyFilesPath puts the open file's path on the clipboard.

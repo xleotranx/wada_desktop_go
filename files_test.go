@@ -527,3 +527,40 @@ func TestFilesSearchKeyboard(t *testing.T) {
 		t.Fatalf("the changed query reopened %q", st.path)
 	}
 }
+
+// TestFilesWrapLongLines wraps and unwraps the viewer from its path row,
+// and keeps the choice for the next file.
+func TestFilesWrapLongLines(t *testing.T) {
+	srv, _ := filesServer(t)
+	a := newTestApp(t)
+	a.connections.servers = append(a.connections.servers, serverConn{id: "srv-box", name: "Build box", url: srv.URL})
+	a.connections.activeServer = "srv-box"
+	a.scope().sessions = []opencode.Session{{ID: "ses_r", Title: "Remote turn", Directory: "/srv/app"}}
+	a.conversation.target.selectSession("ses_r")
+	a.conversation.selected = "Remote turn"
+	a.openTool("Files")
+	a.filesRead("src/deep/notes.txt")
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	st := a.workspace.files
+	if st.viewer == nil {
+		t.Fatal("the read file built no viewer")
+	}
+	if a.preferences.filesWrap || st.viewer.SoftWrap {
+		t.Fatal("long lines started wrapped")
+	}
+	if err := tt.Click("Wrap long lines"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.preferences.filesWrap || !st.viewer.SoftWrap {
+		t.Fatalf("wrapping left %v/%v", a.preferences.filesWrap, st.viewer.SoftWrap)
+	}
+	if err := tt.Click("Unwrap long lines"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.preferences.filesWrap || st.viewer.SoftWrap {
+		t.Fatalf("unwrapping left %v/%v", a.preferences.filesWrap, st.viewer.SoftWrap)
+	}
+}

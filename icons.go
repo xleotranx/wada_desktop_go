@@ -60,6 +60,7 @@ var (
 	icArchive    = lucide.Archive()
 	icTree       = lucide.ListTree()
 	icCircle     = lucide.Circle()
+	icWrap       = lucide.TextWrap()
 )
 
 // iconRef adapts one of the shared icons to Onevra APIs that take an icon

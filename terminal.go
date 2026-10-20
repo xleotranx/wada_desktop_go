@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -104,15 +106,52 @@ func (a *app) toggleTerminal() {
 	a.ensureTerminal()
 }
 
+// localShells lists the login shells this machine offers, the user's own
+// first, from $SHELL and the system's /etc/shells. Missing programs are
+// left out.
+func localShells() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			return
+		}
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	add(os.Getenv("SHELL"))
+	if data, err := os.ReadFile("/etc/shells"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			add(line)
+		}
+	}
+	return out
+}
+
 // newTerminalTab opens another shell in the bottom panel.
 func (a *app) newTerminalTab() {
+	a.newTerminalTabWithShell("")
+}
+
+// newTerminalTabWithShell opens a shell of the chosen program; an empty
+// shell lets the terminal run the user's login shell as usual.
+func (a *app) newTerminalTabWithShell(shell string) {
 	if len(a.terminal.tabs) >= terminalTabLimit {
 		return
 	}
 	a.leaveFullView(false)
 	a.layout.settingsOpen = false
 	a.terminal.open = true
-	a.addTerminalTab()
+	tab := a.addTerminalTab()
+	tab.shell = shell
 	a.ensureTerminal()
 }
 
@@ -154,9 +193,14 @@ func (a *app) ensureTerminal() {
 	generation := tab.generation
 	tab.starting = true
 	id := tab.id
+	var command []string
+	if tab.shell != "" {
+		command = []string{tab.shell}
+	}
 	options := terminal.Options{
-		Dir:  dir,
-		Font: terminal.Font{Size: 12.5},
+		Dir:     dir,
+		Command: command,
+		Font:    terminal.Font{Size: 12.5},
 		OnTitle: func(title string) {
 			a.publishTerminal(func() {
 				if index := a.terminalTabIndex(id); index >= 0 && a.terminal.tabs[index].generation == generation {
@@ -337,6 +381,23 @@ func (a *app) terminalHeader(c *ui.Context, p palette) {
 			maxLabel, maxIcon = "Restore terminal", icCollapse
 		}
 		a.browserIconButton(c, p, maxLabel, maxIcon, a.toggleTerminalMaximize, false)
+		if len(a.terminal.shells) > 0 {
+			c.Key("terminal-shells")
+			shell := ui.ButtonBase(c).Label("New terminal with a shell").Size(22, 22).
+				Radius(6).Center().Tooltip("Choose a shell for a new terminal")
+			if shell.Hovered() {
+				shell.Background(p.hover)
+			}
+			shell.Menu(func(m *ui.Menu) {
+				for _, program := range a.terminal.shells {
+					label := "New terminal: " + filepath.Base(program)
+					if m.Item(label).Chosen() {
+						a.newTerminalTabWithShell(program)
+					}
+				}
+			})
+			shell.Children(func() { ui.Icon(c, icChevDown).FontSize(12).TextColor(p.muted) })
+		}
 		a.browserIconButton(c, p, "New terminal", icPlus, a.newTerminalTab,
 			len(a.terminal.tabs) >= terminalTabLimit)
 		a.browserIconButton(c, p, "Close terminal", icClose, a.closeTerminalTab,

@@ -145,7 +145,7 @@ func newApp() *app {
 			feed:              newFeed(),
 			findShownMatch:    -1,
 			settingsTab:       tabServers},
-		terminal: terminalState{height: terminalDefaultHeight, active: -1}}
+		terminal: terminalState{height: terminalDefaultHeight, active: -1, shells: localShells()}}
 	a.runtime.pickFolder = a.pickFolderDialog
 	a.runtime.pickExport = a.pickSaveDialog
 	a.runtime.pickAttach = a.pickAttachDialog

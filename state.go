@@ -26,6 +26,7 @@ type terminalState struct {
 	tabs      []*terminalTab
 	active    int
 	nextID    uint64
+	shells    []string
 }
 
 // terminalTab is one shell in the bottom panel.
@@ -33,6 +34,7 @@ type terminalTab struct {
 	id         uint64
 	term       *terminal.Terminal
 	title      string
+	shell      string
 	starting   bool
 	exited     bool
 	exitCode   int

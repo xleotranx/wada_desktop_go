@@ -86,7 +86,9 @@ Global OpenCode configuration is not rewritten by startup.
   window is in the background, raises one; clicking it opens that chat.
   Banners need a packaged build and the system's permission.
 - Queue: a message sent while the agent is working waits for the current turn
-  to finish, and the composer names how many messages are queued.
+  to finish, and the composer names how many messages are queued. Clicking that
+  pill lists the waiting messages in order; each runs as the turn before it
+  ends.
 - Drafts: every chat keeps its unsent composer words when switching tabs, and
   the new-chat draft does too. They survive restarts and clear once sent. A
   pencil marks chats and tabs holding words, and New chat wears a Draft badge.

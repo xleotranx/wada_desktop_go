@@ -33,7 +33,8 @@ layers. Do not change the external server protocol to simplify a refactor.
   the preference gates and the click that opens their chat.
 - `bell.go`: the notification center under the bell, its grouped rows and
   mark-all-read.
-- `queue.go`: prompts waiting behind the runner's one active turn.
+- `queue.go`: prompts waiting behind the runner's one active turn, and the
+  composer's list of them.
 - `drafts.go`: each chat's unsent composer words and their metadata.
 - `archive.go`: chats put away from the pinned and project lists, their
   filter, counts and persistence.

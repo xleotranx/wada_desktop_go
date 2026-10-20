@@ -84,9 +84,9 @@ type serverScope struct {
 	// archived hides chats from the pinned and project lists without
 	// deleting them; the Archived chats filter is where they come back.
 	archived map[string]bool
-	// queued counts accepted prompts waiting for the runner's one active
-	// turn to finish, per chat.
-	queued map[string]int
+	// queued holds the accepted prompts waiting for the runner's one
+	// active turn to finish, per chat, oldest first.
+	queued map[string][]string
 	// drafts holds each chat's unsent words, keyed by session id; the empty
 	// key is the new-chat composer.
 	drafts map[string]string
@@ -164,7 +164,7 @@ func (a *app) scopeFor(id string) *serverScope {
 	s := a.connections.scopes[id]
 	if s == nil {
 		s = &serverScope{pinned: map[string]bool{}, unread: map[string]bool{}, attention: map[string]bool{},
-			archived: map[string]bool{}, queued: map[string]int{}, drafts: map[string]string{}}
+			archived: map[string]bool{}, queued: map[string][]string{}, drafts: map[string]string{}}
 		a.connections.scopes[id] = s
 	}
 	return s
@@ -799,7 +799,7 @@ func (a *app) agentSend(text string) bool {
 	queued := !a.conversation.target.isDraft() && a.conversation.transcript.Busy() != ""
 	accepted := a.queueCommand(runner.Prompt{Session: a.conversation.target.session, Text: text, Directory: a.chatDir(), Agent: a.conversation.agent, Draft: a.conversation.target.revision, Model: opencode.ModelRef{ProviderID: def.ProviderID, ID: def.ID, Variant: def.Variant}}) == runner.Accepted
 	if accepted && queued {
-		a.queueTurn(string(a.conversation.target.session))
+		a.queueTurn(string(a.conversation.target.session), text)
 	}
 	return accepted
 }
@@ -1252,6 +1252,7 @@ func (a *app) adoptSession(s opencode.Session) {
 		label = "New chat"
 	}
 	a.conversation.selected = label
+	a.layout.queueOpen = false
 	a.stashDraft()
 	a.conversation.target.selectSession(chat.SessionID(s.ID))
 	a.restoreDraft(s.ID)
@@ -1352,6 +1353,7 @@ func (a *app) resetDraft(dir string) {
 	a.conversation.draftModel = opencode.ModelRef{}
 	a.conversation.commandError = ""
 	a.layout.projectPickerOpen = false
+	a.layout.queueOpen = false
 	a.scope().activeTab = ""
 	a.freshTranscript()
 	a.workspaceChanged()

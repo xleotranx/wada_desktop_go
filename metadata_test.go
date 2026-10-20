@@ -34,6 +34,7 @@ func TestMetadataSurvivesRestart(t *testing.T) {
 		browserW:   536,
 		terminalH:  248,
 		appearance: appearanceDark,
+		unread:     map[string][]string{localServerID: {"ses_1", "ses_2"}},
 		tabs: map[string][]chatTab{
 			localServerID: {{id: "ses_a", title: "Alpha"}, {id: "ses_b", title: "Beta"}},
 			"srv-one":     {{id: "ses_remote", title: "Remote chat"}},

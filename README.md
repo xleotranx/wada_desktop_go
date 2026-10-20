@@ -56,6 +56,7 @@ Global OpenCode configuration is not rewritten by startup.
 - Attention: chats that finish or ask for an approval while another chat is on
   show wear unread dots in the sidebar, tab strip and bell. Cmd+Shift+U marks
   the open chat unread or read; Cmd+Option+A visits the next marked chat.
+  Unread marks are saved across launches.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. The choice is saved.
 

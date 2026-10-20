@@ -24,6 +24,7 @@ func (a *app) markUnread(id string, attention bool) {
 	if attention {
 		scope.attention[id] = true
 	}
+	a.saveState()
 }
 
 // clearUnread marks one chat read, both its unread dot and its approval.
@@ -41,6 +42,7 @@ func (a *app) toggleUnread() {
 	}
 	if a.scope().unread[id] {
 		a.clearUnread(id)
+		a.saveState()
 		return
 	}
 	a.markUnread(id, false)
@@ -51,6 +53,7 @@ func (a *app) toggleUnread() {
 func (a *app) toggleSessionUnread(s opencode.Session) {
 	if a.scope().unread[s.ID] {
 		a.clearUnread(s.ID)
+		a.saveState()
 		return
 	}
 	a.markUnread(s.ID, false)

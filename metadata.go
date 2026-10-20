@@ -27,6 +27,7 @@ type appMetadata struct {
 	browserW    float32
 	terminalH   float32
 	appearance  string
+	unread      map[string][]string  // server id -> chats with news
 	tabs        map[string][]chatTab // server id -> its open conversations
 	activeTabs  map[string]string    // server id -> the conversation on show
 }
@@ -201,6 +202,14 @@ func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
 					}
 					state.activeTabs[strings.TrimPrefix(key, "active_tab:")] = value
 				}
+			case strings.HasPrefix(key, "unread:"):
+				var ids []string
+				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
+					if state.unread == nil {
+						state.unread = map[string][]string{}
+					}
+					state.unread[strings.TrimPrefix(key, "unread:")] = ids
+				}
 			}
 		}
 	}
@@ -213,7 +222,7 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		{SQL: "DELETE FROM session_pins"},
 		{SQL: "DELETE FROM servers"},
 		{SQL: "DELETE FROM disabled_models"},
-		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%'"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'tabs:%' OR key LIKE 'active_tab:%' OR key LIKE 'unread:%'"},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
 		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
@@ -230,6 +239,15 @@ func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
 		statements = append(statements, sqlite.Statement{
 			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
 			Args: []any{"active_tab:" + serverID, id},
+		})
+	}
+	for serverID, ids := range state.unread {
+		if len(ids) == 0 {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"unread:" + serverID, encodeIDs(ids)},
 		})
 	}
 	for i, dir := range state.projects {
@@ -305,6 +323,15 @@ func encodeTabs(tabs []chatTab) string {
 	return string(data)
 }
 
+// encodeIDs stores an unread list in a stable order, so two saves of the
+// same marks write the same preference.
+func encodeIDs(ids []string) string {
+	sorted := slices.Clone(ids)
+	slices.Sort(sorted)
+	data, _ := json.Marshal(sorted)
+	return string(data)
+}
+
 // Pending snapshots are replaced by the newest, and shutdown drains the queue.
 type metadataWrite struct {
 	state   appMetadata
@@ -362,6 +389,17 @@ func (a *app) stateSnapshot() appMetadata {
 				state.activeTabs = map[string]string{}
 			}
 			state.activeTabs[key] = scope.activeTab
+		}
+		if len(scope.unread) > 0 {
+			ids := make([]string, 0, len(scope.unread))
+			for id := range scope.unread {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			if state.unread == nil {
+				state.unread = map[string][]string{}
+			}
+			state.unread[key] = ids
 		}
 	}
 	for key := range a.connections.modelOff {
@@ -427,6 +465,15 @@ func (a *app) restoreState(state appMetadata) {
 	}
 	for id, pins := range state.pins {
 		a.scopeFor(id).setPins(pins)
+	}
+	for id, ids := range state.unread {
+		scope := a.scopeFor(id)
+		if scope.unread == nil {
+			scope.unread = map[string]bool{}
+		}
+		for _, sid := range ids {
+			scope.unread[sid] = true
+		}
 	}
 	for id, tabs := range state.tabs {
 		a.scopeFor(id).tabs = tabs

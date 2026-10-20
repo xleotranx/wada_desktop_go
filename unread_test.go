@@ -108,3 +108,20 @@ func TestUnreadKeyMarksTheOpenChat(t *testing.T) {
 		t.Fatal("Cmd+Shift+U did not mark it read again")
 	}
 }
+
+// TestUnreadSurvivesRestoration keeps the marks in the snapshot and puts
+// them back into their server's scope, sorted for a stable preference.
+func TestUnreadSurvivesRestoration(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().unread["ses_b"] = true
+	a.scope().unread["ses_a"] = true
+	snap := a.stateSnapshot()
+	if got := snap.unread[localServerID]; len(got) != 2 || got[0] != "ses_a" || got[1] != "ses_b" {
+		t.Fatalf("snapshot unread %v", got)
+	}
+	b := newTestApp(t)
+	b.restoreState(appMetadata{unread: map[string][]string{localServerID: {"ses_a", "ses_b"}}})
+	if !b.scope().unread["ses_a"] || !b.scope().unread["ses_b"] {
+		t.Fatalf("restored unread %v", b.scope().unread)
+	}
+}

@@ -17,6 +17,7 @@ func (s runnerSink) Status(status runner.Status) {
 	s.a.setHealth(s.a.connections.activeServer, h)
 	if status.State == healthReady {
 		s.a.setFacts(s.a.connections.activeServer, status.Facts)
+		s.a.ensureVcs()
 	}
 	if status.State == healthDown {
 		s.a.finishCutTurns()

@@ -25,7 +25,9 @@ Global OpenCode configuration is not rewritten by startup.
 
 - Conversations: list, search, paginate, create, restore, rename and delete.
 - Turns: streaming markdown, copy and quote actions on each message, stop, tool
-  activity, shell/edit approvals and usage.
+  activity, shell/edit approvals and usage. The title bar names the chat's
+  workspace folder and, once the server has answered its probe, its branch;
+  the read is cached per folder and clicking the chip opens Files.
 - Models: server catalogs, per-model enable switches, draft picks and reasoning
   variants. Settings and the composer share one filtering implementation. The
   composer's picker opens on the chat's model, takes a filter as it opens, and

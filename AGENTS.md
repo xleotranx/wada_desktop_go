@@ -10,6 +10,7 @@ layers. Do not change the external server protocol to simplify a refactor.
 
 - `main.go`: bootstrap, native window, theme installation, application queries/actions.
 - `appmenu.go`: the native menu bar and the UI-thread dispatch of its choices.
+- `vcs.go`: the workspace folder/branch chip and its per-folder cache.
 - `commands.go`: the Cmd+K command palette over actions, servers, projects and chats.
 - `state.go`: eight named UI-thread state owners: runtime, connections,
   conversation, workspace, preferences, search, layout and terminal.

@@ -503,6 +503,11 @@ func (a *app) topBar(c *ui.Context, p palette, headerH, barLeft float32) {
 				a.chatMenuButton(c, p, title)
 			}
 		}
+		if !a.layout.settingsOpen {
+			if dir := a.chatDir(); dir != "" && string(a.conversation.target.session) != "" {
+				a.workspaceChip(c, p, dir)
+			}
+		}
 		ui.Spacer(c)
 
 		a.navButton(c, p, fullLabel, fullIcon, a.toggleFullView, p.text)
@@ -1279,6 +1284,7 @@ func (a *app) adoptSession(s opencode.Session) {
 	// The pane's tools follow the folder on show, and another chat means
 	// another folder.
 	a.workspaceChanged()
+	a.ensureVcs()
 	a.saveState()
 }
 

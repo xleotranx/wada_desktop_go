@@ -115,6 +115,8 @@ type workspaceState struct {
 	policyTail                                      <-chan struct{}
 	changes                                         *changesState
 	files                                           *filesState
+	vcs                                             map[string]opencode.VCSInfo
+	vcsRequest                                      requestState
 	policyDir, policyLevel                          string
 	policyDirs                                      chan policyTarget
 	policyWrites                                    chan policyChange

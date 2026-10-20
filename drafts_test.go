@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"wada-desktop-go/internal/opencode"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // TestDraftsFollowTheirChats keeps unsent words with the chat they were
@@ -177,5 +179,49 @@ func TestClearingADraftForgetsIt(t *testing.T) {
 	a.adoptSession(a.scope().sessions[0])
 	if a.conversation.draft != "" {
 		t.Fatalf("cleared draft returned as %q", a.conversation.draft)
+	}
+}
+
+// TestDraftMarkers names the live draft over a stale stored one and clears
+// the marker when the words are sent.
+func TestDraftMarkers(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().sessions = []opencode.Session{{ID: "ses_a", Title: "Alpha"}}
+	a.conversation.target.selectSession("ses_a")
+	a.conversation.draft = "live words"
+	a.scope().drafts["ses_a"] = "old words"
+	if got := a.draftFor("ses_a"); got != "live words" {
+		t.Fatalf("the marker read %q", got)
+	}
+	if !a.hasDraft("ses_a") {
+		t.Fatal("the live draft has no marker")
+	}
+	if got := draftSnippet("one\n two   three"); got != "one two three" {
+		t.Fatalf("snippet %q", got)
+	}
+	if !a.send() {
+		t.Fatal("the draft was not sent")
+	}
+	if a.hasDraft("ses_a") {
+		t.Fatal("the marker outlived the sent draft")
+	}
+}
+
+// TestNewChatDraftMarker shows the badge beside New chat for the new-chat
+// composer, and only for it.
+func TestNewChatDraftMarker(t *testing.T) {
+	a := newTestApp(t)
+	a.scope().drafts[""] = "a new idea"
+	a.restoreDraft("")
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if !tt.HasText("Draft") {
+		t.Fatalf("the New chat row has no draft badge: %v", tt.Texts())
+	}
+	if err := tt.Click("New chat"); err != nil {
+		t.Fatal(err)
+	}
+	if a.conversation.draft != "a new idea" {
+		t.Fatalf("New chat opened %q", a.conversation.draft)
 	}
 }

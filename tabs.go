@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
@@ -205,6 +206,10 @@ func (a *app) chatTab(c *ui.Context, p palette, tab chatTab) {
 			tint := p.muted
 			if active {
 				tint = p.text
+			}
+			if draft := a.draftFor(tab.id); strings.TrimSpace(draft) != "" {
+				ui.Icon(c, icPen).FontSize(10).MarginEnd(5).TextColor(p.faint).
+					Tooltip("Draft: " + draftSnippet(draft))
 			}
 			ui.Text(c, title).FontSize(12.5).TextColor(tint).SingleLine().Ellipsis("…")
 			if scope := a.scope(); scope.unread[tab.id] {

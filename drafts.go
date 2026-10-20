@@ -37,3 +37,27 @@ func (a *app) restoreDraft(key string) {
 func (a *app) forgetDraft(key string) {
 	delete(a.scope().drafts, key)
 }
+
+// draftFor is the unsent text a row should advertise: the live composer
+// for the open chat, or the stored words for another.
+func (a *app) draftFor(id string) string {
+	if a.draftKey() == id {
+		return a.conversation.draft
+	}
+	return a.scope().drafts[id]
+}
+
+// hasDraft reports whether a chat or the new-chat composer holds words.
+func (a *app) hasDraft(id string) bool {
+	return strings.TrimSpace(a.draftFor(id)) != ""
+}
+
+// draftSnippet folds a draft onto one short line for a marker's tooltip.
+func draftSnippet(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) > 64 {
+		return string(runes[:64]) + "…"
+	}
+	return text
+}

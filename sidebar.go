@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 
@@ -343,9 +344,19 @@ func (a *app) newChatRow(c *ui.Context, p palette) {
 	b := a.row(c, p, "New chat", false)
 	b.Height(36)
 	b.OnClick(a.startNewChat)
+	if draft := a.draftFor(""); strings.TrimSpace(draft) != "" {
+		b.Tooltip("Draft: " + draftSnippet(draft))
+	}
 	b.Children(func() {
 		ui.Icon(c, icPen).FontSize(15).TextColor(p.orange)
 		ui.Text(c, "New chat").MarginStart(10).FontSize(13.5).FontWeight(500).SingleLine()
+		if a.hasDraft("") {
+			ui.Spacer(c)
+			ui.Box(c).Height(18).Radius(999).Padding(2, 7).
+				Background(p.detailBg).Children(func() {
+				ui.Text(c, "Draft").FontSize(10.5).TextColor(p.muted).SingleLine()
+			})
+		}
 	})
 }
 
@@ -701,6 +712,10 @@ func (a *app) chatRow(c *ui.Context, p palette, s opencode.Session, key string, 
 		ui.Icon(c, icChat).FontSize(13).TextColor(iconTint).Shrink(0)
 		ui.Text(c, label).MarginStart(8).FontSize(13.5).Grow(1).MinWidth(0).
 			SingleLine().Ellipsis("…")
+		if draft := a.draftFor(s.ID); strings.TrimSpace(draft) != "" {
+			ui.Icon(c, icPen).FontSize(11).MarginStart(6).TextColor(p.faint).
+				Tooltip("Draft: " + draftSnippet(draft))
+		}
 		if scope := a.scope(); scope.unread[s.ID] {
 			unreadDot(c, p, scope.attention[s.ID])
 		}

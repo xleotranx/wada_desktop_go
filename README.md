@@ -60,7 +60,8 @@ Global OpenCode configuration is not rewritten by startup.
 - Queue: a message sent while the agent is working waits for the current turn
   to finish, and the composer names how many messages are queued.
 - Drafts: every chat keeps its unsent composer words when switching tabs, and
-  the new-chat draft does too. They survive restarts and clear once sent.
+  the new-chat draft does too. They survive restarts and clear once sent. A
+  pencil marks chats and tabs holding words, and New chat wears a Draft badge.
 - Appearance: System follows the desktop, Light and Dark fix Onevra's warm
   palette across the chrome and every surface. Conversation text can be Small,
   Default, Large or Largest, with Cmd+= / Cmd+- / Cmd+0 shortcuts. Both choices

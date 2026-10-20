@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"wada-desktop-go/internal/opencode"
@@ -318,5 +319,34 @@ func TestChangesDiffStyle(t *testing.T) {
 	tt.Frame()
 	if a.preferences.diffSplit || a.workspace.changes.diff.Layout != editor.DiffUnified {
 		t.Fatalf("back to unified: %v, %v", a.preferences.diffSplit, a.workspace.changes.diff.Layout)
+	}
+}
+
+// TestChangesPreviewsTheSelectedFile hands the file under the patch to the
+// Files tool, keeping the Changes tab in the strip for the way back.
+func TestChangesPreviewsTheSelectedFile(t *testing.T) {
+	a := newTestApp(t)
+	a.runtime.background = func(func() func()) {}
+	a.layout.browserCollapsed, a.layout.browserTool = false, "Changes"
+	a.layout.paneTabs = []paneTab{{kind: "Changes"}}
+	a.workspace.changes = &changesState{mode: changesWorking, files: []opencode.Change{
+		{File: "cmd/wada/main.go", Patch: "@@ -1 +1 @@\n-a\n+b\n"},
+	}}
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.Click("Preview the selected file"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.layout.browserTool != "Files" || a.workspace.files == nil ||
+		a.workspace.files.path != "cmd/wada/main.go" {
+		t.Fatalf("the preview landed in %q at %+v", a.layout.browserTool, a.workspace.files)
+	}
+	kinds := []string{}
+	for _, tab := range a.layout.paneTabs {
+		kinds = append(kinds, tab.kind)
+	}
+	if !slices.Contains(kinds, "Changes") || !slices.Contains(kinds, "Files") {
+		t.Fatalf("the strip lost a tab: %v", kinds)
 	}
 }

@@ -204,6 +204,7 @@ func (a *app) changesBody(c *ui.Context, p palette) {
 		for _, part := range changesCounts(p, f.Additions, f.Deletions) {
 			ui.Text(c, part.text).Font("monospace").FontSize(11).TextColor(part.tint).Shrink(0)
 		}
+		a.previewChangeButton(c, p, f.File)
 		a.diffStyleControl(c, p)
 	})
 	layout := a.diffLayout()
@@ -296,6 +297,31 @@ func (a *app) diffStyleButton(c *ui.Context, p palette, label string, icon *ui.S
 		tint = p.text
 	}
 	b.Children(func() { ui.Icon(c, icon).FontSize(14).TextColor(tint) })
+}
+
+// previewChangeButton hands the selected file to the Files tool, so the
+// patch and the whole file sit one click apart; the Changes tab stays in
+// the strip.
+func (a *app) previewChangeButton(c *ui.Context, p palette, path string) {
+	c.Key("preview-change:" + path)
+	b := ui.ButtonBase(c).Label("Preview the selected file").Size(26, 24).Radius(6).Center().
+		Cursor(ui.CursorPointer).Tooltip("Preview in Files")
+	if b.Hovered() {
+		b.Background(p.selected)
+	}
+	b.OnClick(func() { a.previewChangedFile(path) })
+	b.Children(func() { ui.Icon(c, icFileDoc).FontSize(14).TextColor(p.muted) })
+}
+
+// previewChangedFile shows one changed file in the Files tool, growing
+// that tool's tree first when it has not run this session.
+func (a *app) previewChangedFile(path string) {
+	if path == "" {
+		return
+	}
+	a.openFiles()
+	a.openTool("Files")
+	a.filesRead(path)
 }
 
 // changesCount is one piece of a file's count line, colored by what it

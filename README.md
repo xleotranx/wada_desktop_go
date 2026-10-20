@@ -63,8 +63,9 @@ Global OpenCode configuration is not rewritten by startup.
   with the transcript's folded detail. Cmd+Option+U toggles the view.
 - Tools pane: Files, Changes, Activity and page previews stay open together in
   a tab strip, each with its own close action. Changes draws the selected
-  file's patch with its name and counts above it, and switches between a
-  unified and a split diff from that header; the choice is saved.
+  file's patch with its name and counts above it, opens that file in Files
+  from the header, and switches between a unified and a split diff; the
+  choice is saved.
 - Attention: chats that finish or ask for an approval while another chat is on
   show wear unread dots in the sidebar, tab strip and bell. Cmd+Shift+U marks
   the open chat unread or read; Cmd+Option+A visits the next marked chat.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"wada-desktop-go/internal/opencode"
 
@@ -159,7 +160,7 @@ func (a *app) quickOpenDialog(c *ui.Context, p palette) {
 
 func (a *app) quickOpenRow(c *ui.Context, p palette, entry opencode.FileEntry, selected bool) {
 	c.Key("quickopen:" + entry.Path)
-	b := ui.ButtonBase(c).Label("Open "+entry.Path).Height(30).Radius(7).
+	b := ui.ButtonBase(c).Label("Open "+entry.Path).Height(36).Radius(7).
 		Padding(0, 8).FillWidth().Justify(ui.Start).AlignItems(ui.Center).Gap(8).
 		Cursor(ui.CursorPointer)
 	if selected {
@@ -171,7 +172,13 @@ func (a *app) quickOpenRow(c *ui.Context, p palette, entry opencode.FileEntry, s
 	b.OnClick(func() { a.openQuickFile(entry.Path) })
 	b.Children(func() {
 		ui.Icon(c, icFileDoc).FontSize(13).TextColor(p.muted).Shrink(0)
-		ui.Text(c, entry.Path).FontSize(12.5).TextColor(p.text).
-			SingleLine().Ellipsis("…")
+		ui.Column(c).Grow(1).MinWidth(0).Gap(1).AlignItems(ui.Start).Children(func() {
+			ui.Text(c, filepath.Base(entry.Path)).FontSize(12.5).TextColor(p.text).
+				SingleLine().Ellipsis("…")
+			if dir := filepath.Dir(entry.Path); dir != "." && dir != "" {
+				ui.Text(c, dir).FontSize(10.5).TextColor(p.faint).
+					SingleLine().Ellipsis("…")
+			}
+		})
 	})
 }

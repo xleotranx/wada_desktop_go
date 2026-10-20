@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"wada-desktop-go/internal/opencode"
@@ -366,5 +367,45 @@ func TestFilesPaneKeepsHonestEdges(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("src") {
 		t.Fatalf("a refused file took the tree with it: %v", tt.Texts())
+	}
+}
+
+// TestFilesPaneActions copies the open file's path and hands it to the
+// desktop editor and file manager.
+func TestFilesPaneActions(t *testing.T) {
+	a := newTestApp(t)
+	a.runtime.background = func(func() func()) {}
+	dir := t.TempDir()
+	a.openTool("Files")
+	a.workspace.files = &filesState{
+		location: dir,
+		open:     map[string]bool{},
+		entries:  map[string][]opencode.FileEntry{".": {{Path: "main.go", Name: "main.go"}}},
+		loading:  map[string]bool{},
+		path:     "main.go",
+		content:  "package main",
+	}
+	var copied string
+	a.runtime.copy = func(text string) error { copied = text; return nil }
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	if err := tt.Click("Copy file path"); err != nil {
+		t.Fatal(err)
+	}
+	if copied != filepath.Join(dir, "main.go") {
+		t.Fatalf("copied %q", copied)
+	}
+	if err := tt.Click("Open in editor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Reveal in folder"); err != nil {
+		t.Fatal(err)
+	}
+	urls := tt.OpenedURLs()
+	if len(urls) != 2 {
+		t.Fatalf("opened %d URLs: %v", len(urls), urls)
+	}
+	if !strings.HasSuffix(urls[0], "/main.go") || !strings.Contains(urls[1], dir) || strings.HasSuffix(urls[1], "main.go") {
+		t.Fatalf("opened %v", urls)
 	}
 }

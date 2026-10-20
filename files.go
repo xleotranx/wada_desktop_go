@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 	"wada-desktop-go/internal/opencode"
@@ -335,7 +337,15 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 	if st.clipped {
 		line += fmt.Sprintf("  ·  the first %d KB", filesShown/1024)
 	}
-	ui.Text(c, line).FontSize(12).TextColor(p.faint).SingleLine().Ellipsis("…")
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Children(func() {
+		ui.Text(c, line).FontSize(12).TextColor(p.faint).Grow(1).MinWidth(0).
+			SingleLine().Ellipsis("…")
+		a.browserIconButton(c, p, "Copy file path", icCopy, a.copyFilesPath, false)
+		if a.localActive() {
+			a.browserIconButton(c, p, "Open in editor", icExternal, func() { a.openFileExternally(c) }, false)
+			a.browserIconButton(c, p, "Reveal in folder", icFolder, func() { a.revealFile(c) }, false)
+		}
+	})
 	if st.fileErr != "" {
 		ui.Text(c, st.fileErr).FontSize(12).TextColor(p.danger).SingleLine()
 		return
@@ -346,6 +356,47 @@ func (a *app) filesViewer(c *ui.Context, p palette) {
 	}
 	st.viewer.Theme = &editor.Theme{Background: p.bg, Text: p.muted, LineNumber: p.faint}
 	editor.View(c.Key("preview:"+st.path), st.viewer).FillWidth().Grow(1)
+}
+
+// copyFilesPath puts the open file's path on the clipboard.
+func (a *app) copyFilesPath() {
+	st := a.workspace.files
+	if st == nil || st.path == "" {
+		return
+	}
+	text := st.path
+	if a.localActive() {
+		text = filepath.Join(st.location, st.path)
+	}
+	if err := a.runtime.copy(text); err != nil {
+		a.notify(ui.Toast{Title: "Could not copy the path", Description: err.Error()})
+		return
+	}
+	a.notify(ui.Toast{Title: "File path copied"})
+}
+
+// openFileExternally hands the local file to the app registered for it.
+func (a *app) openFileExternally(c *ui.Context) {
+	st := a.workspace.files
+	if st == nil || st.path == "" || !a.localActive() {
+		return
+	}
+	a.openLocalPath(c, filepath.Join(st.location, st.path))
+}
+
+// revealFile opens the file's folder in the desktop's file manager.
+func (a *app) revealFile(c *ui.Context) {
+	st := a.workspace.files
+	if st == nil || st.path == "" || !a.localActive() {
+		return
+	}
+	abs := filepath.Join(st.location, st.path)
+	a.openLocalPath(c, filepath.Dir(abs))
+}
+
+// openLocalPath hands a local file or folder to its desktop handler.
+func (a *app) openLocalPath(c *ui.Context, path string) {
+	c.OpenURL((&url.URL{Scheme: "file", Path: path}).String())
 }
 
 // filesRows draws one folder's children, the unfolded folders' own under

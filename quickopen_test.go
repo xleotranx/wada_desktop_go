@@ -108,3 +108,28 @@ func TestQuickOpenArrowsChoose(t *testing.T) {
 		t.Fatal("the picker stayed open after Enter")
 	}
 }
+
+// TestQuickOpenShowsTheDirectory shows a result's folder under its name.
+func TestQuickOpenShowsTheDirectory(t *testing.T) {
+	a := newTestApp(t)
+	a.runtime.background = func(func() func()) {}
+	dir := a.chatDir()
+	if dir == "" {
+		dir = a.preferences.home
+	}
+	a.workspace.files = &filesState{
+		location: dir,
+		open:     map[string]bool{},
+		entries: map[string][]opencode.FileEntry{".": {
+			{Path: "cmd/server/main.go", Name: "main.go"},
+		}},
+		loading: map[string]bool{},
+	}
+	a.openQuickOpen()
+	tt := ui.NewTester(a.view, 1400, 920)
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText("main.go") || !tt.HasText("cmd/server") {
+		t.Fatalf("the result metadata is missing: %v", tt.Texts())
+	}
+}

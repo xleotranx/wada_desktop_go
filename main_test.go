@@ -405,7 +405,7 @@ func TestSidebarSearch(t *testing.T) {
 }
 
 // TestHeaderWiring drives the header shapes: the bell counts the
-// approvals waiting and takes the user to one, and the search chip aims
+// approvals waiting and lists them in its panel, and the search chip aims
 // the field the way the product menu does.
 func TestHeaderWiring(t *testing.T) {
 	a := newTestApp(t)
@@ -424,7 +424,8 @@ func TestHeaderWiring(t *testing.T) {
 		t.Fatal("the field did not take the focus")
 	}
 
-	// With an approval waiting, the bell names it and opens its chat.
+	// With an approval waiting, the bell names it and opens the panel
+	// listing it.
 	a.scope().sessionsLoaded = true
 	a.scope().sessions = []opencode.Session{{ID: "ses_z", Title: "Wired turn"}}
 	a.conversation.transcript.Ask(&chat.Permission{ID: "per_5", Session: "ses_z", Action: "shell"})
@@ -435,16 +436,17 @@ func TestHeaderWiring(t *testing.T) {
 	if err := tt.Click("Notifications, 1 approvals waiting"); err != nil {
 		t.Fatal(err)
 	}
-	if a.conversation.target.session != "ses_z" || a.conversation.selected != "Wired turn" {
-		t.Fatalf("bell click landed on %q %q", a.conversation.target.session, a.conversation.selected)
+	tt.Frame()
+	if !a.layout.bellOpen || !tt.HasText("Waiting in this chat") {
+		t.Fatalf("the bell did not list the approval: %v", tt.Texts())
 	}
-	select {
-	case job := <-commandsOf(a):
-		if job.kind != "open" || job.sid != "ses_z" {
-			t.Fatalf("bell job %+v", job)
-		}
-	default:
-		t.Fatal("the bell did not queue the open")
+	if err := tt.Click("Show the approval: run a shell command"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.layout.bellOpen || a.conversation.target.session != "ses_z" {
+		t.Fatalf("picking the approval left the panel up or moved the chat to %q",
+			a.conversation.target.session)
 	}
 
 	// The quiet bell, nothing pending, shows no badge.

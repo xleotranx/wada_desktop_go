@@ -31,6 +31,8 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `unread.go`: background chat and approval marks, the bell and their navigation.
 - `notifications.go`: the desktop banners for background turns and approvals,
   the preference gates and the click that opens their chat.
+- `bell.go`: the notification center under the bell, its grouped rows and
+  mark-all-read.
 - `queue.go`: prompts waiting behind the runner's one active turn.
 - `drafts.go`: each chat's unsent composer words and their metadata.
 - `chattext.go`: the saved conversation text size and its shortcuts.

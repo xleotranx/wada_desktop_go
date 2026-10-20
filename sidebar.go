@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"
 
 	"github.com/egoist/mygo/ui"
@@ -293,34 +292,17 @@ func (a *app) serverPill(c *ui.Context, p palette) {
 }
 
 // bellButton shows the approvals waiting: its badge counts them, and a
-// click takes the user to the chat that asked.
+// click opens the notification center under it.
 func (a *app) bellButton(c *ui.Context, p palette) {
 	asks := len(a.conversation.transcript.Pending())
 	attention, unread := a.unreadCounts()
 	total := asks + unread
-	label := "Notifications"
-	switch {
-	case asks > 0 && unread > 0:
-		label = fmt.Sprintf("Notifications, %d approvals waiting, %d unread chats", asks, unread)
-	case asks > 0:
-		label = fmt.Sprintf("Notifications, %d approvals waiting", asks)
-	case attention > 0 && attention == unread:
-		label = fmt.Sprintf("Notifications, %d unread chats needing attention", unread)
-	case attention > 0:
-		label = fmt.Sprintf("Notifications, %d unread chats, %d needing attention", unread, attention)
-	case unread > 0:
-		label = fmt.Sprintf("Notifications, %d unread chats", unread)
-	}
-	b := ui.ButtonBase(c).Label(label).Size(32, 32).Radius(9).Center().
-		Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label(a.bellLabel()).Size(32, 32).Radius(9).Center().
+		Cursor(ui.CursorPointer).Tooltip("Notifications")
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
-	if asks > 0 {
-		b.OnClick(a.openAnAsk)
-	} else if unread > 0 {
-		b.OnClick(a.openNextMarked)
-	}
+	b.OnClick(func() { a.layout.bellOpen = !a.layout.bellOpen })
 	b.Children(func() {
 		ui.Icon(c, icBell).FontSize(17).TextColor(p.text)
 		if total > 0 {
@@ -335,25 +317,7 @@ func (a *app) bellButton(c *ui.Context, p palette) {
 			})
 		}
 	})
-}
-
-// openAnAsk takes the user to a chat with an approval waiting, the one
-// the store lists first.
-func (a *app) openAnAsk() {
-	a.layout.settingsOpen = false
-	keys := make([]chat.PermissionID, 0, len(a.conversation.transcript.Pending()))
-	for k := range a.conversation.transcript.Pending() {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	ask := a.conversation.transcript.Pending()[keys[0]]
-	for _, session := range a.scope().sessions {
-		if session.ID == string(ask.Session) {
-			a.openConversation(session)
-			return
-		}
-	}
-	a.openConversation(opencode.Session{ID: string(ask.Session)})
+	a.bellPanel(c, p, b)
 }
 
 // newChatRow starts a fresh chat.

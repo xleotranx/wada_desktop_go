@@ -212,6 +212,7 @@ type viewState struct {
 	slashSelected      int
 	slashSeen          string
 	mention            mentionState
+	bellOpen           bool
 	shortcutOpen       bool
 	shortcutRecord     string
 	// fullView hides the side panes for a conversation-only page, keeping

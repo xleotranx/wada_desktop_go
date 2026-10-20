@@ -67,8 +67,11 @@ Global OpenCode configuration is not rewritten by startup.
   from the header, and switches between a unified and a split diff; the
   choice is saved.
 - Attention: chats that finish or ask for an approval while another chat is on
-  show wear unread dots in the sidebar, tab strip and bell. Cmd+Shift+U marks
-  the open chat unread or read; Cmd+Option+A visits the next marked chat.
+  show wear unread dots in the sidebar, tab strip and bell. The bell opens a
+  notification center listing approvals waiting in this chat, chats needing
+  attention and unread chats, each opening on click; Mark all read clears what
+  has been seen but keeps the chats still blocked on an approval. Cmd+Shift+U
+  marks the open chat unread or read; Cmd+Option+A visits the next marked chat.
   Unread marks are saved across launches.
 - Notifications: the General settings tab turns desktop banners for finished
   turns and approvals on or off. A chat off screen, or the open chat while the

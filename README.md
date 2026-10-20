@@ -40,7 +40,8 @@ Global OpenCode configuration is not rewritten by startup.
 - Shell policy: read and update the selected workspace's OpenCode configuration,
   locally or through the remote API. Unreadable configuration is not overwritten.
 - Navigation: the rail and sidebar, plus a Cmd+K command palette over actions,
-  servers, projects and conversations. Opened chats stay in a tab strip that
+  servers, projects and conversations. Its scope rows or `>` / `@` prefixes
+  narrow the palette to commands or chats. Opened chats stay in a tab strip that
   comes back with its last active tab on the next launch; Ctrl+Tab and
   Ctrl+Shift+Tab cycle it, and Cmd+Shift+T reopens the last closed tab. Cmd+F
   finds text in the open transcript and Cmd+Option+F searches chats. Toasts

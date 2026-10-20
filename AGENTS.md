@@ -35,6 +35,7 @@ layers. Do not change the external server protocol to simplify a refactor.
 - `quickopen.go`: the centered file picker and its search.
 - `slash.go`: local composer commands, suggestions and their help sheet.
 - `chatfilter.go`: the sidebar filters for unread, attention and drafts.
+- `commandscope.go`: the command palette’s command/chat scopes and prefixes.
 - `recentfiles.go`: the quick picker’s recently opened files per workspace.
 - `keymap.go`: remappable window shortcuts, their recorder and persistence.
 - `appearance.go`: the saved System/Light/Dark palette and MyGo theme source.

@@ -190,6 +190,7 @@ type viewState struct {
 	composerFocus      bool
 	toasts             []ui.Toast
 	commandOpen        bool
+	commandScope       string
 	commands           command.State
 	quickOpen          bool
 	quickFocus         bool

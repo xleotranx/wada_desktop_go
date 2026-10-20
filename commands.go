@@ -17,6 +17,7 @@ const commandChatLimit = 200
 // so the first keystrokes search rather than continue the last search.
 func (a *app) openCommandPalette() {
 	a.layout.commandOpen = true
+	a.layout.commandScope = ""
 	a.layout.commands.Query = ""
 	a.layout.commands.ActiveID = ""
 }
@@ -30,14 +31,30 @@ func (a *app) commandDialog(c *ui.Context) {
 	if a.layout.commandOpen {
 		items = a.commandItems()
 	}
+	placeholder := "Search commands and chats"
+	switch a.layout.commandScope {
+	case commandScopeCommands:
+		placeholder = "Search commands"
+	case commandScopeChats:
+		placeholder = "Search chats and projects"
+	}
 	command.CommandDialog(c, &a.layout.commandOpen, &a.layout.commands, items, command.Options{
 		SearchLabel:  "Command palette",
-		Placeholder:  "Search commands, chats and projects",
-		ResultsLabel: "Commands",
+		Placeholder:  placeholder + " ( > commands · @ chats )",
+		ResultsLabel: a.commandScopeLabel(),
 		EmptyText:    "No command matches.",
-		// Executing a command closes the palette; Escape and backdrop
-		// dismissal are the dialog's own.
+		Filter:       a.filterCommandItems,
+		// Executing a command closes the palette; choosing a scope keeps
+		// it open with the list narrowed. Escape and backdrop dismissal are
+		// the dialog's own.
 		OnActivate: func(id string) {
+			if scope, ok := commandScopeIDs[id]; ok {
+				a.layout.commandScope = scope
+				a.layout.commands.Query = ""
+				a.layout.commands.ActiveID = ""
+				a.layout.commands.Focus()
+				return
+			}
 			a.layout.commandOpen = false
 			a.runCommand(id)
 		},
@@ -52,7 +69,8 @@ func (a *app) commandItems() []command.Item {
 	if id := string(a.conversation.target.session); id != "" && a.scope().unread[id] {
 		unreadTitle = "Mark chat as read"
 	}
-	items := []command.Item{
+	items := commandScopeItems()
+	items = append(items, []command.Item{
 		{ID: "action:new-chat", Title: "New chat", Group: "Actions",
 			Description: "Start a draft in a new conversation", Shortcut: "⌘N",
 			Icon: icPen, Keywords: []string{"draft", "start", "compose"}},
@@ -109,7 +127,7 @@ func (a *app) commandItems() []command.Item {
 		{ID: "action:terminal", Title: "Toggle terminal", Group: "Tools",
 			Description: "Open the shell beneath the chat", Shortcut: "⌘J", Icon: icTerminal,
 			Keywords: []string{"shell", "console", "bottom", "panel"}},
-	}
+	}...)
 	if a.layout.browserCollapsed {
 		items = append(items, command.Item{ID: "action:show-tools", Title: "Show tools",
 			Group: "View", Description: "Open the pane beside the chat", Shortcut: "⌘⇧J", Icon: icPanelRight})

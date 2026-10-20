@@ -50,6 +50,7 @@ var (
 	icActivity   = lucide.Activity()
 	icFilter     = lucide.Funnel()
 	icExternal   = lucide.ExternalLink()
+	icCommand    = lucide.Command()
 	icAppearance = lucide.Palette()
 	icSun        = lucide.Sun()
 	icMoon       = lucide.Moon()

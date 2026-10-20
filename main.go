@@ -536,6 +536,22 @@ func (a *app) chatMenuButton(c *ui.Context, p palette, title string) {
 		if m.Item("Export transcript…").Chosen() {
 			a.exportTranscript()
 		}
+		m.Separator()
+		pinLabel := "Pin chat"
+		if a.scope().pinned[sid] {
+			pinLabel = "Unpin from Pinned"
+		}
+		if m.Item(pinLabel).Chosen() {
+			a.togglePin(opencode.Session{ID: sid, Title: title})
+		}
+		unreadLabel := "Mark as unread"
+		if a.scope().unread[sid] {
+			unreadLabel = "Mark as read"
+		}
+		if m.Item(unreadLabel).Chosen() {
+			a.toggleSessionUnread(opencode.Session{ID: sid, Title: title})
+		}
+		m.Separator()
 		if m.Item(a.archiveLabel(sid)).Chosen() {
 			a.toggleArchiveChat(opencode.Session{ID: sid, Title: title})
 		}

@@ -65,12 +65,13 @@ Global OpenCode configuration is not rewritten by startup.
   and restores the panes on exit. The chosen sizes carry across restarts.
 - Terminal: a bottom panel of up to six shells, each starting in the chat's
   local folder. Tabs keep running while folded away, each closes from its own
-  cross, and Cmd+J or Ctrl+` toggles the panel. Its header can maximize or
-  restore it.
+  cross or a right-click (that tab, the others, or all of them), and Cmd+J or
+  Ctrl+` toggles the panel. Its header can maximize or restore it.
 - Activity: a live list of the turn's tool calls and approvals, newest first,
   with the transcript's folded detail. Cmd+Option+U toggles the view.
 - Tools pane: Files, Changes, Activity and page previews stay open together in
-  a tab strip, each with its own close action. Changes draws the selected
+  a tab strip, each with its own close action, and a right-click on a tab
+  closes it, the others or the strip. Changes draws the selected
   file's patch with its name and counts above it, opens that file in Files
   from the header, and switches between a unified and a split diff; the
   choice is saved. The header's actions menu also hands the file to this

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -111,6 +112,24 @@ func (a *app) showPageAddress(address string) {
 	a.layout.browserAddress = address
 }
 
+// closePaneTabsExcept leaves one tab and closes the rest, showing the one
+// that stayed.
+func (a *app) closePaneTabsExcept(index int) {
+	if index < 0 || index >= len(a.layout.paneTabs) {
+		return
+	}
+	kept := a.layout.paneTabs[index]
+	a.layout.paneTabs = []paneTab{kept}
+	a.activatePaneTab(kept)
+}
+
+// closeAllPaneTabs folds the pane as closing its last tab does.
+func (a *app) closeAllPaneTabs() {
+	a.layout.paneTabs = nil
+	a.layout.browserTool, a.layout.browserPage, a.layout.browserAddress = "", "", ""
+	a.layout.browserCollapsed = true
+}
+
 // browserPane is the native tools and page surface beside the conversation.
 func (a *app) browserPane(c *ui.Context, p palette, headerH float32) {
 	ui.Column(c).FillWidth().FillHeight().Background(p.bg).Children(func() {
@@ -133,7 +152,9 @@ func (a *app) paneTabsBar(c *ui.Context, p palette) {
 	}
 	ui.Row(c).FillWidth().Height(32).Padding(0, 8).Gap(2).
 		AlignItems(ui.Center).Background(p.sidebarBg).Children(func() {
-		for i, tab := range a.layout.paneTabs {
+		// A menu choice closes tabs while this strip is drawn, so walk a
+		// copy rather than the state it rewrites.
+		for i, tab := range slices.Clone(a.layout.paneTabs) {
 			a.paneTabButton(c, p, i, tab)
 		}
 	})
@@ -151,6 +172,17 @@ func (a *app) paneTabButton(c *ui.Context, p palette, index int, tab paneTab) {
 	} else if row.Hovered() {
 		row.Background(p.hover)
 	}
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Close tab").Chosen() {
+			a.closePaneTab(index)
+		}
+		if m.Item("Close other tabs").Chosen() {
+			a.closePaneTabsExcept(index)
+		}
+		if m.Item("Close all tabs").Chosen() {
+			a.closeAllPaneTabs()
+		}
+	})
 	row.Children(func() {
 		open := ui.ButtonBase(c).Label("Open "+title).Height(26).Radius(6).
 			Padding(0, 8).Justify(ui.Start).Grow(1).Shrink(1).MinWidth(0)

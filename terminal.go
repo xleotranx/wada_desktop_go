@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -242,6 +243,33 @@ func (a *app) closeTerminalTabAt(index int) {
 	a.ensureTerminal()
 }
 
+// closeOtherTerminalTabs stops every shell but one, which stays on show.
+func (a *app) closeOtherTerminalTabs(index int) {
+	if index < 0 || index >= len(a.terminal.tabs) {
+		return
+	}
+	kept := a.terminal.tabs[index]
+	for i, tab := range a.terminal.tabs {
+		if i != index {
+			a.stopTerminalTab(tab)
+		}
+	}
+	a.terminal.tabs = []*terminalTab{kept}
+	a.terminal.active = 0
+	kept.focus = true
+	a.ensureTerminal()
+}
+
+// closeAllTerminalTabs stops every shell and folds the panel.
+func (a *app) closeAllTerminalTabs() {
+	for _, tab := range a.terminal.tabs {
+		a.stopTerminalTab(tab)
+	}
+	a.terminal.tabs = nil
+	a.terminal.active = -1
+	a.terminal.open = false
+}
+
 // closeTerminal releases every shell when the window closes.
 func (a *app) closeTerminal() {
 	for _, tab := range a.terminal.tabs {
@@ -298,7 +326,9 @@ func (a *app) terminalHeader(c *ui.Context, p palette) {
 	ui.Row(c).FillWidth().Height(terminalHeaderHeight).Padding(0, 10).
 		AlignItems(ui.Center).Gap(5).Children(func() {
 		ui.Icon(c, icTerminal).FontSize(14).TextColor(p.muted).Shrink(0)
-		for i, tab := range a.terminal.tabs {
+		// A menu choice closes shells while this strip is drawn, so walk a
+		// copy rather than the state it rewrites.
+		for i, tab := range slices.Clone(a.terminal.tabs) {
 			a.terminalTabButton(c, p, i, tab)
 		}
 		ui.Spacer(c)
@@ -325,6 +355,17 @@ func (a *app) terminalTabButton(c *ui.Context, p palette, index int, tab *termin
 	} else if row.Hovered() {
 		row.Background(p.hover)
 	}
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Close tab").Chosen() {
+			a.closeTerminalTabAt(index)
+		}
+		if m.Item("Close other tabs").Chosen() {
+			a.closeOtherTerminalTabs(index)
+		}
+		if m.Item("Close all tabs").Chosen() {
+			a.closeAllTerminalTabs()
+		}
+	})
 	row.Children(func() {
 		open := ui.ButtonBase(c).Label(label).Height(24).Radius(6).Padding(0, 8).
 			Grow(1).Shrink(1).MinWidth(0).Tooltip(label)

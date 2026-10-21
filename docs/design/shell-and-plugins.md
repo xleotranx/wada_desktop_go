@@ -128,11 +128,14 @@ each time the palette opens.
 
 ## Workspace
 
-`internal/plugins/workspace` requires `agent.ServiceKey`, `chat.ControllerKey` and
-`shell.HostKey`, and provides `workspace.ServiceKey`: the app's own record of the
+`internal/plugins/workspace` (locked) requires `agent.ServiceKey`, `chat.ControllerKey`
+and `shell.HostKey`, and provides `workspace.ServiceKey`: the app's own record of the
 folders the user works in and of the conversations started in this app. The backend
 keeps the messages; the record says which conversations are the app's and where they
-belong, so the sidebar, the palette and the notifications show nothing else.
+belong, so the sidebar, the palette and the notifications show nothing else. It and the
+sidebar list are locked: without them the app would keep no record of its
+conversations and offer no way back to one. Like Chat, they still become Blocked
+while no backend is active.
 
 - It records a conversation on `chat.Started`, with the folder the user chose (empty
   for the backend's default, and for a folder that isn't absolute) and the backend's origin (`agent.Status.Origin`). A chosen
@@ -185,7 +188,7 @@ CREATE TABLE conversations (
 
 ## Sessions and settings
 
-`internal/plugins/sessions` requires the workspace record and contributes the sidebar
+`internal/plugins/sessions` (locked) requires the workspace record and contributes the sidebar
 list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). Above
 the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
 button and the search field. The field is a button that runs `shell.SearchCommand`

@@ -52,7 +52,7 @@ type Plugin struct {
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "sessions", Title: "Conversations",
+		ID: "sessions", Title: "Conversations", Locked: true,
 		Description: "The conversation list in the sidebar, grouped by folder.",
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
 	}

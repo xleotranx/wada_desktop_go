@@ -274,3 +274,10 @@ func TestSearchFieldFiltersWithoutASearchCommand(t *testing.T) {
 		t.Fatalf("no inline search field: %q", tt.Texts())
 	}
 }
+
+func TestTheListCannotBeTurnedOff(t *testing.T) {
+	h, _, _, _, _, _ := start(t)
+	if err := h.Disable("sessions"); err == nil {
+		t.Fatal("the conversation list was disabled")
+	}
+}

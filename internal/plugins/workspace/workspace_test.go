@@ -271,3 +271,10 @@ func TestSyncStopsBeforeTheRecordAndRetriesAfterAFailure(t *testing.T) {
 		t.Fatalf("s1 %+v calls %q", c, f.a.Calls())
 	}
 }
+
+func TestTheRecordCannotBeTurnedOff(t *testing.T) {
+	f := start(t, t.TempDir())
+	if err := f.h.Disable("workspace"); err == nil {
+		t.Fatal("the workspace record was disabled")
+	}
+}

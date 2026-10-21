@@ -65,7 +65,7 @@ var _ workspace.Service = (*Plugin)(nil)
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "workspace", Title: "Folders",
+		ID: "workspace", Title: "Folders", Locked: true,
 		Description: "The folders you work in and the conversations started in this app.",
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey},
 		Provides:    []kernel.Named{workspace.ServiceKey},

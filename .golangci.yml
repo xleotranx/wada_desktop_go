@@ -22,6 +22,21 @@ linters:
           files: ["**/internal/kernel/**/*.go", "!$test"]
           list-mode: strict
           allow: ["$gostd", "wada-desktop-go/internal/kernel"]
+        contract:
+          files: ["**/internal/contract/**/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "wada-desktop-go/internal/kernel", "wada-desktop-go/internal/contract"]
+        plugins:
+          files: ["**/internal/plugins/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "wada-desktop-go/internal/kernel"
+            - "wada-desktop-go/internal/contract"
+            - "wada-desktop-go/internal/shell"
+            - "wada-desktop-go/internal/native"
         chat:
           files: ["**/internal/chat/*.go", "!$test"]
           list-mode: strict

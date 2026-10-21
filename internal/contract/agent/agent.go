@@ -1,0 +1,251 @@
+// Package agent is the backend contract: what a chat backend plugin provides
+// and what consumers may rely on. It holds declarations only.
+//
+// A backend plugin provides ServiceKey, and optionally ModelsKey and ModesKey.
+// It owns its connection: it connects, reconnects, and publishes Status and
+// event batches on the UI thread through the kernel. Consumers call Service
+// methods off the UI thread (from kernel.Go work) and listen to Events.
+package agent
+
+import (
+	"context"
+	"errors"
+
+	"wada-desktop-go/internal/kernel"
+)
+
+var (
+	ServiceKey = kernel.NewKey[Service]("agent.service")
+	ModelsKey  = kernel.NewKey[Models]("agent.models") // optional
+	ModesKey   = kernel.NewKey[Modes]("agent.modes")   // optional
+
+	// Events carries ordered batches of normalized events from the current
+	// connection, emitted on the UI thread.
+	Events = kernel.NewTopic[[]Event]("agent.events")
+	// StatusChanged is emitted on the UI thread whenever Status changes.
+	StatusChanged = kernel.NewTopic[Status]("agent.status")
+)
+
+// ErrNotConnected is returned by Service methods while there is no connection.
+var ErrNotConnected = errors.New("the agent is not connected")
+
+// Service is the chat capability every backend provides.
+//
+// Methods other than Status are safe to call from any goroutine and block on
+// I/O. Backends never retry a mutation (Create, Send, Abort, Reply, Rename,
+// Delete) on their own: when a mutation fails, its outcome on the server is
+// unknown, and the caller decides what to do.
+type Service interface {
+	// Status reports the connection. Call it on the UI thread.
+	Status() Status
+
+	Sessions(ctx context.Context, q SessionQuery) (SessionPage, error)
+	// Create opens a conversation. If it was created but a later step (such as
+	// choosing its model) failed, Create returns the session with the error.
+	Create(ctx context.Context, req CreateSession) (Session, error)
+	Messages(ctx context.Context, session SessionID) ([]Message, error)
+	// Send queues one user turn. The answer arrives through Events.
+	Send(ctx context.Context, req Send) error
+	Abort(ctx context.Context, session SessionID) error
+	Reply(ctx context.Context, req Reply) error
+	Rename(ctx context.Context, session SessionID, title string) error
+	Delete(ctx context.Context, session SessionID) error
+}
+
+// Models is the optional model catalog capability.
+type Models interface {
+	Models(ctx context.Context) ([]Model, error)
+	// DefaultModel is what the backend runs when no model is chosen.
+	DefaultModel(ctx context.Context) (ModelRef, error)
+	SetModel(ctx context.Context, session SessionID, model ModelRef) error
+}
+
+// Modes is the optional capability of running a conversation under a named
+// agent mode (OpenCode's "build" and "plan").
+type Modes interface {
+	Modes(ctx context.Context) ([]Mode, error)
+}
+
+// ---- Connection
+
+type ConnState uint8
+
+const (
+	Stopped    ConnState = iota // not trying to connect
+	Connecting                  // an attempt is starting
+	Ready                       // connected; events flow
+	Down                        // the attempt failed or dropped; a retry is scheduled
+)
+
+type Status struct {
+	State ConnState
+	// Attempt increases with every connection attempt. Consumers holding
+	// server state reload it when a new attempt becomes Ready, since events
+	// may have been missed in between.
+	Attempt  uint64
+	Endpoint string // where the backend listens, for display
+	Version  string // the backend's own version, when known
+	Err      error  // why the attempt is Down
+}
+
+// ---- Identity
+
+type (
+	SessionID  string
+	MessageID  string
+	ApprovalID string
+)
+
+type ModelRef struct{ Provider, ID, Variant string }
+
+func (m ModelRef) IsZero() bool { return m.ID == "" }
+
+type Model struct {
+	Ref      ModelRef // Variant empty
+	Name     string
+	Variants []string
+	Free     bool
+}
+
+type Mode struct{ ID, Name, Description string }
+
+// ---- Sessions and messages
+
+type Session struct {
+	ID        SessionID
+	Title     string
+	Directory string // where the conversation works; empty for the backend's default
+	Updated   int64  // Unix milliseconds
+	Model     ModelRef
+	Cost      float64
+}
+
+type SessionQuery struct {
+	Cursor    string // empty for the newest page
+	Search    string // matches titles
+	Directory string // only conversations in this directory
+}
+
+type SessionPage struct {
+	Sessions []Session // newest first
+	Next     string    // cursor of the next page; empty at the end
+}
+
+type CreateSession struct {
+	Directory string
+	Model     ModelRef // zero for the backend's default
+	Mode      string   // empty for the backend's default
+}
+
+type Send struct {
+	Session SessionID
+	Text    string
+}
+
+type Decision uint8
+
+const (
+	Once Decision = iota
+	Always
+	Reject
+)
+
+type Reply struct {
+	Session  SessionID
+	Approval ApprovalID
+	Decision Decision
+}
+
+type Role uint8
+
+const (
+	RoleOther Role = iota // a stored entry the transcript doesn't show
+	RoleUser
+	RoleAssistant
+)
+
+type Message struct {
+	ID     MessageID
+	Role   Role
+	Text   string // the user's words
+	Parts  []Part // the assistant's answer
+	Model  ModelRef
+	Cost   float64
+	Tokens Tokens
+}
+
+type Tokens struct{ Output, Reasoning int }
+
+type PartKind uint8
+
+const (
+	PartOther PartKind = iota
+	PartText
+	PartReasoning
+	PartTool
+)
+
+type Part struct {
+	Kind PartKind
+	Text string // PartText, PartReasoning
+	Tool *Tool  // PartTool
+}
+
+// Tool is one tool call, complete in a stored message or partial in an event.
+type Tool struct {
+	ID        string
+	Name      string
+	Command   string   // the shell command, for shell-like tools
+	Output    []string // text output, in the pieces the backend produced
+	Status    string   // the backend's own word, e.g. "completed"
+	Exit      int
+	Truncated bool
+}
+
+// ---- Events
+
+type EventKind uint8
+
+const (
+	TextStarted       EventKind = iota // Text: Message, Ordinal
+	TextDelta                          // Text: Message, Ordinal, Delta
+	TextEnded                          // Text: Message, Ordinal, Text (complete)
+	ToolStarted                        // Tool: ID, Name
+	ToolCalled                         // Tool: ID, Name, Command
+	ToolFinished                       // Tool: complete
+	ApprovalRequested                  // Approval
+	TurnStarted
+	TurnSucceeded
+	TurnFailed
+	TurnInterrupted
+	ModelChanged   // Model
+	SessionRenamed // Title
+)
+
+// Event is one normalized backend event. Only the payload of its kind is set.
+// Events are immutable once emitted.
+type Event struct {
+	Kind     EventKind
+	Session  SessionID
+	Text     *TextEvent
+	Tool     *Tool
+	Approval *Approval
+	Model    ModelRef
+	Title    string
+	Bytes    int // wire size, for batching
+}
+
+type TextEvent struct {
+	Message MessageID
+	Ordinal int // which text block of the message
+	Delta   string
+	Text    string
+}
+
+// Approval is a permission the agent waits for before acting.
+type Approval struct {
+	ID        ApprovalID
+	Action    string   // e.g. "shell"
+	Resources []string // what it wants to act on
+	Save      []string // the patterns Always would remember
+}

@@ -1,0 +1,78 @@
+# Design: agent contract
+
+Status: accepted. Declared in `internal/contract/agent`; implemented by
+`internal/plugins/opencode`.
+
+## Problem
+
+The old backend contract (`internal/agent`) had OpenCode's shape: connection
+details were HTTP addresses, passwords and pairing flags; methods took runs of
+string arguments; the event stream was pulled by a shared runner that also
+queued every command. A backend that speaks a different protocol, such as Pi's
+RPC over stdio, couldn't fit without changing the shell.
+
+## Decision
+
+A backend is a kernel plugin. It declares `Provides: agent.ServiceKey` (and
+optionally `agent.ModelsKey` and `agent.ModesKey`) and owns everything about
+its connection: configuration in its own settings, the process or socket,
+reconnecting with backoff, and decoding its protocol.
+
+| Declaration | Kind | Purpose |
+|---|---|---|
+| `ServiceKey` | `Key[Service]` | sessions, messages, send, abort, approvals, rename, delete |
+| `ModelsKey` | `Key[Models]` | optional model catalog, default model, per-session model |
+| `ModesKey` | `Key[Modes]` | optional named agent modes (OpenCode's build/plan) |
+| `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
+| `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
+
+Rules every backend follows:
+
+- `Service.Status` is read on the UI thread; every other method may be called
+  from any goroutine (normally a `kernel.Go` work function) and blocks on I/O.
+- Without a connection, methods return `agent.ErrNotConnected`.
+- Mutations (`Create`, `Send`, `Abort`, `Reply`, `Rename`, `Delete`) are never
+  retried by the backend. A failed mutation has an unknown outcome on the server.
+- `Create` returns the created session together with an error when a later step,
+  such as setting the model, fails.
+- `Status.Attempt` increases with every connection attempt. A consumer that keeps
+  server state reloads it when a new attempt becomes `Ready`.
+- Events are emitted only after the stream is established, in order, in batches of
+  at most 64 events or 256 KiB, collected for at most 1/60 s. At most one batch is
+  in flight to the UI thread, so a busy UI slows the stream instead of queueing.
+- Unknown events are ignored. The first malformed known event of a stream is
+  reported in `Status.Err` without quoting its payload.
+- Requests are independent: the contract has no command queue. Policies such as
+  "one turn at a time" belong to the consumer (the chat plugin).
+
+## OpenCode plugin
+
+`internal/plugins/opencode` saves one setting, `connection`:
+
+- zero value: run `opencode serve` on a free local port, in the home directory,
+  with a fresh password per run; the process ends with the plugin;
+- `{"remote": true, "url": …, "password": …}`: connect to that server.
+
+`Configure` saves a new connection and reconnects; `Reconnect` (also the
+`opencode.reconnect` command) restarts the connection. Each connection runs in its
+own kernel scope, so results of a replaced connection are dropped by the kernel.
+
+## Alternatives considered
+
+**Keep a shared runner with a command queue.** It serialized every request
+through one worker per connection, which made unrelated reads wait for a running
+turn and put OpenCode's sequencing rules into the app's core.
+
+**Let consumers pull the event stream.** Each consumer would need its own stream
+or a fan-out of its own, and reconnect logic would be duplicated. The backend owns
+the one stream and publishes it through a topic.
+
+**Backend-neutral connection settings.** Address and password make no sense for a
+stdio backend. Each backend keeps its own settings and contributes its own
+settings page.
+
+## Not carried over
+
+Pairing links, editing OpenCode's permission files, workspace/VCS/file access,
+project listing, per-message usage reads, and multiple saved servers. Each can
+return later as an optional capability key, provided by the backends that support it.

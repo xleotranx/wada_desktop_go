@@ -1,0 +1,410 @@
+package opencode
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"path"
+	"slices"
+
+	"wada-desktop-go/internal/contract/agent"
+)
+
+// Wire shapes and their conversion to the contract. Nothing here leaves the
+// package unconverted.
+
+type wireModel struct {
+	ID       string `json:"id"`
+	Provider string `json:"providerID"`
+	Variant  string `json:"variant,omitempty"`
+}
+
+func (m wireModel) ref() agent.ModelRef {
+	return agent.ModelRef{Provider: m.Provider, ID: m.ID, Variant: m.Variant}
+}
+
+func toWireModel(m agent.ModelRef) wireModel {
+	return wireModel{ID: m.ID, Provider: m.Provider, Variant: m.Variant}
+}
+
+func sessionPath(id agent.SessionID, rest string) string {
+	return "/session/" + url.PathEscape(string(id)) + rest
+}
+
+func cleanDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return path.Clean(dir)
+}
+
+// ---- Sessions
+
+func (c *client) sessions(ctx context.Context, q agent.SessionQuery) (agent.SessionPage, error) {
+	route := "/session?limit=50&parentID=null"
+	if q.Cursor != "" {
+		route += "&cursor=" + url.QueryEscape(q.Cursor)
+	}
+	if q.Search != "" {
+		route += "&search=" + url.QueryEscape(q.Search)
+	}
+	if q.Directory != "" {
+		route += "&directory=" + url.QueryEscape(q.Directory)
+	}
+	var out struct {
+		Data []struct {
+			ID       string `json:"id"`
+			ParentID string `json:"parentID"`
+			Title    string `json:"title"`
+			Location struct {
+				Directory string `json:"directory"`
+			} `json:"location"`
+			Model wireModel `json:"model"`
+			Cost  float64   `json:"cost"`
+			Time  struct {
+				Created int64 `json:"created"`
+				Updated int64 `json:"updated"`
+			} `json:"time"`
+		} `json:"data"`
+		Cursor struct {
+			Next string `json:"next"`
+		} `json:"cursor"`
+	}
+	if err := c.decode(ctx, "GET", route, nil, &out); err != nil {
+		return agent.SessionPage{}, err
+	}
+	page := agent.SessionPage{Sessions: []agent.Session{}, Next: out.Cursor.Next}
+	for _, s := range out.Data {
+		if s.ParentID != "" { // a subagent's session belongs to its parent
+			continue
+		}
+		updated := cmp.Or(s.Time.Updated, s.Time.Created)
+		page.Sessions = append(page.Sessions, agent.Session{ID: agent.SessionID(s.ID), Title: s.Title,
+			Directory: cleanDir(s.Location.Directory), Updated: updated, Model: s.Model.ref(), Cost: s.Cost})
+	}
+	slices.SortStableFunc(page.Sessions, func(a, b agent.Session) int { return cmp.Compare(b.Updated, a.Updated) })
+	return page, nil
+}
+
+func (c *client) create(ctx context.Context, req agent.CreateSession) (agent.Session, error) {
+	body := map[string]any{}
+	if req.Directory != "" {
+		body["location"] = map[string]any{"directory": req.Directory}
+	}
+	if req.Mode != "" {
+		body["agent"] = req.Mode
+	}
+	var out struct {
+		Data struct {
+			ID       string `json:"id"`
+			Location struct {
+				Directory string `json:"directory"`
+			} `json:"location"`
+			Model wireModel `json:"model"`
+		} `json:"data"`
+	}
+	if err := c.decode(ctx, "POST", "/session", body, &out); err != nil {
+		return agent.Session{}, err
+	}
+	if out.Data.ID == "" {
+		return agent.Session{}, errors.New("the server created a session without an ID")
+	}
+	s := agent.Session{ID: agent.SessionID(out.Data.ID), Directory: cleanDir(cmp.Or(out.Data.Location.Directory, req.Directory)),
+		Model: out.Data.Model.ref()}
+	if !req.Model.IsZero() {
+		if err := c.setModel(ctx, s.ID, req.Model); err != nil {
+			return s, fmt.Errorf("the model was not set: %w", err)
+		}
+		s.Model = req.Model
+	}
+	return s, nil
+}
+
+func (c *client) send(ctx context.Context, req agent.Send) error {
+	return c.decode(ctx, "POST", sessionPath(req.Session, "/prompt"), map[string]any{"text": req.Text}, nil)
+}
+
+func (c *client) abort(ctx context.Context, id agent.SessionID) error {
+	return c.decode(ctx, "POST", sessionPath(id, "/interrupt"), struct{}{}, nil)
+}
+
+var decisions = map[agent.Decision]string{agent.Once: "once", agent.Always: "always", agent.Reject: "reject"}
+
+func (c *client) reply(ctx context.Context, req agent.Reply) error {
+	decision, ok := decisions[req.Decision]
+	if !ok {
+		return fmt.Errorf("unknown decision %d", req.Decision)
+	}
+	return c.decode(ctx, "POST", sessionPath(req.Session, "/permission/"+url.PathEscape(string(req.Approval))+"/reply"),
+		map[string]any{"decision": decision}, nil)
+}
+
+func (c *client) rename(ctx context.Context, id agent.SessionID, title string) error {
+	return c.decode(ctx, "PATCH", sessionPath(id, ""), map[string]any{"title": title}, nil)
+}
+
+func (c *client) delete(ctx context.Context, id agent.SessionID) error {
+	return c.decode(ctx, "DELETE", sessionPath(id, ""), nil, nil)
+}
+
+// ---- Messages
+
+type wireOutput struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func textPieces(out []wireOutput) []string {
+	var pieces []string
+	for _, o := range out {
+		if o.Type == "text" {
+			pieces = append(pieces, o.Text)
+		}
+	}
+	return pieces
+}
+
+type wireMessage struct {
+	ID     string  `json:"id"`
+	Type   string  `json:"type"`
+	Cost   float64 `json:"cost"`
+	Tokens struct {
+		Output    int `json:"output"`
+		Reasoning int `json:"reasoning"`
+	} `json:"tokens"`
+	Text    string `json:"text"`
+	Payload struct {
+		Text string `json:"text"`
+	} `json:"payload"`
+	Model   wireModel `json:"model"`
+	Content []struct {
+		Type  string `json:"type"`
+		Text  string `json:"text"`
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		State struct {
+			Status string `json:"status"`
+			Input  struct {
+				Command string `json:"command"`
+			} `json:"input"`
+			Content  []wireOutput `json:"content"`
+			Metadata struct {
+				Exit      int  `json:"exit"`
+				Truncated bool `json:"truncated"`
+			} `json:"metadata"`
+		} `json:"state"`
+	} `json:"content"`
+}
+
+func (m wireMessage) message() agent.Message {
+	out := agent.Message{ID: agent.MessageID(m.ID), Text: cmp.Or(m.Payload.Text, m.Text), Model: m.Model.ref(), Cost: m.Cost,
+		Tokens: agent.Tokens{Output: m.Tokens.Output, Reasoning: m.Tokens.Reasoning}}
+	switch m.Type {
+	case "user":
+		out.Role = agent.RoleUser
+	case "assistant":
+		out.Role = agent.RoleAssistant
+	}
+	for _, p := range m.Content {
+		part := agent.Part{Text: p.Text}
+		switch p.Type {
+		case "text":
+			part.Kind = agent.PartText
+		case "reasoning":
+			part.Kind = agent.PartReasoning
+		case "tool":
+			part.Kind, part.Text = agent.PartTool, ""
+			part.Tool = &agent.Tool{ID: p.ID, Name: p.Name, Command: p.State.Input.Command, Output: textPieces(p.State.Content),
+				Status: p.State.Status, Exit: p.State.Metadata.Exit, Truncated: p.State.Metadata.Truncated}
+		}
+		out.Parts = append(out.Parts, part)
+	}
+	return out
+}
+
+func (c *client) messages(ctx context.Context, id agent.SessionID) ([]agent.Message, error) {
+	var out struct {
+		Data []wireMessage `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", sessionPath(id, "/message?order=asc"), nil, &out); err != nil {
+		return nil, err
+	}
+	messages := make([]agent.Message, len(out.Data))
+	for i, m := range out.Data {
+		messages[i] = m.message()
+	}
+	return messages, nil
+}
+
+// ---- Models and modes
+
+func (c *client) models(ctx context.Context) ([]agent.Model, error) {
+	var out struct {
+		Data []struct {
+			ID       string `json:"id"`
+			Provider string `json:"providerID"`
+			Name     string `json:"name"`
+			Variants []struct {
+				ID string `json:"id"`
+			} `json:"variants"`
+			Cost []struct {
+				Input  float64 `json:"input"`
+				Output float64 `json:"output"`
+			} `json:"cost"`
+		} `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", "/model", nil, &out); err != nil {
+		return nil, err
+	}
+	models := []agent.Model{}
+	for _, m := range out.Data {
+		row := agent.Model{Ref: agent.ModelRef{Provider: m.Provider, ID: m.ID}, Name: m.Name, Free: true}
+		for _, v := range m.Variants {
+			row.Variants = append(row.Variants, v.ID)
+		}
+		for _, cost := range m.Cost {
+			if cost.Input != 0 || cost.Output != 0 {
+				row.Free = false
+			}
+		}
+		models = append(models, row)
+	}
+	return models, nil
+}
+
+func (c *client) defaultModel(ctx context.Context) (agent.ModelRef, error) {
+	var out struct {
+		Data wireModel `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", "/model/default", nil, &out); err != nil {
+		return agent.ModelRef{}, err
+	}
+	if out.Data.ID == "" || out.Data.Provider == "" {
+		return agent.ModelRef{}, errors.New("the server named no default model")
+	}
+	return out.Data.ref(), nil
+}
+
+func (c *client) setModel(ctx context.Context, id agent.SessionID, m agent.ModelRef) error {
+	return c.decode(ctx, "POST", sessionPath(id, "/model"), map[string]any{"model": toWireModel(m)}, nil)
+}
+
+func (c *client) modes(ctx context.Context) ([]agent.Mode, error) {
+	var out struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Mode        string `json:"mode"`
+			Hidden      bool   `json:"hidden"`
+		} `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", "/agent", nil, &out); err != nil {
+		return nil, err
+	}
+	modes := []agent.Mode{}
+	for _, m := range out.Data {
+		if m.Mode == "primary" && !m.Hidden && m.ID != "" {
+			modes = append(modes, agent.Mode{ID: m.ID, Name: m.Name, Description: m.Description})
+		}
+	}
+	return modes, nil
+}
+
+// ---- Events
+
+// decodeEvent ignores unknown event types, and rejects malformed known ones
+// without quoting remote payloads in the error.
+func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
+	out := agent.Event{Bytes: len(ev.Data)}
+	var err error
+	switch ev.Type {
+	case "session.text.started", "session.text.delta", "session.text.ended":
+		out.Kind = map[string]agent.EventKind{"session.text.started": agent.TextStarted,
+			"session.text.delta": agent.TextDelta, "session.text.ended": agent.TextEnded}[ev.Type]
+		var d struct {
+			Session string `json:"sessionID"`
+			Message string `json:"assistantMessageID"`
+			Ordinal int    `json:"ordinal"`
+			Delta   string `json:"delta"`
+			Text    string `json:"text"`
+		}
+		err = json.Unmarshal(ev.Data, &d)
+		if err == nil && (d.Message == "" || d.Ordinal < 0) {
+			err = errors.New("invalid text identity")
+		}
+		out.Session = agent.SessionID(d.Session)
+		out.Text = &agent.TextEvent{Message: agent.MessageID(d.Message), Ordinal: d.Ordinal, Delta: d.Delta, Text: d.Text}
+	case "session.tool.input.started", "session.tool.called", "session.tool.success":
+		out.Kind = map[string]agent.EventKind{"session.tool.input.started": agent.ToolStarted,
+			"session.tool.called": agent.ToolCalled, "session.tool.success": agent.ToolFinished}[ev.Type]
+		var d struct {
+			Session string          `json:"sessionID"`
+			ID      string          `json:"id"`
+			Name    string          `json:"name"`
+			Input   json.RawMessage `json:"input"`
+			Content []wireOutput    `json:"content"`
+			Meta    struct {
+				Status    string `json:"status"`
+				Truncated bool   `json:"truncated"`
+				Exit      int    `json:"exit"`
+			} `json:"metadata"`
+		}
+		err = json.Unmarshal(ev.Data, &d)
+		if err == nil && d.ID == "" {
+			err = errors.New("invalid tool identity")
+		}
+		var input struct {
+			Command string `json:"command"`
+		}
+		if err == nil && len(d.Input) > 0 {
+			err = json.Unmarshal(d.Input, &input)
+		}
+		out.Session = agent.SessionID(d.Session)
+		out.Tool = &agent.Tool{ID: d.ID, Name: d.Name, Command: input.Command, Output: textPieces(d.Content),
+			Status: d.Meta.Status, Exit: d.Meta.Exit, Truncated: d.Meta.Truncated}
+	case "permission.asked":
+		out.Kind = agent.ApprovalRequested
+		var d struct {
+			Session   string   `json:"sessionID"`
+			ID        string   `json:"id"`
+			Action    string   `json:"action"`
+			Resources []string `json:"resources"`
+			Save      []string `json:"save"`
+		}
+		err = json.Unmarshal(ev.Data, &d)
+		if err == nil && (d.ID == "" || d.Action == "") {
+			err = errors.New("invalid permission identity")
+		}
+		out.Session = agent.SessionID(d.Session)
+		out.Approval = &agent.Approval{ID: agent.ApprovalID(d.ID), Action: d.Action, Resources: d.Resources, Save: d.Save}
+	case "session.execution.started", "session.execution.succeeded", "session.execution.failed",
+		"session.execution.interrupted", "session.model.selected", "session.renamed":
+		out.Kind = map[string]agent.EventKind{"session.execution.started": agent.TurnStarted,
+			"session.execution.succeeded": agent.TurnSucceeded, "session.execution.failed": agent.TurnFailed,
+			"session.execution.interrupted": agent.TurnInterrupted, "session.model.selected": agent.ModelChanged,
+			"session.renamed": agent.SessionRenamed}[ev.Type]
+		var d struct {
+			Session string    `json:"sessionID"`
+			Model   wireModel `json:"model"`
+			Title   string    `json:"title"`
+		}
+		err = json.Unmarshal(ev.Data, &d)
+		if err == nil && out.Kind == agent.ModelChanged && (d.Model.ID == "" || d.Model.Provider == "") {
+			err = errors.New("invalid model identity")
+		}
+		out.Session, out.Title = agent.SessionID(d.Session), d.Title
+		if out.Kind == agent.ModelChanged {
+			out.Model = d.Model.ref()
+		}
+	default:
+		return agent.Event{}, false, nil
+	}
+	if err != nil || out.Session == "" {
+		return agent.Event{}, true, fmt.Errorf("malformed %s event", ev.Type)
+	}
+	return out, true, nil
+}

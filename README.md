@@ -36,6 +36,7 @@ and off.
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model, effort and mode pickers in the composer |
 | `internal/plugins/sessions` | Sidebar conversation list |
+| `internal/plugins/notifications` | Desktop notices for conversations in the background |
 | `internal/plugins/settings` | Settings page |
 | `internal/native` | Palette and small shared controls |
 

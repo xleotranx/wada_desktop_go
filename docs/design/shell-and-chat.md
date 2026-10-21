@@ -25,12 +25,16 @@ Agent, Help, in that order), and the menu owns their first shortcut. Other short
 are window shortcuts. The menu is rebuilt whenever plugins change state.
 
 `shell.Host` gives plugins the window services they need: show a page, toasts,
-clipboard and opening links.
+clipboard, opening links, desktop notifications (`Notify`) and whether the window is
+in front (`Foreground`). A clicked notification brings the window to the front, then
+its ID is emitted on `shell.NoticeClicked`. The app's notifications are cleared when
+it becomes active. On macOS they need a packaged app (`mygo dev` or `mygo build`);
+under `go run` nothing is shown.
 
 ## Chat page
 
 `internal/plugins/chat` (locked) requires `agent.ServiceKey` and `shell.HostKey`,
-provides `chat.ControllerKey`, and contributes the `chat.conversation` page with the
+provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 "New Chat" (⌘N) and "Stop the Agent" (⌘.) commands.
 
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
@@ -71,7 +75,15 @@ conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
 `chat.Conversation.Model` carries the open conversation's model.
 
+## Notifications
+
+`internal/plugins/notifications` listens to `agent.Events` and notifies a finished or
+failed turn, or an approval, of a conversation the user isn't looking at: another
+conversation or page is on show, or the window isn't in front. An interrupted turn is
+the user's own doing and isn't notified. A conversation whose title it doesn't know is
+looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
+clicking it opens that conversation. Its settings section turns each kind off.
+
 ## Not yet
 
-Notifications, attachments and keyboard-driven search are
-plugins still to come.
+Attachments and keyboard-driven search are plugins still to come.

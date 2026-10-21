@@ -9,6 +9,10 @@ import (
 	"wada-desktop-go/internal/kernel"
 )
 
+// PageID is the conversation page. It is the default page, so the shell also
+// shows it while no page was chosen.
+const PageID = "chat.conversation"
+
 var (
 	ControllerKey = kernel.NewKey[Controller]("chat.controller")
 

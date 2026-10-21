@@ -170,3 +170,28 @@ func TestSQLiteStoreRoundTrip(t *testing.T) {
 		t.Fatalf("other schema opened: %v", err)
 	}
 }
+
+func TestNoticesReachTheDesktopAndClicksReachPlugins(t *testing.T) {
+	var shown []shell.Notice
+	var clicked []string
+	front := false
+	listener := &plugin{id: "listener", setup: func(c *kernel.Context) error {
+		kernel.On(c, shell.NoticeClicked, func(id string) { clicked = append(clicked, id) })
+		return nil
+	}}
+	s, err := New(Options{Post: func(fn func()) { fn() }, Store: kerneltest.NewStore(),
+		Notify: func(n shell.Notice) { shown = append(shown, n) }, Foreground: func() bool { return front }}, listener)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	host, _ := kernel.Use(s.Kernel, shell.HostKey)
+	host.Notify(shell.Notice{ID: "chat:s1", Title: "Done"})
+	s.NoticeClicked("chat:s1")
+	if len(shown) != 1 || shown[0].ID != "chat:s1" || host.Foreground() || len(clicked) != 1 || clicked[0] != "chat:s1" {
+		t.Fatalf("shown %+v foreground %v clicked %q", shown, host.Foreground(), clicked)
+	}
+}

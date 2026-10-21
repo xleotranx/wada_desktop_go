@@ -19,8 +19,8 @@ protocols to simplify a refactor.
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
-  page), `models` (composer pickers), `sessions` (sidebar list), `settings`
-  (settings page).
+  page), `models` (composer pickers), `sessions` (sidebar list), `notifications`
+  (desktop notices for background conversations), `settings` (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.
 - `internal/native`: the semantic palette and small shared controls.
 

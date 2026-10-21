@@ -3,6 +3,7 @@ package main
 import (
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/models"
+	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/opencode"
 	"wada-desktop-go/internal/plugins/pi"
 	"wada-desktop-go/internal/plugins/sessions"
@@ -18,6 +19,7 @@ func main() {
 		&chat.Plugin{},
 		&models.Plugin{},
 		&sessions.Plugin{},
+		&notifications.Plugin{},
 		&settings.Plugin{},
 	)
 }

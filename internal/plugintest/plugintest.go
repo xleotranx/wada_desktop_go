@@ -153,6 +153,8 @@ type Host struct {
 	Mode       string
 	PluginList []kernel.Status
 	Toggled    []string
+	Notices    []shell.Notice
+	Background bool // the window is not in front
 }
 
 func (*Host) Manifest() kernel.Manifest {
@@ -173,6 +175,8 @@ func (h *Host) SetAppearance(mode string) { h.Mode = mode }
 func (h *Host) Plugins() []kernel.Status  { return h.PluginList }
 func (h *Host) Enable(id string) error    { h.Toggled = append(h.Toggled, "+"+id); return nil }
 func (h *Host) Disable(id string) error   { h.Toggled = append(h.Toggled, "-"+id); return nil }
+func (h *Host) Notify(n shell.Notice)     { h.Notices = append(h.Notices, n) }
+func (h *Host) Foreground() bool          { return !h.Background }
 
 // Chat provides chat.ControllerKey without a page.
 type Chat struct {

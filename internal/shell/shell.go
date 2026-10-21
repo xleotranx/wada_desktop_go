@@ -29,6 +29,10 @@ type Options struct {
 	SetTitle func(string)
 	SetMenu  func(*mygo.Menu)
 	SetTheme func(mygo.ThemeSource)
+	// Notify and Foreground reach the desktop; nil in tests, where nothing
+	// is shown and the window counts as in front.
+	Notify     func(shell.Notice)
+	Foreground func() bool
 }
 
 // Shell is a kernel plus the window that shows it.
@@ -41,7 +45,7 @@ type Shell struct {
 
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
-	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme}}
+	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, notify: opts.Notify, foreground: opts.Foreground}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
 	s.host.k = s.Kernel
 	if err := s.Kernel.Install(append([]kernel.Plugin{s.host}, plugins...)...); err != nil {
@@ -60,6 +64,10 @@ func (s *Shell) Start() error {
 
 // Close disposes every plugin and waits for their workers.
 func (s *Shell) Close(ctx context.Context) error { return s.Kernel.Close(ctx) }
+
+// NoticeClicked tells plugins the user clicked the notification with this ID.
+// Call it on the UI thread.
+func (s *Shell) NoticeClicked(id string) { kernel.Emit(s.Kernel, shell.NoticeClicked, id) }
 
 // pluginsChanged rebuilds the menu and reports plugins that just failed.
 func (s *Shell) pluginsChanged(all []kernel.Status) {
@@ -273,6 +281,8 @@ func iconButton(c *ui.Context, p native.Palette, label string, icon *ui.SVG, on 
 type host struct {
 	k             *kernel.Kernel
 	setTheme      func(mygo.ThemeSource)
+	notify        func(shell.Notice)
+	foreground    func() bool
 	appearance    *kernel.Setting[string]
 	page          string
 	toasts        []ui.Toast
@@ -318,6 +328,14 @@ func (h *host) Toast(t ui.Toast) {
 func (h *host) Copy(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
 
 func (h *host) OpenURL(url string) { h.services.OpenURL(url) }
+
+func (h *host) Notify(n shell.Notice) {
+	if h.notify != nil {
+		h.notify(n)
+	}
+}
+
+func (h *host) Foreground() bool { return h.foreground == nil || h.foreground() }
 
 func (h *host) Appearance() string {
 	switch v := h.appearance.Get(); v {

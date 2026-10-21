@@ -2,11 +2,13 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
+	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo"
@@ -44,10 +46,24 @@ func Run(plugins ...kernel.Plugin) {
 		})
 		var err error
 		s, err = New(Options{Post: win.Update, Store: store, Strict: os.Getenv("WADA_STRICT") == "1",
-			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource}, plugins...)
+			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource,
+			Notify: notifier(), Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
+		}, plugins...)
 		if err != nil {
 			log.Fatal(err)
 		}
+		mygo.App.OnNotificationClick(func(id string) {
+			win.Update(func() {
+				if win.IsMinimized() {
+					win.Restore()
+				}
+				win.Show()
+				win.Focus()
+				s.NoticeClicked(id)
+			})
+		})
+		// What the user sees in the app doesn't wait in Notification Center.
+		mygo.App.OnDidBecomeActive(mygo.ClearNotifications)
 		if err := s.Start(); err != nil {
 			log.Printf("settings: %v", err)
 			storeErr = err
@@ -96,5 +112,24 @@ func Run(plugins ...kernel.Plugin) {
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// notifier shows notices through the system, or is nil where it can't (on
+// macOS, an app run with `go run` instead of from a bundle).
+func notifier() func(shell.Notice) {
+	if !mygo.NotificationsSupported() {
+		return nil
+	}
+	return func(n shell.Notice) {
+		// The first one may wait for the user to allow notifications.
+		go func() {
+			err := mygo.NewNotification(mygo.NotificationOptions{
+				ID: n.ID, Title: n.Title, Subtitle: n.Subtitle, Body: n.Body, Group: n.ID,
+			}).Show()
+			if err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
+				log.Printf("notification: %v", err)
+			}
+		}()
 	}
 }

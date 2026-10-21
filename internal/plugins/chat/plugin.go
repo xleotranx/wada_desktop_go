@@ -62,7 +62,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, agent.StatusChanged, p.statusChanged)
 	for _, err := range []error{
 		kernel.Provide[chat.Controller](c, chat.ControllerKey, p),
-		kernel.Contribute(c, shell.Pages, "chat.conversation", 0, shell.Page{Title: p.title, Render: p.view}),
+		kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view}),
 		kernel.Contribute(c, kernel.Commands, "chat.new", 0, kernel.Command{
 			Title: "New Chat", Category: "Chat", Menu: "File", Keys: []string{"cmd+n"},
 			Run: func() { p.NewChat(p.conv.Directory) }}),
@@ -112,7 +112,7 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 	p.t.reset()
 	clear(p.expanded)
 	p.list = ui.ListState{FollowEnd: true}
-	p.host.ShowPage("chat.conversation")
+	p.host.ShowPage(chat.PageID)
 	kernel.Emit(p.ctx, chat.Changed, conv)
 }
 

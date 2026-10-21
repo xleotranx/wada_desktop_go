@@ -34,7 +34,20 @@ var (
 	Overlays = kernel.NewPoint[View]("shell.overlays")
 
 	HostKey = kernel.NewKey[Host]("shell.host")
+
+	// NoticeClicked carries the ID of a desktop notification the user clicked,
+	// after the shell has brought the window to the front.
+	NoticeClicked = kernel.NewTopic[string]("shell.notice-clicked")
 )
+
+// Notice is a desktop notification. A notice with the ID of one still shown
+// replaces it.
+type Notice struct {
+	ID       string // names what it is about, e.g. "chat:<session>"
+	Title    string
+	Subtitle string
+	Body     string
+}
 
 // Host is what the shell does for plugins. Call it on the UI thread.
 type Host interface {
@@ -48,6 +61,10 @@ type Host interface {
 	Copy(text string) error
 	// OpenURL opens a web or mail address with the desktop.
 	OpenURL(url string)
+	// Notify shows a desktop notification, when the platform can.
+	Notify(n Notice)
+	// Foreground reports that the window is on screen and focused.
+	Foreground() bool
 
 	// Appearance is "system", "light" or "dark".
 	Appearance() string

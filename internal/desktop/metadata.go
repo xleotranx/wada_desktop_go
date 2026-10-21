@@ -1,0 +1,630 @@
+package desktop
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/egoist/mygo/plugins/sqlite"
+)
+
+// appMetadata is everything the app keeps between runs: the sidebar's
+// projects and pins, the settings' servers and model choices, and the
+// widths the user dragged the workspace panes to.
+type appMetadata struct {
+	modules         map[string]json.RawMessage
+	projects        []string
+	projectPins     map[string]bool
+	projectLinks    map[string][]string
+	pins            map[string][]string // server id -> its chats, in pin order
+	servers         []serverConn
+	active          string
+	modelOff        map[string]bool // modelKey of every disabled model
+	sidebarW        float32
+	browserW        float32
+	appearance      string
+	chatText        string
+	notifyFinished  bool
+	notifyApprovals bool
+	commandRecents  []string
+	keymap          map[string]chord
+	unread          map[string][]string          // server id -> chats with news
+	archived        map[string][]string          // server id -> chats put away
+	drafts          map[string]map[string]string // server id -> draft key -> words
+}
+
+type metadataStore struct{ *sqlite.DB }
+
+const metadataSchema = 5
+
+func metadataPath(backend string) (string, error) {
+	if backend == "" || len(backend) > 64 || strings.Trim(backend, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+		return "", fmt.Errorf("invalid backend identity %q", backend)
+	}
+	if dir := os.Getenv("WADA_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, backend, "metadata.db"), nil
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "wada-desktop-go", backend, "metadata.db"), nil
+}
+
+func openMetadata(path string) (*metadataStore, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
+	}
+	db, err := sqlite.Open(context.Background(), path, sqlite.OpenOptions{})
+	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*metadataStore, error) { db.Close(); return nil, err }
+	rows, err := db.Query(context.Background(), "PRAGMA user_version")
+	if err != nil {
+		return fail(err)
+	}
+	version := rows.Values[0][0].(int64)
+	if version == metadataSchema {
+		return &metadataStore{db}, nil
+	}
+	if version != 0 {
+		return fail(fmt.Errorf("metadata schema %d is unsupported; run go run . --reset-metadata to discard development settings", version))
+	}
+	// An unversioned database with tables is not an empty application store.
+	tables, err := db.Query(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		return fail(err)
+	}
+	if len(tables.Values) > 0 {
+		return fail(fmt.Errorf("unversioned metadata is unsupported; run go run . --reset-metadata"))
+	}
+	statements := []sqlite.Statement{
+		{SQL: "CREATE TABLE projects (directory TEXT PRIMARY KEY, position INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)"},
+		{SQL: "CREATE TABLE session_pins (server_key TEXT NOT NULL, session_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(server_key,session_id))"},
+		{SQL: "CREATE TABLE preferences (key TEXT PRIMARY KEY,value TEXT NOT NULL)"},
+		{SQL: "CREATE TABLE servers (id TEXT PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL,managed INTEGER NOT NULL DEFAULT 0,url TEXT NOT NULL DEFAULT '',password TEXT NOT NULL DEFAULT '',position INTEGER NOT NULL,paired INTEGER NOT NULL DEFAULT 0,paired_at INTEGER NOT NULL DEFAULT 0)"},
+		{SQL: "CREATE TABLE disabled_models (server_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,PRIMARY KEY(server_id,provider,model))"},
+		{SQL: "PRAGMA user_version = 5"},
+	}
+	if _, err := db.Transaction(context.Background(), statements); err != nil {
+		return fail(err)
+	}
+	return &metadataStore{db}, nil
+}
+
+// resetMetadata is an explicit development action, never an open-error fallback.
+func resetMetadata(path string) error {
+	if filepath.Base(path) != "metadata.db" {
+		return fmt.Errorf("reset requires the app's metadata.db path")
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		target := path + suffix
+		info, err := os.Lstat(target)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to reset non-regular metadata file %s", target)
+		}
+	}
+	for _, suffix := range []string{"-wal", "-shm", ""} {
+		if err := os.Remove(path + suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *metadataStore) load(ctx context.Context) (appMetadata, error) {
+	state := appMetadata{
+		projectPins: map[string]bool{},
+		pins:        map[string][]string{},
+		modelOff:    map[string]bool{},
+		// Banners are on until the user turns them off: a store written
+		// before they existed keeps that default.
+		notifyFinished:  true,
+		notifyApprovals: true,
+	}
+	rows, err := db.Query(ctx, "SELECT directory, pinned FROM projects ORDER BY position")
+	if err != nil {
+		return state, err
+	}
+	for _, row := range rows.Values {
+		dir := row[0].(string)
+		state.projects = append(state.projects, dir)
+		if row[1].(int64) != 0 {
+			state.projectPins[dir] = true
+		}
+	}
+	rows, err = db.Query(ctx, "SELECT server_key, session_id FROM session_pins ORDER BY server_key, position")
+	if err != nil {
+		return state, err
+	}
+	for _, row := range rows.Values {
+		key, sid := row[0].(string), row[1].(string)
+		state.pins[key] = append(state.pins[key], sid)
+	}
+	rows, err = db.Query(ctx, "SELECT id, name, kind, managed, url, password, paired, paired_at FROM servers ORDER BY position")
+	if err != nil {
+		return state, err
+	}
+	for _, row := range rows.Values {
+		state.servers = append(state.servers, serverConn{
+			id:       row[0].(string),
+			name:     row[1].(string),
+			local:    row[2].(string) == "local",
+			managed:  row[3].(int64) != 0,
+			url:      row[4].(string),
+			password: row[5].(string),
+			paired:   row[6].(int64) != 0,
+			pairedAt: row[7].(int64),
+		})
+	}
+	rows, err = db.Query(ctx, "SELECT server_id, provider, model FROM disabled_models")
+	if err != nil {
+		return state, err
+	}
+	for _, row := range rows.Values {
+		state.modelOff[modelKey(row[0].(string), row[1].(string), row[2].(string))] = true
+	}
+	rows, err = db.Query(ctx, "SELECT key, value FROM preferences")
+	if err != nil {
+		return state, err
+	}
+	for _, row := range rows.Values {
+		key, value := row[0].(string), row[1].(string)
+		switch key {
+		case "active_server":
+			state.active = value
+		case "project_links":
+			var links map[string][]string
+			if json.Unmarshal([]byte(value), &links) == nil && len(links) > 0 {
+				state.projectLinks = links
+			}
+		case "appearance":
+			state.appearance = normalizeAppearance(value)
+		case "chat_text":
+			state.chatText = normalizeChatText(value)
+		case "notify_finished":
+			state.notifyFinished = value != "0"
+		case "notify_approvals":
+			state.notifyApprovals = value != "0"
+		case "command_recents":
+			var recents []string
+			if json.Unmarshal([]byte(value), &recents) == nil && len(recents) > 0 {
+				state.commandRecents = recents
+			}
+		case "keymap":
+			var keymap map[string]chord
+			if json.Unmarshal([]byte(value), &keymap) == nil && len(keymap) > 0 {
+				state.keymap = keymap
+			}
+		case "sidebar_width":
+			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
+				state.sidebarW = float32(width)
+			}
+		case "browser_width":
+			if width, err := strconv.ParseFloat(value, 32); err == nil && width > 0 {
+				state.browserW = float32(width)
+			}
+
+		default:
+			switch {
+			case strings.HasPrefix(key, "module:"):
+				if state.modules == nil {
+					state.modules = map[string]json.RawMessage{}
+				}
+				state.modules[strings.TrimPrefix(key, "module:")] = json.RawMessage(value)
+			case strings.HasPrefix(key, "archived:"):
+				var ids []string
+				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
+					if state.archived == nil {
+						state.archived = map[string][]string{}
+					}
+					state.archived[strings.TrimPrefix(key, "archived:")] = ids
+				}
+			case strings.HasPrefix(key, "unread:"):
+				var ids []string
+				if json.Unmarshal([]byte(value), &ids) == nil && len(ids) > 0 {
+					if state.unread == nil {
+						state.unread = map[string][]string{}
+					}
+					state.unread[strings.TrimPrefix(key, "unread:")] = ids
+				}
+			case strings.HasPrefix(key, "drafts:"):
+				var drafts map[string]string
+				if json.Unmarshal([]byte(value), &drafts) == nil && len(drafts) > 0 {
+					if state.drafts == nil {
+						state.drafts = map[string]map[string]string{}
+					}
+					state.drafts[strings.TrimPrefix(key, "drafts:")] = drafts
+				}
+			}
+		}
+	}
+	return state, nil
+}
+
+func (db *metadataStore) save(ctx context.Context, state appMetadata) error {
+	statements := []sqlite.Statement{
+		{SQL: "DELETE FROM projects"},
+		{SQL: "DELETE FROM session_pins"},
+		{SQL: "DELETE FROM servers"},
+		{SQL: "DELETE FROM disabled_models"},
+		{SQL: "DELETE FROM preferences WHERE key LIKE 'module:%' OR key LIKE 'unread:%' OR key LIKE 'archived:%' OR key LIKE 'drafts:%'"},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('active_server', ?)", Args: []any{state.active}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('sidebar_width', ?)", Args: []any{formatWidth(state.sidebarW)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('browser_width', ?)", Args: []any{formatWidth(state.browserW)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('appearance', ?)", Args: []any{normalizeAppearance(state.appearance)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('chat_text', ?)", Args: []any{normalizeChatText(state.chatText)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_finished', ?)", Args: []any{encodeSwitch(state.notifyFinished)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('notify_approvals', ?)", Args: []any{encodeSwitch(state.notifyApprovals)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('command_recents', ?)", Args: []any{encodeCommandRecents(state.commandRecents)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('project_links', ?)", Args: []any{encodeProjectLinks(state.projectLinks)}},
+		{SQL: "INSERT OR REPLACE INTO preferences VALUES ('keymap', ?)", Args: []any{encodeKeymap(state.keymap)}},
+	}
+	for serverID, ids := range state.unread {
+		if len(ids) == 0 {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"unread:" + serverID, encodeIDs(ids)},
+		})
+	}
+	for serverID, ids := range state.archived {
+		if len(ids) == 0 {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"archived:" + serverID, encodeIDs(ids)},
+		})
+	}
+	for serverID, drafts := range state.drafts {
+		if len(drafts) == 0 {
+			continue
+		}
+		data, err := json.Marshal(drafts)
+		if err != nil {
+			continue
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT OR REPLACE INTO preferences VALUES (?, ?)",
+			Args: []any{"drafts:" + serverID, string(data)},
+		})
+	}
+	for i, dir := range state.projects {
+		statements = append(statements, sqlite.Statement{SQL: "INSERT INTO projects VALUES (?, ?, ?)", Args: []any{dir, i, state.projectPins[dir]}})
+	}
+	for key, ids := range state.pins {
+		for i, id := range ids {
+			statements = append(statements, sqlite.Statement{SQL: "INSERT INTO session_pins VALUES (?, ?, ?)", Args: []any{key, id, i}})
+		}
+	}
+	for i, s := range state.servers {
+		kind := "remote"
+		if s.local {
+			kind = "local"
+		}
+		statements = append(statements, sqlite.Statement{
+			SQL: "INSERT INTO servers (id, name, kind, managed, url, password, paired, paired_at, position) " +
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			Args: []any{s.id, s.name, kind, s.managed, s.url, s.password, s.paired, s.pairedAt, i},
+		})
+	}
+	for key := range state.modelOff {
+		serverID, rest, _ := strings.Cut(key, "\x00")
+		provider, model, _ := strings.Cut(rest, "/")
+		statements = append(statements, sqlite.Statement{
+			SQL:  "INSERT INTO disabled_models VALUES (?, ?, ?)",
+			Args: []any{serverID, provider, model},
+		})
+	}
+	for id, raw := range state.modules {
+		statements = append(statements, sqlite.Statement{SQL: "INSERT OR REPLACE INTO preferences VALUES (?, ?)", Args: []any{"module:" + id, string(raw)}})
+	}
+	_, err := db.Transaction(ctx, statements)
+	return err
+}
+
+// encodeProjectLinks writes local project groups as one JSON object.
+func encodeProjectLinks(links map[string][]string) string {
+	if len(links) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(links)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+// encodeKeymap writes the overrides as one stable JSON object.
+func encodeKeymap(keymap map[string]chord) string {
+	if len(keymap) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(keymap)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+// formatWidth keeps a pane width in the preferences table as a stable
+// decimal, so a restart reads back the size the divider last showed.
+func formatWidth(width float32) string {
+	return strconv.FormatFloat(float64(width), 'f', -1, 32)
+}
+
+// encodeCommandRecents stores the palette's remembered actions as JSON, an
+// empty list when there are none so a cleared history stays cleared.
+func encodeCommandRecents(ids []string) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+// encodeSwitch stores a preference switch as one digit, the form the
+// loader reads back.
+func encodeSwitch(on bool) string {
+	if on {
+		return "1"
+	}
+	return "0"
+}
+
+// encodeIDs stores an unread list in a stable order, so two saves of the
+// same marks write the same preference.
+func encodeIDs(ids []string) string {
+	sorted := slices.Clone(ids)
+	slices.Sort(sorted)
+	data, _ := json.Marshal(sorted)
+	return string(data)
+}
+
+// Pending snapshots are replaced by the newest, and shutdown drains the queue.
+type metadataWrite struct {
+	state   appMetadata
+	version uint64
+}
+
+type metadataWriter struct {
+	queue chan metadataWrite
+	done  chan struct{}
+}
+
+func startMetadataWriter(db *metadataStore, publish func(uint64, error)) *metadataWriter {
+	w := &metadataWriter{queue: make(chan metadataWrite, 1), done: make(chan struct{})}
+	go func() {
+		defer close(w.done)
+		defer db.Close()
+		for job := range w.queue {
+			err := db.save(context.Background(), job.state)
+			publish(job.version, err)
+		}
+	}()
+	return w
+}
+
+func (a *app) stateSnapshot() appMetadata {
+	a.stashDraft()
+	state := appMetadata{
+		modules:         a.moduleSnapshot(),
+		projects:        slices.Clone(a.preferences.projects),
+		projectPins:     map[string]bool{},
+		pins:            map[string][]string{},
+		servers:         slices.Clone(a.connections.servers),
+		active:          a.connections.activeServer,
+		modelOff:        map[string]bool{},
+		sidebarW:        a.layout.sidebarW,
+		browserW:        a.layout.browserW,
+		appearance:      a.preferences.appearance,
+		chatText:        a.preferences.chatText,
+		notifyFinished:  a.preferences.notifyFinished,
+		notifyApprovals: a.preferences.notifyApprovals,
+		commandRecents:  slices.Clone(a.preferences.commandRecents),
+	}
+	for dir, pinned := range a.preferences.projectPins {
+		state.projectPins[dir] = pinned
+	}
+	if len(a.preferences.keymap) > 0 {
+		state.keymap = maps.Clone(a.preferences.keymap)
+	}
+	if len(a.preferences.projectLinks) > 0 {
+		state.projectLinks = map[string][]string{}
+		for primary, folders := range a.preferences.projectLinks {
+			if len(folders) > 0 {
+				state.projectLinks[primary] = slices.Clone(folders)
+			}
+		}
+	}
+	// Entries hold chats or nothing: the store rewrites every list whole,
+	// and an empty one simply has no rows.
+	for key, scope := range a.connections.scopes {
+		if len(scope.pinOrder) > 0 {
+			state.pins[key] = slices.Clone(scope.pinOrder)
+		}
+		if len(scope.archived) > 0 {
+			ids := make([]string, 0, len(scope.archived))
+			for id := range scope.archived {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			if state.archived == nil {
+				state.archived = map[string][]string{}
+			}
+			state.archived[key] = ids
+		}
+		if len(scope.unread) > 0 {
+			ids := make([]string, 0, len(scope.unread))
+			for id := range scope.unread {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			if state.unread == nil {
+				state.unread = map[string][]string{}
+			}
+			state.unread[key] = ids
+		}
+		if len(scope.drafts) > 0 {
+			if state.drafts == nil {
+				state.drafts = map[string]map[string]string{}
+			}
+			state.drafts[key] = maps.Clone(scope.drafts)
+		}
+	}
+	for key := range a.connections.modelOff {
+		state.modelOff[key] = true
+	}
+	return state
+}
+
+func (a *app) saveState() {
+	if a.preferences.metadata == nil {
+		return
+	}
+	a.preferences.metadataVersion++
+	a.preferences.metadataSaving = true
+	select {
+	case <-a.preferences.metadata.queue:
+	default:
+	}
+	a.preferences.metadata.queue <- metadataWrite{state: a.stateSnapshot(), version: a.preferences.metadataVersion}
+}
+
+func (a *app) acceptMetadataWrite(version uint64, err error) {
+	if a.runtime.closed || version != a.preferences.metadataVersion {
+		return
+	}
+	a.preferences.metadataSaving = false
+	a.preferences.metadataError = ""
+	if err != nil {
+		a.preferences.metadataError = "Changes are not saved: " + err.Error()
+	}
+}
+
+func (a *app) restoreState(state appMetadata) {
+	a.restoreModules(state.modules)
+	a.preferences.projects, a.preferences.projectPins = state.projects, state.projectPins
+	a.preferences.appearance = normalizeAppearance(state.appearance)
+	a.preferences.chatText = normalizeChatText(state.chatText)
+	a.preferences.notifyFinished = state.notifyFinished
+	a.preferences.notifyApprovals = state.notifyApprovals
+	a.preferences.commandRecents = slices.Clone(state.commandRecents)
+	a.preferences.projectLinks = map[string][]string{}
+	for primary, folders := range state.projectLinks {
+		if len(folders) > 0 {
+			a.preferences.projectLinks[primary] = slices.Clone(folders)
+		}
+	}
+	a.preferences.keymap = maps.Clone(state.keymap)
+	if a.preferences.keymap == nil {
+		a.preferences.keymap = map[string]chord{}
+	}
+	if a.preferences.projectPins == nil {
+		a.preferences.projectPins = map[string]bool{}
+	}
+	// A stored width outside the panes' limits is a layout this version no
+	// longer shows; the default takes over rather than a clipped divider.
+	if state.sidebarW > 0 {
+		a.layout.sidebarW = min(max(state.sidebarW, sidebarMinWidth), sidebarMaxWidth)
+	}
+	if state.browserW > 0 {
+		a.layout.browserW = min(max(state.browserW, browserMinWidth), browserMaxWidth)
+	}
+	a.connections.servers = state.servers
+	if !a.hasServer(localServerID) {
+		a.connections.servers = append([]serverConn{defaultLocalServer()}, a.connections.servers...)
+	}
+	a.connections.activeServer = state.active
+	if !a.hasServer(a.connections.activeServer) {
+		a.connections.activeServer = localServerID
+	}
+	// A server the app runs itself is stopped until it is the active one.
+	for _, s := range a.connections.servers {
+		if s.managed && s.id != a.connections.activeServer {
+			a.setHealth(s.id, serverHealth{status: healthStopped})
+		}
+	}
+	for id, pins := range state.pins {
+		a.scopeFor(id).setPins(pins)
+	}
+	for id, ids := range state.archived {
+		scope := a.scopeFor(id)
+		if scope.archived == nil {
+			scope.archived = map[string]bool{}
+		}
+		for _, sid := range ids {
+			scope.archived[sid] = true
+		}
+	}
+	for id, ids := range state.unread {
+		scope := a.scopeFor(id)
+		if scope.unread == nil {
+			scope.unread = map[string]bool{}
+		}
+		for _, sid := range ids {
+			scope.unread[sid] = true
+		}
+	}
+	for id, drafts := range state.drafts {
+		a.scopeFor(id).drafts = maps.Clone(drafts)
+	}
+	a.connections.modelOff = state.modelOff
+	if a.connections.modelOff == nil {
+		a.connections.modelOff = map[string]bool{}
+	}
+}
+
+func (a *app) hasServer(id string) bool {
+	_, ok := a.serverByID(id)
+	return ok
+}
+
+// Startup loads only folders explicitly saved in the app.
+func (a *app) loadState(path string) (*metadataStore, error) {
+	db, err := openMetadata(path)
+	if err != nil {
+		return nil, err
+	}
+	state, err := db.load(context.Background())
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	a.restoreState(state)
+	for _, dir := range a.preferences.projects {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			a.preferences.unavailableProjects[dir] = true
+		}
+	}
+	return db, nil
+}
+
+func (a *app) closeMetadata() {
+	if a.preferences.metadata == nil {
+		return
+	}
+	writer := a.preferences.metadata
+	a.preferences.metadata = nil
+	close(writer.queue)
+	<-writer.done
+}

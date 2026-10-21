@@ -3,18 +3,21 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
+	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
-	"wada-desktop-go/internal/opencode"
 )
 
 type Attempt uint64
 
 type Connection struct {
+	Projects            bool
 	ID, Name, Directory string
-	Config              opencode.Config
+	Address             string
+	Open                func(context.Context) (agent.Client, error)
 	Pins                []string
 }
 type Origin struct {
@@ -29,12 +32,12 @@ type Failure struct {
 
 type Status struct {
 	State   string
-	Facts   opencode.Facts
+	Facts   agent.Facts
 	Address string
 	Err     error
 }
 type Page struct {
-	Sessions     []opencode.Session
+	Sessions     []agent.Session
 	Cursor       string
 	More, Pinned bool
 	Err          error
@@ -42,21 +45,21 @@ type Page struct {
 type Catalog struct {
 	DefaultErr error
 
-	Models  []opencode.Model
-	Default opencode.ModelRef
+	Models  []agent.Model
+	Default agent.ModelRef
 	Err     error
 
-	Agents    []opencode.Agent
+	Agents    []agent.Persona
 	AgentsErr error
 }
 type Opened struct {
 	Revision uint64
 
 	Session  string
-	Messages []opencode.Message
+	Messages []agent.Message
 }
 type Created struct {
-	Session opencode.Session
+	Session agent.Session
 	Draft   uint64
 }
 
@@ -66,39 +69,18 @@ type Sink interface {
 	Sessions(Page)
 	Catalog(Catalog)
 	Projects([]string)
-	Updates([]opencode.Update)
+	Updates([]agent.Update)
 	Opened(Opened)
 	Created(Created)
 	Answered(string)
 	Deleted(string)
-	Usage(opencode.Message)
+	Usage(agent.Message)
 	Notice(string)
 	Failed(Failure)
 }
 
-type Client interface {
-	Stop()
-	Info() opencode.Facts
-	Endpoint() string
-	Events(context.Context, func(opencode.Event)) error
-	ListSessions(context.Context, string, string, string) ([]opencode.Session, string, error)
-	ListModels(context.Context) ([]opencode.Model, error)
-	ListAgents(context.Context) ([]opencode.Agent, error)
-	DefaultModel(context.Context) (opencode.ModelRef, error)
-	ListProjects(context.Context) ([]string, error)
-	CreateSession(context.Context, string, string) (string, opencode.ModelRef, error)
-	SetModel(context.Context, string, string, string, string) error
-	Prompt(context.Context, string, string) error
-	SessionMessages(context.Context, string) ([]opencode.Message, error)
-	Interrupt(context.Context, string) error
-	ReplyPermission(context.Context, string, string, string) error
-	RenameSession(context.Context, string, string) error
-	DeleteSession(context.Context, string) error
-	SessionMessage(context.Context, string, string) (opencode.Message, error)
-}
-
 type Options struct {
-	Start    func(context.Context, opencode.Config, string) (Client, error)
+	Start    func(context.Context, Connection) (agent.Client, error)
 	After    func(time.Duration) <-chan time.Time
 	Capacity int
 }
@@ -133,8 +115,11 @@ type Runner struct {
 func New(ctx context.Context, post func(func()), sink Sink, options Options) *Runner {
 	ctx, cancel := context.WithCancel(ctx)
 	if options.Start == nil {
-		options.Start = func(ctx context.Context, cfg opencode.Config, dir string) (Client, error) {
-			return opencode.StartClient(ctx, cfg, dir)
+		options.Start = func(ctx context.Context, connection Connection) (agent.Client, error) {
+			if connection.Open == nil {
+				return nil, errors.New("no backend configured")
+			}
+			return connection.Open(ctx)
 		}
 	}
 	if options.After == nil {
@@ -288,12 +273,12 @@ func (r *Runner) run() {
 				}
 			})
 		}
-		post(func(s Sink) { s.Status(Status{State: "connecting", Address: owner.connection.Config.URL}) })
-		client, err := r.options.Start(attemptCtx, owner.connection.Config, owner.connection.Directory)
+		post(func(s Sink) { s.Status(Status{State: "connecting", Address: owner.connection.Address}) })
+		client, err := r.options.Start(attemptCtx, owner.connection)
 		if err != nil {
 			cancel()
 			r.publish(owner.generation, attempt, func(s Sink) {
-				s.Status(Status{State: "down", Err: err, Address: owner.connection.Config.URL})
+				s.Status(Status{State: "down", Err: err, Address: owner.connection.Address})
 				s.Notice("The agent would not come up: " + err.Error())
 			})
 		} else {
@@ -329,7 +314,7 @@ func (r *Runner) run() {
 	}
 }
 
-func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connection, post func(func(Sink))) {
+func (r *Runner) bootstrap(ctx context.Context, client agent.Client, connection Connection, post func(func(Sink))) {
 	r.spawn(func() {
 		rows, cursor, err := client.ListSessions(ctx, "", "", "")
 		page := Page{Sessions: rows, Cursor: cursor, Err: err}
@@ -337,7 +322,7 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 		if err != nil {
 			return
 		}
-		extra, err := LoadPinnedSessions(ctx, connection.Pins, rows, cursor, func(ctx context.Context, cursor, search string) ([]opencode.Session, string, error) {
+		extra, err := LoadPinnedSessions(ctx, connection.Pins, rows, cursor, func(ctx context.Context, cursor, search string) ([]agent.Session, string, error) {
 			return client.ListSessions(ctx, cursor, search, "")
 		})
 		if err != nil {
@@ -350,27 +335,37 @@ func (r *Runner) bootstrap(ctx context.Context, client Client, connection Connec
 	})
 	r.spawn(func() {
 		models, err := client.ListModels(ctx)
-		agents, agentsErr := client.ListAgents(ctx)
+		var agents []agent.Persona
+		var agentsErr error
+		if catalog, ok := client.(agent.Personas); ok {
+			agents, agentsErr = catalog.ListAgents(ctx)
+		}
 		def, defaultErr := client.DefaultModel(ctx)
 		post(func(s Sink) {
 			s.Catalog(Catalog{Models: models, Agents: agents, Err: err, AgentsErr: agentsErr, Default: def, DefaultErr: defaultErr})
 		})
 	})
-	r.spawn(func() {
-		projects, err := client.ListProjects(ctx)
-		if err == nil {
-			post(func(s Sink) { s.Projects(projects) })
-			return
-		}
-		// The failure keeps the folders already known, and names why.
-		post(func(s Sink) { s.Notice("The workspace list did not load: " + err.Error()) })
-	})
+	if connection.Projects {
+		r.spawn(func() {
+			workspace, ok := client.(agent.Workspaces)
+			if !ok {
+				return
+			}
+			projects, err := workspace.ListProjects(ctx)
+			if err == nil {
+				post(func(s Sink) { s.Projects(projects) })
+				return
+			}
+			// The failure keeps the folders already known, and names why.
+			post(func(s Sink) { s.Notice("The workspace list did not load: " + err.Error()) })
+		})
+	}
 }
 
-func (r *Runner) serve(ctx context.Context, client Client, owner selected, attempt Attempt, post func(func(Sink))) bool {
+func (r *Runner) serve(ctx context.Context, client agent.Client, owner selected, attempt Attempt, post func(func(Sink))) bool {
 	ended := make(chan error, 1)
 	r.spawn(func() {
-		ended <- batchUpdates(ctx, client.Events, r.post, func(batch []opencode.Update) {
+		ended <- batchUpdates(ctx, client.Updates, r.post, func(batch []agent.Update) {
 			if r.ctx.Err() == nil && r.generation.Load() == uint64(owner.generation) && r.attempt.Load() == uint64(attempt) {
 				r.sink.Updates(batch)
 			}
@@ -420,7 +415,7 @@ func availableJobs(jobs <-chan queued, active <-chan struct{}) <-chan queued {
 	}
 	return jobs
 }
-func (r *Runner) execute(ctx context.Context, client Client, command Command, session *string, draft *uint64, post func(func(Sink))) {
+func (r *Runner) execute(ctx context.Context, client agent.Client, command Command, session *string, draft *uint64, post func(func(Sink))) {
 	origin := commandOrigin(command)
 	report := func(action string, err error) {
 		if err == nil {
@@ -445,17 +440,16 @@ func (r *Runner) execute(ctx context.Context, client Client, command Command, se
 					return
 				}
 				want := c.Model
-				if want.ID == "" {
-					want.ProviderID, want.ID = opencode.DefaultModel()
-				}
-				if err := client.SetModel(ctx, id, want.ProviderID, want.ID, want.Variant); err != nil {
-					report("The model was not set", err)
-				} else {
-					ref = want
+				if want.ID != "" {
+					if err := client.SetModel(ctx, id, want.ProviderID, want.ID, want.Variant); err != nil {
+						report("The model was not set", err)
+					} else {
+						ref = want
+					}
 				}
 				*session, *draft = id, c.Draft
 				post(func(s Sink) {
-					s.Created(Created{Session: opencode.Session{ID: id, Directory: c.Directory, Model: ref}, Draft: c.Draft})
+					s.Created(Created{Session: agent.Session{ID: id, Directory: c.Directory, Model: ref}, Draft: c.Draft})
 				})
 			}
 			target = *session

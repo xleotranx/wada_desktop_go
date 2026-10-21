@@ -8,19 +8,19 @@ import (
 	"testing"
 	"time"
 
-	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/runner"
 )
 
 type fakeClient struct {
-	*opencode.Client
+	agent.Client
 	address       string
 	eventsStarted chan struct{}
 	eventsEnd     <-chan struct{}
 	prompt        func(context.Context, string, string) error
 	interrupt     func(context.Context, string) error
 	projects      func() ([]string, error)
-	oneMessage    func(context.Context, string, string) (opencode.Message, error)
+	oneMessage    func(context.Context, string, string) (agent.Message, error)
 	opened        chan string
 	created       chan [2]string
 	stopped       atomic.Bool
@@ -29,10 +29,10 @@ type fakeClient struct {
 func client(address string) *fakeClient {
 	return &fakeClient{address: address, eventsStarted: make(chan struct{}), opened: make(chan string, 8), created: make(chan [2]string, 8)}
 }
-func (c *fakeClient) Stop()                { c.stopped.Store(true) }
-func (c *fakeClient) Info() opencode.Facts { return opencode.Facts{} }
-func (c *fakeClient) Endpoint() string     { return c.address }
-func (c *fakeClient) Events(ctx context.Context, _ func(opencode.Event)) error {
+func (c *fakeClient) Stop()             { c.stopped.Store(true) }
+func (c *fakeClient) Info() agent.Facts { return agent.Facts{} }
+func (c *fakeClient) Endpoint() string  { return c.address }
+func (c *fakeClient) Updates(ctx context.Context, _ func(agent.Update), _ func(string)) error {
 	close(c.eventsStarted)
 	select {
 	case <-ctx.Done():
@@ -41,12 +41,12 @@ func (c *fakeClient) Events(ctx context.Context, _ func(opencode.Event)) error {
 		return errors.New("event stream disconnected")
 	}
 }
-func (c *fakeClient) ListSessions(context.Context, string, string, string) ([]opencode.Session, string, error) {
-	return []opencode.Session{{ID: c.address}}, "", nil
+func (c *fakeClient) ListSessions(context.Context, string, string, string) ([]agent.Session, string, error) {
+	return []agent.Session{{ID: c.address}}, "", nil
 }
-func (c *fakeClient) ListModels(context.Context) ([]opencode.Model, error) { return nil, nil }
-func (c *fakeClient) DefaultModel(context.Context) (opencode.ModelRef, error) {
-	return opencode.ModelRef{}, nil
+func (c *fakeClient) ListModels(context.Context) ([]agent.Model, error) { return nil, nil }
+func (c *fakeClient) DefaultModel(context.Context) (agent.ModelRef, error) {
+	return agent.ModelRef{}, nil
 }
 func (c *fakeClient) ListProjects(context.Context) ([]string, error) {
 	if c.projects != nil {
@@ -54,12 +54,12 @@ func (c *fakeClient) ListProjects(context.Context) ([]string, error) {
 	}
 	return []string{c.address}, nil
 }
-func (c *fakeClient) ListAgents(context.Context) ([]opencode.Agent, error) {
-	return []opencode.Agent{{ID: "build", Name: "Build"}}, nil
+func (c *fakeClient) ListAgents(context.Context) ([]agent.Persona, error) {
+	return []agent.Persona{{ID: "build", Name: "Build"}}, nil
 }
-func (c *fakeClient) CreateSession(_ context.Context, dir, agent string) (string, opencode.ModelRef, error) {
-	c.created <- [2]string{dir, agent}
-	return "ses_born", opencode.ModelRef{ProviderID: "prov", ID: "free-model"}, nil
+func (c *fakeClient) CreateSession(_ context.Context, dir, persona string) (string, agent.ModelRef, error) {
+	c.created <- [2]string{dir, persona}
+	return "ses_born", agent.ModelRef{ProviderID: "prov", ID: "free-model"}, nil
 }
 func (c *fakeClient) SetModel(context.Context, string, string, string, string) error { return nil }
 func (c *fakeClient) Prompt(ctx context.Context, session, text string) error {
@@ -74,15 +74,15 @@ func (c *fakeClient) Interrupt(ctx context.Context, session string) error {
 	}
 	return nil
 }
-func (c *fakeClient) SessionMessages(_ context.Context, session string) ([]opencode.Message, error) {
+func (c *fakeClient) SessionMessages(_ context.Context, session string) ([]agent.Message, error) {
 	c.opened <- session
 	return nil, nil
 }
-func (c *fakeClient) SessionMessage(ctx context.Context, session, message string) (opencode.Message, error) {
+func (c *fakeClient) SessionMessage(ctx context.Context, session, message string) (agent.Message, error) {
 	if c.oneMessage != nil {
 		return c.oneMessage(ctx, session, message)
 	}
-	return opencode.Message{}, errors.New("not captured")
+	return agent.Message{}, errors.New("not captured")
 }
 
 type recordingSink struct {
@@ -92,17 +92,17 @@ type recordingSink struct {
 	projectLists int
 }
 
-func (s *recordingSink) Status(v runner.Status)  { s.statuses = append(s.statuses, v) }
-func (s *recordingSink) Sessions(v runner.Page)  { s.pages = append(s.pages, v) }
-func (*recordingSink) Catalog(runner.Catalog)    {}
-func (s *recordingSink) Projects([]string)       { s.projectLists++ }
-func (*recordingSink) Updates([]opencode.Update) {}
-func (*recordingSink) Opened(runner.Opened)      {}
-func (*recordingSink) Created(runner.Created)    {}
-func (*recordingSink) Answered(string)           {}
-func (*recordingSink) Deleted(string)            {}
-func (*recordingSink) Usage(opencode.Message)    {}
-func (s *recordingSink) Notice(v string)         { s.notices = append(s.notices, v) }
+func (s *recordingSink) Status(v runner.Status) { s.statuses = append(s.statuses, v) }
+func (s *recordingSink) Sessions(v runner.Page) { s.pages = append(s.pages, v) }
+func (*recordingSink) Catalog(runner.Catalog)   {}
+func (s *recordingSink) Projects([]string)      { s.projectLists++ }
+func (*recordingSink) Updates([]agent.Update)   {}
+func (*recordingSink) Opened(runner.Opened)     {}
+func (*recordingSink) Created(runner.Created)   {}
+func (*recordingSink) Answered(string)          {}
+func (*recordingSink) Deleted(string)           {}
+func (*recordingSink) Usage(agent.Message)      {}
+func (s *recordingSink) Notice(v string)        { s.notices = append(s.notices, v) }
 
 type dispatcher struct{ callbacks chan func() }
 
@@ -150,15 +150,15 @@ func newRunner(t *testing.T, d *dispatcher, sink *recordingSink, options runner.
 	return r
 }
 func connection(id string) runner.Connection {
-	return runner.Connection{ID: id, Config: opencode.Config{URL: id}}
+	return runner.Connection{Projects: true, ID: id, Address: id}
 }
 
 func TestSelectCancelsBlockedStartupAndRejectsOldPublication(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	oldStarted := make(chan context.Context, 1)
 	next := client("new")
-	r := newRunner(t, d, sink, runner.Options{Start: func(ctx context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
-		if cfg.URL == "old" {
+	r := newRunner(t, d, sink, runner.Options{Start: func(ctx context.Context, cfg runner.Connection) (agent.Client, error) {
+		if cfg.Address == "old" {
 			oldStarted <- ctx
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -190,8 +190,8 @@ func TestSelectCancelsBlockedPrompt(t *testing.T) {
 	old, next := client("old"), client("new")
 	started := make(chan context.Context, 1)
 	old.prompt = func(ctx context.Context, _, _ string) error { started <- ctx; <-ctx.Done(); return ctx.Err() }
-	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
-		if cfg.URL == "old" {
+	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg runner.Connection) (agent.Client, error) {
+		if cfg.Address == "old" {
 			return old, nil
 		}
 		return next, nil
@@ -221,7 +221,7 @@ func TestStopInterruptsWhilePromptBlocks(t *testing.T) {
 	started, interrupted := make(chan context.Context, 1), make(chan string, 1)
 	c.prompt = func(ctx context.Context, _, _ string) error { started <- ctx; <-ctx.Done(); return ctx.Err() }
 	c.interrupt = func(_ context.Context, session string) error { interrupted <- session; return nil }
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }})
 	r.Select(1, connection("server"))
 	await(t, c.eventsStarted)
 	if r.Submit(1, runner.Prompt{Session: "session", Text: "question"}) != runner.Accepted {
@@ -242,7 +242,7 @@ func TestStopInterruptsWhilePromptBlocks(t *testing.T) {
 func TestFullQueueReportsBusyAndReservesControl(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	started := make(chan struct{})
-	r := newRunner(t, d, sink, runner.Options{Capacity: 1, Start: func(ctx context.Context, _ opencode.Config, _ string) (runner.Client, error) {
+	r := newRunner(t, d, sink, runner.Options{Capacity: 1, Start: func(ctx context.Context, _ runner.Connection) (agent.Client, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -276,7 +276,7 @@ func TestRetryRejectsPostedCallbacksFromPreviousAttempt(t *testing.T) {
 	tick := make(chan time.Time)
 	after := make(chan time.Duration, 1)
 	var starts atomic.Int32
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) {
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) {
 		if starts.Add(1) == 1 {
 			return old, nil
 		}
@@ -323,7 +323,7 @@ func TestUncertainPromptOutcomeIsNeverReplayed(t *testing.T) {
 	tick := make(chan time.Time)
 	after := make(chan time.Duration, 1)
 	var starts atomic.Int32
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) {
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) {
 		if starts.Add(1) == 1 {
 			return first, nil
 		}
@@ -363,7 +363,7 @@ func TestUncertainPromptOutcomeIsNeverReplayed(t *testing.T) {
 func TestChatBirthCarriesThePersona(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }})
 	r.Select(1, connection("server"))
 	await(t, c.eventsStarted)
 	if r.Submit(1, runner.Prompt{Session: "", Text: "plan this", Directory: "/srv/app", Agent: "plan"}) != runner.Accepted {
@@ -383,7 +383,7 @@ func TestPlainDropSaysItIsTryingAgain(t *testing.T) {
 	end := make(chan struct{})
 	c.eventsEnd = end
 	after := make(chan time.Time) // the retry holds off, so one attempt runs
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }, After: func(time.Duration) <-chan time.Time { return after }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }, After: func(time.Duration) <-chan time.Time { return after }})
 	r.Select(1, connection("server"))
 	await(t, c.eventsStarted)
 	close(end)
@@ -414,7 +414,7 @@ func TestPlainDropSaysItIsTryingAgain(t *testing.T) {
 func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }})
 	r.Select(1, connection("server"))
 	await(t, c.eventsStarted)
 	r.Close()
@@ -431,7 +431,7 @@ func TestShutdownWaitsForClientAndWorkers(t *testing.T) {
 func TestAdmissionRejectsUnsupportedPointerFormsWithoutPanicking(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }})
 	r.Select(1, connection("server"))
 	for _, command := range []runner.Command{nil, (*runner.Prompt)(nil), &runner.Prompt{Text: "hello"}, runner.Answer{Session: "s", Request: "p", Decision: "invalid"}} {
 		if r.Submit(1, command) != runner.Invalid {
@@ -448,8 +448,8 @@ func TestProjectLoadFailureIsNotSilent(t *testing.T) {
 	bad, good := client("bad"), client("good")
 	bad.projects = func() ([]string, error) { return nil, errors.New("store unavailable") }
 	good.projects = func() ([]string, error) { return []string{good.address}, nil }
-	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg opencode.Config, _ string) (runner.Client, error) {
-		if cfg.URL == "bad" {
+	r := newRunner(t, d, sink, runner.Options{Start: func(_ context.Context, cfg runner.Connection) (agent.Client, error) {
+		if cfg.Address == "bad" {
 			return bad, nil
 		}
 		return good, nil
@@ -481,14 +481,14 @@ func TestUsageFetchFailureReportsItsLine(t *testing.T) {
 	d, sink := newDispatcher(), &recordingSink{}
 	c := client("server")
 	var calls atomic.Int32
-	c.oneMessage = func(_ context.Context, session, message string) (opencode.Message, error) {
+	c.oneMessage = func(_ context.Context, session, message string) (agent.Message, error) {
 		calls.Add(1)
 		if session == "session" && message == "msg_1" {
-			return opencode.Message{}, errors.New("the store blinked")
+			return agent.Message{}, errors.New("the store blinked")
 		}
-		return opencode.Message{}, errors.New("unexpected ask")
+		return agent.Message{}, errors.New("unexpected ask")
 	}
-	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, opencode.Config, string) (runner.Client, error) { return c, nil }})
+	r := newRunner(t, d, sink, runner.Options{Start: func(context.Context, runner.Connection) (agent.Client, error) { return c, nil }})
 	r.Select(1, connection("server"))
 	await(t, c.eventsStarted)
 	if r.Submit(1, runner.Usage{Session: "session", Message: "msg_1"}) != runner.Accepted {
@@ -510,3 +510,29 @@ func TestUsageFetchFailureReportsItsLine(t *testing.T) {
 }
 
 func (s *recordingSink) Failed(failure runner.Failure) { s.notices = append(s.notices, failure.Text) }
+
+// Embedding the core interface deliberately removes the fake's optional
+// workspace and persona capabilities from the runner's available contract.
+type coreOnlyClient struct{ agent.Client }
+
+func TestInjectedChatBackendNeedsNoWorkspaceOrWireProtocol(t *testing.T) {
+	d, sink := newDispatcher(), &recordingSink{}
+	c := client("independent-backend")
+	prompts := make(chan string, 1)
+	c.prompt = func(_ context.Context, _, text string) error { prompts <- text; return nil }
+	r := newRunner(t, d, sink, runner.Options{})
+	r.Select(1, runner.Connection{ID: "chat", Open: func(context.Context) (agent.Client, error) { return coreOnlyClient{c}, nil }})
+	await(t, c.eventsStarted)
+	if got := r.Submit(1, runner.Prompt{Text: "hello"}); got != runner.Accepted {
+		t.Fatalf("admission=%v", got)
+	}
+	if text := receive(t, prompts); text != "hello" {
+		t.Fatalf("prompt=%q", text)
+	}
+	r.Close()
+	await(t, r.Done())
+	d.drain()
+	if sink.projectLists != 0 {
+		t.Fatal("chat-only backend published workspace state")
+	}
+}

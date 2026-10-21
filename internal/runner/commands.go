@@ -1,8 +1,8 @@
 package runner
 
 import (
+	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
-	"wada-desktop-go/internal/opencode"
 )
 
 type Generation uint64
@@ -48,7 +48,7 @@ type Prompt struct {
 	// dropped by the transport when the chat already stands.
 	Agent string
 	Draft uint64
-	Model opencode.ModelRef
+	Model agent.ModelRef
 }
 
 func (Prompt) kind() Kind { return KindPrompt }
@@ -85,7 +85,7 @@ func (Delete) kind() Kind { return KindDelete }
 
 type SelectModel struct {
 	Session chat.SessionID
-	Model   opencode.ModelRef
+	Model   agent.ModelRef
 }
 
 func (SelectModel) kind() Kind { return KindSelectModel }

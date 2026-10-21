@@ -3,43 +3,31 @@ package runner
 import (
 	"context"
 	"time"
-	"wada-desktop-go/internal/opencode"
+	"wada-desktop-go/internal/agent"
 )
 
 // agentUpdates publishes ordered batches at most one pending UI callback
 // at a time. The unbuffered pipe gives a busy UI backpressure instead of
 // retaining an unbounded queue of event payloads.
-func batchUpdates(ctx context.Context, source func(context.Context, func(opencode.Event)) error,
-	post func(func()), apply func([]opencode.Update), notice func(string)) error {
+func batchUpdates(ctx context.Context, source func(context.Context, func(agent.Update), func(string)) error,
+	post func(func()), apply func([]agent.Update), notice func(string)) error {
 	ctx, cancel := context.WithCancel(ctx)
-	queue := make(chan opencode.Update)
+	queue := make(chan agent.Update)
 	done := make(chan error, 1)
 	sourceExited := make(chan struct{})
 	defer func() { cancel(); <-sourceExited }()
 	go func() {
 		defer close(sourceExited)
-		warned := false
-		done <- source(ctx, func(wire opencode.Event) {
-			ev, known, err := opencode.DecodeEvent(wire)
-			if err != nil {
-				if !warned {
-					warned = true
-					notice(err.Error())
-				}
-				return
-			}
-			if !known {
-				return
-			}
+		done <- source(ctx, func(ev agent.Update) {
 			select {
 			case queue <- ev:
 			case <-ctx.Done():
 			}
-		})
+		}, notice)
 		close(queue)
 	}()
 	for {
-		var first opencode.Update
+		var first agent.Update
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -49,7 +37,7 @@ func batchUpdates(ctx context.Context, source func(context.Context, func(opencod
 			}
 			first = ev
 		}
-		batch := []opencode.Update{first}
+		batch := []agent.Update{first}
 		bytes := first.Bytes
 		timer := time.NewTimer(time.Second / 60)
 	collect:

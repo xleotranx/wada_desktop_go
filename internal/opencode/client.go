@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"wada-desktop-go/internal/agent"
+	"wada-desktop-go/internal/workspace"
 
 	"time"
 )
@@ -28,15 +30,16 @@ import (
 // the real agent answers where the demo copy used to.
 type Client struct {
 	stopOnce sync.Once
+	Local    bool
 
 	Base     string // like http://127.0.0.1:4096/api
 	Password string // the password this app connects with
 	Paired   bool   // that password is a pairing token, which lapses on its own
 	HTTP     *http.Client
-	Cmd      *exec.Cmd // the process the app started; nil for a dialed server
-	Address  string    // where it listens, for Settings to show
-	Facts    Facts     // what its /info said about itself
-	BodyCap  int64     // how much of one response to keep; 0 for defaultBodyCap
+	Cmd      *exec.Cmd   // the process the app started; nil for a dialed server
+	Address  string      // where it listens, for Settings to show
+	Facts    agent.Facts // what its /info said about itself
+	BodyCap  int64       // how much of one response to keep; 0 for defaultBodyCap
 }
 
 // defaultBodyCap is how much of one API response the client keeps: a stored
@@ -53,7 +56,7 @@ type Event struct {
 
 // standaloneAgent is one connection's client without a managed process:
 // the server the app dials stands on its own.
-func NewClient(cfg Config) (*Client, error) {
+func NewClient(cfg agent.Config) (*Client, error) {
 	base, err := APIBase(cfg.URL)
 	if err != nil {
 		if cfg.Managed {
@@ -63,14 +66,14 @@ func NewClient(cfg Config) (*Client, error) {
 		}
 		return nil, err
 	}
-	return &Client{Base: base, Password: cfg.Password, Paired: cfg.Paired, HTTP: HTTPClient(),
+	return &Client{Local: cfg.Local, Base: base, Password: cfg.Password, Paired: cfg.Paired, HTTP: HTTPClient(),
 		Address: strings.TrimSuffix(base, "/api")}, nil
 }
 
 // startAgentFor brings one configured server up: it spawns opencode serve
 // for a connection the app manages, and dials any other, waiting for its
 // API to answer either way.
-func StartClient(ctx context.Context, cfg Config, dir string) (*Client, error) {
+func StartClient(ctx context.Context, cfg agent.Config, dir string) (*Client, error) {
 	if cfg.Managed {
 		return startLocalClient(ctx, cfg, dir)
 	}
@@ -89,7 +92,7 @@ func StartClient(ctx context.Context, cfg Config, dir string) (*Client, error) {
 // startLocalAgent spawns opencode serve on a free port with the app's password
 // (generated when settings hold none). The server dies with this process
 // (Pdeathsig), so dev rebuilds don't leave orphans behind.
-func startLocalClient(ctx context.Context, cfg Config, dir string) (*Client, error) {
+func startLocalClient(ctx context.Context, cfg agent.Config, dir string) (*Client, error) {
 	exe, err := exec.LookPath("opencode")
 	if err != nil {
 		return nil, fmt.Errorf("opencode not found in PATH: %w", err)
@@ -147,12 +150,12 @@ func (a *Client) Stop() {
 
 // waitReady polls /api/info until the server names its version, the
 // deadline passes or the app walks away.
-func (a *Client) WaitReady(ctx context.Context, within time.Duration) (Facts, error) {
+func (a *Client) WaitReady(ctx context.Context, within time.Duration) (agent.Facts, error) {
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return Facts{}, ctx.Err()
+			return agent.Facts{}, ctx.Err()
 		default:
 		}
 		raw, err := a.Call(ctx, "GET", "/info", nil)
@@ -163,11 +166,11 @@ func (a *Client) WaitReady(ctx context.Context, within time.Duration) (Facts, er
 		}
 		select {
 		case <-ctx.Done():
-			return Facts{}, ctx.Err()
+			return agent.Facts{}, ctx.Err()
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
-	return Facts{}, fmt.Errorf("the server did not come up in %s", within)
+	return agent.Facts{}, fmt.Errorf("the server did not come up in %s", within)
 }
 
 // freePort finds a port for serve by reserving and releasing one.
@@ -238,17 +241,17 @@ func (a *Client) Call(ctx context.Context, method, path string, body any) (json.
 // directory given: the server's own when none is named. The agent given
 // rides the creation, since the server folds the choice into the session
 // at birth ("plan" keeps its answers read-only) and not per turn.
-func (a *Client) CreateSession(ctx context.Context, dir, agent string) (string, ModelRef, error) {
+func (a *Client) CreateSession(ctx context.Context, dir, persona string) (string, agent.ModelRef, error) {
 	body := map[string]any{}
 	if dir != "" {
 		body["location"] = map[string]any{"directory": dir}
 	}
-	if agent != "" {
-		body["agent"] = agent
+	if persona != "" {
+		body["agent"] = persona
 	}
 	raw, err := a.Call(ctx, "POST", "/session", body)
 	if err != nil {
-		return "", ModelRef{}, err
+		return "", agent.ModelRef{}, err
 	}
 	var out struct {
 		Data struct {
@@ -264,9 +267,9 @@ func (a *Client) CreateSession(ctx context.Context, dir, agent string) (string, 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", ModelRef{}, err
+		return "", agent.ModelRef{}, err
 	}
-	return out.Data.ID, ModelRef{ProviderID: out.Data.Model.ProviderID,
+	return out.Data.ID, agent.ModelRef{ProviderID: out.Data.Model.ProviderID,
 		ID: out.Data.Model.ID, Variant: out.Data.Model.Variant}, nil
 }
 
@@ -276,19 +279,6 @@ func (a *Client) Prompt(ctx context.Context, sessionID, text string) error {
 	_, err := a.Call(ctx, "POST", "/session/"+sessionID+"/prompt",
 		map[string]any{"text": text})
 	return err
-}
-
-// sessionModel is the model every conversation this app opens runs on: a
-// zero-cost one, so live turns never spend tokens, unless WADA_MODEL asks
-// for something else ("provider/model").
-func DefaultModel() (string, string) {
-	if env := os.Getenv("WADA_MODEL"); env != "" {
-		prov, name, ok := strings.Cut(env, "/")
-		if ok && prov != "" && name != "" {
-			return prov, name
-		}
-	}
-	return "opencode-go", "longcat-2.5-preview-free"
 }
 
 // setModel points one conversation at a model of the catalog, with its
@@ -336,46 +326,9 @@ func (a *Client) DeleteSession(ctx context.Context, sessionID string) error {
 // agentSession is the sidebar row of one real conversation, with the
 // folder it works in — the list spans every project the store knows — and
 // what it has spent so far.
-type Session struct {
-	ID        string
-	Title     string
-	Directory string
-	Updated   int64
-	Model     ModelRef // what it runs on
-	Cost      float64  // what its turns have spent, in dollars
-}
-
-// agentModelRef is the model a conversation points at, as stored rows
-// and events both name it: a provider detail of which reasoning effort.
-type ModelRef struct {
-	ProviderID string
-	ID         string
-	Variant    string
-}
-
-// agentModel is one entry of the server's catalog, with whether running
-// it costs anything — the picker marks free models.
-type Model struct {
-	ProviderID string
-	ID         string
-	Name       string
-	Variants   []string
-	Free       bool
-}
-
-// agentRow is one persona the conversation can run under: how it reads
-// the codebase and what it may touch. Primary agents are chat picks
-// ("build", "plan"); subagents work for other agents, and the hidden ones
-// serve plumbing.
-type Agent struct {
-	ID          string
-	Name        string
-	Description string
-}
-
 // ListAgents reads the personas a conversation can run under, keeping
 // the chat-pickable ones in the server's own order.
-func (a *Client) ListAgents(ctx context.Context) ([]Agent, error) {
+func (a *Client) ListAgents(ctx context.Context) ([]agent.Persona, error) {
 	raw, err := a.Call(ctx, "GET", "/agent", nil)
 	if err != nil {
 		return nil, err
@@ -392,18 +345,18 @@ func (a *Client) ListAgents(ctx context.Context) ([]Agent, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	var all []Agent
+	var all []agent.Persona
 	for _, row := range out.Data {
 		if row.Mode != "primary" || row.Hidden || row.ID == "" {
 			continue
 		}
-		all = append(all, Agent{ID: row.ID, Name: row.Name, Description: row.Description})
+		all = append(all, agent.Persona{ID: row.ID, Name: row.Name, Description: row.Description})
 	}
 	return all, nil
 }
 
 // listModels reads the catalog the signed-in server offers.
-func (a *Client) ListModels(ctx context.Context) ([]Model, error) {
+func (a *Client) ListModels(ctx context.Context) ([]agent.Model, error) {
 	raw, err := a.Call(ctx, "GET", "/model", nil)
 	if err != nil {
 		return nil, err
@@ -425,9 +378,9 @@ func (a *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	all := []Model{}
+	all := []agent.Model{}
 	for _, m := range out.Data {
-		row := Model{ID: m.ID, ProviderID: m.ProviderID, Name: m.Name, Free: true}
+		row := agent.Model{ID: m.ID, ProviderID: m.ProviderID, Name: m.Name, Free: true}
 		for _, v := range m.Variants {
 			row.Variants = append(row.Variants, v.ID)
 		}
@@ -444,10 +397,10 @@ func (a *Client) ListModels(ctx context.Context) ([]Model, error) {
 // defaultModel reads the model the server itself would run, for a client
 // whose own pick has no home in the catalog: a remote server's default
 // belongs to that box the way its providers do.
-func (a *Client) DefaultModel(ctx context.Context) (ModelRef, error) {
+func (a *Client) DefaultModel(ctx context.Context) (agent.ModelRef, error) {
 	raw, err := a.Call(ctx, "GET", "/model/default", nil)
 	if err != nil {
-		return ModelRef{}, err
+		return agent.ModelRef{}, err
 	}
 	var out struct {
 		Data struct {
@@ -457,12 +410,12 @@ func (a *Client) DefaultModel(ctx context.Context) (ModelRef, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return ModelRef{}, err
+		return agent.ModelRef{}, err
 	}
 	if out.Data.ID == "" || out.Data.ProviderID == "" {
-		return ModelRef{}, fmt.Errorf("the server named no default model")
+		return agent.ModelRef{}, fmt.Errorf("the server named no default model")
 	}
-	return ModelRef{ProviderID: out.Data.ProviderID, ID: out.Data.ID, Variant: out.Data.Variant}, nil
+	return agent.ModelRef{ProviderID: out.Data.ProviderID, ID: out.Data.ID, Variant: out.Data.Variant}, nil
 }
 
 // listProjects reads the folders the server works in: one directory per
@@ -578,17 +531,11 @@ func escapeFileRoute(rel string) string {
 // fsEntry is one child of a directory the server listed: its path relative
 // to the listing's location, the name a row shows, and whether it is a
 // folder.
-type FileEntry struct {
-	Path      string
-	Name      string
-	Directory bool
-}
-
 // listDir reads one directory of the server's disk. The location is where
 // the browse was opened and stays put while rel walks from it, so a look
 // around files no project row the folder did not already have; the entries
 // come back relative to that location, the way the server spells them.
-func (a *Client) ListDir(ctx context.Context, location, rel string) ([]FileEntry, error) {
+func (a *Client) ListDir(ctx context.Context, location, rel string) ([]workspace.FileEntry, error) {
 	route := "/fs/list?location[directory]=" + url.QueryEscape(location)
 	if rel != "" && rel != "." {
 		route += "&path=" + url.QueryEscape(rel)
@@ -606,13 +553,13 @@ func (a *Client) ListDir(ctx context.Context, location, rel string) ([]FileEntry
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	entries := []FileEntry{}
+	entries := []workspace.FileEntry{}
 	for _, e := range out.Data {
 		rel := strings.TrimSuffix(e.Path, "/")
 		if rel == "" {
 			continue
 		}
-		entries = append(entries, FileEntry{Path: rel, Name: path.Base(rel), Directory: e.Type == "directory"})
+		entries = append(entries, workspace.FileEntry{Path: rel, Name: path.Base(rel), Directory: e.Type == "directory"})
 	}
 	return entries, nil
 }
@@ -648,27 +595,13 @@ func (a *Client) Location(ctx context.Context, dir string) (string, error) {
 
 // vcsInfo is the version control one workspace sits in, as the server
 // reads it: the provider, the branch on show and the branch it comes off.
-type VCSInfo struct {
-	Provider string
-	Branch   string
-	Base     string
-}
-
 // vcsChange is one file a workspace has changed: its path as the repo
 // spells it, what happened to it, the two counts and the patch itself.
-type Change struct {
-	File      string
-	Status    string // "added", "modified" or "deleted"
-	Additions int
-	Deletions int
-	Patch     string
-}
-
 // workspaceVcs reads the version control a workspace sits in.
-func (a *Client) WorkspaceVcs(ctx context.Context, dir string) (VCSInfo, error) {
+func (a *Client) WorkspaceVcs(ctx context.Context, dir string) (workspace.VCSInfo, error) {
 	raw, err := a.Call(ctx, "GET", "/vcs?location[directory]="+url.QueryEscape(dir), nil)
 	if err != nil {
-		return VCSInfo{}, err
+		return workspace.VCSInfo{}, err
 	}
 	var out struct {
 		Data struct {
@@ -680,16 +613,16 @@ func (a *Client) WorkspaceVcs(ctx context.Context, dir string) (VCSInfo, error) 
 		} `json:"data"`
 	}
 	if json.Unmarshal(raw, &out) != nil {
-		return VCSInfo{}, fmt.Errorf("the version control did not read")
+		return workspace.VCSInfo{}, fmt.Errorf("the version control did not read")
 	}
-	return VCSInfo{Provider: out.Data.Provider, Branch: out.Data.Branch.Current,
+	return workspace.VCSInfo{Provider: out.Data.Provider, Branch: out.Data.Branch.Current,
 		Base: out.Data.Branch.Default}, nil
 }
 
 // workspaceChanges reads the files a workspace has changed in one mode:
 // "working" for what is not committed yet, "branch" for everything the
 // branch holds beyond its base. The patches come with them.
-func (a *Client) WorkspaceChanges(ctx context.Context, dir, mode string) ([]Change, error) {
+func (a *Client) WorkspaceChanges(ctx context.Context, dir, mode string) ([]workspace.Change, error) {
 	route := "/vcs/diff?location[directory]=" + url.QueryEscape(dir) + "&mode=" + url.QueryEscape(mode)
 	raw, err := a.Call(ctx, "GET", route, nil)
 	if err != nil {
@@ -707,9 +640,9 @@ func (a *Client) WorkspaceChanges(ctx context.Context, dir, mode string) ([]Chan
 	if json.Unmarshal(raw, &out) != nil {
 		return nil, fmt.Errorf("the diff did not read")
 	}
-	files := []Change{}
+	files := []workspace.Change{}
 	for _, f := range out.Data {
-		files = append(files, Change{File: f.File, Status: f.Status,
+		files = append(files, workspace.Change{File: f.File, Status: f.Status,
 			Additions: f.Additions, Deletions: f.Deletions, Patch: f.Patch})
 	}
 	return files, nil
@@ -718,7 +651,7 @@ func (a *Client) WorkspaceChanges(ctx context.Context, dir, mode string) ([]Chan
 // findFiles searches one workspace's disk for files whose paths match a
 // query, ranked by the server, cut at the limit asked for: the way to a
 // file in a deep tree without unfolding it folder by folder.
-func (a *Client) FindFiles(ctx context.Context, dir, query string, limit int) ([]FileEntry, error) {
+func (a *Client) FindFiles(ctx context.Context, dir, query string, limit int) ([]workspace.FileEntry, error) {
 	route := "/fs/find?location[directory]=" + url.QueryEscape(dir) +
 		"&query=" + url.QueryEscape(query) + "&type=file"
 	if limit > 0 {
@@ -737,13 +670,13 @@ func (a *Client) FindFiles(ctx context.Context, dir, query string, limit int) ([
 	if json.Unmarshal(raw, &out) != nil {
 		return nil, fmt.Errorf("the search did not read")
 	}
-	entries := []FileEntry{}
+	entries := []workspace.FileEntry{}
 	for _, e := range out.Data {
 		rel := strings.TrimSuffix(e.Path, "/")
 		if rel == "" {
 			continue
 		}
-		entries = append(entries, FileEntry{Path: rel, Name: path.Base(rel), Directory: e.Type == "directory"})
+		entries = append(entries, workspace.FileEntry{Path: rel, Name: path.Base(rel), Directory: e.Type == "directory"})
 	}
 	return entries, nil
 }
@@ -770,7 +703,7 @@ func (a *Client) WriteWorkspaceFile(ctx context.Context, dir, name string, data 
 // when the list runs out. A search narrows the whole store to what the
 // titles match, and a directory asks for one folder's own chats; both page
 // the same way.
-func (a *Client) ListSessions(ctx context.Context, cursor, search, dir string) ([]Session, string, error) {
+func (a *Client) ListSessions(ctx context.Context, cursor, search, dir string) ([]agent.Session, string, error) {
 	path := "/session?limit=50&parentID=null"
 	if cursor != "" {
 		path += "&cursor=" + url.QueryEscape(cursor)
@@ -811,16 +744,16 @@ func (a *Client) ListSessions(ctx context.Context, cursor, search, dir string) (
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, "", err
 	}
-	all := []Session{}
+	all := []agent.Session{}
 	for _, s := range out.Data {
 		if s.ParentID != "" {
 			// A build that hands children over anyway: they are the
 			// spawning conversation's business, never the sidebar's.
 			continue
 		}
-		row := Session{ID: s.ID, Title: s.Title, Directory: remoteDir(s.Location.Directory), Updated: s.Time.Updated,
+		row := agent.Session{ID: s.ID, Title: s.Title, Directory: remoteDir(s.Location.Directory), Updated: s.Time.Updated,
 			Cost:  s.Cost,
-			Model: ModelRef{ProviderID: s.Model.ProviderID, ID: s.Model.ID, Variant: s.Model.Variant}}
+			Model: agent.ModelRef{ProviderID: s.Model.ProviderID, ID: s.Model.ID, Variant: s.Model.Variant}}
 		if row.Updated == 0 {
 			row.Updated = s.Time.Created
 		}
@@ -835,7 +768,7 @@ func (a *Client) ListSessions(ctx context.Context, cursor, search, dir string) (
 // level; the queued turn's payload shape decodes too. Shapes the
 // transcript ignores (such as the "idle" marker) decode fine and get
 // skipped.
-type Message struct {
+type storedMessage struct {
 	ID     string  `json:"id"`
 	Type   string  `json:"type"`
 	Cost   float64 `json:"cost"`
@@ -852,18 +785,11 @@ type Message struct {
 		ProviderID string `json:"providerID"`
 		Variant    string `json:"variant"`
 	} `json:"model"`
-	Content []Part `json:"content"`
-}
-
-// tokenSpend is what one stored turn used, as the store counts it: what
-// the model wrote, and what it thought before writing.
-type TokenSpend struct {
-	Output    int `json:"output"`
-	Reasoning int `json:"reasoning"`
+	Content []storedPart `json:"content"`
 }
 
 // agentPart is one piece of an assistant message: text or one tool call.
-type Part struct {
+type storedPart struct {
 	Type  string `json:"type"`
 	Text  string `json:"text"`
 	ID    string `json:"id"`
@@ -882,34 +808,38 @@ type Part struct {
 }
 
 // sessionMessages reads one conversation's stored turns, oldest first.
-func (a *Client) SessionMessages(ctx context.Context, id string) ([]Message, error) {
+func (a *Client) SessionMessages(ctx context.Context, id string) ([]agent.Message, error) {
 	raw, err := a.Call(ctx, "GET", "/session/"+id+"/message?order=asc", nil)
 	if err != nil {
 		return nil, err
 	}
 	var out struct {
-		Data []Message `json:"data"`
+		Data []storedMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	messages := make([]agent.Message, len(out.Data))
+	for i, message := range out.Data {
+		messages[i] = message.normalized()
+	}
+	return messages, nil
 }
 
 // sessionMessage reads one stored turn by its id: what a finished turn
 // spent, without reading the whole conversation back for it.
-func (a *Client) SessionMessage(ctx context.Context, id, msgID string) (Message, error) {
+func (a *Client) SessionMessage(ctx context.Context, id, msgID string) (agent.Message, error) {
 	raw, err := a.Call(ctx, "GET", "/session/"+id+"/message/"+msgID, nil)
 	if err != nil {
-		return Message{}, err
+		return agent.Message{}, err
 	}
 	var out struct {
-		Data Message `json:"data"`
+		Data storedMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return Message{}, err
+		return agent.Message{}, err
 	}
-	return out.Data, nil
+	return out.Data.normalized(), nil
 }
 
 // events follows the SSE feed and calls h per event until ctx ends.
@@ -958,5 +888,5 @@ func remoteDir(dir string) string {
 	return path.Clean(dir)
 }
 
-func (a *Client) Info() Facts      { return a.Facts }
-func (a *Client) Endpoint() string { return a.Address }
+func (a *Client) Info() agent.Facts { return a.Facts }
+func (a *Client) Endpoint() string  { return a.Address }

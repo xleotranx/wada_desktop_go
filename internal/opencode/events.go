@@ -1,8 +1,10 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"wada-desktop-go/internal/agent"
 )
 
 // TextData is the payload of the session.text.* events: one running text
@@ -60,21 +62,21 @@ const (
 )
 
 // Update is a decoded known event. Wire data never enters the chat model.
-type Update struct {
+type decodedUpdate struct {
 	Kind       EventKind
 	SessionID  string
 	Text       *TextData
 	Tool       *ToolData
 	Permission *PermissionData
-	Model      ModelRef
+	Model      agent.ModelRef
 	Title      string
 	Bytes      int
 }
 
 // DecodeEvent ignores unknown event names, but rejects malformed known events
 // without including remote payloads or credentials in the diagnostic.
-func DecodeEvent(ev Event) (Update, bool, error) {
-	u := Update{Kind: EventKind(ev.Type), Bytes: len(ev.Data)}
+func DecodeEvent(ev Event) (agent.Update, bool, error) {
+	u := decodedUpdate{Kind: EventKind(ev.Type), Bytes: len(ev.Data)}
 	var err error
 	switch u.Kind {
 	case TextStarted, TextDelta, TextEnded:
@@ -111,9 +113,9 @@ func DecodeEvent(ev Event) (Update, bool, error) {
 		}
 	case ExecutionStarted, ExecutionSucceeded, ExecutionFailed, ExecutionInterrupted, ModelSelected, SessionRenamed:
 		var data struct {
-			SessionID string   `json:"sessionID"`
-			Model     ModelRef `json:"model"`
-			Title     string   `json:"title"`
+			SessionID string         `json:"sessionID"`
+			Model     agent.ModelRef `json:"model"`
+			Title     string         `json:"title"`
 		}
 		err = json.Unmarshal(ev.Data, &data)
 		u.SessionID = data.SessionID
@@ -123,10 +125,59 @@ func DecodeEvent(ev Event) (Update, bool, error) {
 			err = fmt.Errorf("invalid model identity")
 		}
 	default:
-		return Update{}, false, nil
+		return agent.Update{}, false, nil
 	}
 	if err != nil || u.SessionID == "" {
-		return Update{}, true, fmt.Errorf("malformed %s event", ev.Type)
+		return agent.Update{}, true, fmt.Errorf("malformed %s event", ev.Type)
 	}
-	return u, true, nil
+	return u.normalized(), true, nil
+}
+
+var eventKinds = map[EventKind]agent.EventKind{
+	TextStarted:          agent.TextStarted,
+	TextDelta:            agent.TextDelta,
+	TextEnded:            agent.TextEnded,
+	ToolStarted:          agent.ToolStarted,
+	ToolCalled:           agent.ToolCalled,
+	ToolSucceeded:        agent.ToolSucceeded,
+	PermissionAsked:      agent.PermissionAsked,
+	ExecutionStarted:     agent.ExecutionStarted,
+	ExecutionSucceeded:   agent.ExecutionSucceeded,
+	ExecutionFailed:      agent.ExecutionFailed,
+	ExecutionInterrupted: agent.ExecutionInterrupted,
+	ModelSelected:        agent.ModelSelected,
+	SessionRenamed:       agent.SessionRenamed,
+}
+
+func (u decodedUpdate) normalized() agent.Update {
+	out := agent.Update{Kind: eventKinds[u.Kind], SessionID: u.SessionID, Model: u.Model, Title: u.Title, Bytes: u.Bytes}
+	if t := u.Text; t != nil {
+		out.Text = &agent.TextData{SessionID: t.SessionID, MessageID: t.MessageID, Ordinal: t.Ordinal, Delta: t.Delta, Text: t.Text}
+	}
+	if t := u.Tool; t != nil {
+		out.Tool = &agent.ToolData{SessionID: t.SessionID, ID: t.ID, Name: t.Name, Command: t.Command, Content: normalizeOutput(t.Content), Status: t.Metadata.Status, Exit: t.Metadata.Exit, Truncated: t.Metadata.Truncated}
+	}
+	if p := u.Permission; p != nil {
+		out.Permission = &agent.PermissionData{SessionID: p.SessionID, ID: p.ID, Action: p.Action, Resources: p.Resources, Save: p.Save}
+	}
+	return out
+}
+
+// Updates validates and normalizes wire events before they cross the adapter.
+// One diagnostic per connection attempt bounds malformed-stream noise.
+func (a *Client) Updates(ctx context.Context, emit func(agent.Update), notice func(string)) error {
+	warned := false
+	return a.Events(ctx, func(wire Event) {
+		update, known, err := DecodeEvent(wire)
+		if err != nil {
+			if !warned {
+				warned = true
+				notice(err.Error())
+			}
+			return
+		}
+		if known {
+			emit(update)
+		}
+	})
 }

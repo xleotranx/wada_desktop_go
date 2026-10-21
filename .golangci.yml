@@ -33,11 +33,53 @@ linters:
               desc: Chat transitions must not perform I/O.
             - pkg: syscall
               desc: Chat transitions must not perform I/O.
+        agent:
+          files: ["**/internal/agent/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd"]
+        workspace:
+          files: ["**/internal/workspace/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "wada-desktop-go/internal/agent"]
         opencode:
           files: ["**/internal/opencode/*.go", "!$test"]
           list-mode: strict
-          allow: ["$gostd"]
+          allow: ["$gostd", "wada-desktop-go/internal/agent", "wada-desktop-go/internal/workspace"]
         runner:
           files: ["**/internal/runner/*.go", "!$test"]
           list-mode: strict
-          allow: ["$gostd", "wada-desktop-go/internal/opencode", "wada-desktop-go/internal/chat"]
+          allow: ["$gostd", "wada-desktop-go/internal/agent", "wada-desktop-go/internal/chat"]
+        desktop:
+          files: ["**/internal/desktop/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "wada-desktop-go/internal/agent"
+            - "wada-desktop-go/internal/chat"
+            - "wada-desktop-go/internal/runner"
+            - "wada-desktop-go/internal/feature"
+            - "wada-desktop-go/internal/native"
+            - "wada-desktop-go/internal/workspace"
+          deny:
+            - pkg: "wada-desktop-go/internal/features"
+              desc: Install concrete feature modules in main.go.
+        features:
+          files: ["**/internal/features/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "wada-desktop-go/internal/feature"
+            - "wada-desktop-go/internal/native"
+            - "wada-desktop-go/internal/workspace"
+        feature:
+          files: ["**/internal/feature/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/egoist/mygo/ui", "wada-desktop-go/internal/workspace"]
+        native:
+          files: ["**/internal/native/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/egoist/mygo/ui", "github.com/oneo-me/onevra/source"]

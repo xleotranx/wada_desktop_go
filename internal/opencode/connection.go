@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"wada-desktop-go/internal/agent"
 
 	"net"
 	"net/http"
@@ -63,13 +64,6 @@ func HTTPClient() *http.Client {
 // serverFacts is what a server's /info says about itself: the version it
 // runs, the addresses it says it answers on, its process and what its
 // capabilities allow.
-type Facts struct {
-	Version string
-	URLs    []string
-	PID     int
-	PTY     bool // it offers persistent terminals
-}
-
 // infoBody is one /info answer's fields, which opencode wraps in a data
 // envelope on some builds and not on others.
 type infoBody struct {
@@ -83,24 +77,20 @@ type infoBody struct {
 
 // readInfo reads a /info body, bare or wrapped, into what the app keeps of
 // it. A body it cannot read reads as the zero facts.
-func ReadInfo(raw []byte) Facts {
+func ReadInfo(raw []byte) agent.Facts {
 	var out struct {
 		infoBody
 		Data infoBody `json:"data"`
 	}
 	if json.Unmarshal(raw, &out) != nil {
-		return Facts{}
+		return agent.Facts{}
 	}
 	body := out.infoBody
 	if body.Version == "" {
 		body = out.Data
 	}
-	return Facts{Version: body.Version, URLs: body.URLs, PID: body.PID,
+	return agent.Facts{Version: body.Version, URLs: body.URLs, PID: body.PID,
 		PTY: body.Capabilities.PersistentPty}
 }
 
-// Config is an immutable snapshot of the connection credentials and lifetime.
-type Config struct {
-	URL, Password   string
-	Paired, Managed bool
-}
+// agent.Config is an immutable snapshot of the connection credentials and lifetime.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wada-desktop-go/internal/agent"
 )
 
 func validEventPayload(kind EventKind) string {
@@ -47,7 +48,7 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 			if err != nil || !known {
 				t.Fatalf("known event rejected: known=%t err=%v", known, err)
 			}
-			if got.Kind != kind || got.SessionID != "ses-1" || got.Bytes != len(raw) {
+			if got.Kind != eventKinds[kind] || got.SessionID != "ses-1" || got.Bytes != len(raw) {
 				t.Fatalf("event identity/size = %+v", got)
 			}
 			switch kind {
@@ -56,7 +57,7 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 					t.Fatalf("text payload = %+v", got.Text)
 				}
 			case ToolStarted, ToolCalled, ToolSucceeded:
-				if got.Tool.ID != "tool-1" || got.Tool.Name != "bash" || got.Tool.Command != "go test ./..." || len(got.Tool.Content) != 1 || got.Tool.Content[0].Text != "PASS" || got.Tool.Metadata.Status != "completed" {
+				if got.Tool.ID != "tool-1" || got.Tool.Name != "bash" || got.Tool.Command != "go test ./..." || len(got.Tool.Content) != 1 || got.Tool.Content[0].Text != "PASS" || got.Tool.Status != "completed" {
 					t.Fatalf("typed tool payload = %+v", got.Tool)
 				}
 			case PermissionAsked:
@@ -64,7 +65,7 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 					t.Fatalf("permission payload = %+v", got.Permission)
 				}
 			case ModelSelected:
-				if got.Model != (ModelRef{ProviderID: "provider-1", ID: "model-1", Variant: "high"}) {
+				if got.Model != (agent.ModelRef{ProviderID: "provider-1", ID: "model-1", Variant: "high"}) {
 					t.Fatalf("model payload = %+v", got.Model)
 				}
 			case SessionRenamed:
@@ -80,7 +81,7 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 func TestDecodeUnknownEventIgnoresItsPayload(t *testing.T) {
 	for _, payload := range []string{`{"sessionID":"ses-1"}`, `{broken`, `null`} {
 		got, known, err := DecodeEvent(Event{Type: "future.event", Data: json.RawMessage(payload)})
-		if known || err != nil || !reflect.DeepEqual(got, Update{}) {
+		if known || err != nil || !reflect.DeepEqual(got, agent.Update{}) {
 			t.Fatalf("unknown event = %+v, %t, %v", got, known, err)
 		}
 	}
@@ -92,7 +93,7 @@ func requireMalformedEvent(t *testing.T, kind EventKind, payload string) {
 	if !known || err == nil {
 		t.Fatalf("malformed event accepted: %+v, known=%t err=%v", got, known, err)
 	}
-	if !reflect.DeepEqual(got, Update{}) {
+	if !reflect.DeepEqual(got, agent.Update{}) {
 		t.Fatalf("malformed event exposed partial update: %+v", got)
 	}
 	if len(err.Error()) > 128 || strings.Contains(err.Error(), "private-secret") {
@@ -160,7 +161,7 @@ func TestEventsCancellationClosesStreamingRequest(t *testing.T) {
 		close(disconnected)
 	}))
 	defer server.Close()
-	client, err := NewClient(Config{URL: server.URL, Password: "test-password"})
+	client, err := NewClient(agent.Config{URL: server.URL, Password: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,5 +190,28 @@ func TestEventsCancellationClosesStreamingRequest(t *testing.T) {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
 		t.Fatal("server request did not close on cancellation")
+	}
+}
+
+func TestNormalizedStreamFiltersUnknownAndBoundsMalformedDiagnostics(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for range 1000 {
+			fmt.Fprintln(w, `data: {"type":"session.text.delta","data":{"sessionID":"missing-identity"}}`)
+		}
+		fmt.Fprintln(w, `data: {"type":"future.event","data":{}}`)
+		fmt.Fprintln(w, `data: {"type":"session.text.delta","data":{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"hello"}}`)
+	}))
+	defer srv.Close()
+	c := &Client{Base: srv.URL, HTTP: srv.Client()}
+	notices, count := 0, 0
+	err := c.Updates(context.Background(), func(update agent.Update) {
+		count++
+		if update.Kind != agent.TextDelta || update.Text.Delta != "hello" {
+			t.Fatalf("update=%+v", update)
+		}
+	}, func(string) { notices++ })
+	if err != nil || notices != 1 || count != 1 {
+		t.Fatalf("err=%v notices=%d updates=%d", err, notices, count)
 	}
 }

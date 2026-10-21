@@ -217,6 +217,19 @@ func (c *client) delete(ctx context.Context, id agent.SessionID) error {
 	return c.decode(ctx, "DELETE", sessionPath(id, ""), nil, nil)
 }
 
+// rewind stages a revert to before message without touching the files, then
+// commits it, which removes the message and everything after it.
+func (c *client) rewind(ctx context.Context, id agent.SessionID, message agent.MessageID) error {
+	if err := c.decode(ctx, "POST", sessionPath(id, "/revert/stage"),
+		map[string]any{"messageID": string(message), "files": false}, nil); err != nil {
+		return err
+	}
+	if err := c.decode(ctx, "POST", sessionPath(id, "/revert/commit"), nil, nil); err != nil {
+		return fmt.Errorf("the rewind was staged but not committed: %w", err)
+	}
+	return nil
+}
+
 // ---- Messages
 
 type wireOutput struct {

@@ -263,6 +263,31 @@ func TestRenameModelAndDelete(t *testing.T) {
 	}
 }
 
+func TestRewindForksAndTheProcessFollows(t *testing.T) {
+	h, p, _ := startPi(t)
+	got := events(h)
+	forked := call(t, h, func(ctx context.Context) (agent.SessionID, error) { return p.Rewind(ctx, "old-1", "u1") })
+	if forked != "old-1-fork" {
+		t.Fatalf("forked into %q", forked)
+	}
+	call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
+		return p.Send(ctx, agent.Send{Session: forked, Text: "hi"})
+	})
+	waitFor(t, h, "the forked turn", func() bool { return slices.Contains(kinds(*got), agent.TurnSucceeded) })
+	for _, e := range *got {
+		if e.Session != forked {
+			t.Fatalf("event of %q after the fork: %+v", e.Session, e)
+		}
+	}
+	cancelled := call(t, h, func(ctx context.Context) (error, error) {
+		_, err := p.Rewind(ctx, forked, "cancel-me")
+		return err, nil
+	})
+	if cancelled == nil {
+		t.Fatal("a cancelled fork succeeded")
+	}
+}
+
 func TestIdleProcessesAreStopped(t *testing.T) {
 	h, p, dir := startPi(t)
 	p.mu.Lock()

@@ -18,8 +18,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Agent provides the service, models, modes and interactions with answers the test sets. Calls are
-// recorded as short strings, e.g. "send s1 hello".
+// Agent provides the service, models, modes, interactions and rewinding with
+// answers the test sets. Calls are recorded as short strings, e.g. "send s1 hello".
 type Agent struct {
 	mu          sync.Mutex
 	calls       []string
@@ -28,6 +28,9 @@ type Agent struct {
 	Fail        map[string]error             // by method name, e.g. "Send"
 	State       agent.Status
 	Disposition agent.SendDisposition
+	// Forks makes Rewind go on in a new conversation, "<id>-fork", as Pi
+	// does, instead of rewinding in place.
+	Forks bool
 
 	// The model capabilities.
 	Catalog  []agent.Model
@@ -41,7 +44,7 @@ func NewAgent() *Agent {
 }
 
 func (*Agent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey}}
+	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey}}
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
@@ -52,6 +55,9 @@ func (a *Agent) Setup(c *kernel.Context) error {
 		return err
 	}
 	if err := kernel.Provide[agent.Modes](c, agent.ModesKey, a); err != nil {
+		return err
+	}
+	if err := kernel.Provide[agent.Rewinder](c, agent.RewindKey, a); err != nil {
 		return err
 	}
 	return kernel.Provide[agent.Interactions](c, agent.InteractionsKey, a)
@@ -132,6 +138,28 @@ func (a *Agent) Answer(_ context.Context, answer agent.InteractionAnswer) error 
 
 func (a *Agent) Rename(_ context.Context, id agent.SessionID, title string) error {
 	return a.record("Rename", "rename "+string(id)+" "+title)
+}
+
+// Rewind drops message and what follows from the stored conversation, or
+// copies what precedes it into "<id>-fork" when Forks is set.
+func (a *Agent) Rewind(_ context.Context, id agent.SessionID, message agent.MessageID) (agent.SessionID, error) {
+	if err := a.record("Rewind", "rewind "+string(id)+" "+string(message)); err != nil {
+		return "", err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	stored := a.Stored[id]
+	i := slices.IndexFunc(stored, func(m agent.Message) bool { return m.ID == message })
+	if i < 0 {
+		return "", fmt.Errorf("no message %s in %s", message, id)
+	}
+	if a.Forks {
+		fork := id + "-fork"
+		a.Stored[fork] = slices.Clone(stored[:i])
+		return fork, nil
+	}
+	a.Stored[id] = stored[:i]
+	return id, nil
 }
 
 func (a *Agent) Delete(_ context.Context, id agent.SessionID) error {

@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -35,6 +36,10 @@ type Plugin struct {
 	sending         bool   // a message is on its way and its turn hasn't started
 	sendSeq         uint64 // distinguishes acknowledgements from consecutive sends
 	attempt         uint64 // the backend connection the transcript was read from
+	// replacing is set while the composer edits the last message: sending
+	// takes that turn back and sends the draft in its place.
+	replacing      bool
+	replacingFiles bool // the message being edited had files, which can't go again
 
 	// View state.
 	draft    string
@@ -126,6 +131,7 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 	}
 	p.scope = p.ctx.NewScope()
 	p.conv, p.sending, p.draft = conv, false, ""
+	p.replacing, p.replacingFiles = false, false
 	p.comp = newCompletion()
 	p.t.reset()
 	clear(p.expanded)
@@ -187,11 +193,19 @@ func (p *Plugin) send() {
 	if strings.TrimSpace(d.Text) == "" {
 		return
 	}
-	p.draft, p.sending = "", true
+	replace := p.replacing && d.Session != ""
+	p.draft, p.sending, p.replacing, p.replacingFiles = "", true, false, false
 	p.sendSeq++
+	if replace {
+		p.t.dropLastTurn()
+	}
 	p.t.addUser(d.Text, d.Files)
 	p.list.ScrollToEnd()
-	if d.Session != "" {
+	switch {
+	case replace:
+		p.rewindAndDeliver(d)
+		return
+	case d.Session != "":
 		p.deliver(d.Session, d)
 		return
 	}
@@ -230,6 +244,94 @@ func (p *Plugin) send() {
 		}
 		p.deliver(s.ID, d)
 	})
+}
+
+// ---- Retry and edit
+
+// canReplace reports whether the last message can be taken back now: the
+// backend can rewind, and no turn is running or loading.
+func (p *Plugin) canReplace() bool {
+	_, ok := kernel.Use(p.ctx, agent.RewindKey)
+	return ok && p.conv.Session != "" && !p.running() && !p.loading.Running()
+}
+
+// retry sends the last message again in place of its turn. The words go as
+// they were sent, without the Outgoing pipeline, which would take files and
+// mentions from the composer.
+func (p *Plugin) retry(text string) {
+	if !p.canReplace() {
+		return
+	}
+	d := chat.Draft{Session: p.conv.Session, Text: text}
+	p.sending = true
+	p.sendSeq++
+	p.t.dropLastTurn()
+	p.t.addUser(d.Text, nil)
+	p.list.ScrollToEnd()
+	p.rewindAndDeliver(d)
+}
+
+// edit puts the last message in the composer; sending it replaces the turn.
+func (p *Plugin) edit(r *row) {
+	if !p.canReplace() {
+		return
+	}
+	p.draft, p.replacing, p.replacingFiles, p.focus = r.text, true, len(r.files) > 0, true
+}
+
+func (p *Plugin) cancelEdit() {
+	p.draft, p.replacing, p.replacingFiles, p.focus = "", false, false, true
+}
+
+// rewindAndDeliver takes back the conversation's last user message and
+// everything after it, then sends d. The last message is read from the
+// backend, since one sent in this session has no ID on show. A backend that
+// can only fork goes on in a new conversation, which becomes the open one.
+// A failed rewind is reported and the conversation read again, never retried.
+func (p *Plugin) rewindAndDeliver(d chat.Draft) {
+	rewinder, ok := kernel.Use(p.ctx, agent.RewindKey)
+	if !ok {
+		return
+	}
+	id, seq, backend := d.Session, p.sendSeq, p.agent
+	var task kernel.Task
+	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SessionID, error) {
+		messages, err := backend.Messages(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("the conversation could not be read: %w", err)
+		}
+		last := lastUserMessage(messages)
+		if last == "" {
+			return "", errors.New("the conversation has no message to replace")
+		}
+		return rewinder.Rewind(ctx, id, last)
+	}, func(next agent.SessionID, err error) {
+		if err != nil {
+			if p.sendSeq == seq {
+				p.sending = false
+			}
+			p.t.note("The last message was not replaced: " + err.Error() + ". Check the conversation before trying again.")
+			p.load()
+			return
+		}
+		if next != id {
+			p.conv.Session = next
+			kernel.Emit(p.ctx, chat.Changed, p.conv)
+			kernel.Emit(p.ctx, chat.Started, p.conv)
+			p.host.Toast(ui.Toast{Title: "Continued in a new conversation",
+				Description: "This agent can't take a turn back, so the original conversation is kept as it was."})
+		}
+		p.deliver(next, d)
+	})
+}
+
+func lastUserMessage(messages []agent.Message) agent.MessageID {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == agent.RoleUser {
+			return messages[i].ID
+		}
+	}
+	return ""
 }
 
 // sendAway sends the first message of a conversation the user left while it

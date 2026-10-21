@@ -2,7 +2,7 @@
 // and what consumers may rely on. It holds declarations only.
 //
 // A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
-// FileTypesKey and FilesKey.
+// FileTypesKey, FilesKey and RewindKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -26,6 +26,9 @@ var (
 	// conversation's folder where the backend runs. Without it a message
 	// cannot mention a file.
 	FilesKey = kernel.NewKey[Files]("agent.files") // optional
+	// RewindKey is provided by a backend that can take back the latest turns
+	// of a conversation, so a message can be retried or edited in place.
+	RewindKey = kernel.NewKey[Rewinder]("agent.rewind") // optional
 
 	// Events carries ordered batches of normalized events from the current
 	// connection, emitted on the UI thread.
@@ -101,6 +104,19 @@ type Files interface {
 	Find(ctx context.Context, directory, query string, limit int) ([]string, error)
 	// Read returns the contents of the file at path, relative to directory.
 	Read(ctx context.Context, directory, path string) ([]byte, error)
+}
+
+// Rewinder is the optional capability of taking back a conversation's latest
+// turns. Like the rest of Service, Rewind blocks on I/O and is called off the
+// UI thread; it is a mutation, never retried, and a failure has an unknown
+// outcome.
+type Rewinder interface {
+	// Rewind removes message, a user message, and everything after it. Files
+	// the agent changed stay as they are. It returns the conversation to go on
+	// in: session itself when the backend rewinds in place, or a new
+	// conversation holding what came before message when it can only fork,
+	// leaving session as it was.
+	Rewind(ctx context.Context, session SessionID, message MessageID) (SessionID, error)
 }
 
 // ---- Connection

@@ -98,6 +98,17 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   passes their paths to the first handler after the frame.
 - A send the backend refused (`agent.ErrNotSent`) says the message was not sent; any
   other failed send says it may not have reached the agent.
+- With a backend that provides `agent.RewindKey`, the last user message shows Retry
+  and Edit beside Copy while no turn runs or loads. Retry sends its words again as
+  they were sent (not through `chat.Outgoing`, which would take the composer's files
+  and mentions); it is not offered for a message with files, which can't go again.
+  Edit puts the words in the composer under a banner with Cancel; sending runs
+  `chat.Outgoing` as usual. Either way the last turn leaves the transcript at once,
+  then the conversation's messages are read for the last user message's ID (one sent
+  in this session has none on show), `Rewind` takes it back and the new words are
+  sent. A conversation the backend forks into becomes the open one, is announced on
+  `chat.Started`, and a toast says the original was kept. A failed read or rewind
+  sends nothing: it is noted and the conversation read again.
 - User messages show the files that went with them as chips.
 
 ## Command palette

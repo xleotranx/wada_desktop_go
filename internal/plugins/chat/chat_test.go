@@ -448,3 +448,133 @@ func TestAChatLeftWhileStartingIsStillAnnouncedAndSent(t *testing.T) {
 		t.Fatalf("the left chat landed in the next one: %+v rows %v", p.conv, kinds(p))
 	}
 }
+
+// openTurn opens a stored conversation of one turn: "hi", then an answer.
+func openTurn(t *testing.T, h *kerneltest.Harness, p *Plugin, f *plugintest.Agent) {
+	t.Helper()
+	f.Stored["s1"] = []agent.Message{
+		{ID: "u1", Role: agent.RoleUser, Text: "hi"},
+		{ID: "a1", Role: agent.RoleAssistant, Parts: []agent.Part{{Kind: agent.PartText, Text: "Hello there"}}},
+	}
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+}
+
+func TestRetryTakesTheLastTurnBackAndSendsAgain(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	p.draft = "half typed"
+	p.retry("hi")
+	if !p.running() || !slices.Equal(kinds(p), []rowKind{rowUser}) || p.draft != "half typed" {
+		t.Fatalf("after retry: running=%v rows=%v draft=%q", p.running(), kinds(p), p.draft)
+	}
+	h.Flush()
+	if got := f.Calls()[1:]; !slices.Equal(got, []string{"messages s1", "rewind s1 u1", "send s1 hi"}) {
+		t.Fatalf("calls %q", got)
+	}
+}
+
+func TestEditReplacesTheLastMessage(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	tt := ui.NewTester(p.view, 800, 600)
+	tt.Frame()
+	hover(t, tt, "hi")
+	for _, label := range []string{"Retry message", "Edit message"} {
+		if _, ok := tt.Find(label); !ok {
+			t.Fatalf("no %q on the last message", label)
+		}
+	}
+	p.edit(p.t.rows[p.t.lastUser()])
+	tt.Frame()
+	if p.draft != "hi" || !tt.HasText("Editing your last message. Sending replaces it and everything after it.") {
+		t.Fatalf("draft %q, texts %q", p.draft, tt.Texts())
+	}
+	p.draft = "hello instead"
+	p.send()
+	h.Flush()
+	if got := f.Calls()[1:]; !slices.Equal(got, []string{"messages s1", "rewind s1 u1", "send s1 hello instead"}) {
+		t.Fatalf("calls %q", got)
+	}
+	if p.replacing || len(p.t.rows) != 1 || p.t.rows[0].text != "hello instead" {
+		t.Fatalf("replacing=%v rows=%+v", p.replacing, p.t.rows)
+	}
+}
+
+func TestCancelledEditSendsAnOrdinaryMessage(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	p.edit(p.t.rows[p.t.lastUser()])
+	p.cancelEdit()
+	p.draft = "more"
+	p.send()
+	h.Flush()
+	if got := f.Calls()[1:]; !slices.Equal(got, []string{"send s1 more"}) {
+		t.Fatalf("calls %q", got)
+	}
+}
+
+func TestBackendThatForksGoesOnInTheNewConversation(t *testing.T) {
+	h, p, f, host := start(t)
+	f.Forks = true
+	var started []chat.Conversation
+	kernel.On(h, chat.Started, func(c chat.Conversation) { started = append(started, c) })
+	openTurn(t, h, p, f)
+	p.retry("hi")
+	h.Flush()
+	if p.conv.Session != "s1-fork" || len(started) != 1 || started[0].Session != "s1-fork" {
+		t.Fatalf("conversation %+v, started %+v", p.conv, started)
+	}
+	if got := f.Calls()[1:]; !slices.Equal(got, []string{"messages s1", "rewind s1 u1", "send s1-fork hi"}) {
+		t.Fatalf("calls %q", got)
+	}
+	if len(host.Toasts) == 0 || host.Toasts[0] != "Continued in a new conversation" {
+		t.Fatalf("toasts %+v", host.Toasts)
+	}
+}
+
+func TestFailedRewindSendsNothingAndReadsTheConversationAgain(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	f.Fail["Rewind"] = errors.New("server said no")
+	p.retry("hi")
+	h.Flush()
+	if got := f.Calls()[1:]; !slices.Equal(got, []string{"messages s1", "rewind s1 u1", "messages s1"}) {
+		t.Fatalf("calls %q", got)
+	}
+	if p.running() || !slices.Equal(kinds(p), []rowKind{rowUser, rowText, rowNote}) ||
+		!strings.Contains(p.t.rows[2].text, "was not replaced: server said no") {
+		t.Fatalf("running=%v rows=%v", p.running(), kinds(p))
+	}
+}
+
+func TestNoRetryWhileATurnRuns(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}})
+	p.retry("hi")
+	h.Flush()
+	if got := f.Calls()[1:]; len(got) != 0 {
+		t.Fatalf("calls %q", got)
+	}
+	tt := ui.NewTester(p.view, 800, 600)
+	tt.Frame()
+	hover(t, tt, "hi")
+	if _, ok := tt.Find("Copy message"); !ok {
+		t.Fatal("the hover did not reveal the message's actions")
+	}
+	if _, ok := tt.Find("Retry message"); ok {
+		t.Fatal("retry offered while a turn runs")
+	}
+}
+
+// hover moves the pointer over the text, revealing the actions of its message.
+func hover(t *testing.T, tt *ui.Tester, text string) {
+	t.Helper()
+	b, ok := tt.Find(text)
+	if !ok {
+		t.Fatalf("no %q in %q", text, tt.Texts())
+	}
+	tt.Move(b.X+b.W/2, b.Y+b.H/2)
+	tt.Frame()
+}

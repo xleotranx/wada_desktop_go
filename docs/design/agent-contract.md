@@ -16,6 +16,7 @@ reconnecting with backoff, and decoding its protocol.
 | `ModesKey` | `Key[Modes]` | optional named agent modes (OpenCode's build/plan) |
 | `FileTypesKey` | `Key[FileTypes]` | optional: a backend that takes only some kinds of files says which |
 | `FilesKey` | `Key[Files]` | optional: find and read files of a conversation's folder, where the backend runs |
+| `RewindKey` | `Key[Rewinder]` | optional: take back a user message and everything after it |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
 
@@ -39,6 +40,10 @@ Rules every backend follows:
   counts reasoning within output, so its backend takes it out. `Tokens.Context` sums
   them all, the share of the context window the message filled. `Model.Context` is
   the model's context window, 0 when the backend doesn't say.
+- `Rewinder.Rewind` is a mutation like the others: never retried, its failure an
+  unknown outcome. It leaves the files the agent changed as they are, and returns the
+  conversation to go on in: the same one when the backend rewinds in place, or a new
+  one when it can only fork, leaving the original as it was.
 - `Create` returns the created session together with an error when a later step,
   such as setting the model, fails.
 - `Status.Attempt` increases with every connection attempt. A consumer that keeps
@@ -72,6 +77,11 @@ It provides `agent.FilesKey` over the server's file routes: `Find` is
 use the server's own when it is empty. `Read` refuses a path that is empty, absolute
 or leaves the folder, and an HTML answer, which is what a server without the route
 sends in place of an error.
+
+It provides `agent.RewindKey` in place: `POST /session/<id>/revert/stage` with the
+message and `"files": false`, so the files stay, then `POST /session/<id>/revert/commit`,
+which removes the message and everything after it. A commit that fails after the stage
+is reported as such.
 
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its
@@ -111,6 +121,10 @@ conversation processes off the UI thread when the connection scope ends.
   blocks headed `(file: name)`. Any other file makes `Send` fail with `ErrNotSent`.
   Stored images come back as files named "image", since Pi keeps no names. It
   provides `agent.FileTypesKey` so other files are refused when added.
+- Pi can't take a turn back in place, so it provides `agent.RewindKey` with `fork`:
+  the conversation's process forks before the message into a new session (its ID from
+  `get_state`) and moves to it; the original session file stays as it was. A fork an
+  extension cancels is an error.
 - Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
   provide `ModesKey`, and the mode picker stays hidden.
 

@@ -80,6 +80,23 @@ func (t *transcript) addUser(text string, files []agent.File) {
 
 func (t *transcript) note(text string) { t.add(&row{kind: rowNote, text: text}) }
 
+// lastUser is the index of the last user row, or -1.
+func (t *transcript) lastUser() int {
+	for i := len(t.rows) - 1; i >= 0; i-- {
+		if t.rows[i].kind == rowUser {
+			return i
+		}
+	}
+	return -1
+}
+
+// dropLastTurn removes the last user row and everything after it.
+func (t *transcript) dropLastTurn() {
+	if i := t.lastUser(); i >= 0 {
+		t.rows = t.rows[:i]
+	}
+}
+
 // load replaces the rows with a stored conversation.
 func (t *transcript) load(messages []agent.Message) {
 	t.reset()

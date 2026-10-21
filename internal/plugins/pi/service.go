@@ -230,6 +230,43 @@ func (p *Plugin) Delete(_ context.Context, id agent.SessionID) error {
 	return os.Remove(f.path)
 }
 
+// Rewind forks the conversation before message: Pi can't take a turn back in
+// place, so the conversation goes on in a new session that holds what came
+// before message, and the original stays as it was. The process moves to the
+// new session.
+func (p *Plugin) Rewind(ctx context.Context, id agent.SessionID, message agent.MessageID) (agent.SessionID, error) {
+	c, err := p.current()
+	if err != nil {
+		return "", err
+	}
+	l, err := c.ensure(id)
+	if err != nil {
+		return "", err
+	}
+	var fork struct {
+		Cancelled bool `json:"cancelled"`
+	}
+	if err := l.p.call(ctx, "fork", map[string]any{"entryId": string(message)}, &fork); err != nil {
+		return "", err
+	}
+	if fork.Cancelled {
+		return "", errors.New("a Pi extension cancelled the fork")
+	}
+	var st piState
+	if err := l.p.call(ctx, "get_state", nil, &st); err != nil || st.SessionID == "" {
+		return "", errors.Join(errors.New("pi forked the conversation but did not say into which"), err)
+	}
+	forked := agent.SessionID(st.SessionID)
+	l.t.setSession(forked)
+	c.mu.Lock()
+	if c.sessions[id] == l {
+		delete(c.sessions, id)
+	}
+	c.sessions[forked] = l
+	c.mu.Unlock()
+	return forked, nil
+}
+
 func (p *Plugin) process(id agent.SessionID) (*live, error) {
 	c, err := p.current()
 	if err != nil {

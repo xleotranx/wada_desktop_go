@@ -323,6 +323,29 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 	}
 }
 
+func TestRewindStagesWithoutFilesThenCommits(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	f.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	rewinder, ok := kernel.Use(h, agent.RewindKey)
+	if !ok {
+		t.Fatal("the backend does not rewind")
+	}
+	next, err := call(t, h, func(ctx context.Context) (agent.SessionID, error) { return rewinder.Rewind(ctx, "ses-9", "msg_u") })
+	if err != nil || next != "ses-9" {
+		t.Fatalf("rewound to %q, %v", next, err)
+	}
+	seen := f.seen()
+	stage := slices.Index(seen, "POST /session/ses-9/revert/stage")
+	if stage < 0 || !slices.Contains(seen[stage:], "POST /session/ses-9/revert/commit") {
+		t.Fatalf("requests %q", seen)
+	}
+	if body := f.body("POST /session/ses-9/revert/stage"); !strings.Contains(body, `"messageID":"msg_u"`) || !strings.Contains(body, `"files":false`) {
+		t.Fatalf("stage body %s", body)
+	}
+}
+
 func TestModelsCarryTheirContextWindow(t *testing.T) {
 	f := newFakeServer(t)
 	h, p := start(t, f)

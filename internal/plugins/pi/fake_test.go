@@ -83,6 +83,13 @@ func fakePi() {
 		case "get_state":
 			reply(map[string]any{"sessionId": id, "sessionFile": file, "thinkingLevel": "low",
 				"model": map[string]any{"id": "m1", "provider": "p", "name": "Model One"}})
+		case "fork":
+			if entry, _ := cmd["entryId"].(string); entry == "cancel-me" {
+				reply(map[string]any{"cancelled": true})
+				continue
+			}
+			id, file = id+"-fork", ""
+			reply(map[string]any{"text": "Fix the build", "cancelled": false})
 		case "get_available_models":
 			reply(map[string]any{"models": []any{
 				map[string]any{"id": "m1", "name": "Model One", "provider": "p", "reasoning": true,

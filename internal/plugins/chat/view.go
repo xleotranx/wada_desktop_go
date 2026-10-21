@@ -172,6 +172,9 @@ func column(c *ui.Context) ui.Element {
 func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row) {
 	block := column(c)
 	copyable := (r.kind == rowUser || r.kind == rowText) && strings.TrimSpace(r.text) != ""
+	// The last message can be retried or edited, taking its turn back.
+	replaceable := copyable && r.kind == rowUser && !p.replacing && p.canReplace() &&
+		p.t.lastUser() >= 0 && p.t.rows[p.t.lastUser()] == r
 	showCopy := copyable && (block.Hovered() || block.FocusWithin())
 	block.Children(func() {
 		switch r.kind {
@@ -211,18 +214,32 @@ func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row) {
 			if !showCopy {
 				actions.Invisible()
 			}
-			actions.Children(func() {
-				b := ui.ButtonBase(c).Label("Copy message").Height(24).Radius(6).Padding(0, 7).Center().Gap(4)
-				if b.Hovered() {
-					b.Background(pal.Hover)
+			actions.Gap(2).Children(func() {
+				if replaceable {
+					if len(r.files) == 0 {
+						c.Key("retry")
+						action(c, pal, "Retry message", "Retry", lucide.RotateCcw(), func() { p.retry(r.text) })
+					}
+					c.Key("edit")
+					action(c, pal, "Edit message", "Edit", lucide.Pencil(), func() { p.edit(r) })
 				}
-				b.OnClick(func() { p.copy(r.text) })
-				b.Children(func() {
-					ui.Icon(c, lucide.Copy()).FontSize(12).TextColor(pal.Muted)
-					ui.Text(c, "Copy").FontSize(11.5).TextColor(pal.Muted).SingleLine()
-				})
+				c.Key("copy")
+				action(c, pal, "Copy message", "Copy", lucide.Copy(), func() { p.copy(r.text) })
 			})
 		}
+	})
+}
+
+// action is a quiet button under a message.
+func action(c *ui.Context, pal native.Palette, label, text string, icon *ui.SVG, on func()) {
+	b := ui.ButtonBase(c).Label(label).Height(24).Radius(6).Padding(0, 7).Center().Gap(4).Cursor(ui.CursorPointer)
+	if b.Hovered() {
+		b.Background(pal.Hover)
+	}
+	b.OnClick(on)
+	b.Children(func() {
+		ui.Icon(c, icon).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, text).FontSize(11.5).TextColor(pal.Muted).SingleLine()
 	})
 }
 
@@ -333,6 +350,9 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	completions := kernel.Items(p.ctx, chat.Completions)
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
+			if p.replacing {
+				p.editBanner(c, pal)
+			}
 			p.completionList(c, pal)
 			options := onechat.ComposerOptions{
 				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send", StopLabel: "Stop",
@@ -400,6 +420,19 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				ui.Text(c, connectionLine(st)).FontSize(12).TextColor(pal.Muted).Margin(6, 0, 0, 0).SingleLine()
 			}
 		})
+	})
+}
+
+// editBanner stands over the composer while it edits the last message.
+func (p *Plugin) editBanner(c *ui.Context, pal native.Palette) {
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Padding(0, 4, 8, 12).Children(func() {
+		ui.Icon(c, lucide.Pencil()).FontSize(12).TextColor(pal.Orange).Shrink(0)
+		detail := "Editing your last message. Sending replaces it and everything after it."
+		if p.replacingFiles {
+			detail += " Its files are not sent again."
+		}
+		ui.Text(c, detail).FontSize(12).TextColor(pal.Muted).Grow(1).MinWidth(0)
+		components.Button(c, "Cancel", components.ButtonGhost).Label("Cancel edit").Height(24).OnClick(p.cancelEdit)
 	})
 }
 

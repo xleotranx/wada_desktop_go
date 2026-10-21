@@ -53,7 +53,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 		ID:          "opencode",
 		Title:       "OpenCode",
 		Description: "Chat with OpenCode, run by the app or on a server you choose.",
-		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.FilesKey},
+		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.FilesKey, agent.RewindKey},
 	}
 }
 
@@ -76,6 +76,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
 		kernel.Provide[agent.Modes](c, agent.ModesKey, p),
 		kernel.Provide[agent.Files](c, agent.FilesKey, p),
+		kernel.Provide[agent.Rewinder](c, agent.RewindKey, p),
 		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
 			Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),
@@ -339,6 +340,11 @@ func (p *Plugin) Rename(ctx context.Context, id agent.SessionID, title string) e
 
 func (p *Plugin) Delete(ctx context.Context, id agent.SessionID) error {
 	return p.with(func(c *client) error { return c.delete(ctx, id) })
+}
+
+// Rewind takes the conversation back in place, leaving the files alone.
+func (p *Plugin) Rewind(ctx context.Context, id agent.SessionID, message agent.MessageID) (agent.SessionID, error) {
+	return id, p.with(func(c *client) error { return c.rewind(ctx, id, message) })
 }
 
 func (p *Plugin) Models(ctx context.Context) ([]agent.Model, error) {

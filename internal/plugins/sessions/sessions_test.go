@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/workspace"
@@ -211,5 +212,27 @@ func TestTheListFollowsTheRecord(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("Renamed elsewhere") || tt.HasText("First") {
 		t.Fatalf("rows %q", tt.Texts())
+	}
+}
+
+func TestAgo(t *testing.T) {
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.Local)
+	for _, tc := range []struct {
+		at   time.Time
+		want string
+	}{
+		{now.Add(-20 * time.Second), "now"},
+		{now.Add(-5 * time.Minute), "5m"},
+		{now.Add(-3 * time.Hour), "3h"},
+		{now.Add(-50 * time.Hour), "2d"},
+		{time.Date(2026, 3, 4, 9, 0, 0, 0, time.Local), "Mar 4"},
+		{time.Date(2025, 12, 30, 9, 0, 0, 0, time.Local), "Dec 30, 2025"},
+	} {
+		if got := ago(tc.at.UnixMilli(), now); got != tc.want {
+			t.Errorf("ago(%v) = %q, want %q", tc.at, got, tc.want)
+		}
+	}
+	if got := ago(0, now); got != "" {
+		t.Errorf("ago(0) = %q, want empty", got)
 	}
 }

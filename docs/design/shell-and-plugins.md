@@ -50,6 +50,11 @@ under `go run` nothing is shown.
 provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 "New Chat" (⌘N) and "Stop the Agent" (⌘.) commands.
 
+- A chat with nothing in it yet centers the composer between a greeting (with the
+  chosen folder) and, for a new chat, starter suggestions that fill the draft. Once
+  the transcript has rows the composer sits at the foot of the page; it keeps its
+  place in the tree, so it keeps its focus as it moves.
+
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
   send or reply started for the previous conversation can't land in the next one.
 - Sending runs `chat.Outgoing` first, then creates the conversation when it is new,
@@ -175,7 +180,9 @@ that starts a chat there and an options menu (New Chat, Remove Folder…). Under
 its conversations, newest first, or "No conversations". Conversations without a known
 folder follow under "Other chats"; with no folders at all the list is flat. Search
 filters titles as you type, shows matches under their folders even when collapsed, and
-hides folders without one. Rows show the title, an unread mark for a recorded
+hides folders without one. With no conversations at all the list is a short note with
+an "Open folder…" button. Rows show the title, its last activity ("5m", "3h", a date)
+while the options button is hidden, an unread mark for a recorded
 conversation that finished a turn while another was open, and an options menu
 (Rename…, Remove from List, Delete…) that stays keyboard accessible and appears on
 hover, focus or selection. Menu choices act after the frame. The rows are laid out

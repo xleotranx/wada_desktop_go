@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
@@ -262,15 +263,17 @@ func (p *Plugin) view(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	ui.Column(c).Fill().Gap(4).Children(func() {
 		ui.Row(c).FillWidth().Gap(2).AlignItems(ui.Center).Children(func() {
-			newChat := ui.ButtonBase(c).Label("New chat").Height(34).Radius(8).Padding(0, 8).Grow(1).MinWidth(0).
-				Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer)
+			newChat := ui.ButtonBase(c).Label("New chat").Height(34).Radius(9).Padding(0, 10).Grow(1).MinWidth(0).
+				Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer).
+				Background(pal.Bg).Border(1, pal.Hairline).Shadow(0, 1, 2, 0, pal.Text.Alpha(.05))
 			if newChat.Hovered() {
-				newChat.Background(pal.Hover)
+				newChat.Background(pal.Bg.Mix(pal.Hover, .6))
 			}
 			newChat.OnClick(p.newChat)
 			newChat.Children(func() {
-				ui.Icon(c, lucide.SquarePen()).FontSize(14).TextColor(pal.Text)
-				ui.Text(c, "New chat").FontSize(13.5).TextColor(pal.Text)
+				ui.Icon(c, lucide.SquarePen()).FontSize(14).TextColor(pal.Orange)
+				ui.Text(c, "New chat").FontSize(13.5).FontWeight(500).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine()
+				ui.Text(c, "⌘N").FontSize(11.5).TextColor(pal.Faint).Shrink(0)
 			})
 			add := ui.ButtonBase(c).Label("Open folder…").Size(34, 34).Radius(8).Center().Shrink(0).Cursor(ui.CursorPointer)
 			if add.Hovered() {
@@ -281,7 +284,7 @@ func (p *Plugin) view(c *ui.Context) {
 			add.Children(func() { ui.Icon(c, lucide.FolderPlus()).FontSize(15).TextColor(pal.Muted) })
 		})
 		components.TextBox(c, &p.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
-			FillWidth().Label("Search conversations").Placeholder("Search").FontSize(13)
+			FillWidth().Label("Search conversations").Placeholder("Search").FontSize(13).Margin(4, 0, 6, 0)
 
 		if !p.ws.Loaded() {
 			ui.Text(c, "Loading conversations…").FontSize(12).TextColor(pal.Faint).Padding(8, 8)
@@ -289,11 +292,11 @@ func (p *Plugin) view(c *ui.Context) {
 		}
 		rows := p.layout()
 		if len(rows) == 0 {
-			empty := "No conversations yet. Open a folder to keep its chats together."
 			if strings.TrimSpace(p.query) != "" {
-				empty = "No matches"
+				ui.Text(c, "No matches").FontSize(12).TextColor(pal.Faint).Padding(8, 8)
+				return
 			}
-			ui.Text(c, empty).FontSize(12).TextColor(pal.Faint).Padding(8, 8)
+			p.emptyList(c, pal)
 			return
 		}
 		ui.List(c, &p.list, len(rows)).Grow(1).MinHeight(0).FillWidth().Gap(1).
@@ -304,14 +307,29 @@ func (p *Plugin) view(c *ui.Context) {
 				case itemFolder:
 					p.folderRow(r.Context, pal, it.folder)
 				case itemOther:
-					ui.Text(r.Context, "Other chats").FontSize(12).FontWeight(600).TextColor(pal.Faint).
-						Padding(10, 8, 4, 8).SingleLine()
+					ui.Text(r.Context, "Other chats").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).
+						Padding(12, 8, 4, 8).SingleLine()
 				case itemEmpty:
-					ui.Text(r.Context, "No conversations").FontSize(12).TextColor(pal.Faint).Padding(6, 8, 6, 30)
+					ui.Text(r.Context, "No conversations").FontSize(12).TextColor(pal.Faint).Padding(6, 8, 6, nestedIndent)
 				case itemChat:
 					p.row(r.Context, pal, it.conv, it.nested)
 				}
 			})
+	})
+}
+
+// nestedIndent lines a conversation's title up with its folder's name.
+const nestedIndent = 28
+
+// emptyList stands in for the list before the first conversation.
+func (p *Plugin) emptyList(c *ui.Context, pal native.Palette) {
+	ui.Column(c).FillWidth().Margin(8, 0, 0, 0).Padding(16, 14).Gap(10).Radius(10).
+		Border(1, pal.Hairline).AlignItems(ui.Start).Children(func() {
+		ui.Icon(c, lucide.MessagesSquare()).FontSize(18).TextColor(pal.Muted)
+		ui.Text(c, "No conversations yet").FontSize(13).FontWeight(600).TextColor(pal.Text)
+		ui.Text(c, "Open a folder to keep its chats together and let the agent work on its files.").
+			FontSize(12).LineHeight(1.4).TextColor(pal.Muted)
+		components.Button(c, "Open folder…", components.ButtonSecondary).Height(28).OnClick(p.openFolder)
 	})
 }
 
@@ -333,7 +351,7 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 		}
 		ui.Icon(c, chevron()).FontSize(12).TextColor(pal.Faint).Shrink(0)
 		ui.Icon(c, icon()).FontSize(14).TextColor(pal.Muted).Shrink(0)
-		ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(pal.Muted).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 		show := b.Hovered() || b.FocusWithin()
 
 		c.Key("new")
@@ -373,7 +391,7 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 	current := conv.ID == p.chat.Current().Session
 	left := float32(8)
 	if nested {
-		left = 30
+		left = nestedIndent
 	}
 	b := ui.ButtonBase(c).Label(title).Height(32).Radius(8).Padding(0, 4, 0, left).FillWidth().
 		Justify(ui.Start).AlignItems(ui.Center).Gap(6).Cursor(ui.CursorPointer)
@@ -386,7 +404,10 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 	b.Tooltip(title)
 	b.OnClick(func() { p.open(conv) })
 	b.Children(func() {
-		ui.Text(c, title).FontSize(13.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		name := ui.Text(c, title).FontSize(13.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		if current {
+			name.FontWeight(500)
+		}
 		if p.unread[conv.ID] {
 			ui.Box(c).Size(7, 7).Radius(4).Background(pal.Orange).Shrink(0).Label("Unread")
 		}
@@ -407,9 +428,14 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 		if kebab.Hovered() {
 			kebab.Background(pal.Hover)
 		}
-		// Keep the control mounted so Tab can reveal it without moving the title.
+		// Keep the control mounted so Tab can reveal it without moving the
+		// title; while it is hidden, the age of the conversation shows instead.
 		if !current && !b.Hovered() && !b.FocusWithin() && !kebab.Focused() && !kebab.Hovered() {
 			kebab.Opacity(0)
+			if age := ago(conv.Updated, time.Now()); age != "" {
+				name.Margin(0, 16, 0, 0)
+				ui.Text(c, age).FontSize(11.5).TextColor(pal.Faint).Absolute().Right(6).Top(8)
+			}
 		}
 		kebab.Tooltip("Conversation options")
 		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
@@ -473,4 +499,26 @@ func (p *Plugin) dialogs(c *ui.Context) {
 			p.removing = ""
 		}
 	}
+}
+
+// ago is how long before now a Unix-millisecond time was, as the list shows
+// it: "now", "5m", "3h", "2d", then the date.
+func ago(ms int64, now time.Time) string {
+	if ms <= 0 {
+		return ""
+	}
+	t := time.UnixMilli(ms)
+	switch d := now.Sub(t); {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	case d < 7*24*time.Hour:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
+	case t.Year() == now.Year():
+		return t.Format("Jan 2")
+	}
+	return t.Format("Jan 2, 2006")
 }

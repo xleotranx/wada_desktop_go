@@ -16,13 +16,20 @@ import (
 	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
-// view draws the page: the transcript, or the new-chat screen, over the
-// composer.
+// view draws the page: the transcript over the composer or, for a chat with
+// nothing in it yet, the greeting, the composer and suggestions centered
+// together. The composer keeps its place in the tree either way, so it keeps
+// its focus when the first message moves it to the foot of the page.
 func (p *Plugin) view(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	p.prepareMarkdown(c, pal)
+	blank := len(p.t.rows) == 0 && !p.working() && !p.loading.Running()
 	ui.Column(c).Grow(1).FillHeight().Background(pal.CanvasBg).Children(func() {
-		ui.Box(c).Grow(1).Children(func() {
+		top := ui.Column(c).FillWidth().Grow(1).MinHeight(0)
+		if blank {
+			top.Justify(ui.End)
+		}
+		top.Children(func() {
 			switch {
 			case len(p.t.rows) > 0 || p.working():
 				p.transcriptView(c, pal)
@@ -31,10 +38,19 @@ func (p *Plugin) view(c *ui.Context) {
 					onechat.Shimmer(c, "Loading the conversation…", 13, pal.Muted, pal.Text)
 				})
 			default:
-				p.empty(c, pal)
+				p.greeting(c, pal)
 			}
 		})
 		p.composer(c, pal)
+		bottom := ui.Box(c).FillWidth()
+		if blank {
+			bottom.Grow(1).MinHeight(0)
+		}
+		bottom.Children(func() {
+			if blank {
+				p.suggestions(c, pal)
+			}
+		})
 	})
 }
 
@@ -63,18 +79,59 @@ func (p *Plugin) openLink(url string) {
 	}
 }
 
-func (p *Plugin) empty(c *ui.Context, pal native.Palette) {
-	ui.Column(c).Fill().Center().Gap(18).Padding(28, 24, 32, 24).Children(func() {
-		ui.Box(c).Size(56, 56).Radius(16).Center().Background(c.Theme().Selection.Alpha(.55)).
-			Border(1, pal.Hairline).Children(func() {
-			ui.Icon(c, lucide.Sparkles()).FontSize(25).TextColor(pal.Orange)
+// greeting stands over the composer of a chat with nothing in it yet.
+func (p *Plugin) greeting(c *ui.Context, pal native.Palette) {
+	ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(14).Padding(24, 24, 22, 24).Children(func() {
+		ui.Box(c).Size(44, 44).Radius(13).Center().Background(pal.Orange.Alpha(.12)).Children(func() {
+			ui.Icon(c, lucide.Sparkles()).FontSize(21).TextColor(pal.Orange)
 		})
-		title := "What should we work on?"
-		if p.conv.Session != "" {
-			title = "This conversation is empty"
+		title, detail := "What should we work on?", "Ask anything, or pick a folder so the agent can read and edit its files."
+		switch {
+		case p.conv.Session != "":
+			title, detail = "This conversation is empty", "Send a message to pick it up."
+		case p.conv.Directory != "":
+			detail = "Working in " + native.Tilde(p.conv.Directory)
 		}
-		ui.Text(c, title).FontSize(26).FontWeight(600).TextColor(pal.Text)
-		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(12).TextColor(pal.Muted)
+		ui.Column(c).AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, title).FontSize(24).FontWeight(600).TextColor(pal.Text)
+			ui.Text(c, detail).FontSize(13).TextColor(pal.Muted).SingleLine().Ellipsis("…")
+		})
+	})
+}
+
+// suggestions are starting points under the composer of an empty new chat;
+// one fills the draft for the user to finish or send.
+var suggestions = []struct {
+	label  string
+	icon   func() *ui.SVG
+	prompt string
+}{
+	{"Explain this project", lucide.BookOpen, "Give me a tour of this project: what it does, how it is laid out and where to start reading."},
+	{"Find a bug", lucide.Bug, "Look for a bug in "},
+	{"Write tests", lucide.FlaskConical, "Write tests for "},
+	{"Review changes", lucide.GitPullRequest, "Review my uncommitted changes for bugs and anything unclear."},
+}
+
+func (p *Plugin) suggestions(c *ui.Context, pal native.Palette) {
+	ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(18).Padding(14, 24, 24, 24).Children(func() {
+		if p.conv.Session == "" {
+			ui.Row(c).Wrap().Justify(ui.Center).Gap(8).MaxWidth(onechat.ContentWidth).Children(func() {
+				for i, s := range suggestions {
+					c.Key(i)
+					b := ui.ButtonBase(c).Label(s.label).Height(32).Radius(16).Padding(0, 13).Center().Gap(7).
+						Border(1, pal.Hairline).Cursor(ui.CursorPointer)
+					if b.Hovered() {
+						b.Background(pal.Hover)
+					}
+					b.OnClick(func() { p.draft, p.focus = s.prompt, true })
+					b.Children(func() {
+						ui.Icon(c, s.icon()).FontSize(13).TextColor(pal.Muted)
+						ui.Text(c, s.label).FontSize(12.5).TextColor(pal.Text).SingleLine()
+					})
+				}
+			})
+		}
+		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line  ·  @ mentions a file").FontSize(11.5).TextColor(pal.Faint)
 	})
 }
 
@@ -307,6 +364,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				}
 			}
 			result := onechat.Composer(c, &p.draft, options)
+			result.Card.Radius(16).Shadow(0, 6, 22, -6, pal.Text.Alpha(.12))
 			if p.focus {
 				result.Input.Focus()
 				p.focus = false

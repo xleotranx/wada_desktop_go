@@ -59,6 +59,8 @@ own kernel scope, so results of a replaced connection are dropped by the kernel.
 `internal/plugins/pi` (off by default) implements the same contract over a very
 different transport. It saves one setting, `settings`: the `pi` executable and the
 session folder, both empty for Pi's defaults. "Restart Pi" restarts its processes.
+Each connection's workers are registered on the UI thread; its supervisor closes
+conversation processes off the UI thread when the connection scope ends.
 
 - Pi's RPC mode (`pi --mode rpc`, JSONL on stdin/stdout) drives one session per
   process. A control process (`--no-session`) answers the model catalog and is the

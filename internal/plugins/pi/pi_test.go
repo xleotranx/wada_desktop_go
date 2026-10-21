@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -282,5 +283,20 @@ func TestPromptCarriesFiles(t *testing.T) {
 		`{"role":"user","content":[{"type":"text","text":"Look"},{"type":"image","data":"iVA=","mimeType":"image/png"}]}`)}})
 	if len(stored) != 1 || len(stored[0].Files) != 1 || stored[0].Files[0].MIME != "image/png" {
 		t.Fatalf("stored %+v", stored)
+	}
+}
+
+func TestImmediateReconnectAndDisable(t *testing.T) {
+	h, p, _ := startPi(t)
+	for range 20 {
+		p.Reconnect()
+		runtime.Gosched() // let supervision race with the next UI action
+	}
+	if err := h.Disable("pi"); err != nil {
+		t.Fatal(err)
+	}
+	h.Close()
+	if _, err := p.current(); !errors.Is(err, agent.ErrNotConnected) {
+		t.Fatalf("disabled connection: %v", err)
 	}
 }

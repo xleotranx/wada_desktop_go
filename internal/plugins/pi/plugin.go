@@ -127,7 +127,13 @@ func (p *Plugin) Reconnect() {
 	p.drop()
 	p.run = p.ctx.NewScope()
 	run, cfg := p.run, p.cfg.Get()
-	run.Spawn(func(ctx context.Context) { p.supervise(ctx, run, cfg) })
+	home, _ := os.UserHomeDir()
+	c := &connection{ctx: run.Lifetime(), exe: cmpOr(cfg.Executable, "pi"), home: home, maxIdle: p.maxIdle,
+		queue: make(chan agent.Event, 256), sessions: map[agent.SessionID]*live{}, dialogs: map[agent.ApprovalID]dialog{}}
+	c.dir = cmpOr(cfg.SessionDir, defaultSessionDir(home))
+	c.files.dir = c.dir
+	run.Spawn(func(ctx context.Context) { p.batch(ctx, run, c.queue) })
+	run.Spawn(func(ctx context.Context) { p.supervise(ctx, run, c) })
 }
 
 // Configure saves new settings and restarts Pi with them.
@@ -173,15 +179,9 @@ func defaultSessionDir(home string) string {
 }
 
 // supervise keeps the control process up until ctx ends, retrying with backoff.
-func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, cfg Settings) {
+func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, c *connection) {
+	defer c.closeAll()
 	post := func(st agent.Status) { run.Post(func() { p.setStatus(st) }) }
-	home, _ := os.UserHomeDir()
-	c := &connection{ctx: ctx, exe: cmpOr(cfg.Executable, "pi"), home: home, maxIdle: p.maxIdle,
-		queue: make(chan agent.Event, 256), sessions: map[agent.SessionID]*live{}, dialogs: map[agent.ApprovalID]dialog{}}
-	c.dir = cmpOr(cfg.SessionDir, defaultSessionDir(home))
-	c.files.dir = c.dir
-	run.Spawn(func(ctx context.Context) { p.batch(ctx, run, c.queue) })
-	run.OnDispose(func() { c.closeAll() })
 	endpoint := "Pi on this Mac"
 	for failures := 0; ctx.Err() == nil; {
 		if failures > 0 {

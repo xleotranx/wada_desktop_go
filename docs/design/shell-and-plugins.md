@@ -68,11 +68,36 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 - `chat.ComposerAccessory` entries are drawn in the composer's leading row; a model
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
   `chat.Outgoing`. `chat.ComposerAttachments` entries are drawn above the editor.
+- `chat.Completions` entries offer words while the user types. When the caret is in a
+  word that starts with an entry's trigger (at the start of the text or after
+  whitespace) the composer lists the entry's candidates in a panel that hangs above
+  the editor without moving the transcript. Up and Down move through them, Tab or
+  Enter choose, Escape hides the list until the word changes, and a click chooses
+  without taking the focus from the editor. A choice replaces the whole word with
+  what the entry's `Accept` returns and puts the caret after it. The Send button
+  still sends. The entry is told what was typed (`Query`) after each frame in which
+  it changed and reads its candidates (`Candidates`) while drawing, so lookups
+  belong to the entry; the composer keeps only the draft, the caret and the keys.
 - While a `chat.FileDrop` handler exists, the composer accepts dropped files and
   passes their paths to the first handler after the frame.
 - A send the backend refused (`agent.ErrNotSent`) says the message was not sent; any
   other failed send says it may not have reached the agent.
 - User messages show the files that went with them as chips.
+
+## Command palette
+
+`internal/plugins/palette` adds "Command Palette…" (⌘K, View menu), which toggles
+Onevra's command dialog from a `shell.Overlays` entry. It needs no other plugin: the
+commands are every `kernel.Commands` entry that has a `Run`, shown with their
+shortcut spelled as in a macOS menu, and one that is not `Enabled` is listed greyed
+out and does nothing. Conversations come from `agent.Service.Sessions` when a backend
+is active, so the palette keeps working with the backend off. Opening reads the
+newest page; typing filters those and what a title search (after a short pause, a
+newer query replaces the older) adds beyond them, with the same matcher as the
+commands. With nothing typed it lists the five newest conversations, then the
+commands. Choosing runs the command, or opens the conversation through
+`chat.Controller`, once the handler that chose it has returned. The query and
+anything a search left behind are dropped each time the palette opens.
 
 ## Sessions and settings
 
@@ -128,6 +153,24 @@ whatever the extension), and shown as removable chips with image thumbnails in
 in all; a folder, an unreadable file or one over a limit is reported in a toast. Its
 `chat.Outgoing` transform runs last (order 1000): it refuses a send while files are
 still being read, then moves the files into `Draft.Files`.
+
+## File mentions
+
+`internal/plugins/mentions` requires `agent.FilesKey`, so it is Blocked for a backend
+that can't find and read files (Pi). It contributes a `chat.Completions` entry for
+"@": typing it asks the backend's `Find` for files in the open conversation's folder
+(the backend's default for a new chat) and lists up to eight, best first as the backend
+ranks them, by name with their folder beside it. Choosing one writes `@<path> ` into
+the message and starts reading the file through the backend's `Read`, off the UI
+thread. Its `chat.Outgoing` transform runs after the attachments' (order 1001): every
+file whose `@<path>` the text still names, as a word of its own, is added to
+`Draft.Files` under its path, in the order the text names them; the text itself is
+unchanged. A file still being read holds the message back. A file that can't go (over
+1 MB, neither text nor an image, refused by `agent.FileTypesKey`, unreadable), or an
+eleventh in one message, is reported in a toast; its path stays in the text, and the
+agent may still open it. Mentions belong to the draft: they are dropped when the
+message goes out or another conversation opens. A path typed by hand without choosing
+it is plain text.
 
 ## Notifications
 

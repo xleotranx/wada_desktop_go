@@ -181,15 +181,21 @@ var errRefused = errors.New("the server refused the password (401)")
 // call is one API round trip. OpenCode answers errors as tagged JSON bodies
 // like {"_tag":…,"message":…}, which become Go errors.
 func (c *client) call(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
+	raw, _, err := c.do(ctx, method, path, body)
+	return raw, err
+}
+
+// do is call, with the response's headers.
+func (c *client) do(ctx context.Context, method, path string, body any) (json.RawMessage, http.Header, error) {
 	var buf bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, &buf)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.SetBasicAuth("opencode", c.password)
 	if body != nil {
@@ -197,18 +203,18 @@ func (c *client) call(ctx context.Context, method, path string, body any) (json.
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, bodyCap+1))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if int64(len(raw)) > bodyCap {
-		return nil, fmt.Errorf("%s %s: the response is larger than %d MiB", method, path, bodyCap>>20)
+		return nil, nil, fmt.Errorf("%s %s: the response is larger than %d MiB", method, path, bodyCap>>20)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, errRefused
+		return nil, nil, errRefused
 	}
 	if resp.StatusCode >= 300 {
 		var tagged struct {
@@ -216,11 +222,11 @@ func (c *client) call(ctx context.Context, method, path string, body any) (json.
 			Message string `json:"message"`
 		}
 		if json.Unmarshal(raw, &tagged) == nil && tagged.Message != "" {
-			return nil, fmt.Errorf("%s: %s", tagged.Tag, tagged.Message)
+			return nil, nil, fmt.Errorf("%s: %s", tagged.Tag, tagged.Message)
 		}
-		return nil, fmt.Errorf("%s %s: %s", method, path, resp.Status)
+		return nil, nil, fmt.Errorf("%s %s: %s", method, path, resp.Status)
 	}
-	return raw, nil
+	return raw, resp.Header, nil
 }
 
 // decode runs one call and decodes its body into out.

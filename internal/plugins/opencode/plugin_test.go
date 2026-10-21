@@ -90,6 +90,14 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 			`{"id":"new","title":"New","location":{"directory":"/w/x/"},"time":{"updated":5}}],"cursor":{"next":"c2"}}`)
 	case route == "POST /session":
 		fmt.Fprint(w, `{"data":{"id":"ses-9","location":{"directory":"/w"},"model":{"providerID":"p","id":"default"}}}`)
+	case strings.HasPrefix(route, "GET /fs/find?"):
+		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":[{"path":"cmd/main.go","type":"file"},{"path":"README.md","type":"file"}]}`)
+	case strings.HasPrefix(route, "GET /fs/read/docs/a%20b.md"):
+		w.Header().Set("Content-Type", "text/markdown")
+		fmt.Fprint(w, "# hi")
+	case strings.HasPrefix(route, "GET /fs/read/"): // what a server without the route answers
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, "<!doctype html>")
 	case route == "GET /agent":
 		fmt.Fprint(w, `{"data":[{"id":"build","name":"Build","mode":"primary"},{"id":"sub","mode":"subagent"},{"id":"secret","mode":"primary","hidden":true}]}`)
 	case route == "POST /session/ses-9/model" && strings.Contains(string(body), "broken"):
@@ -308,6 +316,48 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 		if f.body(route) != body {
 			t.Errorf("%s body = %s", route, f.body(route))
 		}
+	}
+}
+
+func TestFilesAreFoundAndReadThroughTheServer(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	f.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	files, ok := kernel.Use(h, agent.FilesKey)
+	if !ok {
+		t.Fatal("the backend does not provide files")
+	}
+	paths, err := call(t, h, func(ctx context.Context) ([]string, error) { return files.Find(ctx, "/w/", "ma", 5) })
+	if err != nil || !slices.Equal(paths, []string{"cmd/main.go", "README.md"}) {
+		t.Fatalf("found %q, %v", paths, err)
+	}
+	if _, err := call(t, h, func(ctx context.Context) ([]string, error) { return files.Find(ctx, "", "", 0) }); err != nil {
+		t.Fatal(err)
+	}
+	data, err := call(t, h, func(ctx context.Context) ([]byte, error) { return files.Read(ctx, "/w", "docs/a b.md") })
+	if err != nil || string(data) != "# hi" {
+		t.Fatalf("read %q, %v", data, err)
+	}
+	if want := []string{
+		"GET /fs/find?limit=5&location%5Bdirectory%5D=%2Fw&query=ma&type=file",
+		"GET /fs/find?query=&type=file",
+		"GET /fs/read/docs/a%20b.md?location%5Bdirectory%5D=%2Fw",
+	}; !slices.Equal(f.seen(), want) {
+		t.Fatalf("requests\n got %q\nwant %q", f.seen(), want)
+	}
+	// A path that leaves the folder never goes out, and a web page is not a file.
+	for _, bad := range []string{"", "/etc/hosts", "../secret", "a/../../b"} {
+		if _, err := call(t, h, func(ctx context.Context) ([]byte, error) { return files.Read(ctx, "/w", bad) }); err == nil {
+			t.Errorf("read %q succeeded", bad)
+		}
+	}
+	if _, err := call(t, h, func(ctx context.Context) ([]byte, error) { return files.Read(ctx, "/w", "gone.txt") }); err == nil ||
+		!strings.Contains(err.Error(), "does not serve files") {
+		t.Fatalf("an HTML answer was taken for a file: %v", err)
+	}
+	if n := len(f.seen()); n != 4 {
+		t.Fatalf("%d requests; only the clean ones should go out: %q", n, f.seen())
 	}
 }
 

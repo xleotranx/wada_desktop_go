@@ -72,6 +72,10 @@ func CheckBackend(t *testing.T, b BackendCase) {
 	if modes, ok := b.Service.(agent.Modes); ok {
 		checks["modes"] = func() error { _, err := modes.Modes(ctx); return err }
 	}
+	if files, ok := b.Service.(agent.Files); ok {
+		checks["find files"] = func() error { _, err := files.Find(ctx, "", "a", 5); return err }
+		checks["read file"] = func() error { _, err := files.Read(ctx, "", "a"); return err }
+	}
 	if interactions, ok := b.Service.(agent.Interactions); ok {
 		checks["answer"] = func() error { return interactions.Answer(ctx, agent.InteractionAnswer{Session: b.Session}) }
 	}

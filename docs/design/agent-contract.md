@@ -14,6 +14,8 @@ reconnecting with backoff, and decoding its protocol.
 | `ModelsKey` | `Key[Models]` | optional model catalog, default model, per-session model |
 | `InteractionsKey` | `Key[Interactions]` | optional confirmation, selection, text input and editor dialogs |
 | `ModesKey` | `Key[Modes]` | optional named agent modes (OpenCode's build/plan) |
+| `FileTypesKey` | `Key[FileTypes]` | optional: a backend that takes only some kinds of files says which |
+| `FilesKey` | `Key[Files]` | optional: find and read files of a conversation's folder, where the backend runs |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
 
@@ -54,6 +56,13 @@ Rules every backend follows:
 
 Files go in the prompt's `files` as `data:` URIs, which a remote server reads as well
 as a local one; the server stores them inline.
+
+It provides `agent.FilesKey` over the server's file routes: `Find` is
+`GET /fs/find?type=file&query=…&limit=…`, which ranks and honors ignore files, and
+`Read` is `GET /fs/read/<path>`; both take the folder as `location[directory]` and
+use the server's own when it is empty. `Read` refuses a path that is empty, absolute
+or leaves the folder, and an HTML answer, which is what a server without the route
+sends in place of an error.
 
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its
@@ -100,6 +109,7 @@ Only one backend can be active: turn OpenCode off in Settings → Plugins, then 
 
 ## Not supported
 
-Pairing links, editing OpenCode's permission files, workspace, VCS and file access,
-project listing, per-message usage reads, and several saved servers. Any of these
-would be a new optional capability key, provided by the backends that support it.
+Pairing links, editing OpenCode's permission files, workspace and VCS access,
+project listing, per-message usage reads, and several saved servers. Pi does not
+provide `FilesKey`: its RPC has no file routes. Any of these would be a new optional
+capability key, provided by the backends that support it.

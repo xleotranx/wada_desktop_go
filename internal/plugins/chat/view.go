@@ -272,8 +272,10 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	attachments := kernel.Items(p.ctx, chat.ComposerAttachments)
 	drops := kernel.Items(p.ctx, chat.FileDrop)
 	pastes := kernel.Items(p.ctx, chat.Paste)
+	completions := kernel.Items(p.ctx, chat.Completions)
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
+			p.completionList(c, pal)
 			options := onechat.ComposerOptions{
 				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send", StopLabel: "Stop",
 				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
@@ -309,8 +311,15 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				result.Input.Focus()
 				p.focus = false
 			}
+			p.complete(c, result.Input, completions)
 			if result.Send {
-				p.send()
+				// Enter while the list is up chooses from it, as Tab does; the Send
+				// button, which has the focus when it is pressed, always sends.
+				if p.comp.shown() && result.Input.Focused() {
+					p.chooseSoon(p.comp.choices[p.comp.active])
+				} else {
+					p.send()
+				}
 			}
 			if result.Stop {
 				p.stop()

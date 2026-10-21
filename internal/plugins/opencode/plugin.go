@@ -45,6 +45,7 @@ var (
 	_ agent.Service = (*Plugin)(nil)
 	_ agent.Models  = (*Plugin)(nil)
 	_ agent.Modes   = (*Plugin)(nil)
+	_ agent.Files   = (*Plugin)(nil)
 )
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -52,7 +53,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 		ID:          "opencode",
 		Title:       "OpenCode",
 		Description: "Chat with OpenCode, run by the app or on a server you choose.",
-		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey},
+		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.FilesKey},
 	}
 }
 
@@ -74,6 +75,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
 		kernel.Provide[agent.Modes](c, agent.ModesKey, p),
+		kernel.Provide[agent.Files](c, agent.FilesKey, p),
 		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
 			Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),
@@ -289,7 +291,7 @@ func (p *Plugin) stream(ctx context.Context, run *kernel.Scope, c *client, opene
 	}
 }
 
-// ---- agent.Service, agent.Models, agent.Modes
+// ---- agent.Service, agent.Models, agent.Modes, agent.Files
 
 func (p *Plugin) Sessions(ctx context.Context, q agent.SessionQuery) (agent.SessionPage, error) {
 	c, err := p.current()
@@ -364,6 +366,22 @@ func (p *Plugin) Modes(ctx context.Context) ([]agent.Mode, error) {
 		return nil, err
 	}
 	return c.modes(ctx)
+}
+
+func (p *Plugin) Find(ctx context.Context, directory, query string, limit int) ([]string, error) {
+	c, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	return c.find(ctx, cleanDir(directory), query, limit)
+}
+
+func (p *Plugin) Read(ctx context.Context, directory, path string) ([]byte, error) {
+	c, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	return c.read(ctx, cleanDir(directory), path)
 }
 
 func (p *Plugin) with(fn func(*client) error) error {

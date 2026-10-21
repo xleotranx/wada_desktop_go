@@ -38,6 +38,7 @@ type Plugin struct {
 	// View state.
 	draft    string
 	focus    bool
+	comp     completion
 	list     ui.ListState
 	expanded map[uint64]bool
 	md       markdown.Options
@@ -60,6 +61,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.expanded = map[uint64]bool{}
+	p.comp = newCompletion()
 	p.attempt = p.agent.Status().Attempt
 	p.switchTo(chat.Conversation{})
 	kernel.On(c, agent.Events, p.events)
@@ -115,6 +117,7 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 	}
 	p.scope = p.ctx.NewScope()
 	p.conv, p.sending, p.draft = conv, false, ""
+	p.comp = newCompletion()
 	p.t.reset()
 	clear(p.expanded)
 	p.list = ui.ListState{FollowEnd: true}

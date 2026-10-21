@@ -7,6 +7,8 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // PageID is the conversation page. It is the default page, so the shell also
@@ -38,7 +40,40 @@ var (
 	// clipboard's text (empty for an image). The first to return true takes
 	// the paste, and the text is not inserted.
 	Paste = kernel.NewPoint[func(text string) bool]("chat.paste")
+	// Completions offer words while the user types in the composer, such as a
+	// file after "@". The composer owns the draft, the caret and the keys;
+	// a contribution only says what to offer and what a choice becomes.
+	Completions = kernel.NewPoint[Completion]("chat.completions")
 )
+
+// Completion suggests words for the composer. While the caret is in a word
+// that starts with Trigger, at the start of the text or after whitespace,
+// the composer lists Candidates above the editor: Up and Down move through
+// them, Enter or Tab choose one, Escape hides the list until the word changes.
+//
+// Everything runs on the UI thread. Candidates is called while drawing, so it
+// only reads state; Query is where a contribution starts its lookups.
+type Completion struct {
+	Trigger rune
+	// Query runs after the frame in which the typed part changed, with the
+	// text after Trigger, up to the caret. active is false once the caret is
+	// no longer in such a word, so a lookup in flight can be dropped.
+	Query func(typed string, active bool)
+	// Candidates is what to offer now, best first; the composer lists the
+	// first eight. An empty list shows nothing.
+	Candidates func() []Candidate
+	// Accept runs when the user chooses a candidate. It returns the text that
+	// replaces the whole word, Trigger included; the caret lands after it.
+	Accept func(c Candidate) string
+}
+
+// Candidate is one suggestion.
+type Candidate struct {
+	ID     string         // given back to Accept
+	Label  string         // what it is called
+	Detail string         // quieter text after the label, such as its folder
+	Icon   func() *ui.SVG // optional
+}
 
 // Conversation is the conversation on show. An empty Session is a new chat
 // that has not been sent yet.

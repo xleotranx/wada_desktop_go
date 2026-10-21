@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
+	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
 )
@@ -137,6 +139,59 @@ func (c *client) send(ctx context.Context, req agent.Send) error {
 		body["files"] = files
 	}
 	return c.decode(ctx, "POST", sessionPath(req.Session, "/prompt"), body, nil)
+}
+
+// ---- Files
+
+// find asks the server's file index for files whose path matches query. A zero
+// limit takes the server's default.
+func (c *client) find(ctx context.Context, directory, query string, limit int) ([]string, error) {
+	v := url.Values{"type": {"file"}, "query": {query}}
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	if directory != "" {
+		v.Set("location[directory]", directory)
+	}
+	var out struct {
+		Data []struct {
+			Path string `json:"path"`
+		} `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", "/fs/find?"+v.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(out.Data))
+	for _, f := range out.Data {
+		paths = append(paths, f.Path)
+	}
+	return paths, nil
+}
+
+// read fetches a file of the server's folder. The route takes the path as
+// part of the address, so only a clean path inside the folder goes out.
+func (c *client) read(ctx context.Context, directory, rel string) ([]byte, error) {
+	clean := path.Clean(rel)
+	if rel == "" || path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return nil, fmt.Errorf("%q is not a path inside the folder", rel)
+	}
+	segments := strings.Split(clean, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	route := "/fs/read/" + strings.Join(segments, "/")
+	if directory != "" {
+		route += "?" + url.Values{"location[directory]": {directory}}.Encode()
+	}
+	raw, header, err := c.do(ctx, "GET", route, nil)
+	if err != nil {
+		return nil, err
+	}
+	// A server without this route answers with its web page, not an error.
+	if ext := strings.ToLower(path.Ext(clean)); ext != ".html" && ext != ".htm" && strings.HasPrefix(header.Get("Content-Type"), "text/html") {
+		return nil, errors.New("the server does not serve files")
+	}
+	return raw, nil
 }
 
 func (c *client) abort(ctx context.Context, id agent.SessionID) error {

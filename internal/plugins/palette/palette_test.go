@@ -1,0 +1,203 @@
+package palette
+
+import (
+	"slices"
+	"testing"
+
+	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/kernel/kerneltest"
+	"wada-desktop-go/internal/plugintest"
+
+	"github.com/egoist/mygo/ui"
+)
+
+// commands contributes two commands, as another plugin would.
+type commands struct {
+	ran     []string
+	stopped bool // "Stop Everything" is enabled while this is set
+}
+
+func (*commands) Manifest() kernel.Manifest { return kernel.Manifest{ID: "ext"} }
+
+func (x *commands) Setup(c *kernel.Context) error {
+	for _, err := range []error{
+		kernel.Contribute(c, kernel.Commands, "ext.hello", 0, kernel.Command{
+			Title: "Say Hello", Menu: "Chat", Keys: []string{"cmd+shift+h"}, Run: func() { x.ran = append(x.ran, "hello") }}),
+		kernel.Contribute(c, kernel.Commands, "ext.stop", 1, kernel.Command{
+			Title: "Stop Everything", Enabled: func() bool { return x.stopped }, Run: func() { x.ran = append(x.ran, "stop") }}),
+	} {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *commands, *ui.Tester) {
+	t.Helper()
+	a := plugintest.NewAgent()
+	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{
+		{ID: "s1", Title: "Fix the parser", Directory: "/w/app", Updated: 30},
+		{ID: "s2", Title: "Write docs", Updated: 20}}}
+	a.Pages["|old"] = agent.SessionPage{Sessions: []agent.Session{
+		{ID: "s9", Title: "Old migration notes", Updated: 1}}}
+	chat, ext, p := &plugintest.Chat{}, &commands{}, &Plugin{searchDelay: 1}
+	h := kerneltest.New(t, a, chat, ext, p)
+	h.Flush()
+	tt := ui.NewTester(p.view, 800, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	return h, p, a, chat, ext, tt
+}
+
+// open shows the palette the way its command does and settles the frame.
+func open(h *kerneltest.Harness, p *Plugin, tt *ui.Tester) {
+	p.toggle()
+	h.Flush()
+	tt.Frame()
+}
+
+func TestListsRecentConversationsThenEveryCommand(t *testing.T) {
+	h, p, _, _, _, tt := start(t)
+	tt.Frame()
+	if tt.HasText("Say Hello") {
+		t.Fatal("the palette is drawn while closed")
+	}
+	open(h, p, tt)
+	for _, want := range []string{"Fix the parser", "/w/app", "Write docs", "Say Hello", "⇧⌘H", "Stop Everything"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from %q", want, tt.Texts())
+		}
+	}
+	if tt.HasText("Command Palette…") {
+		t.Fatal("the palette lists its own command")
+	}
+	if !tt.Focused("Search commands and conversations") {
+		t.Fatal("the search field does not have the focus")
+	}
+}
+
+func TestEnterRunsTheMatchingCommandAfterTheFrame(t *testing.T) {
+	h, p, _, _, ext, tt := start(t)
+	open(h, p, tt)
+	tt.Type("hello")
+	tt.Frame()
+	if tt.HasText("Fix the parser") || !tt.HasText("Say Hello") {
+		t.Fatalf("filtered rows %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if p.open {
+		t.Fatal("the palette stays open after a command")
+	}
+	if len(ext.ran) != 0 {
+		t.Fatal("the command ran inside the activating handler")
+	}
+	h.Flush()
+	if !slices.Equal(ext.ran, []string{"hello"}) {
+		t.Fatalf("ran %v", ext.ran)
+	}
+}
+
+func TestADisabledCommandDoesNotRun(t *testing.T) {
+	h, p, _, _, ext, tt := start(t)
+	open(h, p, tt)
+	tt.Type("stop")
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	h.Flush()
+	if len(ext.ran) != 0 || !p.open {
+		t.Fatalf("a disabled command ran %v or closed the palette (open=%v)", ext.ran, p.open)
+	}
+	ext.stopped = true
+	p.run("ext.stop") // the state can change between the click and the run
+	if !slices.Equal(ext.ran, []string{"stop"}) {
+		t.Fatalf("an enabled command did not run: %v", ext.ran)
+	}
+}
+
+func TestChoosingAConversationOpensIt(t *testing.T) {
+	h, p, _, chat, _, tt := start(t)
+	open(h, p, tt)
+	if err := tt.Click("Write docs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	h.Flush()
+	if chat.Conv.Session != "s2" || p.open {
+		t.Fatalf("conversation %+v open=%v", chat.Conv, p.open)
+	}
+}
+
+func TestTypingSearchesConversationsBeyondTheNewest(t *testing.T) {
+	h, p, a, chat, _, tt := start(t)
+	open(h, p, tt)
+	tt.Type("old")
+	tt.Frame() // the frame notices the query and posts the search
+	h.Flush()
+	tt.Frame()
+	if got := a.Called("sessions |old"); got != 1 {
+		t.Fatalf("searches %d, calls %q", got, a.Calls())
+	}
+	if !tt.HasText("Old migration notes") || tt.HasText("Fix the parser") {
+		t.Fatalf("rows %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	h.Flush()
+	if chat.Conv.Session != "s9" {
+		t.Fatalf("opened %+v", chat.Conv)
+	}
+	// Reopening starts from nothing: the old query and its results are gone.
+	open(h, p, tt)
+	if tt.HasText("Old migration notes") || p.state.Query != "" {
+		t.Fatalf("stale search after reopening: %q", tt.Texts())
+	}
+}
+
+func TestToggleClosesAndKeepsNoSearchBehind(t *testing.T) {
+	h, p, a, _, _, tt := start(t)
+	open(h, p, tt)
+	p.toggle()
+	tt.Frame()
+	if p.open {
+		t.Fatal("the command did not close the palette")
+	}
+	before := a.Called("sessions")
+	tt.Frame()
+	if a.Called("sessions") != before {
+		t.Fatal("a closed palette went to the backend")
+	}
+}
+
+func TestCommandsWorkWithoutABackend(t *testing.T) {
+	ext, p := &commands{}, &Plugin{}
+	h := kerneltest.New(t, ext, p)
+	h.Flush()
+	tt := ui.NewTester(p.view, 800, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	p.toggle()
+	h.Flush()
+	tt.Frame()
+	if !tt.HasText("Say Hello") || tt.HasText("Conversations") {
+		t.Fatalf("rows %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	h.Flush()
+	if !slices.Equal(ext.ran, []string{"hello"}) {
+		t.Fatalf("ran %v", ext.ran)
+	}
+}
+
+func TestShortcutLabels(t *testing.T) {
+	for in, want := range map[string]string{
+		"cmd+n": "⌘N", "cmd+shift+a": "⇧⌘A", "cmd+.": "⌘.", "cmd+,": "⌘,", "ctrl+alt+cmd+shift+x": "⌃⌥⇧⌘X",
+		"cmd+enter": "⌘↩", "f5": "F5", "cmd+left": "⌘←",
+	} {
+		if got := shortcutLabel(in); got != want {
+			t.Errorf("%q is %q, want %q", in, got, want)
+		}
+	}
+}

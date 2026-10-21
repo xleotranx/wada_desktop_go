@@ -4,9 +4,11 @@ import (
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/inspector"
+	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/opencode"
+	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/pi"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
@@ -21,7 +23,9 @@ func main() {
 		&chat.Plugin{},
 		&models.Plugin{},
 		&attachments.Plugin{},
+		&mentions.Plugin{}, // needs a backend that can read files; OpenCode can
 		&sessions.Plugin{},
+		&palette.Plugin{},
 		&notifications.Plugin{},
 		&inspector.Plugin{},
 		&settings.Plugin{},

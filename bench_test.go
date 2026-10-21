@@ -11,14 +11,16 @@ import (
 	chatcontract "wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
-	"wada-desktop-go/internal/plugintest"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/inspector"
+	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
+	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugintest"
 	"wada-desktop-go/internal/shell"
 
 	"github.com/egoist/mygo/ui"
@@ -93,8 +95,8 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 		}
 	}
 	s, err := shell.New(shell.Options{Post: func(fn func()) { queue = append(queue, fn) },
-		Store: kerneltest.NewStore()}, f, &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{},
-		&sessions.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		Store: kerneltest.NewStore()}, f, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{},
+		&mentions.Plugin{}, &sessions.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		b.Fatal(err)
 	}

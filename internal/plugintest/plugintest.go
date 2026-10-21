@@ -218,3 +218,71 @@ func (f *Chat) NewChat(dir string) {
 	f.Conv = chat.Conversation{Directory: dir}
 	kernel.Emit(f.ctx, chat.Changed, f.Conv)
 }
+
+// Files provides agent.FilesKey over an in-memory tree, so a test can mention
+// files without a backend. Calls are recorded as "find <dir>|<query>" and
+// "read <dir>|<path>".
+type Files struct {
+	mu    sync.Mutex
+	calls []string
+	Tree  map[string][]byte // contents by path, relative to any directory
+	Fail  map[string]error  // by method name, "Find" or "Read"
+}
+
+func NewFiles(tree map[string]string) *Files {
+	f := &Files{Tree: map[string][]byte{}, Fail: map[string]error{}}
+	for path, data := range tree {
+		f.Tree[path] = []byte(data)
+	}
+	return f
+}
+
+func (*Files) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "fake-files", Provides: []kernel.Named{agent.FilesKey}}
+}
+
+func (f *Files) Setup(c *kernel.Context) error {
+	return kernel.Provide[agent.Files](c, agent.FilesKey, f)
+}
+
+// Calls returns the calls so far.
+func (f *Files) Calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+// Find lists the paths that contain query, in path order.
+func (f *Files) Find(_ context.Context, directory, query string, limit int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "find "+directory+"|"+query)
+	if err := f.Fail["Find"]; err != nil {
+		return nil, err
+	}
+	var paths []string
+	for path := range f.Tree {
+		if strings.Contains(path, query) {
+			paths = append(paths, path)
+		}
+	}
+	slices.Sort(paths)
+	if limit > 0 && len(paths) > limit {
+		paths = paths[:limit]
+	}
+	return paths, nil
+}
+
+func (f *Files) Read(_ context.Context, directory, path string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "read "+directory+"|"+path)
+	if err := f.Fail["Read"]; err != nil {
+		return nil, err
+	}
+	data, ok := f.Tree[path]
+	if !ok {
+		return nil, fmt.Errorf("%s: no such file", path)
+	}
+	return data, nil
+}

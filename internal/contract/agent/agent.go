@@ -1,7 +1,8 @@
 // Package agent is the backend contract: what a chat backend plugin provides
 // and what consumers may rely on. It holds declarations only.
 //
-// A backend plugin provides ServiceKey, and optionally ModelsKey and ModesKey.
+// A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
+// FileTypesKey and FilesKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -20,7 +21,11 @@ var (
 	ModesKey   = kernel.NewKey[Modes]("agent.modes")   // optional
 	// FileTypesKey is provided by a backend that takes only some kinds of
 	// files. Without it, a backend takes any file.
-	FileTypesKey = kernel.NewKey[FileTypes]("agent.file-types")
+	FileTypesKey = kernel.NewKey[FileTypes]("agent.file-types") // optional
+	// FilesKey is provided by a backend that can find and read the files of a
+	// conversation's folder where the backend runs. Without it a message
+	// cannot mention a file.
+	FilesKey = kernel.NewKey[Files]("agent.files") // optional
 
 	// Events carries ordered batches of normalized events from the current
 	// connection, emitted on the UI thread.
@@ -82,6 +87,20 @@ type FileTypes interface {
 	Accepts(mime string) bool
 	// Summary names what it takes, for the user: "images and text files".
 	Summary() string
+}
+
+// Files is the optional capability of finding and reading the files of a
+// conversation's folder. The backend may run on another machine than the app,
+// so these are the backend's files, not the app's. Like the rest of Service,
+// the methods block on I/O and are called off the UI thread.
+type Files interface {
+	// Find returns the paths of files in directory (the backend's default
+	// folder when empty) that match query, best first, at most limit of them.
+	// Paths are slash-separated and relative to directory. An empty query
+	// returns some files in no particular order.
+	Find(ctx context.Context, directory, query string, limit int) ([]string, error)
+	// Read returns the contents of the file at path, relative to directory.
+	Read(ctx context.Context, directory, path string) ([]byte, error)
 }
 
 // ---- Connection

@@ -618,3 +618,53 @@ func TestDisposedSpawnPanicDoesNotFailCurrentPlugin(t *testing.T) {
 		})
 	}
 }
+
+func TestCloseRetriesFailedSaveBeforeItsCompletionIsApplied(t *testing.T) {
+	for _, newer := range []string{"", "update", "delete"} {
+		t.Run(newer, func(t *testing.T) {
+			store := kerneltest.NewStore()
+			p := plug("p", nil)
+			h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+			store.Fail = errors.New("temporary failure")
+			p.ctx.Settings().Set("value", 42)
+			h.RunWork(0) // failure is queued, but the UI has not applied it
+			switch newer {
+			case "update":
+				p.ctx.Settings().Set("value", 43)
+			case "delete":
+				p.ctx.Settings().Delete("value")
+			}
+			store.Fail = nil
+			if err := h.Kernel.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			want := "42"
+			if newer == "update" {
+				want = "43"
+			}
+			if newer == "delete" {
+				want = ""
+			}
+			if got := string(store.Raw("p", "value")); got != want {
+				t.Fatalf("saved %q, want %q", got, want)
+			}
+			h.RunPosts() // late completion cannot overwrite the shutdown save
+			if got := string(store.Raw("p", "value")); got != want {
+				t.Fatalf("late completion saved %q", got)
+			}
+		})
+	}
+}
+
+func TestCloseReportsPersistentSaveFailure(t *testing.T) {
+	store := kerneltest.NewStore()
+	p := plug("p", nil)
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+	failure := errors.New("disk full")
+	store.Fail = failure
+	p.ctx.Settings().Set("value", 42)
+	h.RunWork(0)
+	if err := h.Kernel.Close(context.Background()); !errors.Is(err, failure) {
+		t.Fatalf("Close returned %v, want %v", err, failure)
+	}
+}

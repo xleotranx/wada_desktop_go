@@ -24,6 +24,11 @@ type Value struct {
 
 type valueKey struct{ ns, key string }
 
+type pendingSave struct {
+	batch []Value
+	done  chan error
+}
+
 // Settings stores JSON values namespaced to a plugin. Values survive disable,
 // re-enable and restart.
 type Settings struct {
@@ -113,24 +118,26 @@ func (k *Kernel) set(ns, key string, v any) error {
 // save writes pending changes unless a save is in flight; changes made in the
 // meantime are written when it finishes.
 func (k *Kernel) save() {
-	if k.saving || k.closed || !k.started {
+	if k.saving != nil || k.closed || !k.started {
 		return
 	}
 	batch := k.takeDirty()
 	if len(batch) == 0 {
 		return
 	}
-	k.saving = true
+	pending := &pendingSave{batch: batch, done: make(chan error, 1)}
+	k.saving = pending
 	k.workers.Add(1)
 	ctx := k.root.ctx
 	k.opts.Background(func() {
-		err := k.opts.Store.Save(context.WithoutCancel(ctx), batch)
+		pending.done <- k.opts.Store.Save(context.WithoutCancel(ctx), batch)
 		k.workers.Done()
 		k.opts.Post(func() {
-			k.saving = false
 			if k.closed {
 				return
 			}
+			err := <-pending.done
+			k.saving = nil
 			if err != nil {
 				k.restoreDirty(batch)
 				Emit(k, SaveFailed, err)

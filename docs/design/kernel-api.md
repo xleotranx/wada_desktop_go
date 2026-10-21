@@ -82,7 +82,9 @@ Install ──► Disabled ──Enable──► (requirements met?) ──no─
    is `Disable("opencode")`, then `Enable("pi")`.
 6. Enablement is saved under the `kernel` namespace.
 7. **Close** disposes every plugin, waits for workers until its context ends, then
-   writes settings not yet saved.
+   collects the in-flight settings save and writes settings not yet saved. A failed
+   batch is retried with newer changes taking precedence. A failed final save is
+   returned to the caller; a timed-out save is never overlapped by another save.
 
 Disposing a scope marks it dead, cancels its `Lifetime`, disposes child scopes and
 runs its disposers, newest first. Afterwards its `Post` closures and task results are

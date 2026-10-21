@@ -148,7 +148,7 @@ type Kernel struct {
 	values  map[string]map[string][]byte
 	dirty   map[valueKey][]byte
 	deleted map[valueKey]bool
-	saving  bool
+	saving  *pendingSave
 
 	workers sync.WaitGroup
 	started bool
@@ -348,6 +348,20 @@ func (k *Kernel) Close(ctx context.Context) error {
 	case <-wait:
 	case <-ctx.Done():
 		errs = append(errs, fmt.Errorf("kernel: workers still running: %w", ctx.Err()))
+	}
+	// UI callbacks cannot run while Close waits. Collect the in-flight save
+	// here so a failed batch is retried together with any newer changes.
+	if pending := k.saving; pending != nil {
+		select {
+		case err := <-pending.done:
+			k.saving = nil
+			if err != nil {
+				k.restoreDirty(pending.batch)
+			}
+		case <-ctx.Done():
+			// Never start a second Save while the first is still running.
+			return errors.Join(append(errs, fmt.Errorf("kernel: settings save still running: %w", ctx.Err()))...)
+		}
 	}
 	if batch := k.takeDirty(); len(batch) > 0 {
 		if err := k.opts.Store.Save(ctx, batch); err != nil {

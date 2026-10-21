@@ -326,6 +326,7 @@ func fileIcon(mime string) func() *ui.SVG {
 
 func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	accessories := kernel.Items(p.ctx, chat.ComposerAccessory)
+	trailing := kernel.Items(p.ctx, chat.ComposerTrailing)
 	attachments := kernel.Items(p.ctx, chat.ComposerAttachments)
 	drops := kernel.Items(p.ctx, chat.FileDrop)
 	pastes := kernel.Items(p.ctx, chat.Paste)
@@ -359,6 +360,13 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 			if len(accessories) > 0 {
 				options.Accessory = func(c *ui.Context) {
 					for _, e := range accessories {
+						kernel.Invoke(p.ctx, e, func(v shell.View) { v.Render(c) })
+					}
+				}
+			}
+			if len(trailing) > 0 {
+				options.Trailing = func(c *ui.Context) {
+					for _, e := range trailing {
 						kernel.Invoke(p.ctx, e, func(v shell.View) { v.Render(c) })
 					}
 				}

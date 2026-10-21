@@ -1,0 +1,194 @@
+// Package usage shows, at the end of the composer, what the open conversation
+// has cost and how full its context window is. The backends report usage
+// with the stored messages, not in their events, so the plugin reads the
+// conversation's messages when it opens and again after every turn.
+package usage
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/native"
+
+	"github.com/egoist/mygo/ui"
+	onechat "github.com/oneo-me/onevra/source/components/chat"
+)
+
+// Plugin is the usage meter. The zero value is ready to install.
+//
+// The context window comes from the model catalog when the backend provides
+// one; without it the meter shows the tokens alone.
+type Plugin struct {
+	ctx   *kernel.Context
+	agent agent.Service
+	chat  chat.Controller
+
+	session agent.SessionID // the conversation measured
+	sum     summary         // of session, once known
+	known   bool
+	load    kernel.Task
+
+	catalog     []agent.Model
+	catalogRead bool
+	catalogTask kernel.Task
+
+	meter onechat.MeterState
+}
+
+func (*Plugin) Manifest() kernel.Manifest {
+	return kernel.Manifest{
+		ID: "usage", Title: "Usage",
+		Description: "The open conversation's cost and context window, in the composer.",
+		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey},
+	}
+}
+
+func (p *Plugin) Setup(c *kernel.Context) error {
+	p.ctx = c
+	p.agent = kernel.Require(c, agent.ServiceKey)
+	p.chat = kernel.Require(c, chat.ControllerKey)
+	p.session, p.known, p.catalog, p.catalogRead = "", false, nil, false
+	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
+	kernel.On(c, agent.Events, p.events)
+	p.follow(p.chat.Current().Session)
+	return kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view})
+}
+
+// follow measures the conversation on show from now on.
+func (p *Plugin) follow(id agent.SessionID) {
+	if id == p.session {
+		return
+	}
+	p.load.Cancel()
+	p.session, p.sum, p.known, p.meter.Open = id, summary{}, false, false
+	if id != "" {
+		p.reload()
+	}
+}
+
+// events reads the usage again once a turn of the measured conversation ends.
+func (p *Plugin) events(batch []agent.Event) {
+	for _, ev := range batch {
+		if ev.Session == p.session && p.session != "" &&
+			(ev.Kind == agent.TurnSucceeded || ev.Kind == agent.TurnFailed || ev.Kind == agent.TurnInterrupted) {
+			p.reload()
+			return
+		}
+	}
+}
+
+func (p *Plugin) reload() {
+	id := p.session
+	kernel.Go(p.ctx, &p.load, func(ctx context.Context) (summary, error) {
+		messages, err := p.agent.Messages(ctx, id)
+		return summarize(messages), err
+	}, func(sum summary, err error) {
+		// A conversation that can't be read shows no usage; the chat page
+		// reports the failure.
+		if err != nil || id != p.session {
+			return
+		}
+		p.sum, p.known = sum, true
+		p.readCatalog()
+	})
+}
+
+// readCatalog reads the models once, for their context windows.
+func (p *Plugin) readCatalog() {
+	models, ok := kernel.Use(p.ctx, agent.ModelsKey)
+	if !ok || p.catalogRead || p.catalogTask.Running() {
+		return
+	}
+	kernel.Go(p.ctx, &p.catalogTask, models.Models, func(catalog []agent.Model, err error) {
+		if err == nil {
+			p.catalog, p.catalogRead = catalog, true
+		}
+	})
+}
+
+// summary is a conversation's usage.
+type summary struct {
+	cost    float64
+	context int            // tokens the latest answer filled
+	model   agent.ModelRef // the model that gave it
+}
+
+func summarize(messages []agent.Message) summary {
+	var s summary
+	for _, m := range messages {
+		if m.Role != agent.RoleAssistant {
+			continue
+		}
+		s.cost += m.Cost
+		if n := m.Tokens.Context(); n > 0 {
+			s.context, s.model = n, m.Model
+		}
+	}
+	return s
+}
+
+// window is the context window of the latest answer's model; 0 when unknown.
+func (p *Plugin) window() int {
+	for _, m := range p.catalog {
+		if m.Ref.Provider == p.sum.model.Provider && m.Ref.ID == p.sum.model.ID {
+			return m.Context
+		}
+	}
+	return 0
+}
+
+func (p *Plugin) view(c *ui.Context) {
+	if !p.known || (p.sum.cost == 0 && p.sum.context == 0) {
+		return
+	}
+	pal := native.PaletteFor(c)
+	ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
+		if p.sum.cost > 0 {
+			ui.Text(c, dollars(p.sum.cost)).FontSize(12).TextColor(pal.Muted).SingleLine().Label("Cost " + dollars(p.sum.cost))
+		}
+		if p.sum.context > 0 {
+			value, fraction := tokens(p.sum.context)+" tokens", -1.0
+			if limit := p.window(); limit > 0 {
+				fraction = float64(p.sum.context) / float64(limit)
+				value = fmt.Sprintf("%s / %s (%d%%)", tokens(p.sum.context), tokens(limit), int(fraction*100+.5))
+			}
+			onechat.ContextMeter(c, &p.meter, onechat.ContextMeterOptions{
+				Label: "Context window", Tooltip: "Context " + value, Title: "Context window", Value: value, Fraction: fraction,
+			})
+		}
+	})
+}
+
+// dollars spells a cost: "$0.42", or "<$0.01" for less than a cent.
+func dollars(v float64) string {
+	if v < 0.005 {
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", v)
+}
+
+// tokens spells a count shortly: "812", "4.2k", "45k", "1.2M".
+func tokens(n int) string {
+	switch {
+	case n < 1000:
+		return strconv.Itoa(n)
+	case n < 10_000:
+		return trim(fmt.Sprintf("%.1f", float64(n)/1000)) + "k"
+	case n < 999_500:
+		return strconv.Itoa((n+500)/1000) + "k"
+	}
+	return trim(fmt.Sprintf("%.1f", float64(n)/1_000_000)) + "M"
+}
+
+// trim drops a trailing ".0".
+func trim(s string) string {
+	if len(s) > 2 && s[len(s)-2:] == ".0" {
+		return s[:len(s)-2]
+	}
+	return s
+}

@@ -20,7 +20,7 @@ import (
 
 const fixture = `{"type":"session","version":3,"id":"old-1","cwd":"/work/app"}
 {"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":[{"type":"text","text":"Fix the build\nplease"}]}}
-{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking"},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"make"}}],"provider":"p","model":"m1","usage":{"output":5,"cost":{"total":0.25}}}}
+{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking"},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"make"}}],"provider":"p","model":"m1","usage":{"input":100,"output":5,"reasoning":2,"cacheRead":40,"cacheWrite":3,"cost":{"total":0.25}}}}
 {"type":"message","id":"r1","parentId":"a1","message":{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"ok"}],"isError":false}}
 {"type":"message","id":"x1","parentId":"u1","message":{"role":"assistant","content":[{"type":"text","text":"abandoned branch"}]}}
 {"type":"model_change","id":"m1","parentId":"r1","provider":"p","modelId":"m2"}
@@ -132,6 +132,10 @@ func TestReadsSessionFiles(t *testing.T) {
 	if !slices.Equal(shape, want) {
 		t.Fatalf("messages\n got %q\nwant %q", shape, want)
 	}
+	// Pi counts reasoning within output; the contract counts it apart.
+	if got := messages[1].Tokens; got != (agent.Tokens{Input: 100, Output: 3, Reasoning: 2, CacheRead: 40, CacheWrite: 3}) {
+		t.Fatalf("tokens %+v", got)
+	}
 }
 
 func events(h *kerneltest.Harness) *[]agent.Event {
@@ -240,7 +244,7 @@ func TestRenameModelAndDelete(t *testing.T) {
 	}
 	models := call(t, h, func(ctx context.Context) ([]agent.Model, error) { return p.Models(ctx) })
 	if len(models) != 2 || !slices.Equal(models[0].Variants, []string{"minimal", "low", "medium", "high", "max"}) ||
-		models[1].Variants != nil || !models[0].Free || models[1].Free {
+		models[1].Variants != nil || !models[0].Free || models[1].Free || models[0].Context != 200000 || models[1].Context != 0 {
 		t.Fatalf("models %+v", models)
 	}
 	def := call(t, h, func(ctx context.Context) (agent.ModelRef, error) { return p.DefaultModel(ctx) })

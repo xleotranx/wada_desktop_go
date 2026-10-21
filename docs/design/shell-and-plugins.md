@@ -81,7 +81,9 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   settles. App notes survive the reload.
 - `chat.ComposerAccessory` entries are drawn in the composer's leading row; a model
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
-  `chat.Outgoing`. `chat.ComposerAttachments` entries are drawn above the editor.
+  `chat.Outgoing`. `chat.ComposerTrailing` entries are drawn just before Send or
+  Stop and keep their width. `chat.ComposerAttachments` entries are drawn above the
+  editor.
 - `chat.Completions` entries offer words while the user types. When the caret is in a
   word that starts with an entry's trigger (at the start of the text or after
   whitespace) the composer lists the entry's candidates in a panel that hangs above
@@ -223,6 +225,19 @@ Switch work and the pending choice belong to that conversation; navigating away
 cancels the work and drops its completion.
 `chat.Conversation.Model` carries the open conversation's model. The model picker
 has a subtle filled background; effort and mode use quieter text controls.
+
+## Usage
+
+`internal/plugins/usage` requires `agent.ServiceKey` and `chat.ControllerKey` and adds
+the open conversation's usage to `chat.ComposerTrailing`: its total cost, then
+Onevra's context ring for how full the context window is, from the latest assistant
+message's `Tokens.Context` over its model's `Model.Context`. Clicking the ring shows
+the numbers ("44k / 200k (22%)"); without a catalog or a window it shows the tokens
+alone. Backends report usage only with stored messages, so the plugin reads the
+conversation's `Messages` when it opens and again when one of its turns ends. A read
+belongs to the conversation it was for: a later navigation drops it, and a failed
+read shows nothing, since the chat page reports the failure. A new chat, or a
+conversation with no usage, shows nothing. The model catalog is read once.
 
 ## Attachments
 

@@ -98,6 +98,10 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(route, "GET /fs/read/"): // what a server without the route answers
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, "<!doctype html>")
+	case route == "GET /model":
+		fmt.Fprint(w, `{"data":[`+
+			`{"id":"big","providerID":"p","name":"Big","cost":[{"input":1,"output":2}],"limit":{"context":200000,"output":8000}},`+
+			`{"id":"free","providerID":"p","name":"Free","cost":[{"input":0,"output":0}],"limit":{"output":1}}]}`)
 	case route == "GET /agent":
 		fmt.Fprint(w, `{"data":[{"id":"build","name":"Build","mode":"primary"},{"id":"sub","mode":"subagent"},{"id":"secret","mode":"primary","hidden":true}]}`)
 	case route == "POST /session/ses-9/model" && strings.Contains(string(body), "broken"):
@@ -316,6 +320,21 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 		if f.body(route) != body {
 			t.Errorf("%s body = %s", route, f.body(route))
 		}
+	}
+}
+
+func TestModelsCarryTheirContextWindow(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	f.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	models, ok := kernel.Use(h, agent.ModelsKey)
+	if !ok {
+		t.Fatal("the backend does not provide models")
+	}
+	got, err := call(t, h, func(ctx context.Context) ([]agent.Model, error) { return models.Models(ctx) })
+	if err != nil || len(got) != 2 || got[0].Context != 200000 || got[0].Free || got[1].Context != 0 || !got[1].Free {
+		t.Fatalf("models %+v, %v", got, err)
 	}
 }
 

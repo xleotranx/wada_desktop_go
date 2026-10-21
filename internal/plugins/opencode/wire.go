@@ -239,8 +239,13 @@ type wireMessage struct {
 	Type   string  `json:"type"`
 	Cost   float64 `json:"cost"`
 	Tokens struct {
+		Input     int `json:"input"`
 		Output    int `json:"output"`
 		Reasoning int `json:"reasoning"`
+		Cache     struct {
+			Read  int `json:"read"`
+			Write int `json:"write"`
+		} `json:"cache"`
 	} `json:"tokens"`
 	Text    string     `json:"text"`
 	Files   []wireFile `json:"files"`
@@ -276,7 +281,8 @@ type wireFile struct {
 
 func (m wireMessage) message() agent.Message {
 	out := agent.Message{ID: agent.MessageID(m.ID), Text: cmp.Or(m.Payload.Text, m.Text), Model: m.Model.ref(), Cost: m.Cost,
-		Tokens: agent.Tokens{Output: m.Tokens.Output, Reasoning: m.Tokens.Reasoning}}
+		Tokens: agent.Tokens{Input: m.Tokens.Input, Output: m.Tokens.Output, Reasoning: m.Tokens.Reasoning,
+			CacheRead: m.Tokens.Cache.Read, CacheWrite: m.Tokens.Cache.Write}}
 	for _, f := range append(m.Files, m.Payload.Files...) {
 		out.Files = append(out.Files, agent.File{Name: cmp.Or(f.Name, "file"), MIME: f.MIME})
 	}
@@ -332,6 +338,9 @@ func (c *client) models(ctx context.Context) ([]agent.Model, error) {
 				Input  float64 `json:"input"`
 				Output float64 `json:"output"`
 			} `json:"cost"`
+			Limit struct {
+				Context int `json:"context"`
+			} `json:"limit"`
 		} `json:"data"`
 	}
 	if err := c.decode(ctx, "GET", "/model", nil, &out); err != nil {
@@ -339,7 +348,7 @@ func (c *client) models(ctx context.Context) ([]agent.Model, error) {
 	}
 	models := []agent.Model{}
 	for _, m := range out.Data {
-		row := agent.Model{Ref: agent.ModelRef{Provider: m.Provider, ID: m.ID}, Name: m.Name, Free: true}
+		row := agent.Model{Ref: agent.ModelRef{Provider: m.Provider, ID: m.ID}, Name: m.Name, Free: true, Context: m.Limit.Context}
 		for _, v := range m.Variants {
 			row.Variants = append(row.Variants, v.ID)
 		}

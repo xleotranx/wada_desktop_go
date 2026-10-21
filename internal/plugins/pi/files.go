@@ -45,9 +45,12 @@ type message struct {
 	ToolCallID string          `json:"toolCallId"`
 	IsError    bool            `json:"isError"`
 	Usage      struct {
-		Output    int `json:"output"`
-		Reasoning int `json:"reasoning"`
-		Cost      struct {
+		Input      int `json:"input"`
+		Output     int `json:"output"` // includes Reasoning
+		Reasoning  int `json:"reasoning"`
+		CacheRead  int `json:"cacheRead"`
+		CacheWrite int `json:"cacheWrite"`
+		Cost       struct {
 			Total float64 `json:"total"`
 		} `json:"cost"`
 	} `json:"usage"`
@@ -186,7 +189,8 @@ func messagesOf(path []entry) []agent.Message {
 		case "assistant":
 			msg := agent.Message{ID: agent.MessageID(e.ID), Role: agent.RoleAssistant,
 				Model: agent.ModelRef{Provider: m.Provider, ID: m.Model}, Cost: m.Usage.Cost.Total,
-				Tokens: agent.Tokens{Output: m.Usage.Output, Reasoning: m.Usage.Reasoning}}
+				Tokens: agent.Tokens{Input: m.Usage.Input, Output: max(m.Usage.Output-m.Usage.Reasoning, 0),
+					Reasoning: m.Usage.Reasoning, CacheRead: m.Usage.CacheRead, CacheWrite: m.Usage.CacheWrite}}
 			var blocks []block
 			json.Unmarshal(m.Content, &blocks)
 			for _, b := range blocks {

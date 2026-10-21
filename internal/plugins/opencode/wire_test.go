@@ -101,7 +101,7 @@ func TestDecodeRejectsMalformedKnownEvents(t *testing.T) {
 
 func TestStoredMessagesConvert(t *testing.T) {
 	raw := `[{"id":"msg_u","type":"user","payload":{"text":"Run the wiring check"}},` +
-		`{"id":"msg_r","type":"assistant","cost":0.5,"tokens":{"output":116,"reasoning":387},` +
+		`{"id":"msg_r","type":"assistant","cost":0.5,"tokens":{"input":1200,"output":116,"reasoning":387,"cache":{"read":4000,"write":50}},` +
 		`"model":{"providerID":"p","id":"m"},"content":[` +
 		`{"type":"reasoning","text":"thinking"},{"type":"text","text":"Running it now."},` +
 		`{"type":"tool","id":"call_9","name":"shell","state":{"status":"completed","input":{"command":"make check"},` +
@@ -118,7 +118,7 @@ func TestStoredMessagesConvert(t *testing.T) {
 	}
 	want := []agent.Message{
 		{ID: "msg_u", Role: agent.RoleUser, Text: "Run the wiring check"},
-		{ID: "msg_r", Role: agent.RoleAssistant, Cost: 0.5, Tokens: agent.Tokens{Output: 116, Reasoning: 387},
+		{ID: "msg_r", Role: agent.RoleAssistant, Cost: 0.5, Tokens: agent.Tokens{Input: 1200, Output: 116, Reasoning: 387, CacheRead: 4000, CacheWrite: 50},
 			Model: agent.ModelRef{Provider: "p", ID: "m"}, Parts: []agent.Part{
 				{Kind: agent.PartReasoning, Text: "thinking"},
 				{Kind: agent.PartText, Text: "Running it now."},

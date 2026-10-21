@@ -20,7 +20,7 @@ protocols to simplify a refactor.
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
-  page), `models` (composer pickers), `attachments` (files sent with a message), `mentions`
+  page), `models` (composer pickers), `usage` (cost and context in the composer), `attachments` (files sent with a message), `mentions`
   (`@file` in the composer), `workspace` (folders, the app's conversation record in
   `workspace.db`, folder picker), `sessions` (sidebar list by folder), `palette` (⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).

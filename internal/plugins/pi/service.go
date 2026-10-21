@@ -250,6 +250,7 @@ type piModel struct {
 		Input  float64 `json:"input"`
 		Output float64 `json:"output"`
 	} `json:"cost"`
+	ContextWindow int `json:"contextWindow"`
 }
 
 // thinkingLevels lists a model's levels: the common ones unless its map turns
@@ -283,7 +284,7 @@ func (p *Plugin) Models(ctx context.Context) ([]agent.Model, error) {
 	models := make([]agent.Model, 0, len(out.Models))
 	for _, m := range out.Models {
 		models = append(models, agent.Model{Ref: agent.ModelRef{Provider: m.Provider, ID: m.ID}, Name: m.Name,
-			Variants: m.thinkingLevels(), Free: m.Cost.Input == 0 && m.Cost.Output == 0})
+			Variants: m.thinkingLevels(), Free: m.Cost.Input == 0 && m.Cost.Output == 0, Context: m.ContextWindow})
 	}
 	return models, nil
 }

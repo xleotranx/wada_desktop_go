@@ -34,6 +34,11 @@ Rules every backend follows:
   sending anything.
 - `Send.Files` go with the message; stored user messages list theirs in
   `Message.Files`, without data.
+- A stored assistant message carries its `Cost` and `Tokens`: input, output,
+  reasoning, and cache reads and writes. `Output` never includes `Reasoning`; Pi
+  counts reasoning within output, so its backend takes it out. `Tokens.Context` sums
+  them all, the share of the context window the message filled. `Model.Context` is
+  the model's context window, 0 when the backend doesn't say.
 - `Create` returns the created session together with an error when a later step,
   such as setting the model, fails.
 - `Status.Attempt` increases with every connection attempt. A consumer that keeps

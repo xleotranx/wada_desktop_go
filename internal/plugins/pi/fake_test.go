@@ -86,7 +86,7 @@ func fakePi() {
 		case "get_available_models":
 			reply(map[string]any{"models": []any{
 				map[string]any{"id": "m1", "name": "Model One", "provider": "p", "reasoning": true,
-					"thinkingLevelMap": map[string]any{"off": nil, "max": "max"}, "cost": map[string]any{"input": 0, "output": 0}},
+					"thinkingLevelMap": map[string]any{"off": nil, "max": "max"}, "cost": map[string]any{"input": 0, "output": 0}, "contextWindow": 200000},
 				map[string]any{"id": "m2", "name": "Model Two", "provider": "p", "reasoning": false,
 					"cost": map[string]any{"input": 1, "output": 2}},
 			}})

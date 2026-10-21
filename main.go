@@ -12,6 +12,7 @@ import (
 	"wada-desktop-go/internal/plugins/pi"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/shell"
 )
@@ -23,6 +24,7 @@ func main() {
 		&pi.Plugin{}, // off by default; turn OpenCode off to use it
 		&chat.Plugin{},
 		&models.Plugin{},
+		&usage.Plugin{},
 		&attachments.Plugin{},
 		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
 		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db

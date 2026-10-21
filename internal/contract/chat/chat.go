@@ -1,6 +1,6 @@
 // Package chat declares what the chat plugin lets other plugins use and
 // extend: the open conversation, the outgoing message pipeline and the
-// composer's accessory slot.
+// composer's slots.
 package chat
 
 import (
@@ -36,6 +36,9 @@ var (
 	// ComposerAccessory views sit in the composer's leading row, such as a
 	// model or mode picker.
 	ComposerAccessory = kernel.NewPoint[shell.View]("chat.composer-accessory")
+	// ComposerTrailing views sit just before Send or Stop, such as a usage
+	// meter. Unlike accessories they keep their width.
+	ComposerTrailing = kernel.NewPoint[shell.View]("chat.composer-trailing")
 	// ComposerAttachments views sit above the composer's editor, such as the
 	// files that will go with the message.
 	ComposerAttachments = kernel.NewPoint[shell.View]("chat.composer-attachments")

@@ -146,6 +146,7 @@ type Model struct {
 	Name     string
 	Variants []string
 	Free     bool
+	Context  int // the context window in tokens; 0 when unknown
 }
 
 type Mode struct{ ID, Name, Description string }
@@ -233,7 +234,18 @@ type Message struct {
 	Tokens Tokens
 }
 
-type Tokens struct{ Output, Reasoning int }
+// Tokens is what one assistant message used. Output does not include
+// Reasoning, whatever the backend counts.
+type Tokens struct {
+	Input, Output, Reasoning int
+	CacheRead, CacheWrite    int
+}
+
+// Context is how much of the context window the message filled: everything
+// it read and everything it wrote.
+func (t Tokens) Context() int {
+	return t.Input + t.CacheRead + t.CacheWrite + t.Output + t.Reasoning
+}
 
 type PartKind uint8
 

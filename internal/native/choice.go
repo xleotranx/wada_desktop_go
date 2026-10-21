@@ -10,10 +10,15 @@ func Choice(c *ui.Context, label string, chosen bool, on func()) {
 		Border(1, p.Hairline).Cursor(ui.CursorPointer)
 	switch {
 	case chosen:
-		b.Background(p.Selected).BorderColor(p.Orange.Alpha(.6))
+		b.Background(p.GreenBadge.Alpha(.12)).BorderColor(p.GreenBadge.Alpha(.3))
 	case b.Hovered():
 		b.Background(p.Hover)
 	}
 	b.OnClick(on)
-	b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(p.Text) })
+	b.Children(func() {
+		text := ui.Text(c, label).FontSize(13).TextColor(p.Text)
+		if chosen {
+			text.FontWeight(500).TextColor(p.GreenBadge)
+		}
+	})
 }

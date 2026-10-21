@@ -33,6 +33,12 @@ Rules every backend follows:
   retried by the backend. A failed mutation has an unknown outcome on the server,
   except a `Send` whose error wraps `agent.ErrNotSent`: the backend refused it before
   sending anything.
+- `Messages` returns a conversation's messages oldest first.
+- The app never reads a backend's own names for tools or permissions. A backend maps
+  them onto `ToolKind` (shell, read, search, edit, fetch, or other) in `Tool.Kind` and
+  `Approval.Kind`, and the app words and draws a call from the kind alone; `Tool.Name`
+  and `Approval.Action` are shown only for `ToolOther`. `ToolStarted` carries the
+  kind; a later event of the same call may leave it out.
 - `Send.Files` go with the message; stored user messages list theirs in
   `Message.Files`, without data.
 - A stored assistant message carries its `Cost` and `Tokens`: input, output,
@@ -59,6 +65,26 @@ Rules every backend follows:
   stream in `Status.Err` without quoting its payload; Pi skips malformed lines.
 - Requests are independent: the contract has no command queue. Policies such as
   "one turn at a time" belong to the consumer (the chat plugin).
+
+## Adding a backend
+
+A backend is one plugin under `internal/plugins/<name>`; nothing outside it changes but
+the line that installs it in `main.go`. It:
+
+1. provides `agent.ServiceKey`, and each optional key it can honor (`ModelsKey`,
+   `ModesKey`, `InteractionsKey`, `FileTypesKey`, `FilesKey`, `RewindKey`), listing
+   them in its manifest's `Provides`. Without an optional key the app hides what
+   depends on it: the pickers, `@` mentions, retry and edit;
+2. translates its protocol into the contract inside its own package: events into
+   `agent.Event`, stored messages into `agent.Message` oldest first, tool and
+   permission names into `ToolKind`, usage into `Tokens` with reasoning apart from
+   output;
+3. keeps its connection settings in its own settings section;
+4. runs `plugintest.CheckBackend` against a fake of its protocol, as OpenCode and Pi do.
+
+Only one backend is active at a time: the kernel refuses a second provider of
+`agent.ServiceKey`, so a new backend ships off by default (`DefaultOff`) unless it
+replaces the default.
 
 ## OpenCode plugin
 

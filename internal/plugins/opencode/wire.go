@@ -230,6 +230,23 @@ func (c *client) rewind(ctx context.Context, id agent.SessionID, message agent.M
 	return nil
 }
 
+// toolKind maps OpenCode's tool and permission names onto the shared kinds.
+func toolKind(name string) agent.ToolKind {
+	switch name {
+	case "shell", "bash":
+		return agent.ToolShell
+	case "read":
+		return agent.ToolRead
+	case "grep", "glob", "list", "find", "codesearch":
+		return agent.ToolSearch
+	case "edit", "write", "patch", "multiedit", "apply_patch":
+		return agent.ToolEdit
+	case "webfetch", "websearch":
+		return agent.ToolFetch
+	}
+	return agent.ToolOther
+}
+
 // ---- Messages
 
 type wireOutput struct {
@@ -314,7 +331,7 @@ func (m wireMessage) message() agent.Message {
 			part.Kind = agent.PartReasoning
 		case "tool":
 			part.Kind, part.Text = agent.PartTool, ""
-			part.Tool = &agent.Tool{ID: p.ID, Name: p.Name, Command: p.State.Input.Command, Output: textPieces(p.State.Content),
+			part.Tool = &agent.Tool{ID: p.ID, Name: p.Name, Kind: toolKind(p.Name), Command: p.State.Input.Command, Output: textPieces(p.State.Content),
 				Status: p.State.Status, Exit: p.State.Metadata.Exit, Truncated: p.State.Metadata.Truncated}
 		}
 		out.Parts = append(out.Parts, part)
@@ -482,7 +499,7 @@ func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 			err = json.Unmarshal(d.Input, &input)
 		}
 		out.Session = agent.SessionID(d.Session)
-		out.Tool = &agent.Tool{ID: d.ID, Name: d.Name, Command: input.Command, Output: textPieces(d.Content),
+		out.Tool = &agent.Tool{ID: d.ID, Name: d.Name, Kind: toolKind(d.Name), Command: input.Command, Output: textPieces(d.Content),
 			Status: d.Meta.Status, Exit: d.Meta.Exit, Truncated: d.Meta.Truncated}
 	case "permission.asked":
 		out.Kind = agent.ApprovalRequested
@@ -498,7 +515,7 @@ func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 			err = errors.New("invalid permission identity")
 		}
 		out.Session = agent.SessionID(d.Session)
-		out.Approval = &agent.Approval{ID: agent.ApprovalID(d.ID), Action: d.Action, Resources: d.Resources, Save: d.Save}
+		out.Approval = &agent.Approval{ID: agent.ApprovalID(d.ID), Kind: toolKind(d.Action), Action: d.Action, Resources: d.Resources, Save: d.Save}
 	case "session.execution.started", "session.execution.succeeded", "session.execution.failed",
 		"session.execution.interrupted", "session.model.selected", "session.renamed":
 		out.Kind = map[string]agent.EventKind{"session.execution.started": agent.TurnStarted,

@@ -43,7 +43,7 @@ func TestNotifiesOnlyWhatTheUserIsNotLookingAt(t *testing.T) {
 		t.Fatalf("notices %+v", host.Notices)
 	}
 	host.Background = true
-	emit(h, agent.Event{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{Action: "bash"}},
+	emit(h, agent.Event{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{Kind: agent.ToolShell, Action: "run_terminal_cmd"}},
 		agent.Event{Kind: agent.TurnInterrupted, Session: "s2"})
 	if len(host.Notices) != 2 || host.Notices[1].Title != "On show" ||
 		host.Notices[1].Body != "Waiting for your approval to run a command." {

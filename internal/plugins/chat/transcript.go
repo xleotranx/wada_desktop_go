@@ -42,9 +42,10 @@ type interactionState struct {
 }
 
 type toolRow struct {
-	label, icon string
-	command     string
-	detail      []string
+	label   string
+	kind    agent.ToolKind
+	command string
+	detail  []string
 }
 
 type textKey struct {
@@ -59,12 +60,12 @@ type transcript struct {
 	nextID    uint64
 	live      map[textKey]*row
 	tools     map[string]*row
-	toolNames map[string]string
+	started   map[string]agent.Tool // what ToolStarted said of a call, by ID
 	busy      bool
 }
 
 func (t *transcript) reset() {
-	*t = transcript{nextID: t.nextID, live: map[textKey]*row{}, tools: map[string]*row{}, toolNames: map[string]string{}}
+	*t = transcript{nextID: t.nextID, live: map[textKey]*row{}, tools: map[string]*row{}, started: map[string]agent.Tool{}}
 }
 
 func (t *transcript) add(r *row) *row {
@@ -115,7 +116,7 @@ func (t *transcript) load(messages []agent.Message) {
 					}
 				case agent.PartTool:
 					if part.Tool != nil {
-						t.add(&row{kind: rowTool, tool: newToolRow(part.Tool.Name, *part.Tool)})
+						t.add(&row{kind: rowTool, tool: newToolRow(*part.Tool)})
 					}
 				case agent.PartReasoning, agent.PartOther:
 				}
@@ -143,17 +144,16 @@ func (t *transcript) apply(ev agent.Event) {
 		delete(t.live, textKey{ev.Text.Message, ev.Text.Ordinal})
 		r.kind, r.text, r.stream = rowText, ev.Text.Text, nil
 	case agent.ToolStarted:
-		t.toolNames[ev.Tool.ID] = ev.Tool.Name
+		t.started[ev.Tool.ID] = *ev.Tool
 	case agent.ToolCalled:
 		t.toolCall(*ev.Tool)
 	case agent.ToolFinished:
 		r := t.toolCall(*ev.Tool)
-		name := cmp.Or(ev.Tool.Name, t.toolNames[ev.Tool.ID])
-		done := *ev.Tool
+		done := t.known(*ev.Tool)
 		done.Command = cmp.Or(done.Command, r.tool.command)
-		r.tool = newToolRow(name, done)
+		r.tool = newToolRow(done)
 		delete(t.tools, ev.Tool.ID)
-		delete(t.toolNames, ev.Tool.ID)
+		delete(t.started, ev.Tool.ID)
 	case agent.ApprovalRequested:
 		if !slices.ContainsFunc(t.rows, func(r *row) bool { return r.approval != nil && r.approval.ID == ev.Approval.ID }) {
 			a := *ev.Approval
@@ -192,7 +192,7 @@ func (t *transcript) toolCall(tool agent.Tool) *row {
 	if r := t.tools[tool.ID]; r != nil {
 		return r
 	}
-	r := t.add(&row{kind: rowTool, tool: newToolRow(cmp.Or(tool.Name, t.toolNames[tool.ID]), tool)})
+	r := t.add(&row{kind: rowTool, tool: newToolRow(t.known(tool))})
 	t.tools[tool.ID] = r
 	return r
 }
@@ -209,7 +209,7 @@ func (t *transcript) settle() {
 	t.rows = slices.DeleteFunc(t.rows, func(r *row) bool { return r.kind == rowApproval || r.kind == rowInteraction })
 	clear(t.live)
 	clear(t.tools)
-	clear(t.toolNames)
+	clear(t.started)
 	t.busy = false
 }
 
@@ -231,11 +231,18 @@ func (t *transcript) waitingApproval() bool {
 	return slices.ContainsFunc(t.rows, func(r *row) bool { return r.kind == rowApproval || r.kind == rowInteraction })
 }
 
+// known fills what a later event of a call leaves out from its ToolStarted.
+func (t *transcript) known(tool agent.Tool) agent.Tool {
+	start := t.started[tool.ID]
+	tool.Name = cmp.Or(tool.Name, start.Name)
+	tool.Kind = cmp.Or(tool.Kind, start.Kind)
+	return tool
+}
+
 // newToolRow labels a tool call and cuts its detail: the command, then the
 // last lines of output, the exit status and a truncation mark.
-func newToolRow(name string, tool agent.Tool) *toolRow {
-	label, icon := toolLook(name)
-	r := &toolRow{label: label, icon: icon, command: tool.Command}
+func newToolRow(tool agent.Tool) *toolRow {
+	r := &toolRow{label: toolLabel(tool), kind: tool.Kind, command: tool.Command}
 	if tool.Command != "" {
 		r.detail = append(r.detail, "$ "+tool.Command)
 	}
@@ -258,16 +265,24 @@ func newToolRow(name string, tool agent.Tool) *toolRow {
 	return r
 }
 
-func toolLook(name string) (label, icon string) {
-	switch name {
-	case "shell", "bash":
-		return "Ran command", "shell"
-	case "read":
-		return "Read files", "read"
-	case "grep", "glob", "list", "find":
-		return "Searched", "read"
-	case "":
-		return "Used tool", "tool"
+// toolLabel says what a call did, from its kind; only an unknown kind needs
+// the backend's name for it.
+func toolLabel(tool agent.Tool) string {
+	switch tool.Kind {
+	case agent.ToolShell:
+		return "Ran command"
+	case agent.ToolRead:
+		return "Read files"
+	case agent.ToolSearch:
+		return "Searched"
+	case agent.ToolEdit:
+		return "Edited files"
+	case agent.ToolFetch:
+		return "Fetched from the web"
+	case agent.ToolOther:
 	}
-	return "Used " + name, "tool"
+	if tool.Name == "" {
+		return "Used tool"
+	}
+	return "Used " + tool.Name
 }

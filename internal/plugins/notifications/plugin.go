@@ -80,7 +80,7 @@ func (p *Plugin) events(batch []agent.Event) {
 			}
 		case agent.ApprovalRequested:
 			if p.approvals.Get() && e.Approval != nil {
-				p.notify(e.Session, "Waiting for your approval to "+action(e.Approval.Action)+".")
+				p.notify(e.Session, "Waiting for your approval to "+action(*e.Approval)+".")
 			}
 		case agent.InteractionRequested:
 			if p.approvals.Get() {
@@ -184,17 +184,25 @@ func (p *Plugin) clicked(id string) {
 	p.chat.Open(s)
 }
 
-// action words an approval's action for a sentence: "shell" → "run a command".
-func action(a string) string {
-	switch a {
-	case "bash", "shell":
+// action words an approval for a sentence: "Waiting for your approval to …".
+func action(a agent.Approval) string {
+	switch a.Kind {
+	case agent.ToolShell:
 		return "run a command"
-	case "edit", "write":
+	case agent.ToolRead:
+		return "read files"
+	case agent.ToolSearch:
+		return "search files"
+	case agent.ToolEdit:
 		return "change files"
-	case "":
+	case agent.ToolFetch:
+		return "fetch from the web"
+	case agent.ToolOther:
+	}
+	if a.Action == "" {
 		return "continue"
 	}
-	return "use " + a
+	return "use " + a.Action
 }
 
 func (p *Plugin) section(c *ui.Context) {

@@ -265,13 +265,7 @@ func (p *Plugin) toolView(c *ui.Context, pal native.Palette, r *row) {
 		}
 		head.OnClick(func() { p.expanded[r.id] = !p.expanded[r.id] })
 		head.Children(func() {
-			icon := lucide.Plug()
-			switch r.tool.icon {
-			case "shell":
-				icon = lucide.Terminal()
-			case "read":
-				icon = lucide.BookOpen()
-			}
+			icon := toolIcon(r.tool.kind)
 			ui.Icon(c, icon).FontSize(12).TextColor(pal.Muted).Shrink(0)
 			ui.Text(c, r.tool.label).FontSize(12.5).FontWeight(500).TextColor(pal.Muted).
 				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
@@ -297,7 +291,7 @@ func (p *Plugin) approvalView(c *ui.Context, pal native.Palette, a agent.Approva
 		ui.Column(c).Gap(10).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, lucide.ShieldCheck()).FontSize(15).TextColor(pal.Orange)
-				ui.Text(c, "Approval needed — "+approvalAsk(a.Action)).FontSize(13).FontWeight(600).SingleLine()
+				ui.Text(c, "Approval needed — "+approvalAsk(a)).FontSize(13).FontWeight(600).SingleLine()
 			})
 			for _, res := range a.Resources {
 				ui.Box(c).FillWidth().Radius(7).Padding(6, 10).Background(pal.Bg).Border(1, pal.Hairline).Children(func() {
@@ -321,16 +315,42 @@ func (p *Plugin) approvalView(c *ui.Context, pal native.Palette, a agent.Approva
 	})
 }
 
-func approvalAsk(action string) string {
-	switch action {
-	case "bash", "shell":
-		return "run a shell command"
-	case "edit":
-		return "edit files"
-	case "webfetch":
-		return "fetch from the web"
+func toolIcon(kind agent.ToolKind) *ui.SVG {
+	switch kind {
+	case agent.ToolShell:
+		return lucide.Terminal()
+	case agent.ToolRead:
+		return lucide.BookOpen()
+	case agent.ToolSearch:
+		return lucide.Search()
+	case agent.ToolEdit:
+		return lucide.FilePen()
+	case agent.ToolFetch:
+		return lucide.Globe()
+	case agent.ToolOther:
 	}
-	return "use " + action
+	return lucide.Plug()
+}
+
+// approvalAsk words what an approval asks to do, for "Approval needed — …".
+func approvalAsk(a agent.Approval) string {
+	switch a.Kind {
+	case agent.ToolShell:
+		return "run a shell command"
+	case agent.ToolRead:
+		return "read files"
+	case agent.ToolSearch:
+		return "search files"
+	case agent.ToolEdit:
+		return "edit files"
+	case agent.ToolFetch:
+		return "fetch from the web"
+	case agent.ToolOther:
+	}
+	if a.Action == "" {
+		return "continue"
+	}
+	return "use " + a.Action
 }
 
 // fileIcon is the chip icon for a file of this MIME type.

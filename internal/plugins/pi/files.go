@@ -200,7 +200,7 @@ func messagesOf(path []entry) []agent.Message {
 				case "thinking":
 					msg.Parts = append(msg.Parts, agent.Part{Kind: agent.PartReasoning, Text: b.Thinking})
 				case "toolCall":
-					t := &agent.Tool{ID: b.ID, Name: b.Name, Command: commandOf(b.Arguments)}
+					t := &agent.Tool{ID: b.ID, Name: b.Name, Kind: toolKind(b.Name), Command: commandOf(b.Arguments)}
 					tools[b.ID] = t
 					msg.Parts = append(msg.Parts, agent.Part{Kind: agent.PartTool, Tool: t})
 				}

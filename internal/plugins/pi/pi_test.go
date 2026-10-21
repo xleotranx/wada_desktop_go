@@ -363,3 +363,12 @@ func TestImmediateReconnectAndDisable(t *testing.T) {
 		t.Fatalf("disabled connection: %v", err)
 	}
 }
+
+func TestToolKinds(t *testing.T) {
+	for name, want := range map[string]agent.ToolKind{"bash": agent.ToolShell, "read": agent.ToolRead, "ls": agent.ToolSearch,
+		"grep": agent.ToolSearch, "edit": agent.ToolEdit, "write": agent.ToolEdit, "my_extension_tool": agent.ToolOther} {
+		if got := toolKind(name); got != want {
+			t.Errorf("toolKind(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

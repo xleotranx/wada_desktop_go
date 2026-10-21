@@ -60,6 +60,7 @@ type Service interface {
 	// Create opens a conversation. If it was created but a later step (such as
 	// choosing its model) failed, Create returns the session with the error.
 	Create(ctx context.Context, req CreateSession) (Session, error)
+	// Messages returns a conversation's stored messages, oldest first.
 	Messages(ctx context.Context, session SessionID) ([]Message, error)
 	// Send reports admission of one prompt, independently of run status in Events.
 	// Its disposition is meaningful only when the error is nil.
@@ -79,7 +80,7 @@ type Models interface {
 }
 
 // Modes is the optional capability of running a conversation under a named
-// agent mode (OpenCode's "build" and "plan").
+// agent mode, such as a planning mode that doesn't change files.
 type Modes interface {
 	Modes(ctx context.Context) ([]Mode, error)
 }
@@ -278,10 +279,25 @@ type Part struct {
 	Tool *Tool  // PartTool
 }
 
+// ToolKind is what a tool does. Each backend maps its own tool and permission
+// names onto it, so the app words and draws a call without knowing any
+// backend's names.
+type ToolKind uint8
+
+const (
+	ToolOther  ToolKind = iota // anything else; Name or Action says what
+	ToolShell                  // runs a command
+	ToolRead                   // reads files
+	ToolSearch                 // finds files, or text in them
+	ToolEdit                   // creates or changes files
+	ToolFetch                  // reaches the web
+)
+
 // Tool is one tool call, complete in a stored message or partial in an event.
 type Tool struct {
 	ID        string
-	Name      string
+	Name      string   // the backend's own name, shown for ToolOther
+	Kind      ToolKind // ToolOther in an event that doesn't say; ToolStarted does
 	Command   string   // the shell command, for shell-like tools
 	Output    []string // text output, in the pieces the backend produced
 	Status    string   // the backend's own word, e.g. "completed"
@@ -335,7 +351,8 @@ type TextEvent struct {
 // Approval is a permission the agent waits for before acting.
 type Approval struct {
 	ID        ApprovalID
-	Action    string   // e.g. "shell"
+	Kind      ToolKind // what the agent wants to do
+	Action    string   // the backend's own word for it, shown for ToolOther
 	Resources []string // what it wants to act on
 	Save      []string // the patterns Always would remember
 }

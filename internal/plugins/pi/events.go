@@ -126,12 +126,12 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 			return text(agent.TextEnded)
 		case "toolcall_start":
 			e := ev(agent.ToolStarted)
-			e.Tool = &agent.Tool{ID: w.Update.ID, Name: w.Update.ToolName}
+			e.Tool = &agent.Tool{ID: w.Update.ID, Name: w.Update.ToolName, Kind: toolKind(w.Update.ToolName)}
 			return []agent.Event{e}
 		}
 	case "tool_execution_start":
 		e := ev(agent.ToolCalled)
-		e.Tool = &agent.Tool{ID: w.ToolCallID, Name: w.ToolName, Command: commandOf(w.Args)}
+		e.Tool = &agent.Tool{ID: w.ToolCallID, Name: w.ToolName, Kind: toolKind(w.ToolName), Command: commandOf(w.Args)}
 		return []agent.Event{e}
 	case "tool_execution_end":
 		var result struct {
@@ -139,7 +139,7 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 		}
 		json.Unmarshal(w.Result, &result)
 		e := ev(agent.ToolFinished)
-		e.Tool = &agent.Tool{ID: w.ToolCallID, Name: w.ToolName, Command: commandOf(w.Args),
+		e.Tool = &agent.Tool{ID: w.ToolCallID, Name: w.ToolName, Kind: toolKind(w.ToolName), Command: commandOf(w.Args),
 			Output: textPieces(result.Content), Status: "completed"}
 		if w.IsError {
 			e.Tool.Status, e.Tool.Exit = "error", 1
@@ -216,4 +216,20 @@ func dialogReply(id, method string, answer agent.InteractionAnswer) map[string]a
 		out["value"] = answer.Value
 	}
 	return out
+}
+
+// toolKind maps Pi's built-in tool names onto the shared kinds; extension
+// tools are ToolOther.
+func toolKind(name string) agent.ToolKind {
+	switch name {
+	case "bash":
+		return agent.ToolShell
+	case "read":
+		return agent.ToolRead
+	case "grep", "find", "ls":
+		return agent.ToolSearch
+	case "edit", "write":
+		return agent.ToolEdit
+	}
+	return agent.ToolOther
 }

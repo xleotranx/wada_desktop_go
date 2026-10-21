@@ -44,12 +44,12 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 					t.Fatalf("text = %+v", got.Text)
 				}
 			case agent.ToolStarted, agent.ToolCalled, agent.ToolFinished:
-				want := agent.Tool{ID: "tool-1", Name: "bash", Command: "go test ./...", Output: []string{"PASS"}, Status: "completed"}
+				want := agent.Tool{ID: "tool-1", Name: "bash", Kind: agent.ToolShell, Command: "go test ./...", Output: []string{"PASS"}, Status: "completed"}
 				if !reflect.DeepEqual(*got.Tool, want) {
 					t.Fatalf("tool = %+v", got.Tool)
 				}
 			case agent.ApprovalRequested:
-				want := agent.Approval{ID: "perm-1", Action: "shell", Resources: []string{"go test ./..."}, Save: []string{"go test *"}}
+				want := agent.Approval{ID: "perm-1", Kind: agent.ToolShell, Action: "shell", Resources: []string{"go test ./..."}, Save: []string{"go test *"}}
 				if !reflect.DeepEqual(*got.Approval, want) {
 					t.Fatalf("approval = %+v", got.Approval)
 				}
@@ -122,7 +122,7 @@ func TestStoredMessagesConvert(t *testing.T) {
 			Model: agent.ModelRef{Provider: "p", ID: "m"}, Parts: []agent.Part{
 				{Kind: agent.PartReasoning, Text: "thinking"},
 				{Kind: agent.PartText, Text: "Running it now."},
-				{Kind: agent.PartTool, Tool: &agent.Tool{ID: "call_9", Name: "shell", Command: "make check",
+				{Kind: agent.PartTool, Tool: &agent.Tool{ID: "call_9", Name: "shell", Kind: agent.ToolShell, Command: "make check",
 					Output: []string{"ok\n"}, Status: "completed", Exit: 2, Truncated: true}},
 			}},
 		{ID: "msg_u2", Role: agent.RoleUser, Text: "Top-level hello", Files: []agent.File{{Name: "shot.png", MIME: "image/png"}}},
@@ -162,6 +162,16 @@ func TestFailedTurnCarriesTheError(t *testing.T) {
 		ev, _, err := decodeEvent(wireEvent{Type: "session.execution.failed", Data: json.RawMessage(payload)})
 		if err != nil || ev.Kind != agent.TurnFailed || ev.Error != want {
 			t.Errorf("%s: %+v, %v", payload, ev, err)
+		}
+	}
+}
+
+func TestToolKinds(t *testing.T) {
+	for name, want := range map[string]agent.ToolKind{"bash": agent.ToolShell, "shell": agent.ToolShell, "read": agent.ToolRead,
+		"glob": agent.ToolSearch, "edit": agent.ToolEdit, "write": agent.ToolEdit, "webfetch": agent.ToolFetch,
+		"todowrite": agent.ToolOther, "": agent.ToolOther} {
+		if got := toolKind(name); got != want {
+			t.Errorf("toolKind(%q) = %v, want %v", name, got, want)
 		}
 	}
 }

@@ -163,9 +163,9 @@ func TestEventsBuildTheOpenConversation(t *testing.T) {
 		textEvent(agent.TextDelta, "s1", "Hel", ""),
 		textEvent(agent.TextDelta, "other", "not ours", ""),
 		textEvent(agent.TextDelta, "s1", "lo", ""),
-		{Kind: agent.ToolCalled, Session: "s1", Tool: &agent.Tool{ID: "t1", Name: "shell", Command: "ls"}},
+		{Kind: agent.ToolCalled, Session: "s1", Tool: &agent.Tool{ID: "t1", Name: "run_terminal_cmd", Kind: agent.ToolShell, Command: "ls"}},
 		{Kind: agent.ToolFinished, Session: "s1", Tool: &agent.Tool{ID: "t1", Output: []string{"a\nb\n"}, Exit: 1}},
-		{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{ID: "ap", Action: "shell"}},
+		{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{ID: "ap", Kind: agent.ToolShell, Action: "run_terminal_cmd"}},
 		{Kind: agent.SessionRenamed, Session: "s1", Title: "Renamed"},
 	})
 	if !slices.Equal(kinds(p), []rowKind{rowStream, rowTool, rowApproval}) || p.t.rows[0].text != "Hello" {
@@ -190,7 +190,7 @@ func TestReplyRemovesTheApproval(t *testing.T) {
 	h, p, f, _ := start(t)
 	p.Open(agent.Session{ID: "s1"})
 	h.Flush()
-	approval := agent.Approval{ID: "ap", Action: "edit"}
+	approval := agent.Approval{ID: "ap", Kind: agent.ToolEdit, Action: "str_replace"}
 	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.ApprovalRequested, Session: "s1", Approval: &approval}})
 	p.reply(approval, agent.Always)
 	h.Flush()
@@ -266,7 +266,7 @@ func TestComposerSendsAndApprovalButtonsAnswer(t *testing.T) {
 	}
 	kernel.Emit(h, agent.Events, []agent.Event{
 		{Kind: agent.TurnStarted, Session: "s1"},
-		{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{ID: "ap", Action: "shell", Resources: []string{"rm -rf build"}}},
+		{Kind: agent.ApprovalRequested, Session: "s1", Approval: &agent.Approval{ID: "ap", Kind: agent.ToolShell, Action: "run_terminal_cmd", Resources: []string{"rm -rf build"}}},
 	})
 	tt.Frame()
 	if !tt.HasText("Approval needed — run a shell command") || !tt.HasText("rm -rf build") {
@@ -291,7 +291,7 @@ func TestStoredConversationLoads(t *testing.T) {
 		{Role: agent.RoleAssistant, Parts: []agent.Part{
 			{Kind: agent.PartReasoning, Text: "hidden"},
 			{Kind: agent.PartText, Text: "answer"},
-			{Kind: agent.PartTool, Tool: &agent.Tool{Name: "read", Output: []string{"1\n2\n3\n4\n5\n6\n7\n"}, Truncated: true}},
+			{Kind: agent.PartTool, Tool: &agent.Tool{Name: "fs_read_v2", Kind: agent.ToolRead, Output: []string{"1\n2\n3\n4\n5\n6\n7\n"}, Truncated: true}},
 		}},
 		{Role: agent.RoleOther, Text: "idle"},
 	})
@@ -577,4 +577,21 @@ func hover(t *testing.T, tt *ui.Tester, text string) {
 	}
 	tt.Move(b.X+b.W/2, b.Y+b.H/2)
 	tt.Frame()
+}
+
+func TestToolKindFromItsStartCarriesToTheCall(t *testing.T) {
+	var tr transcript
+	tr.reset()
+	tr.apply(agent.Event{Kind: agent.ToolStarted, Tool: &agent.Tool{ID: "t", Name: "str_replace", Kind: agent.ToolEdit}})
+	tr.apply(agent.Event{Kind: agent.ToolCalled, Tool: &agent.Tool{ID: "t"}})
+	if got := tr.rows[0].tool; got.label != "Edited files" || got.kind != agent.ToolEdit {
+		t.Fatalf("called %+v", got)
+	}
+	tr.apply(agent.Event{Kind: agent.ToolFinished, Tool: &agent.Tool{ID: "t", Output: []string{"ok"}}})
+	if got := tr.rows[0].tool; got.label != "Edited files" || got.kind != agent.ToolEdit {
+		t.Fatalf("finished %+v", got)
+	}
+	if tr.apply(agent.Event{Kind: agent.ToolCalled, Tool: &agent.Tool{ID: "u", Name: "summon_llama"}}); tr.rows[1].tool.label != "Used summon_llama" {
+		t.Fatalf("other %+v", tr.rows[1].tool)
+	}
 }

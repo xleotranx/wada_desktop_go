@@ -283,8 +283,7 @@ func (p *Plugin) view(c *ui.Context) {
 			add.OnClick(p.openFolder)
 			add.Children(func() { ui.Icon(c, lucide.FolderPlus()).FontSize(15).TextColor(pal.Muted) })
 		})
-		components.TextBox(c, &p.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
-			FillWidth().Label("Search conversations").Placeholder("Search").FontSize(13).Margin(4, 0, 6, 0)
+		p.searchField(c, pal)
 
 		if !p.ws.Loaded() {
 			ui.Text(c, "Loading conversations…").FontSize(12).TextColor(pal.Faint).Padding(8, 8)
@@ -316,6 +315,40 @@ func (p *Plugin) view(c *ui.Context) {
 				}
 			})
 	})
+}
+
+// searchField opens the app's search dialog when a plugin contributes one,
+// and otherwise filters the list in place.
+func (p *Plugin) searchField(c *ui.Context, pal native.Palette) {
+	search, ok := p.searchCommand()
+	if !ok {
+		components.TextBox(c, &p.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
+			FillWidth().Label("Search conversations").Placeholder("Search").FontSize(13).Margin(4, 0, 6, 0)
+		return
+	}
+	b := ui.ButtonBase(c).Label("Search").Height(30).Radius(8).Padding(0, 10).FillWidth().Margin(4, 0, 6, 0).
+		Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer).
+		Background(pal.Bg).Border(1, pal.Hairline)
+	if b.Hovered() {
+		b.Background(pal.Bg.Mix(pal.Hover, .6))
+	}
+	// Opening a dialog is not the click handler's job: run it after the frame.
+	b.OnClick(func() { p.ctx.Post(func() { kernel.Invoke(p.ctx, search, func(cmd kernel.Command) { cmd.Run() }) }) })
+	b.Children(func() {
+		ui.Icon(c, lucide.Search()).FontSize(13).TextColor(pal.Muted).Shrink(0)
+		ui.Text(c, "Search").FontSize(13).TextColor(pal.Muted).Grow(1).MinWidth(0).SingleLine()
+		ui.Text(c, "⌘K").FontSize(11.5).TextColor(pal.Faint).Shrink(0)
+	})
+}
+
+// searchCommand is the contributed command that opens the app's search.
+func (p *Plugin) searchCommand() (kernel.Entry[kernel.Command], bool) {
+	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
+		if e.ID == shell.SearchCommand && e.Value.Run != nil {
+			return e, true
+		}
+	}
+	return kernel.Entry[kernel.Command]{}, false
 }
 
 // nestedIndent lines a conversation's title up with its folder's name.

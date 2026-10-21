@@ -43,6 +43,10 @@ var (
 	NoticeClicked = kernel.NewTopic[string]("shell.notice-clicked")
 )
 
+// SearchCommand is the ID of the kernel.Commands entry that opens the app's
+// search. The sidebar's search field runs it when a plugin contributes it.
+const SearchCommand = "palette.open"
+
 // Clipboard is what a paste can attach: local file paths, or an image.
 type Clipboard struct {
 	Files []string

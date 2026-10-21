@@ -100,7 +100,8 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 
 ## Command palette
 
-`internal/plugins/palette` adds "Command Palette…" (⌘K, View menu), which toggles
+`internal/plugins/palette` adds "Command Palette…" (⌘K, View menu) under the ID
+`shell.SearchCommand`, so the sidebar's search field opens it too. It toggles
 Onevra's command dialog from a `shell.Overlays` entry. It needs no other plugin: the
 commands are every `kernel.Commands` entry that has a `Run`, shown with their
 shortcut spelled as in a macOS menu, and one that is not `Enabled` is listed greyed
@@ -174,11 +175,13 @@ CREATE TABLE conversations (
 `internal/plugins/sessions` requires the workspace record and contributes the sidebar
 list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). Above
 the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
-button and the search field. Each folder has a header with its name that collapses it, remembered in the record, and, on hover or focus, an options menu
+button and the search field. The field is a button that runs `shell.SearchCommand`
+(the palette's command) when a plugin contributes it; without one it is a text field
+that filters the list. Each folder has a header with its name that collapses it, remembered in the record, and, on hover or focus, an options menu
 (New Chat, Remove Folder…) and, last, a "+" that starts a chat there. Under it are
 its conversations, newest first, or "No conversations". Conversations without a known
-folder follow under "Other chats"; with no folders at all the list is flat. Search
-filters titles as you type, shows matches under their folders even when collapsed, and
+folder follow under "Other chats"; with no folders at all the list is flat. The inline
+filter matches titles as you type, shows matches under their folders even when collapsed, and
 hides folders without one. With no conversations at all the list is a short note with
 an "Open folder…" button. Rows show the title, its last activity ("5m", "3h", a date)
 while the options button is hidden, an unread mark for a recorded

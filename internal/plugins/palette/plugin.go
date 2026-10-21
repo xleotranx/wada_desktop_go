@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	openID      = "palette.open"
+	openID      = shell.SearchCommand
 	groupChats  = "Conversations"
 	groupCmds   = "Commands"
 	sessionID   = "session:" // prefixes the item ID of a conversation

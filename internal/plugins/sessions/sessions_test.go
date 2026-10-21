@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
@@ -234,5 +235,42 @@ func TestAgo(t *testing.T) {
 	}
 	if got := ago(0, now); got != "" {
 		t.Errorf("ago(0) = %q, want empty", got)
+	}
+}
+
+// searcher contributes the command the sidebar's search field runs, under the
+// ID of the plugin that owns it.
+type searcher struct{ ran int }
+
+func (*searcher) Manifest() kernel.Manifest { return kernel.Manifest{ID: "palette", Title: "Search"} }
+
+func (s *searcher) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, kernel.Commands, shell.SearchCommand, 0, kernel.Command{
+		Title: "Search", Run: func() { s.ran++ }})
+}
+
+func TestSearchFieldOpensTheSearchDialog(t *testing.T) {
+	s := &searcher{}
+	p := &Plugin{}
+	h := kerneltest.New(t, plugintest.NewAgent(), &plugintest.Workspace{}, &plugintest.Chat{}, &plugintest.Host{}, s, p)
+	h.Flush()
+	tt := ui.NewTester(p.view, 320, 600)
+	tt.Frame()
+	if err := tt.Click("Search"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	h.Flush()
+	if s.ran != 1 {
+		t.Fatalf("search command ran %d times", s.ran)
+	}
+}
+
+func TestSearchFieldFiltersWithoutASearchCommand(t *testing.T) {
+	_, p, _, _, _, _ := start(t)
+	tt := ui.NewTester(p.view, 320, 600)
+	tt.Frame()
+	if _, ok := tt.Find("Search conversations"); !ok {
+		t.Fatalf("no inline search field: %q", tt.Texts())
 	}
 }

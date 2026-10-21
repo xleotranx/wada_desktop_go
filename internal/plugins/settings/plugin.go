@@ -116,7 +116,7 @@ func (p *Plugin) view(c *ui.Context) {
 					continue
 				}
 				ui.Column(c).Key(e.ID).FillWidth().MaxWidth(840).MinWidth(0).
-					Gap(28).Padding(48, 48, 40, 48).Children(func() {
+					Gap(28).Padding(24, 48, 40, 48).Children(func() {
 					ui.Column(c).FillWidth().Gap(8).Children(func() {
 						ui.Text(c, e.Value.Title).FontSize(24).FontWeight(600).TextColor(pal.Text)
 						if e.Value.Description != "" {

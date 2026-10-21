@@ -140,6 +140,8 @@ func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row) {
 			p.toolView(c, pal, r)
 		case rowApproval:
 			p.approvalView(c, pal, *r.approval)
+		case rowInteraction:
+			p.interactionView(c, pal, r.interaction)
 		case rowNote:
 			ui.Text(c, r.text).FontSize(13).LineHeight(1.45).TextColor(pal.Faint)
 		}

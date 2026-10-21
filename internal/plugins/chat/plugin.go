@@ -32,6 +32,7 @@ type Plugin struct {
 	version         uint64 // live events received for the open conversation
 	reloadAfterTurn bool
 	sending         bool   // a message is on its way and its turn hasn't started
+	sendSeq         uint64 // distinguishes acknowledgements from consecutive sends
 	attempt         uint64 // the backend connection the transcript was read from
 
 	// View state.
@@ -175,6 +176,7 @@ func (p *Plugin) send() {
 		return
 	}
 	p.draft, p.sending = "", true
+	p.sendSeq++
 	p.t.addUser(d.Text, d.Files)
 	p.list.ScrollToEnd()
 	if d.Session != "" {
@@ -200,17 +202,26 @@ func (p *Plugin) send() {
 }
 
 func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
+	seq, backend := p.sendSeq, p.agent
 	var task kernel.Task
-	kernel.Go(p.scope, &task, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.agent.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
-	}, func(_ struct{}, err error) {
+	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SendDisposition, error) {
+		return backend.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
+	}, func(disposition agent.SendDisposition, err error) {
+		finish := func() {
+			if p.sendSeq == seq {
+				p.sending = false
+			}
+		}
 		switch {
 		case err == nil:
+			if disposition == agent.SendHandled {
+				finish()
+			}
 		case errors.Is(err, agent.ErrNotSent):
-			p.sending = false
+			finish()
 			p.t.note("The message was not sent" + strings.TrimPrefix(err.Error(), agent.ErrNotSent.Error()) + ".")
 		default:
-			p.sending = false
+			finish()
 			p.t.note("The message may not have reached the agent: " + err.Error() + ". Check the conversation before sending it again.")
 		}
 	})
@@ -263,7 +274,7 @@ func (p *Plugin) events(batch []agent.Event) {
 		case agent.TurnStarted, agent.TurnSucceeded, agent.TurnFailed, agent.TurnInterrupted:
 			p.sending = false
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,
-			agent.ToolFinished, agent.ApprovalRequested:
+			agent.ToolFinished, agent.ApprovalRequested, agent.InteractionRequested:
 		}
 		p.t.apply(ev)
 	}

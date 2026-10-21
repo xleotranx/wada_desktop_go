@@ -17,6 +17,7 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
+	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -59,6 +60,9 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	switch {
+	case route == "POST /session/ses-9/prompt" && strings.Contains(string(body), "reject-contract-send"):
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"message":"rejected"}`)
 	case route == "GET /info":
 		fmt.Fprint(w, `{"data":{"version":"2.0.0"}}`)
 	case route == "GET /event":
@@ -118,6 +122,25 @@ func (f *fakeServer) body(route string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bodies[route]
+}
+
+func TestBackendContract(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, Service: p, PluginID: "opencode", Session: "ses-9",
+		WaitReady: func() { waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready }) },
+		RejectSend: func() (string, func() int) {
+			return "reject-contract-send", func() int {
+				n := 0
+				for _, call := range f.seen() {
+					if call == "POST /session/ses-9/prompt" {
+						n++
+					}
+				}
+				return n
+			}
+		},
+	})
 }
 
 // start runs the plugin in a kernel configured for f.
@@ -245,8 +268,9 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 	}
 	for _, fn := range []func(context.Context) (struct{}, error){
 		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, s.Send(ctx, agent.Send{Session: "ses-9", Text: "hi",
+			_, err := s.Send(ctx, agent.Send{Session: "ses-9", Text: "hi",
 				Files: []agent.File{{Name: "a.txt", MIME: "text/plain", Data: []byte("x")}}})
+			return struct{}{}, err
 		},
 		func(ctx context.Context) (struct{}, error) { return struct{}{}, s.Abort(ctx, "ses-9") },
 		func(ctx context.Context) (struct{}, error) {

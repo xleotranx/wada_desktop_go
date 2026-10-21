@@ -168,7 +168,7 @@ func (p *Plugin) events(batch []agent.Event) {
 		case agent.ModelChanged:
 			p.update(ev.Session, func(s *agent.Session) { s.Model = ev.Model })
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,
-			agent.ToolFinished, agent.ApprovalRequested, agent.TurnStarted, agent.TurnInterrupted:
+			agent.ToolFinished, agent.ApprovalRequested, agent.InteractionRequested, agent.TurnStarted, agent.TurnInterrupted:
 		}
 	}
 	if refresh {

@@ -70,7 +70,8 @@ func TestLivePiAnswers(t *testing.T) {
 	})
 	t.Logf("created %+v", s)
 	run(func(ctx context.Context) error {
-		return p.Send(ctx, agent.Send{Session: s.ID, Text: "Reply with exactly: pong"})
+		_, err := p.Send(ctx, agent.Send{Session: s.ID, Text: "Reply with exactly: pong"})
+		return err
 	})
 	wait("the turn to end", func() bool {
 		return slices.ContainsFunc(got, func(e agent.Event) bool {

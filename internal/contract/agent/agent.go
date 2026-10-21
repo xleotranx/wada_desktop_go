@@ -53,8 +53,9 @@ type Service interface {
 	// choosing its model) failed, Create returns the session with the error.
 	Create(ctx context.Context, req CreateSession) (Session, error)
 	Messages(ctx context.Context, session SessionID) ([]Message, error)
-	// Send queues one user turn. The answer arrives through Events.
-	Send(ctx context.Context, req Send) error
+	// Send reports admission of one prompt, independently of run status in Events.
+	// Its disposition is meaningful only when the error is nil.
+	Send(ctx context.Context, req Send) (SendDisposition, error)
 	Abort(ctx context.Context, session SessionID) error
 	Reply(ctx context.Context, req Reply) error
 	Rename(ctx context.Context, session SessionID, title string) error
@@ -160,6 +161,14 @@ type Send struct {
 	Files   []File
 }
 
+type SendDisposition uint8
+
+const (
+	SendAccepted SendDisposition = iota // admitted; execution is observed through Events
+	SendQueued                          // admitted to a running agent's queue
+	SendHandled                         // consumed without requiring a new run
+)
+
 // File is a file sent with a user message. Data is set when sending; stored
 // messages carry only Name and MIME.
 type File struct {
@@ -234,13 +243,14 @@ type Tool struct {
 type EventKind uint8
 
 const (
-	TextStarted       EventKind = iota // Text: Message, Ordinal
-	TextDelta                          // Text: Message, Ordinal, Delta
-	TextEnded                          // Text: Message, Ordinal, Text (complete)
-	ToolStarted                        // Tool: ID, Name
-	ToolCalled                         // Tool: ID, Name, Command
-	ToolFinished                       // Tool: complete
-	ApprovalRequested                  // Approval
+	TextStarted          EventKind = iota // Text: Message, Ordinal
+	TextDelta                             // Text: Message, Ordinal, Delta
+	TextEnded                             // Text: Message, Ordinal, Text (complete)
+	ToolStarted                           // Tool: ID, Name
+	ToolCalled                            // Tool: ID, Name, Command
+	ToolFinished                          // Tool: complete
+	ApprovalRequested                     // Approval
+	InteractionRequested                  // Interaction
 	TurnStarted
 	TurnSucceeded
 	TurnFailed // Error, when the backend says why
@@ -252,15 +262,16 @@ const (
 // Event is one normalized backend event. Only the payload of its kind is set.
 // Events are immutable once emitted.
 type Event struct {
-	Kind     EventKind
-	Session  SessionID
-	Text     *TextEvent
-	Tool     *Tool
-	Approval *Approval
-	Model    ModelRef
-	Title    string
-	Error    string // TurnFailed: the backend's reason, for the user
-	Bytes    int    // wire size, for batching
+	Kind        EventKind
+	Session     SessionID
+	Text        *TextEvent
+	Tool        *Tool
+	Approval    *Approval
+	Interaction *Interaction
+	Model       ModelRef
+	Title       string
+	Error       string // TurnFailed: the backend's reason, for the user
+	Bytes       int    // wire size, for batching
 }
 
 type TextEvent struct {

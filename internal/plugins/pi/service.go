@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -97,16 +98,31 @@ func (p *Plugin) Messages(_ context.Context, id agent.SessionID) ([]agent.Messag
 	return messagesOf(path), nil
 }
 
-func (p *Plugin) Send(ctx context.Context, req agent.Send) error {
+func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDisposition, error) {
 	l, err := p.process(req.Session)
 	if err != nil {
-		return err
+		return agent.SendAccepted, err
 	}
 	cmd, err := prompt(req)
 	if err != nil {
-		return err
+		return agent.SendAccepted, err
 	}
-	return l.p.call(ctx, "prompt", cmd, nil)
+	var receipt struct {
+		Disposition string `json:"disposition"`
+	}
+	if err := l.p.call(ctx, "prompt", cmd, &receipt); err != nil {
+		return agent.SendAccepted, err
+	}
+	switch receipt.Disposition {
+	case "started":
+		return agent.SendAccepted, nil
+	case "queued":
+		return agent.SendQueued, nil
+	case "handled":
+		return agent.SendHandled, nil
+	default:
+		return agent.SendAccepted, errors.New("pi prompt: unrecognized admission response; check the conversation before sending again")
+	}
 }
 
 // fileTypes is what prompt can send: images, and text inlined.
@@ -155,20 +171,32 @@ func (p *Plugin) Abort(ctx context.Context, id agent.SessionID) error {
 	return l.p.call(ctx, "abort", nil, nil)
 }
 
-func (p *Plugin) Reply(_ context.Context, req agent.Reply) error {
+func (p *Plugin) Reply(context.Context, agent.Reply) error {
+	if _, err := p.current(); err != nil {
+		return err
+	}
+	return errors.New("pi uses interactions, not permission approvals")
+}
+
+func (p *Plugin) Answer(_ context.Context, answer agent.InteractionAnswer) error {
 	c, err := p.current()
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	d, ok := c.dialogs[req.Approval]
-	delete(c.dialogs, req.Approval)
+	d, ok := c.dialogs[answer.ID]
 	l := c.sessions[d.session]
-	c.mu.Unlock()
-	if !ok || l == nil {
+	if !ok || l == nil || answer.Session != d.session {
+		c.mu.Unlock()
 		return errors.New("pi is no longer waiting for this answer")
 	}
-	return l.p.send(dialogReply(string(req.Approval), d.method, d.options, req.Decision))
+	if !answer.Cancelled && d.request.Kind == agent.Select && !slices.Contains(d.request.Options, answer.Value) {
+		c.mu.Unlock()
+		return errors.New("the answer is not one of the offered options")
+	}
+	delete(c.dialogs, answer.ID)
+	c.mu.Unlock()
+	return l.p.send(dialogReply(string(answer.ID), d.method, answer))
 }
 
 func (p *Plugin) Rename(ctx context.Context, id agent.SessionID, title string) error {

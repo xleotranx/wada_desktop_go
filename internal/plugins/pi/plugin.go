@@ -61,7 +61,7 @@ type connection struct {
 
 	mu       sync.Mutex
 	sessions map[agent.SessionID]*live
-	dialogs  map[agent.ApprovalID]dialog
+	dialogs  map[agent.InteractionID]dialog
 	files    catalog
 }
 
@@ -76,7 +76,7 @@ type live struct {
 type dialog struct {
 	session agent.SessionID
 	method  string
-	options []string
+	request agent.Interaction
 }
 
 var (
@@ -88,7 +88,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "pi", Title: "Pi", DefaultOff: true,
 		Description: "Chat with the Pi coding agent, run by the app.",
-		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.FileTypesKey},
+		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.FileTypesKey, agent.InteractionsKey},
 	}
 }
 
@@ -106,6 +106,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	for _, err := range []error{
 		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
+		kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p),
 		kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, fileTypes{}),
 		kernel.Contribute(c, kernel.Commands, "pi.reconnect", 0, kernel.Command{
 			Title: "Restart Pi", Menu: "Agent", Run: p.Reconnect}),
@@ -129,7 +130,7 @@ func (p *Plugin) Reconnect() {
 	run, cfg := p.run, p.cfg.Get()
 	home, _ := os.UserHomeDir()
 	c := &connection{ctx: run.Lifetime(), exe: cmpOr(cfg.Executable, "pi"), home: home, maxIdle: p.maxIdle,
-		queue: make(chan agent.Event, 256), sessions: map[agent.SessionID]*live{}, dialogs: map[agent.ApprovalID]dialog{}}
+		queue: make(chan agent.Event, 256), sessions: map[agent.SessionID]*live{}, dialogs: map[agent.InteractionID]dialog{}}
 	c.dir = cmpOr(cfg.SessionDir, defaultSessionDir(home))
 	c.files.dir = c.dir
 	run.Spawn(func(ctx context.Context) { p.batch(ctx, run, c.queue) })
@@ -246,7 +247,7 @@ func (c *connection) controlEvents(pr *proc, kind string, raw []byte) {
 	}
 	switch w.Method {
 	case "confirm", "select", "input", "editor":
-		pr.send(dialogReply(w.ID, "", nil, agent.Reject))
+		pr.send(dialogReply(w.ID, w.Method, agent.InteractionAnswer{Cancelled: true}))
 	}
 }
 
@@ -293,17 +294,23 @@ func (c *connection) spawnLocked(id agent.SessionID, dir string, args []string) 
 }
 
 func (c *connection) sessionEvent(pr *proc, l *live, t *translator, kind string, raw []byte) {
+	if kind == "agent_settled" {
+		id := t.sessionID()
+		c.mu.Lock()
+		for key, pending := range c.dialogs {
+			if pending.session == id {
+				delete(c.dialogs, key)
+			}
+		}
+		c.mu.Unlock()
+	}
 	if kind == "extension_ui_request" {
 		var w dialogRequest
 		if json.Unmarshal(raw, &w) == nil {
-			switch w.Method {
-			case "confirm", "select":
+			if request, ok := w.interaction(); ok {
 				c.mu.Lock()
-				c.dialogs[agent.ApprovalID(w.ID)] = dialog{session: t.sessionID(), method: w.Method, options: w.Options}
+				c.dialogs[request.ID] = dialog{session: t.sessionID(), method: w.Method, request: request}
 				c.mu.Unlock()
-			case "input", "editor":
-				pr.send(dialogReply(w.ID, w.Method, nil, agent.Reject))
-				return
 			}
 		}
 	}
@@ -354,6 +361,7 @@ func (c *connection) findLocked(id agent.SessionID) (sessionFile, error) {
 
 func (c *connection) closeAll() {
 	c.mu.Lock()
+	clear(c.dialogs)
 	procs := make([]*proc, 0, len(c.sessions))
 	for id, l := range c.sessions {
 		procs = append(procs, l.p)

@@ -61,7 +61,7 @@ func TestDecodeEveryKnownEvent(t *testing.T) {
 				if got.Title != "An updated title" {
 					t.Fatalf("title = %q", got.Title)
 				}
-			case agent.TurnStarted, agent.TurnSucceeded, agent.TurnFailed, agent.TurnInterrupted:
+			case agent.InteractionRequested, agent.TurnStarted, agent.TurnSucceeded, agent.TurnFailed, agent.TurnInterrupted:
 			}
 		})
 	}

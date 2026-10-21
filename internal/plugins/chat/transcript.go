@@ -12,25 +12,33 @@ import (
 type rowKind uint8
 
 const (
-	rowUser     rowKind = iota // the user's words
-	rowText                    // a finished answer, as markdown
-	rowStream                  // an answer still arriving
-	rowTool                    // one tool call
-	rowApproval                // a permission waiting on the user
-	rowNote                    // a faint note from the app
+	rowUser        rowKind = iota // the user's words
+	rowText                       // a finished answer, as markdown
+	rowStream                     // an answer still arriving
+	rowTool                       // one tool call
+	rowApproval                   // a permission waiting on the user
+	rowInteraction                // a general question waiting on the user
+	rowNote                       // a faint note from the app
 )
 
 // row is one transcript entry. Rows are owned by the transcript and read on
 // the UI thread.
 type row struct {
-	id       uint64
-	kind     rowKind
-	text     string
-	files    []agent.File // rowUser: what went with the words
-	stream   *strings.Builder
-	message  agent.MessageID
-	tool     *toolRow
-	approval *agent.Approval
+	id          uint64
+	kind        rowKind
+	text        string
+	files       []agent.File // rowUser: what went with the words
+	stream      *strings.Builder
+	message     agent.MessageID
+	tool        *toolRow
+	approval    *agent.Approval
+	interaction *interactionState
+}
+
+type interactionState struct {
+	request    agent.Interaction
+	value      string
+	submitting bool
 }
 
 type toolRow struct {
@@ -134,6 +142,10 @@ func (t *transcript) apply(ev agent.Event) {
 			a := *ev.Approval
 			t.add(&row{kind: rowApproval, approval: &a})
 		}
+	case agent.InteractionRequested:
+		if !slices.ContainsFunc(t.rows, func(r *row) bool { return r.interaction != nil && r.interaction.request.ID == ev.Interaction.ID }) {
+			t.add(&row{kind: rowInteraction, interaction: &interactionState{request: *ev.Interaction, value: ev.Interaction.Prefill}})
+		}
 	case agent.TurnStarted:
 		t.busy = true
 	case agent.TurnSucceeded, agent.TurnInterrupted:
@@ -177,7 +189,7 @@ func (t *transcript) settle() {
 			r.text = "(the answer was cut short)"
 		}
 	}
-	t.rows = slices.DeleteFunc(t.rows, func(r *row) bool { return r.kind == rowApproval })
+	t.rows = slices.DeleteFunc(t.rows, func(r *row) bool { return r.kind == rowApproval || r.kind == rowInteraction })
 	clear(t.live)
 	clear(t.tools)
 	clear(t.toolNames)
@@ -199,7 +211,7 @@ func (t *transcript) streaming() bool {
 }
 
 func (t *transcript) waitingApproval() bool {
-	return slices.ContainsFunc(t.rows, func(r *row) bool { return r.kind == rowApproval })
+	return slices.ContainsFunc(t.rows, func(r *row) bool { return r.kind == rowApproval || r.kind == rowInteraction })
 }
 
 // newToolRow labels a tool call and cuts its detail: the command, then the

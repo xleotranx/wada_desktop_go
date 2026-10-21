@@ -62,6 +62,45 @@ func TestFirstMessageCreatesTheConversationThenSends(t *testing.T) {
 	}
 }
 
+func TestHandledInputReleasesComposerWithoutSettlingAnIndependentRun(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		t.Run(fmt.Sprint(running), func(t *testing.T) {
+			h, p, f, _ := start(t)
+			f.Disposition = agent.SendHandled
+			p.draft = "/extension-command"
+			p.send()
+			h.RunWork(0) // Create the conversation.
+			h.RunPosts() // Queue Send.
+			if running {
+				kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "new"}})
+			}
+			h.Flush()
+			if p.sending || p.t.busy != running {
+				t.Fatalf("handled input: sending=%v busy=%v; independent run=%v", p.sending, p.t.busy, running)
+			}
+		})
+	}
+}
+
+func TestLateHandledReceiptDoesNotReleaseTheNextSend(t *testing.T) {
+	h, p, f, _ := start(t)
+	f.Disposition = agent.SendHandled
+	p.draft = "/command"
+	p.send()
+	h.RunWork(0)
+	h.RunPosts() // Create, then queue the first send.
+	h.RunWork(0) // The receipt is waiting on the UI queue.
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "new"}, {Kind: agent.TurnSucceeded, Session: "new"}})
+	f.Disposition = agent.SendAccepted
+	p.draft = "next prompt"
+	p.send()
+	h.RunPosts() // Apply the first send's handled receipt.
+	if !p.sending {
+		t.Fatal("an older receipt released the next send")
+	}
+	h.Flush()
+}
+
 func TestOutgoingPipelineRewritesAndRejects(t *testing.T) {
 	picker := &extension{setup: func(c *kernel.Context) error {
 		kernel.Transform(c, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, error) {

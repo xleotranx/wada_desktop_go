@@ -315,8 +315,8 @@ func (p *Plugin) Messages(ctx context.Context, id agent.SessionID) ([]agent.Mess
 	return c.messages(ctx, id)
 }
 
-func (p *Plugin) Send(ctx context.Context, req agent.Send) error {
-	return p.with(func(c *client) error { return c.send(ctx, req) })
+func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDisposition, error) {
+	return agent.SendAccepted, p.with(func(c *client) error { return c.send(ctx, req) })
 }
 
 func (p *Plugin) Abort(ctx context.Context, id agent.SessionID) error {

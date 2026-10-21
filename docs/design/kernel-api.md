@@ -182,6 +182,9 @@ Blocked and shown that way in Settings → Plugins. Nothing else changes.
 - Cleanup closes the kernel and fails the test if workers are still running.
 
 `internal/plugintest` has fakes for the contracts (agent, host, chat controller).
+Its `CheckBackend` suite runs against both protocol fixtures and checks failed sends
+are attempted once, disabled services return `ErrNotConnected`, and reactivation
+advances the connection generation.
 
 ## Out-of-process plugins
 

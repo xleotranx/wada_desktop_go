@@ -97,6 +97,19 @@ func fakePi() {
 			write(map[string]any{"type": "session_info_changed", "name": name})
 		case "prompt":
 			text, _ := cmd["message"].(string)
+			if text == "reject-contract-send" {
+				f, _ := os.OpenFile(os.Getenv("WADA_FAKE_PI_ATTEMPTS"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+				if f != nil {
+					f.WriteString("attempt\n")
+					f.Close()
+				}
+				write(map[string]any{"type": "response", "id": cmd["id"], "command": kind, "success": false, "error": "rejected"})
+				continue
+			}
+			if text == "/handled" || text == "/queued" {
+				reply(map[string]any{"disposition": strings.TrimPrefix(text, "/")})
+				continue
+			}
 			reply(map[string]any{"disposition": "started"})
 			answer := "Hello"
 			write(map[string]any{"type": "agent_start"})
@@ -107,13 +120,18 @@ func fakePi() {
 				write(map[string]any{"type": "agent_settled", "aborted": false})
 				continue
 			}
-			if text == "confirm please" {
+			if slices.Contains([]string{"confirm please", "select please", "input please", "editor please"}, text) {
+				method := strings.TrimSuffix(text, " please")
 				ch := make(chan map[string]any, 1)
 				answers["dlg1"] = ch
-				write(map[string]any{"type": "extension_ui_request", "id": "dlg1", "method": "confirm", "title": "Run it?", "message": "rm -rf build"})
+				write(map[string]any{"type": "extension_ui_request", "id": "dlg1", "method": method, "title": "Run it?", "message": "rm -rf build", "options": []string{"first", "second"}, "prefill": "initial"})
 				go func() {
 					r := <-ch
-					finish(write, fmt.Sprintf("confirmed=%v", r["confirmed"]), appendEntry, text)
+					result := fmt.Sprintf("confirmed=%v", r["confirmed"])
+					if method != "confirm" {
+						result = fmt.Sprintf("value=%v cancelled=%v", r["value"], r["cancelled"])
+					}
+					finish(write, result, appendEntry, text)
 				}()
 				continue
 			}

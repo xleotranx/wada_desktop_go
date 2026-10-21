@@ -43,6 +43,10 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 - Sending runs `chat.Outgoing` first, then creates the conversation when it is new,
   then sends. The user's words show at once. A failed send is reported and never
   retried, since it may have reached the agent.
+- General backend questions appear as typed interaction cards: Yes/No, every
+  offered selection, a text input, or a multiline editor. Submission disables the
+  card until its answer completes; a failed answer is reported without retrying.
+  Questions are removed on success or when the turn settles.
 - One message at a time: the composer is a Stop button while a message is on its way
   or a turn runs.
 - When the connection drops mid-turn, the turn is settled with a note. When a new

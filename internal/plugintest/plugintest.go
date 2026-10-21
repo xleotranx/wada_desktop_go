@@ -17,15 +17,16 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Agent provides agent.ServiceKey, ModelsKey and ModesKey with answers the test sets. Calls are
+// Agent provides the service, models, modes and interactions with answers the test sets. Calls are
 // recorded as short strings, e.g. "send s1 hello".
 type Agent struct {
-	mu     sync.Mutex
-	calls  []string
-	Stored map[agent.SessionID][]agent.Message
-	Pages  map[string]agent.SessionPage // by "cursor|search"
-	Fail   map[string]error             // by method name, e.g. "Send"
-	State  agent.Status
+	mu          sync.Mutex
+	calls       []string
+	Stored      map[agent.SessionID][]agent.Message
+	Pages       map[string]agent.SessionPage // by "cursor|search"
+	Fail        map[string]error             // by method name, e.g. "Send"
+	State       agent.Status
+	Disposition agent.SendDisposition
 
 	// The model capabilities.
 	Catalog  []agent.Model
@@ -39,7 +40,7 @@ func NewAgent() *Agent {
 }
 
 func (*Agent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey}}
+	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey}}
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
@@ -49,7 +50,10 @@ func (a *Agent) Setup(c *kernel.Context) error {
 	if err := kernel.Provide[agent.Models](c, agent.ModelsKey, a); err != nil {
 		return err
 	}
-	return kernel.Provide[agent.Modes](c, agent.ModesKey, a)
+	if err := kernel.Provide[agent.Modes](c, agent.ModesKey, a); err != nil {
+		return err
+	}
+	return kernel.Provide[agent.Interactions](c, agent.InteractionsKey, a)
 }
 
 func (a *Agent) record(method, call string) error {
@@ -105,12 +109,12 @@ func (a *Agent) Messages(_ context.Context, id agent.SessionID) ([]agent.Message
 	return a.Stored[id], nil
 }
 
-func (a *Agent) Send(_ context.Context, req agent.Send) error {
+func (a *Agent) Send(_ context.Context, req agent.Send) (agent.SendDisposition, error) {
 	call := "send " + string(req.Session) + " " + req.Text
 	for _, f := range req.Files {
 		call += " +" + f.Name
 	}
-	return a.record("Send", call)
+	return a.Disposition, a.record("Send", call)
 }
 
 func (a *Agent) Abort(_ context.Context, id agent.SessionID) error {
@@ -119,6 +123,10 @@ func (a *Agent) Abort(_ context.Context, id agent.SessionID) error {
 
 func (a *Agent) Reply(_ context.Context, req agent.Reply) error {
 	return a.record("Reply", "reply "+string(req.Approval))
+}
+
+func (a *Agent) Answer(_ context.Context, answer agent.InteractionAnswer) error {
+	return a.record("Answer", fmt.Sprintf("answer %s value=%s confirmed=%v cancelled=%v", answer.ID, answer.Value, answer.Confirmed, answer.Cancelled))
 }
 
 func (a *Agent) Rename(_ context.Context, id agent.SessionID, title string) error {

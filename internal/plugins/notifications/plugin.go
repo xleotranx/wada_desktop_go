@@ -72,6 +72,10 @@ func (p *Plugin) events(batch []agent.Event) {
 			if p.approvals.Get() && e.Approval != nil {
 				p.notify(e.Session, "Waiting for your approval to "+action(e.Approval.Action)+".")
 			}
+		case agent.InteractionRequested:
+			if p.approvals.Get() {
+				p.notify(e.Session, "Waiting for your answer.")
+			}
 		case agent.SessionRenamed:
 			if s, ok := p.known[e.Session]; ok {
 				s.Title = e.Title

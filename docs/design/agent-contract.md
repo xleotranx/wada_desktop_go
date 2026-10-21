@@ -12,12 +12,17 @@ reconnecting with backoff, and decoding its protocol.
 |---|---|---|
 | `ServiceKey` | `Key[Service]` | sessions, messages, send, abort, approvals, rename, delete |
 | `ModelsKey` | `Key[Models]` | optional model catalog, default model, per-session model |
+| `InteractionsKey` | `Key[Interactions]` | optional confirmation, selection, text input and editor dialogs |
 | `ModesKey` | `Key[Modes]` | optional named agent modes (OpenCode's build/plan) |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
 
 Rules every backend follows:
 
+- `Send` returns admission separately from execution: `SendAccepted` waits for
+  run events, `SendQueued` reports queued input, and `SendHandled` means the input
+  was consumed without requiring a new run. A handled input releases the composer
+  but does not settle independent work. Dispositions are meaningful only on success.
 - `Service.Status` is read on the UI thread; every other method may be called
   from any goroutine (normally a `kernel.Go` work function) and blocks on I/O.
 - Without a connection, methods return `agent.ErrNotConnected`.
@@ -66,6 +71,9 @@ conversation processes off the UI thread when the connection scope ends.
   process. A control process (`--no-session`) answers the model catalog and is the
   connection's health; each conversation gets its own process when first used
   (`--session <file>`), and idle ones beyond four are stopped.
+- Pi maps the prompt response's `started`, `queued`, and `handled` dispositions to
+  the shared admission result. An unrecognized response is an uncertain outcome,
+  reported without retrying. OpenCode reports `SendAccepted` on a successful send.
 - Pi has no command to list sessions, so the plugin reads the session files under the
   session folder (`~/.pi/agent/sessions` unless configured): the header for the ID and
   folder, `session_info` for the name, and the path from the last entry to the root
@@ -76,9 +84,11 @@ conversation processes off the UI thread when the connection scope ends.
   final error of Pi's retries) or TurnInterrupted
   (aborted); `session_info_changed` → SessionRenamed. A model switch is confirmed
   with a ModelChanged the plugin emits after `set_model` succeeds.
-- Extension `confirm` and `select` dialogs become approvals (Allow → yes or the first
-  option, Deny → no or cancel). `input` and `editor` dialogs are cancelled, since the
-  app has no place to answer them.
+- Extension `confirm`, `select`, `input`, and `editor` dialogs emit
+  `InteractionRequested`. Pi provides `InteractionsKey`; replies preserve the
+  selected label, confirmation, submitted text (including empty text), or explicit
+  cancellation. A reply must name the matching session and an offered selection.
+  These are general questions, separate from OpenCode permission approvals.
 - Images go in the prompt's `images`. Text files are appended to the message as fenced
   blocks headed `(file: name)`. Any other file makes `Send` fail with `ErrNotSent`.
   Stored images come back as files named "image", since Pi keeps no names. It

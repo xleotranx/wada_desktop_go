@@ -43,11 +43,13 @@ type wireEvent struct {
 
 // dialogRequest is an extension_ui_request record.
 type dialogRequest struct {
-	ID      string   `json:"id"`
-	Method  string   `json:"method"`
-	Title   string   `json:"title"`
-	Message string   `json:"message"`
-	Options []string `json:"options"`
+	ID          string   `json:"id"`
+	Method      string   `json:"method"`
+	Title       string   `json:"title"`
+	Message     string   `json:"message"`
+	Options     []string `json:"options"`
+	Placeholder string   `json:"placeholder"`
+	Prefill     string   `json:"prefill"`
 }
 
 // translate returns the events one record stands for. Records it does not
@@ -151,15 +153,15 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 		return []agent.Event{e}
 	case "extension_ui_request":
 		var d dialogRequest
-		if json.Unmarshal(raw, &d) != nil || (d.Method != "confirm" && d.Method != "select") {
+		if json.Unmarshal(raw, &d) != nil {
 			return nil
 		}
-		e := ev(agent.ApprovalRequested)
-		e.Approval = &agent.Approval{ID: agent.ApprovalID(d.ID), Action: cmpOr(d.Title, "confirm")}
-		if d.Message != "" {
-			e.Approval.Resources = []string{d.Message}
+		question, ok := d.interaction()
+		if !ok {
+			return nil
 		}
-		e.Approval.Resources = append(e.Approval.Resources, d.Options...)
+		e := ev(agent.InteractionRequested)
+		e.Interaction = &question
 		return []agent.Event{e}
 	}
 	return nil
@@ -185,19 +187,33 @@ func (t *translator) isRunning() bool {
 	return t.running
 }
 
-// dialogReply answers an extension dialog: confirm with yes or no, select with
-// the first option or cancel, and anything else with cancel.
-func dialogReply(id, method string, options []string, d agent.Decision) map[string]any {
+func (d dialogRequest) interaction() (agent.Interaction, bool) {
+	i := agent.Interaction{ID: agent.InteractionID(d.ID), Title: d.Title, Message: d.Message,
+		Options: d.Options, Placeholder: d.Placeholder, Prefill: d.Prefill}
+	switch d.Method {
+	case "confirm":
+		i.Kind = agent.Confirm
+	case "select":
+		i.Kind = agent.Select
+	case "input":
+		i.Kind = agent.Input
+	case "editor":
+		i.Kind = agent.Editor
+	default:
+		return i, false
+	}
+	return i, true
+}
+
+func dialogReply(id, method string, answer agent.InteractionAnswer) map[string]any {
 	out := map[string]any{"type": "extension_ui_response", "id": id}
 	switch {
-	case method == "confirm" && d != agent.Reject:
-		out["confirmed"] = true
-	case method == "confirm":
-		out["confirmed"] = false
-	case method == "select" && d != agent.Reject && len(options) > 0:
-		out["value"] = options[0]
-	default:
+	case answer.Cancelled:
 		out["cancelled"] = true
+	case method == "confirm":
+		out["confirmed"] = answer.Confirmed
+	default:
+		out["value"] = answer.Value
 	}
 	return out
 }

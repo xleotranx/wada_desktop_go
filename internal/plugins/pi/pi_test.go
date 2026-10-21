@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
+	"wada-desktop-go/internal/plugintest"
 )
 
 const fixture = `{"type":"session","version":3,"id":"old-1","cwd":"/work/app"}
@@ -73,6 +75,21 @@ func call[T any](t *testing.T, h *kerneltest.Harness, fn func(context.Context) (
 			h.Flush()
 		}
 	}
+}
+
+func TestBackendContract(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "attempts")
+	t.Setenv("WADA_FAKE_PI_ATTEMPTS", path)
+	h, p, _ := startPi(t)
+	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, Service: p, PluginID: "pi", Session: "old-1",
+		WaitReady: func() { waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready }) },
+		RejectSend: func() (string, func() int) {
+			return "reject-contract-send", func() int {
+				raw, _ := os.ReadFile(path)
+				return strings.Count(string(raw), "attempt\n")
+			}
+		},
+	})
 }
 
 func TestReadsSessionFiles(t *testing.T) {
@@ -141,7 +158,8 @@ func TestNewConversationStreamsAndIsWritten(t *testing.T) {
 		t.Fatalf("created %+v", s)
 	}
 	call(t, h, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.Send(ctx, agent.Send{Session: s.ID, Text: "hi"})
+		_, err := p.Send(ctx, agent.Send{Session: s.ID, Text: "hi"})
+		return struct{}{}, err
 	})
 	waitFor(t, h, "the turn", func() bool { return slices.Contains(kinds(*got), agent.TurnSucceeded) })
 	want := []agent.EventKind{agent.TurnStarted, agent.TextStarted, agent.TextDelta, agent.TextDelta, agent.TextEnded,
@@ -167,24 +185,39 @@ func TestNewConversationStreamsAndIsWritten(t *testing.T) {
 	}
 }
 
-func TestDialogsBecomeApprovals(t *testing.T) {
+func TestSendReportsPromptAdmission(t *testing.T) {
+	h, p, _ := startPi(t)
+	for text, want := range map[string]agent.SendDisposition{
+		"hi": agent.SendAccepted, "/handled": agent.SendHandled, "/queued": agent.SendQueued,
+	} {
+		got := call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
+			return p.Send(ctx, agent.Send{Session: "old-1", Text: text})
+		})
+		if got != want {
+			t.Errorf("Send(%q) = %v; want %v", text, got, want)
+		}
+	}
+}
+
+func TestDialogsBecomeInteractions(t *testing.T) {
 	h, p, _ := startPi(t)
 	got := events(h)
 	call(t, h, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.Send(ctx, agent.Send{Session: "old-1", Text: "confirm please"})
+		_, err := p.Send(ctx, agent.Send{Session: "old-1", Text: "confirm please"})
+		return struct{}{}, err
 	})
-	waitFor(t, h, "the approval", func() bool { return slices.Contains(kinds(*got), agent.ApprovalRequested) })
-	var approval *agent.Approval
+	waitFor(t, h, "the question", func() bool { return slices.Contains(kinds(*got), agent.InteractionRequested) })
+	var question *agent.Interaction
 	for _, e := range *got {
-		if e.Approval != nil {
-			approval = e.Approval
+		if e.Interaction != nil {
+			question = e.Interaction
 		}
 	}
-	if approval.Action != "Run it?" || !slices.Equal(approval.Resources, []string{"rm -rf build"}) {
-		t.Fatalf("approval %+v", approval)
+	if question.Kind != agent.Confirm || question.Title != "Run it?" || question.Message != "rm -rf build" {
+		t.Fatalf("question %+v", question)
 	}
 	call(t, h, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.Reply(ctx, agent.Reply{Session: "old-1", Approval: approval.ID, Decision: agent.Once})
+		return struct{}{}, p.Answer(ctx, agent.InteractionAnswer{Session: "old-1", ID: question.ID, Confirmed: true})
 	})
 	waitFor(t, h, "the answer", func() bool { return slices.Contains(kinds(*got), agent.TurnSucceeded) })
 	for _, e := range *got {
@@ -253,7 +286,8 @@ func TestFailedTurnSaysWhy(t *testing.T) {
 	h, p, _ := startPi(t)
 	got := events(h)
 	call(t, h, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.Send(ctx, agent.Send{Session: "old-1", Text: "fail please"})
+		_, err := p.Send(ctx, agent.Send{Session: "old-1", Text: "fail please"})
+		return struct{}{}, err
 	})
 	waitFor(t, h, "the failure", func() bool { return slices.Contains(kinds(*got), agent.TurnFailed) })
 	last := (*got)[len(*got)-1]

@@ -18,6 +18,10 @@ linters:
       default-signifies-exhaustive: false
     depguard:
       rules:
+        kernel:
+          files: ["**/internal/kernel/**/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "wada-desktop-go/internal/kernel"]
         chat:
           files: ["**/internal/chat/*.go", "!$test"]
           list-mode: strict

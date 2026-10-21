@@ -1,0 +1,62 @@
+package kernel
+
+import "context"
+
+// Task is a replaceable background job. The zero value is ready to use. Its
+// fields belong to the UI thread.
+type Task struct {
+	gen     uint64
+	cancel  context.CancelFunc
+	running bool
+}
+
+// Go cancels the task's previous run, runs work off the UI thread with a
+// context derived from o's Lifetime, and calls apply on the UI thread only if
+// o is still alive and this is still the task's latest run. A panic in work
+// fails the owning plugin.
+func Go[T any](o Owner, t *Task, work func(context.Context) (T, error), apply func(T, error)) {
+	s := o.owner()
+	if !s.alive {
+		return
+	}
+	t.Cancel()
+	gen := t.gen
+	ctx, cancel := context.WithCancel(s.ctx)
+	t.cancel, t.running = cancel, true
+	k := s.k
+	k.workers.Add(1)
+	k.opts.Background(func() {
+		var v T
+		var err error
+		perr := recovered(func() { v, err = work(ctx) })
+		k.workers.Done()
+		k.opts.Post(func() {
+			cancel()
+			if t.gen != gen {
+				return
+			}
+			t.cancel, t.running = nil, false
+			if !s.alive {
+				return
+			}
+			if perr != nil {
+				k.fail(s.plugin, perr)
+				return
+			}
+			k.call(s.plugin, func() { apply(v, err) })
+		})
+	})
+}
+
+// Cancel stops the current run; its result will not be applied.
+func (t *Task) Cancel() {
+	if t.cancel != nil {
+		t.cancel()
+	}
+	t.gen++
+	t.cancel, t.running = nil, false
+}
+
+// Running reports whether a run has started and not yet been applied or
+// cancelled.
+func (t *Task) Running() bool { return t.running }

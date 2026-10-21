@@ -354,10 +354,6 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 		ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 		show := b.Hovered() || b.FocusWithin()
 
-		c.Key("new")
-		add := ui.ButtonBase(c).Label("New chat in "+name).Size(22, 22).Radius(6).Center().Shrink(0)
-		add.OnClick(func() { p.chat.NewChat(f.Path) })
-		add.Tooltip("New chat in " + name)
 		c.Key("options")
 		kebab := ui.ButtonBase(c).Label("Options for "+name).Size(22, 22).Radius(6).Center().Shrink(0)
 		kebab.Menu(func(m *ui.Menu) {
@@ -371,10 +367,16 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 			}
 		})
 		kebab.Tooltip("Folder options")
+		c.Key("new")
+		add := ui.ButtonBase(c).Label("New chat in "+name).Size(22, 22).Radius(6).Center().Shrink(0)
+		add.OnClick(func() { p.chat.NewChat(f.Path) })
+		add.Tooltip("New chat in " + name)
 		show = show || add.Hovered() || add.Focused() || kebab.Hovered() || kebab.Focused()
 		for _, btn := range []ui.Element{add, kebab} {
+			btn.Cursor(ui.CursorPointer)
+			// The row is already hovered, so a button needs a stronger fill to stand out.
 			if btn.Hovered() {
-				btn.Background(pal.Hover)
+				btn.Background(pal.Selected)
 			}
 			// Keep the controls mounted so Tab can reveal them.
 			if !show {
@@ -425,8 +427,10 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 				p.startDelete(conv)
 			}
 		})
+		kebab.Cursor(ui.CursorPointer)
+		// The row is already hovered, so the button needs a stronger fill to stand out.
 		if kebab.Hovered() {
-			kebab.Background(pal.Hover)
+			kebab.Background(pal.Selected)
 		}
 		// Keep the control mounted so Tab can reveal it without moving the
 		// title; while it is hidden, the age of the conversation shows instead.

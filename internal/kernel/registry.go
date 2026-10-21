@@ -216,6 +216,7 @@ type Entry[T any] struct {
 	Plugin string // empty for the host
 	Order  int
 	Value  T
+	s      *scope // exact registration lifetime, including the plugin activation
 }
 
 type point struct {
@@ -292,7 +293,7 @@ func Items[T any](o Owner, p Point[T]) []Entry[T] {
 		})
 		items := make([]Entry[T], len(sorted))
 		for i, e := range sorted {
-			items[i] = Entry[T]{ID: e.id, Plugin: e.s.plugin.id(), Order: e.order, Value: e.value.(T)}
+			items[i] = Entry[T]{ID: e.id, Plugin: e.s.plugin.id(), Order: e.order, Value: e.value.(T), s: e.s}
 		}
 		pt.cache = items
 	}
@@ -301,17 +302,14 @@ func Items[T any](o Owner, p Point[T]) []Entry[T] {
 
 // Invoke runs fn with an entry's value on behalf of the entry's plugin, so a
 // panic fails that plugin instead of the host. The host calls command Run and
-// slot Render callbacks through it. Entries of plugins no longer active are
-// skipped.
+// slot Render callbacks through it. Only entries returned by Items on this
+// kernel whose original registration scope is still alive can be invoked.
 func Invoke[T any](o Owner, e Entry[T], fn func(T)) {
-	k := o.owner().k
-	var p *plugin
-	if e.Plugin != "" {
-		if p = k.byID[e.Plugin]; p == nil || p.ctx == nil {
-			return
-		}
+	s := o.owner()
+	if !s.alive || e.s == nil || e.s.k != s.k || !e.s.alive {
+		return
 	}
-	k.call(p, func() { fn(e.Value) })
+	s.k.call(e.s.plugin, func() { fn(e.Value) })
 }
 
 // ---- Commands

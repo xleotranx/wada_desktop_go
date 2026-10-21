@@ -109,6 +109,9 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
   stack). Other listeners still run. Dependents become Blocked.
 - The shell renders every contribution and runs every command through `Invoke`, so
   a panicking view fails only its plugin, and the shell shows a toast naming it.
+- `Invoke` accepts entries returned by `Items` on the same kernel and checks their
+  original scope. Disposed contributions stay invalid after a plugin restarts or
+  another contribution reuses their ID, including callbacks already queued by a menu.
 - `Options.Strict` re-panics instead (tests, and `WADA_STRICT=1`).
 - A Failed plugin can be enabled again from Settings → Plugins. Nothing retries
   automatically.

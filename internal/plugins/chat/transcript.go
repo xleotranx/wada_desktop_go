@@ -136,7 +136,11 @@ func (t *transcript) apply(ev agent.Event) {
 		t.settle()
 	case agent.TurnFailed:
 		t.settle()
-		t.note("The agent stopped with an error.")
+		if ev.Error != "" {
+			t.note("The agent stopped with an error: " + ev.Error)
+		} else {
+			t.note("The agent stopped with an error.")
+		}
 	case agent.ModelChanged, agent.SessionRenamed:
 	}
 }

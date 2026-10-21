@@ -100,6 +100,13 @@ func fakePi() {
 			reply(map[string]any{"disposition": "started"})
 			answer := "Hello"
 			write(map[string]any{"type": "agent_start"})
+			if text == "fail please" {
+				write(map[string]any{"type": "message_start", "message": map[string]any{"role": "assistant"}})
+				write(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "stopReason": "error", "errorMessage": "401: Invalid credential"}})
+				write(map[string]any{"type": "auto_retry_end", "success": false, "finalError": "401: Invalid credential (after 3 tries)"})
+				write(map[string]any{"type": "agent_settled", "aborted": false})
+				continue
+			}
 			if text == "confirm please" {
 				ch := make(chan map[string]any, 1)
 				answers["dlg1"] = ch

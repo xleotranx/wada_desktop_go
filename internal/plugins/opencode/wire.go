@@ -316,6 +316,24 @@ func (c *client) modes(ctx context.Context) ([]agent.Mode, error) {
 
 // ---- Events
 
+// errorText reads an error given as a string or as an object with a message.
+func errorText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var obj struct {
+		Message string `json:"message"`
+		Data    struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		return cmp.Or(obj.Message, obj.Data.Message)
+	}
+	return ""
+}
+
 // decodeEvent ignores unknown event types, and rejects malformed known ones
 // without quoting remote payloads in the error.
 func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
@@ -388,11 +406,15 @@ func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 			"session.execution.interrupted": agent.TurnInterrupted, "session.model.selected": agent.ModelChanged,
 			"session.renamed": agent.SessionRenamed}[ev.Type]
 		var d struct {
-			Session string    `json:"sessionID"`
-			Model   wireModel `json:"model"`
-			Title   string    `json:"title"`
+			Session string          `json:"sessionID"`
+			Model   wireModel       `json:"model"`
+			Title   string          `json:"title"`
+			Error   json.RawMessage `json:"error"`
 		}
 		err = json.Unmarshal(ev.Data, &d)
+		if out.Kind == agent.TurnFailed {
+			out.Error = errorText(d.Error)
+		}
 		if err == nil && out.Kind == agent.ModelChanged && (d.Model.ID == "" || d.Model.Provider == "") {
 			err = errors.New("invalid model identity")
 		}

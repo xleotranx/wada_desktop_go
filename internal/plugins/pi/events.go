@@ -17,7 +17,7 @@ type translator struct {
 	messages int
 	message  agent.MessageID
 	running  bool
-	failed   bool
+	failed   string // the last error of this turn, if it failed
 }
 
 type wireEvent struct {
@@ -67,7 +67,7 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 		if t.running {
 			return nil // a retry or follow-up inside the same turn
 		}
-		t.running, t.failed = true, false
+		t.running, t.failed = true, ""
 		return []agent.Event{ev(agent.TurnStarted)}
 	case "agent_settled":
 		if !t.running {
@@ -77,8 +77,10 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 		switch {
 		case w.Aborted:
 			return []agent.Event{ev(agent.TurnInterrupted)}
-		case t.failed:
-			return []agent.Event{ev(agent.TurnFailed)}
+		case t.failed != "":
+			e := ev(agent.TurnFailed)
+			e.Error = t.failed
+			return []agent.Event{e}
 		}
 		return []agent.Event{ev(agent.TurnSucceeded)}
 	case "message_start":
@@ -89,11 +91,23 @@ func (t *translator) translate(kind string, raw []byte) []agent.Event {
 		}
 	case "message_end":
 		var m struct {
-			Role       string `json:"role"`
-			StopReason string `json:"stopReason"`
+			Role         string `json:"role"`
+			StopReason   string `json:"stopReason"`
+			ErrorMessage string `json:"errorMessage"`
 		}
-		if json.Unmarshal(w.Message, &m) == nil && m.Role == "assistant" && m.StopReason == "error" {
-			t.failed = true
+		if json.Unmarshal(w.Message, &m) == nil && m.Role == "assistant" {
+			t.failed = "" // a later answer (after a retry) supersedes an earlier error
+			if m.StopReason == "error" {
+				t.failed = cmpOr(m.ErrorMessage, "the model returned an error")
+			}
+		}
+	case "auto_retry_end":
+		var r struct {
+			Success    bool   `json:"success"`
+			FinalError string `json:"finalError"`
+		}
+		if json.Unmarshal(raw, &r) == nil && !r.Success && r.FinalError != "" {
+			t.failed = r.FinalError
 		}
 	case "message_update":
 		text := func(k agent.EventKind) []agent.Event {

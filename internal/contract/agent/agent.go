@@ -216,7 +216,7 @@ const (
 	ApprovalRequested                  // Approval
 	TurnStarted
 	TurnSucceeded
-	TurnFailed
+	TurnFailed // Error, when the backend says why
 	TurnInterrupted
 	ModelChanged   // Model
 	SessionRenamed // Title
@@ -232,7 +232,8 @@ type Event struct {
 	Approval *Approval
 	Model    ModelRef
 	Title    string
-	Bytes    int // wire size, for batching
+	Error    string // TurnFailed: the backend's reason, for the user
+	Bytes    int    // wire size, for batching
 }
 
 type TextEvent struct {

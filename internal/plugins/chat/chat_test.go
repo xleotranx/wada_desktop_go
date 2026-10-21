@@ -245,3 +245,13 @@ func TestStoredConversationLoads(t *testing.T) {
 		t.Fatalf("cut row %+v", last)
 	}
 }
+
+func TestFailedTurnShowsTheReason(t *testing.T) {
+	var tr transcript
+	tr.reset()
+	tr.apply(agent.Event{Kind: agent.TurnStarted, Session: "s"})
+	tr.apply(agent.Event{Kind: agent.TurnFailed, Session: "s", Error: "401: Invalid credential"})
+	if last := tr.rows[len(tr.rows)-1]; last.kind != rowNote || last.text != "The agent stopped with an error: 401: Invalid credential" || tr.busy {
+		t.Fatalf("note %+v busy %v", last, tr.busy)
+	}
+}

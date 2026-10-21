@@ -150,3 +150,17 @@ func TestAPIBase(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedTurnCarriesTheError(t *testing.T) {
+	for payload, want := range map[string]string{
+		`{"sessionID":"s","error":"quota exceeded"}`:                        "quota exceeded",
+		`{"sessionID":"s","error":{"name":"APIError","message":"bad key"}}`: "bad key",
+		`{"sessionID":"s","error":{"data":{"message":"nested"}}}`:           "nested",
+		`{"sessionID":"s"}`: "",
+	} {
+		ev, _, err := decodeEvent(wireEvent{Type: "session.execution.failed", Data: json.RawMessage(payload)})
+		if err != nil || ev.Kind != agent.TurnFailed || ev.Error != want {
+			t.Errorf("%s: %+v, %v", payload, ev, err)
+		}
+	}
+}

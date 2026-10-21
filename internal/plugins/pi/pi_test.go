@@ -246,3 +246,16 @@ func TestIdleProcessesAreStopped(t *testing.T) {
 		t.Fatalf("%d processes kept, newest kept %v", n, newest)
 	}
 }
+
+func TestFailedTurnSaysWhy(t *testing.T) {
+	h, p, _ := startPi(t)
+	got := events(h)
+	call(t, h, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, p.Send(ctx, agent.Send{Session: "old-1", Text: "fail please"})
+	})
+	waitFor(t, h, "the failure", func() bool { return slices.Contains(kinds(*got), agent.TurnFailed) })
+	last := (*got)[len(*got)-1]
+	if last.Kind != agent.TurnFailed || last.Error != "401: Invalid credential (after 3 tries)" {
+		t.Fatalf("last event %+v", last)
+	}
+}

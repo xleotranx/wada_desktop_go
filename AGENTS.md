@@ -65,6 +65,9 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 - `go run .`: run the app.
 - `make check`: MyGo lifetime vet, pinned lint, race tests, no-cgo tests; also CI.
 - `go test ./...`; focused: `go test -run TestFirstMessage ./internal/plugins/chat`.
+- `go test -run NONE -bench . -benchtime 30x .`: draw and time whole-app
+  frames on `ui.Tester` (see docs/performance.md for the readings and the
+  real-window recipe).
 - `WADA_LIVE_PI=1 [WADA_LIVE_PI_MODEL=provider/id] go test -run TestLivePi ./internal/plugins/pi`:
   one real model turn through the installed `pi`; skipped otherwise.
 - `go tool mygo build`: production app/DMG in gitignored `build/`.

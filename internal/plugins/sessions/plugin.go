@@ -342,7 +342,6 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
-	b.Tooltip(native.Tilde(f.Path))
 	b.OnClick(func() { p.ws.SetCollapsed(f.Path, !f.Collapsed) })
 	b.Children(func() {
 		chevron, icon := lucide.ChevronDown, lucide.FolderOpen
@@ -366,11 +365,9 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 				p.startRemove(f.Path)
 			}
 		})
-		kebab.Tooltip("Folder options")
 		c.Key("new")
 		add := ui.ButtonBase(c).Label("New chat in "+name).Size(22, 22).Radius(6).Center().Shrink(0)
 		add.OnClick(func() { p.chat.NewChat(f.Path) })
-		add.Tooltip("New chat in " + name)
 		show = show || add.Hovered() || add.Focused() || kebab.Hovered() || kebab.Focused()
 		for _, btn := range []ui.Element{add, kebab} {
 			btn.Cursor(ui.CursorPointer)
@@ -403,7 +400,6 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 	case b.Hovered():
 		b.Background(pal.Hover)
 	}
-	b.Tooltip(title)
 	b.OnClick(func() { p.open(conv) })
 	b.Children(func() {
 		name := ui.Text(c, title).FontSize(13.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
@@ -441,7 +437,6 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 				ui.Text(c, age).FontSize(11.5).TextColor(pal.Faint).Absolute().Right(6).Top(8)
 			}
 		}
-		kebab.Tooltip("Conversation options")
 		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
 	})
 }

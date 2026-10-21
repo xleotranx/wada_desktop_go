@@ -174,8 +174,7 @@ CREATE TABLE conversations (
 `internal/plugins/sessions` requires the workspace record and contributes the sidebar
 list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). Above
 the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
-button and the search field. Each folder has a header with its name (the path in a
-tooltip) that collapses it, remembered in the record, and, on hover or focus, an options menu
+button and the search field. Each folder has a header with its name that collapses it, remembered in the record, and, on hover or focus, an options menu
 (New Chat, Remove Folder…) and, last, a "+" that starts a chat there. Under it are
 its conversations, newest first, or "No conversations". Conversations without a known
 folder follow under "Other chats"; with no folders at all the list is flat. Search

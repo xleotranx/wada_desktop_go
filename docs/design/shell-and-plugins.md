@@ -81,6 +81,8 @@ offers more than one. For a new conversation the choice is saved in its settings
 applied through `chat.Outgoing`, unless the backend no longer offers it. In an open
 conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
+Switch work and the pending choice belong to that conversation; navigating away
+cancels the work and drops its completion.
 `chat.Conversation.Model` carries the open conversation's model.
 
 ## Attachments

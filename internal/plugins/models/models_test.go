@@ -120,3 +120,39 @@ func TestOpenConversationSwitchesItsModel(t *testing.T) {
 		t.Fatalf("failed switch: pending %+v toasts %q", p.pending, host.Toasts)
 	}
 }
+
+func TestPendingModelBelongsToItsConversation(t *testing.T) {
+	h, p, _, c, _ := start(t, kerneltest.NewStore())
+	c.Open(agent.Session{ID: "s1", Model: alpha})
+	p.choose(beta)
+	c.Open(agent.Session{ID: "s2", Model: alpha})
+	if got := p.current(); got != alpha {
+		t.Fatalf("s2 displays s1's pending model: %+v", got)
+	}
+	c.Open(agent.Session{ID: "s1", Model: alpha})
+	if got := p.current(); got != alpha {
+		t.Fatalf("returning to s1 restored an obsolete pending choice: %+v", got)
+	}
+	h.Flush()
+}
+
+func TestNavigatingDropsEarlierModelSwitchFailure(t *testing.T) {
+	h, p, a, c, host := start(t, kerneltest.NewStore())
+	c.Open(agent.Session{ID: "s1", Model: alpha})
+	a.Fail["SetModel"] = errors.New("old switch failed")
+	p.choose(beta)
+	h.RunWork(0) // the failure waits for the UI while navigation happens
+	c.Open(agent.Session{ID: "s2", Model: alpha})
+	a.Fail["SetModel"] = nil
+	h.RunPosts()
+	if p.current() != alpha || len(host.Toasts) != 0 {
+		t.Fatalf("old completion changed s2: model=%+v toasts=%v", p.current(), host.Toasts)
+	}
+	p.choose(beta)
+	h.Flush()
+	c.Conv.Model = beta
+	kernel.Emit(h, chat.Changed, c.Conv)
+	if !p.pending.IsZero() || p.current() != beta {
+		t.Fatalf("s2 confirmation: pending=%+v current=%+v", p.pending, p.current())
+	}
+}

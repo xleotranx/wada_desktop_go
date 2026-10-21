@@ -34,6 +34,8 @@ type Plugin struct {
 	load     kernel.Task
 	switcher kernel.Task
 	pending  agent.ModelRef // asked of the open conversation, not yet confirmed
+	session  agent.SessionID
+	scope    *kernel.Scope // model switches belong to the current conversation
 
 	newModel *kernel.Setting[agent.ModelRef]
 	newMode  *kernel.Setting[string]
@@ -57,21 +59,33 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.newModel = kernel.NewSetting(c, "new-chat-model", agent.ModelRef{})
 	p.newMode = kernel.NewSetting(c, "new-chat-mode", "")
+	p.scope = nil
+	p.conversationChanged(p.chat.Current())
 	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
 		if st.State == agent.Ready && st.Attempt != p.attempt {
 			p.reload()
 		}
 	})
-	kernel.On(c, chat.Changed, func(conv chat.Conversation) {
-		if conv.Session == "" || conv.Model == p.pending {
-			p.pending = agent.ModelRef{}
-		}
-	})
+	kernel.On(c, chat.Changed, p.conversationChanged)
 	if p.agent.Status().State == agent.Ready {
 		p.reload()
 	}
 	kernel.Transform(c, chat.Outgoing, 0, p.outgoing)
 	return kernel.Contribute(c, chat.ComposerAccessory, "models.pickers", 0, shell.View{Render: p.view})
+}
+
+func (p *Plugin) conversationChanged(conv chat.Conversation) {
+	if p.scope == nil || conv.Session != p.session {
+		if p.scope != nil {
+			p.scope.Dispose()
+		}
+		p.scope = p.ctx.NewScope()
+		p.session = conv.Session
+		p.pending = agent.ModelRef{}
+	}
+	if conv.Session == "" || conv.Model == p.pending {
+		p.pending = agent.ModelRef{}
+	}
 }
 
 type catalog struct {
@@ -157,8 +171,9 @@ func (p *Plugin) choose(ref agent.ModelRef) {
 		return
 	}
 	p.pending = ref
-	kernel.Go(p.ctx, &p.switcher, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.models.SetModel(ctx, conv.Session, ref)
+	models := p.models
+	kernel.Go(p.scope, &p.switcher, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, models.SetModel(ctx, conv.Session, ref)
 	}, func(_ struct{}, err error) {
 		if err != nil {
 			p.pending = agent.ModelRef{}

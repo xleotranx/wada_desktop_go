@@ -12,6 +12,7 @@ import (
 	"wada-desktop-go/internal/plugins/pi"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/shell"
 )
 
@@ -23,7 +24,8 @@ func main() {
 		&chat.Plugin{},
 		&models.Plugin{},
 		&attachments.Plugin{},
-		&mentions.Plugin{}, // needs a backend that can read files; OpenCode can
+		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
+		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db
 		&sessions.Plugin{},
 		&palette.Plugin{},
 		&notifications.Plugin{},

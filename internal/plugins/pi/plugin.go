@@ -182,7 +182,7 @@ func defaultSessionDir(home string) string {
 // supervise keeps the control process up until ctx ends, retrying with backoff.
 func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, c *connection) {
 	defer c.closeAll()
-	post := func(st agent.Status) { run.Post(func() { p.setStatus(st) }) }
+	post := func(st agent.Status) { st.Origin = "pi " + c.dir; run.Post(func() { p.setStatus(st) }) }
 	endpoint := "Pi on this Mac"
 	for failures := 0; ctx.Err() == nil; {
 		if failures > 0 {

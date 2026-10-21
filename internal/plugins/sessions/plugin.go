@@ -1,17 +1,22 @@
-// Package sessions is the sidebar's conversation list: newest first, paged,
-// searchable, with rename, delete and an unread mark for conversations that
-// finished a turn while another was open.
+// Package sessions is the sidebar's conversation list: the conversations
+// started in this app, grouped by folder and newest first, searchable by
+// title, with rename, delete and an unread mark for conversations that
+// finished a turn while another was open. The list comes from the workspace
+// record, not from the backend.
 package sessions
 
 import (
+	"cmp"
 	"context"
-	"slices"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
-	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/native"
 
@@ -26,36 +31,28 @@ type Plugin struct {
 	agent agent.Service
 	chat  chat.Controller
 	host  shell.Host
+	ws    workspace.Service
 
-	sessions []agent.Session
-	next     string
-	loaded   bool
-	failure  string
-	unread   map[agent.SessionID]bool
-	page     kernel.Task
-	more     kernel.Task
+	unread map[agent.SessionID]bool
+	query  string
 
-	query    string
-	results  []agent.Session
-	search   kernel.Task
-	searched string // the query results belong to
-
-	renaming *agent.Session
+	renaming *workspace.Conversation
 	title    string
 	renameOn bool
-	deleting *agent.Session
+	deleting *workspace.Conversation
 	deleteOn bool
+	removing string // the folder whose removal is being confirmed
+	removeOn bool
 
 	list ui.ListState
-	// searchDelay waits before a search goes out, so typing sends one.
-	searchDelay time.Duration
+	home string // shown as ~ in folder paths
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "sessions", Title: "Conversations",
-		Description: "The conversation list in the sidebar.",
-		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey},
+		Description: "The conversation list in the sidebar, grouped by folder.",
+		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
 	}
 }
 
@@ -64,20 +61,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
+	p.ws = kernel.Require(c, workspace.ServiceKey)
 	p.unread = map[agent.SessionID]bool{}
-	if p.searchDelay == 0 {
-		p.searchDelay = 200 * time.Millisecond
-	}
-	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
-		if st.State == agent.Ready {
-			p.refresh()
-		}
-	})
+	p.home, _ = os.UserHomeDir()
 	kernel.On(c, agent.Events, p.events)
-	kernel.On(c, chat.Changed, p.chatChanged)
-	if p.agent.Status().State == agent.Ready {
-		p.refresh()
-	}
+	kernel.On(c, chat.Changed, func(conv chat.Conversation) { delete(p.unread, conv.Session) })
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Sidebar, "sessions.list", 10, shell.View{Render: p.view, Grow: true}),
 		kernel.Contribute(c, shell.Overlays, "sessions.dialogs", 0, shell.View{Render: p.dialogs}),
@@ -89,160 +77,173 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	return nil
 }
 
-// refresh reloads the first page; pages already loaded beyond it are dropped.
-func (p *Plugin) refresh() {
-	kernel.Go(p.ctx, &p.page, func(ctx context.Context) (agent.SessionPage, error) {
-		return p.agent.Sessions(ctx, agent.SessionQuery{})
-	}, func(page agent.SessionPage, err error) {
-		if err != nil {
-			p.failure = "The conversations did not load: " + err.Error()
-			return
-		}
-		p.more.Cancel()
-		p.sessions, p.next, p.loaded, p.failure = page.Sessions, page.Next, true, ""
-	})
-}
-
-func (p *Plugin) loadMore() {
-	cursor := p.next
-	if cursor == "" || p.more.Running() {
-		return
-	}
-	kernel.Go(p.ctx, &p.more, func(ctx context.Context) (agent.SessionPage, error) {
-		return p.agent.Sessions(ctx, agent.SessionQuery{Cursor: cursor})
-	}, func(page agent.SessionPage, err error) {
-		if err != nil {
-			p.host.Toast(ui.Toast{Title: "More conversations did not load", Description: err.Error(), Type: components.ToastError})
-			return
-		}
-		for _, s := range page.Sessions {
-			if !slices.ContainsFunc(p.sessions, func(x agent.Session) bool { return x.ID == s.ID }) {
-				p.sessions = append(p.sessions, s)
-			}
-		}
-		p.next = page.Next
-	})
-}
-
-// searchFor replaces any search in flight; an empty query shows the list.
-func (p *Plugin) searchFor(q string) {
-	q = strings.TrimSpace(q)
-	if q == "" {
-		p.search.Cancel()
-		p.results, p.searched = nil, ""
-		return
-	}
-	delay := p.searchDelay
-	kernel.Go(p.ctx, &p.search, func(ctx context.Context) (agent.SessionPage, error) {
-		select {
-		case <-ctx.Done():
-			return agent.SessionPage{}, ctx.Err()
-		case <-time.After(delay):
-		}
-		if err := ctx.Err(); err != nil { // replaced while waiting
-			return agent.SessionPage{}, err
-		}
-		return p.agent.Sessions(ctx, agent.SessionQuery{Search: q})
-	}, func(page agent.SessionPage, err error) {
-		if err != nil {
-			p.results, p.searched = nil, q
-			return
-		}
-		p.results, p.searched = page.Sessions, q
-	})
-}
-
 func (p *Plugin) events(batch []agent.Event) {
 	current := p.chat.Current().Session
-	refresh := false
 	for _, ev := range batch {
 		switch ev.Kind {
 		case agent.TurnSucceeded, agent.TurnFailed:
-			if ev.Session != current {
+			if _, known := p.ws.Lookup(ev.Session); known && ev.Session != current {
 				p.unread[ev.Session] = true
 			}
-			refresh = true
-		case agent.SessionRenamed:
-			p.update(ev.Session, func(s *agent.Session) { s.Title = ev.Title })
-		case agent.ModelChanged:
-			p.update(ev.Session, func(s *agent.Session) { s.Model = ev.Model })
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,
-			agent.ToolFinished, agent.ApprovalRequested, agent.InteractionRequested, agent.TurnStarted, agent.TurnInterrupted:
-		}
-	}
-	if refresh {
-		p.refresh() // the list is ordered by activity
-	}
-}
-
-func (p *Plugin) chatChanged(conv chat.Conversation) {
-	delete(p.unread, conv.Session)
-	if conv.Session != "" && !slices.ContainsFunc(p.sessions, func(s agent.Session) bool { return s.ID == conv.Session }) {
-		p.refresh()
-	}
-}
-
-func (p *Plugin) update(id agent.SessionID, fn func(*agent.Session)) {
-	for _, list := range [][]agent.Session{p.sessions, p.results} {
-		for i := range list {
-			if list[i].ID == id {
-				fn(&list[i])
-			}
+			agent.ToolFinished, agent.ApprovalRequested, agent.InteractionRequested, agent.TurnStarted,
+			agent.TurnInterrupted, agent.ModelChanged, agent.SessionRenamed:
 		}
 	}
 }
 
-func (p *Plugin) open(s agent.Session) {
-	delete(p.unread, s.ID)
-	p.chat.Open(s)
+func (p *Plugin) open(conv workspace.Conversation) {
+	delete(p.unread, conv.ID)
+	p.chat.Open(conv.Session())
 }
 
-// ---- Rename and delete
+// newChat starts a chat in the folder of the one on show, as ⌘N does.
+func (p *Plugin) newChat() { p.chat.NewChat(p.chat.Current().Directory) }
 
-func (p *Plugin) startRename(s agent.Session) {
-	p.renaming, p.title, p.renameOn = &s, s.Title, true
+func (p *Plugin) openFolder() { p.ws.ChooseFolder(p.chat.NewChat) }
+
+// ---- Rename, delete, remove
+
+func (p *Plugin) startRename(conv workspace.Conversation) {
+	p.renaming, p.title, p.renameOn = &conv, conv.Title, true
 }
 
 func (p *Plugin) saveRename() {
-	s, title := *p.renaming, strings.TrimSpace(p.title)
+	conv, title := *p.renaming, strings.TrimSpace(p.title)
 	p.renaming, p.renameOn = nil, false
-	if title == "" || title == s.Title {
+	if title == "" || title == conv.Title {
 		return
 	}
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.agent.Rename(ctx, s.ID, title)
+		return struct{}{}, p.agent.Rename(ctx, conv.ID, title)
 	}, func(_ struct{}, err error) {
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The conversation was not renamed", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		p.update(s.ID, func(x *agent.Session) { x.Title = title })
+		p.ws.Retitle(conv.ID, title)
 	})
 }
 
-func (p *Plugin) startDelete(s agent.Session) { p.deleting, p.deleteOn = &s, true }
+func (p *Plugin) startDelete(conv workspace.Conversation) { p.deleting, p.deleteOn = &conv, true }
 
 func (p *Plugin) confirmDelete() {
-	s := *p.deleting
+	conv := *p.deleting
 	p.deleting, p.deleteOn = nil, false
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.agent.Delete(ctx, s.ID)
+		return struct{}{}, p.agent.Delete(ctx, conv.ID)
 	}, func(_ struct{}, err error) {
 		if err != nil {
-			p.host.Toast(ui.Toast{Title: "The conversation was not deleted", Description: err.Error() + ". It may already be gone; the list will refresh.", Type: components.ToastError})
-			p.refresh()
+			p.host.Toast(ui.Toast{Title: "The conversation was not deleted", Description: err.Error() +
+				". It may already be gone; “Remove from List” drops it from the sidebar.", Type: components.ToastError})
 			return
 		}
-		drop := func(x agent.Session) bool { return x.ID == s.ID }
-		p.sessions = slices.DeleteFunc(p.sessions, drop)
-		p.results = slices.DeleteFunc(p.results, drop)
-		delete(p.unread, s.ID)
-		if p.chat.Current().Session == s.ID {
-			p.chat.NewChat(s.Directory)
-		}
+		p.forget(conv)
 	})
+}
+
+// forget drops a conversation from the list; the backend keeps whatever it has.
+func (p *Plugin) forget(conv workspace.Conversation) {
+	p.ws.Forget(conv.ID)
+	delete(p.unread, conv.ID)
+	if p.chat.Current().Session == conv.ID {
+		p.chat.NewChat(conv.Folder)
+	}
+}
+
+func (p *Plugin) startRemove(folder string) { p.removing, p.removeOn = folder, true }
+
+func (p *Plugin) confirmRemove() {
+	folder := p.removing
+	p.removing, p.removeOn = "", false
+	if p.chat.Current().Directory == folder {
+		p.chat.NewChat("")
+	}
+	p.ws.RemoveFolder(folder)
+}
+
+// ---- Rows
+
+type itemKind uint8
+
+const (
+	itemFolder itemKind = iota // a folder's header
+	itemOther                  // the header over chats without a folder
+	itemChat
+	itemEmpty // a folder without conversations
+)
+
+type item struct {
+	kind   itemKind
+	folder workspace.Folder
+	conv   workspace.Conversation
+	nested bool // under a header
+}
+
+func (it item) key() any {
+	switch it.kind {
+	case itemFolder:
+		return "folder:" + it.folder.Path
+	case itemOther:
+		return "other"
+	case itemEmpty:
+		return "empty:" + it.folder.Path
+	case itemChat:
+	}
+	return it.conv.ID
+}
+
+func titleOf(c workspace.Conversation) string { return cmp.Or(c.Title, "Untitled chat") }
+
+// items lays the list out: each folder's header and, unless it is collapsed,
+// its conversations; then the conversations without a folder. A search shows
+// only matching conversations, under their folders, whether collapsed or not.
+func (p *Plugin) items() []item {
+	q := strings.ToLower(strings.TrimSpace(p.query))
+	folders := p.ws.Folders()
+	byFolder := map[string][]workspace.Conversation{}
+	var other []workspace.Conversation
+	known := map[string]bool{}
+	for _, f := range folders {
+		known[f.Path] = true
+	}
+	for _, c := range p.ws.Conversations() {
+		if q != "" && !strings.Contains(strings.ToLower(titleOf(c)), q) {
+			continue
+		}
+		if known[c.Folder] {
+			byFolder[c.Folder] = append(byFolder[c.Folder], c)
+		} else {
+			other = append(other, c)
+		}
+	}
+	var out []item
+	for _, f := range folders {
+		convs := byFolder[f.Path]
+		if q != "" && len(convs) == 0 {
+			continue
+		}
+		out = append(out, item{kind: itemFolder, folder: f})
+		switch {
+		case f.Collapsed && q == "":
+		case len(convs) == 0:
+			out = append(out, item{kind: itemEmpty, folder: f, nested: true})
+		default:
+			for _, c := range convs {
+				out = append(out, item{kind: itemChat, conv: c, nested: true})
+			}
+		}
+	}
+	if len(other) > 0 && len(out) > 0 {
+		out = append(out, item{kind: itemOther})
+	}
+	nested := len(out) > 0
+	for _, c := range other {
+		out = append(out, item{kind: itemChat, conv: c, nested: nested})
+	}
+	return out
 }
 
 // ---- View
@@ -250,79 +251,120 @@ func (p *Plugin) confirmDelete() {
 func (p *Plugin) view(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	ui.Column(c).Fill().Gap(4).Children(func() {
-		newChat := ui.ButtonBase(c).Label("New chat").Height(34).Radius(8).Padding(0, 8).FillWidth().
-			Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer)
-		if newChat.Hovered() {
-			newChat.Background(pal.Hover)
-		}
-		newChat.OnClick(func() { p.chat.NewChat("") })
-		newChat.Children(func() {
-			ui.Icon(c, lucide.SquarePen()).FontSize(14).TextColor(pal.Text)
-			ui.Text(c, "New chat").FontSize(13.5).TextColor(pal.Text)
+		ui.Row(c).FillWidth().Gap(2).AlignItems(ui.Center).Children(func() {
+			newChat := ui.ButtonBase(c).Label("New chat").Height(34).Radius(8).Padding(0, 8).Grow(1).MinWidth(0).
+				Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer)
+			if newChat.Hovered() {
+				newChat.Background(pal.Hover)
+			}
+			newChat.OnClick(p.newChat)
+			newChat.Children(func() {
+				ui.Icon(c, lucide.SquarePen()).FontSize(14).TextColor(pal.Text)
+				ui.Text(c, "New chat").FontSize(13.5).TextColor(pal.Text)
+			})
+			add := ui.ButtonBase(c).Label("Open folder…").Size(34, 34).Radius(8).Center().Shrink(0).Cursor(ui.CursorPointer)
+			if add.Hovered() {
+				add.Background(pal.Hover)
+			}
+			add.Tooltip("Open folder…")
+			add.OnClick(p.openFolder)
+			add.Children(func() { ui.Icon(c, lucide.FolderPlus()).FontSize(15).TextColor(pal.Muted) })
 		})
-		search := components.TextBox(c, &p.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
+		components.TextBox(c, &p.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
 			FillWidth().Label("Search conversations").Placeholder("Search").FontSize(13)
-		search.OnChange(func() { p.searchFor(p.query) })
 
-		rows := p.sessions
-		empty := "No conversations yet"
-		if strings.TrimSpace(p.query) != "" {
-			rows, empty = p.results, "No matches"
-			if p.searched != strings.TrimSpace(p.query) {
-				empty = "Searching…"
-			}
-		}
-		switch {
-		case p.failure != "" && len(rows) == 0:
-			ui.Text(c, p.failure).FontSize(12).TextColor(pal.Danger).Padding(8, 8)
-		case !p.loaded && strings.TrimSpace(p.query) == "":
+		if !p.ws.Loaded() {
 			ui.Text(c, "Loading conversations…").FontSize(12).TextColor(pal.Faint).Padding(8, 8)
-		case len(rows) == 0:
-			ui.Text(c, empty).FontSize(12).TextColor(pal.Faint).Padding(8, 8)
-		default:
-			more := p.next != "" && strings.TrimSpace(p.query) == ""
-			count := len(rows)
-			if more {
-				count++
-			}
-			ui.List(c, &p.list, count).Grow(1).MinHeight(0).FillWidth().Gap(1).
-				ItemKey(func(i int) any {
-					if i == len(rows) {
-						return "more"
-					}
-					return rows[i].ID
-				}).
-				Rows(func(r ui.ListRow) {
-					if r.Index == len(rows) {
-						p.moreRow(r.Context, pal)
-						return
-					}
-					p.row(r.Context, pal, rows[r.Index])
-				})
+			return
 		}
+		rows := p.items()
+		if len(rows) == 0 {
+			empty := "No conversations yet. Open a folder to keep its chats together."
+			if strings.TrimSpace(p.query) != "" {
+				empty = "No matches"
+			}
+			ui.Text(c, empty).FontSize(12).TextColor(pal.Faint).Padding(8, 8)
+			return
+		}
+		ui.List(c, &p.list, len(rows)).Grow(1).MinHeight(0).FillWidth().Gap(1).
+			ItemKey(func(i int) any { return rows[i].key() }).
+			Rows(func(r ui.ListRow) {
+				it := rows[r.Index]
+				switch it.kind {
+				case itemFolder:
+					p.folderRow(r.Context, pal, it.folder)
+				case itemOther:
+					ui.Text(r.Context, "Other chats").FontSize(12).FontWeight(600).TextColor(pal.Faint).
+						Padding(10, 8, 4, 8).SingleLine()
+				case itemEmpty:
+					ui.Text(r.Context, "No conversations").FontSize(12).TextColor(pal.Faint).Padding(6, 8, 6, 30)
+				case itemChat:
+					p.row(r.Context, pal, it.conv, it.nested)
+				}
+			})
 	})
 }
 
-func (p *Plugin) moreRow(c *ui.Context, pal native.Palette) {
-	label := "Show more"
-	if p.more.Running() {
-		label = "Loading…"
-	}
-	b := ui.ButtonBase(c).Label(label).Height(30).Radius(8).Padding(0, 8).FillWidth().Justify(ui.Start)
+// folderRow is a folder's header: it collapses the folder, and its buttons
+// start a chat there or remove it.
+func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder) {
+	name := filepath.Base(f.Path)
+	b := ui.ButtonBase(c).Label(name).Height(30).Radius(8).Padding(0, 4, 0, 8).FillWidth().
+		Justify(ui.Start).AlignItems(ui.Center).Gap(6).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
-	b.OnClick(p.loadMore)
-	b.Children(func() { ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted) })
+	b.Tooltip(p.tilde(f.Path))
+	b.OnClick(func() { p.ws.SetCollapsed(f.Path, !f.Collapsed) })
+	b.Children(func() {
+		chevron, icon := lucide.ChevronDown, lucide.FolderOpen
+		if f.Collapsed {
+			chevron, icon = lucide.ChevronRight, lucide.Folder
+		}
+		ui.Icon(c, chevron()).FontSize(12).TextColor(pal.Faint).Shrink(0)
+		ui.Icon(c, icon()).FontSize(14).TextColor(pal.Muted).Shrink(0)
+		ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(pal.Muted).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		show := b.Hovered() || b.FocusWithin()
+
+		c.Key("new")
+		add := ui.ButtonBase(c).Label("New chat in "+name).Size(22, 22).Radius(6).Center().Shrink(0)
+		add.OnClick(func() { p.chat.NewChat(f.Path) })
+		add.Tooltip("New chat in " + name)
+		c.Key("options")
+		kebab := ui.ButtonBase(c).Label("Options for "+name).Size(22, 22).Radius(6).Center().Shrink(0)
+		kebab.Menu(func(m *ui.Menu) {
+			if m.Item("New Chat").Chosen() {
+				p.chat.NewChat(f.Path)
+			}
+			m.Separator()
+			if m.Item("Remove Folder…").Chosen() {
+				p.startRemove(f.Path)
+			}
+		})
+		kebab.Tooltip("Folder options")
+		show = show || add.Hovered() || add.Focused() || kebab.Hovered() || kebab.Focused()
+		for _, btn := range []ui.Element{add, kebab} {
+			if btn.Hovered() {
+				btn.Background(pal.Hover)
+			}
+			// Keep the controls mounted so Tab can reveal them.
+			if !show {
+				btn.Opacity(0)
+			}
+		}
+		add.Children(func() { ui.Icon(c, lucide.Plus()).FontSize(13).TextColor(pal.Muted) })
+		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
+	})
 }
 
-func (p *Plugin) row(c *ui.Context, pal native.Palette, s agent.Session) {
-	title := s.Title
-	if title == "" {
-		title = "Untitled chat"
+func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversation, nested bool) {
+	title := titleOf(conv)
+	current := conv.ID == p.chat.Current().Session
+	left := float32(8)
+	if nested {
+		left = 30
 	}
-	current := s.ID == p.chat.Current().Session
-	b := ui.ButtonBase(c).Label(title).Height(34).Radius(8).Padding(0, 4, 0, 8).FillWidth().
+	b := ui.ButtonBase(c).Label(title).Height(32).Radius(8).Padding(0, 4, 0, left).FillWidth().
 		Justify(ui.Start).AlignItems(ui.Center).Gap(6).Cursor(ui.CursorPointer)
 	switch {
 	case current:
@@ -330,25 +372,25 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, s agent.Session) {
 	case b.Hovered():
 		b.Background(pal.Hover)
 	}
-	tooltip := title
-	if s.Directory != "" {
-		tooltip += "\n" + s.Directory
-	}
-	b.Tooltip(tooltip)
-	b.OnClick(func() { p.open(s) })
+	b.Tooltip(title)
+	b.OnClick(func() { p.open(conv) })
 	b.Children(func() {
 		ui.Text(c, title).FontSize(13.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
-		if p.unread[s.ID] {
+		if p.unread[conv.ID] {
 			ui.Box(c).Size(7, 7).Radius(4).Background(pal.Orange).Shrink(0).Label("Unread")
 		}
 		c.Key("options")
 		kebab := ui.ButtonBase(c).Label("Options for "+title).Size(22, 22).Radius(6).Center().Shrink(0)
 		kebab.Menu(func(m *ui.Menu) {
 			if m.Item("Rename…").Chosen() {
-				p.startRename(s)
+				p.startRename(conv)
 			}
+			if m.Item("Remove from List").Chosen() {
+				p.forget(conv)
+			}
+			m.Separator()
 			if m.Item("Delete…").Chosen() {
-				p.startDelete(s)
+				p.startDelete(conv)
 			}
 		})
 		if kebab.Hovered() {
@@ -361,6 +403,14 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, s agent.Session) {
 		kebab.Tooltip("Conversation options")
 		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
 	})
+}
+
+// tilde shortens a path under the home folder.
+func (p *Plugin) tilde(path string) string {
+	if rest, ok := strings.CutPrefix(path, p.home+"/"); ok && p.home != "" {
+		return "~/" + rest
+	}
+	return path
 }
 
 func (p *Plugin) dialogs(c *ui.Context) {
@@ -380,10 +430,7 @@ func (p *Plugin) dialogs(c *ui.Context) {
 		}
 	}
 	if p.deleting != nil {
-		title := p.deleting.Title
-		if title == "" {
-			title = "Untitled chat"
-		}
+		title := titleOf(*p.deleting)
 		native.Dialog(c, &p.deleteOn, 360, "Delete conversation", func() {
 			ui.Text(c, "Delete “"+title+"”?").FontSize(14).FontWeight(600).SingleLine().Ellipsis("…")
 			ui.Text(c, "The conversation is removed from the agent for good.").FontSize(12.5).TextColor(pal.Muted)
@@ -394,6 +441,33 @@ func (p *Plugin) dialogs(c *ui.Context) {
 		})
 		if !p.deleteOn {
 			p.deleting = nil
+		}
+	}
+	if p.removing != "" {
+		name, count := filepath.Base(p.removing), 0
+		for _, conv := range p.ws.Conversations() {
+			if conv.Folder == p.removing {
+				count++
+			}
+		}
+		detail := "Nothing on disk changes."
+		switch count {
+		case 0:
+		case 1:
+			detail = "Its conversation stays with the agent but is no longer listed here. " + detail
+		default:
+			detail = "Its " + strconv.Itoa(count) + " conversations stay with the agent but are no longer listed here. " + detail
+		}
+		native.Dialog(c, &p.removeOn, 380, "Remove folder", func() {
+			ui.Text(c, "Remove “"+name+"” from the sidebar?").FontSize(14).FontWeight(600).SingleLine().Ellipsis("…")
+			ui.Text(c, detail).FontSize(12.5).TextColor(pal.Muted)
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				components.Button(c, "Cancel", components.ButtonSecondary).OnClick(func() { p.removing, p.removeOn = "", false })
+				components.Button(c, "Remove", components.ButtonPrimary).OnClick(p.confirmRemove)
+			})
+		})
+		if !p.removeOn {
+			p.removing = ""
 		}
 	}
 }

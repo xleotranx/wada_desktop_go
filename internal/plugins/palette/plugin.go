@@ -1,20 +1,18 @@
 // Package palette is the command palette (⌘K): one search box over every
-// registered command and over the conversations the backend holds. Commands
-// come straight from kernel.Commands, so a command another plugin contributes
-// is in the palette without that plugin knowing about it.
+// registered command and over the conversations started in this app.
+// Commands come straight from kernel.Commands, so a command another plugin
+// contributes is in the palette without that plugin knowing about it.
 package palette
 
 import (
 	"cmp"
-	"context"
 	"os"
-	"slices"
 	"strings"
-	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
@@ -33,22 +31,14 @@ const (
 
 // Plugin is the command palette. The zero value is ready to install.
 //
-// Commands need nothing from the backend. Conversations come from agent.Service
-// when one is active, so the palette keeps working while the backend is off.
+// Commands need nothing else. Conversations come from the workspace record
+// when it is active, so the palette keeps working without it.
 type Plugin struct {
 	ctx *kernel.Context
 
 	open  bool
 	state command.State
-
-	recent   []agent.Session // the newest conversations, read when the palette opens
-	found    []agent.Session // what the latest search added to them
-	searched string          // the query found belongs to
-	load     kernel.Task
-	search   kernel.Task
-	// searchDelay waits before a search goes out, so typing sends one.
-	searchDelay time.Duration
-	home        string // shown as ~ in a conversation's folder
+	home  string // shown as ~ in a conversation's folder
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -60,10 +50,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
-	p.open, p.recent, p.found, p.searched = false, nil, nil, ""
-	if p.searchDelay == 0 {
-		p.searchDelay = 200 * time.Millisecond
-	}
+	p.open = false
 	p.home, _ = os.UserHomeDir()
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Overlays, "palette.dialog", 10, shell.View{Render: p.view}),
@@ -78,8 +65,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 }
 
 // toggle opens the palette on an empty search, or closes it. The dialog also
-// closes itself on Escape or a press outside, so everything a search left
-// behind is dropped when the palette opens, not when it closes.
+// closes itself on Escape or a press outside, so the query is dropped when
+// the palette opens, not when it closes.
 func (p *Plugin) toggle() {
 	if p.open {
 		p.open = false
@@ -87,70 +74,6 @@ func (p *Plugin) toggle() {
 	}
 	p.open = true
 	p.state.Query, p.state.ActiveID = "", ""
-	p.search.Cancel()
-	p.found, p.searched = nil, ""
-	p.refresh()
-}
-
-// refresh reads the newest conversations.
-func (p *Plugin) refresh() {
-	svc, ok := kernel.Use(p.ctx, agent.ServiceKey)
-	if !ok {
-		p.recent = nil
-		return
-	}
-	kernel.Go(p.ctx, &p.load, func(ctx context.Context) (agent.SessionPage, error) {
-		return svc.Sessions(ctx, agent.SessionQuery{})
-	}, func(page agent.SessionPage, err error) {
-		if err == nil { // the commands still work; the sidebar reports a failing backend
-			p.recent = page.Sessions
-		}
-	})
-}
-
-// searchFor looks for conversations whose title matches q beyond the newest
-// ones, replacing a search in flight. What comes back joins the known
-// conversations, which are then filtered like the commands are.
-func (p *Plugin) searchFor(q string) {
-	q = strings.TrimSpace(q)
-	if q == p.searched {
-		return
-	}
-	p.searched = q
-	svc, ok := kernel.Use(p.ctx, agent.ServiceKey)
-	if q == "" || !ok {
-		p.search.Cancel()
-		p.found = nil
-		return
-	}
-	delay := p.searchDelay
-	kernel.Go(p.ctx, &p.search, func(ctx context.Context) (agent.SessionPage, error) {
-		select {
-		case <-ctx.Done():
-			return agent.SessionPage{}, ctx.Err()
-		case <-time.After(delay):
-		}
-		if err := ctx.Err(); err != nil { // replaced while waiting
-			return agent.SessionPage{}, err
-		}
-		return svc.Sessions(ctx, agent.SessionQuery{Search: q})
-	}, func(page agent.SessionPage, err error) {
-		if err == nil {
-			p.found = page.Sessions
-		}
-	})
-}
-
-// known is every conversation the palette has heard of, newest first.
-func (p *Plugin) known() []agent.Session {
-	all := slices.Clone(p.recent)
-	for _, s := range p.found {
-		if !slices.ContainsFunc(all, func(x agent.Session) bool { return x.ID == s.ID }) {
-			all = append(all, s)
-		}
-	}
-	slices.SortStableFunc(all, func(a, b agent.Session) int { return cmp.Compare(b.Updated, a.Updated) })
-	return all
 }
 
 // ---- Activation
@@ -166,14 +89,12 @@ func (p *Plugin) activate(id string) {
 func (p *Plugin) run(id string) {
 	if sid, ok := strings.CutPrefix(id, sessionID); ok {
 		ctl, ok := kernel.Use(p.ctx, chat.ControllerKey)
-		if !ok {
+		ws, known := kernel.Use(p.ctx, workspace.ServiceKey)
+		if !ok || !known {
 			return
 		}
-		for _, s := range p.known() {
-			if s.ID == agent.SessionID(sid) {
-				ctl.Open(s)
-				return
-			}
+		if conv, ok := ws.Lookup(agent.SessionID(sid)); ok {
+			ctl.Open(conv.Session())
 		}
 		return
 	}
@@ -196,11 +117,6 @@ func (p *Plugin) run(id string) {
 func (p *Plugin) view(c *ui.Context) {
 	var items []command.Item
 	if p.open {
-		// The query typed so far decides whether a search is due. Starting it
-		// is not rendering's job, so it waits for the frame to end.
-		if q := strings.TrimSpace(p.state.Query); q != p.searched {
-			p.ctx.Post(func() { p.searchFor(q) })
-		}
 		items = p.items()
 	}
 	command.CommandDialog(c, &p.open, &p.state, items, command.Options{
@@ -214,9 +130,11 @@ func (p *Plugin) view(c *ui.Context) {
 // items lists the conversations, then the commands.
 func (p *Plugin) items() []command.Item {
 	var items []command.Item
-	for _, s := range p.known() {
-		items = append(items, command.Item{ID: sessionID + string(s.ID), Title: cmp.Or(s.Title, "Untitled chat"),
-			Description: p.tilde(s.Directory), Group: groupChats, Icon: lucide.MessageSquare()})
+	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
+		for _, conv := range ws.Conversations() {
+			items = append(items, command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
+				Description: p.tilde(conv.Folder), Group: groupChats, Icon: lucide.MessageSquare()})
+		}
 	}
 	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
 		if e.ID == openID || e.Value.Run == nil {

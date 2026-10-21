@@ -146,7 +146,9 @@ CREATE TABLE settings (
 The kernel batches changed values and saves them off the UI thread, one save at a
 time; a failed save emits `SaveFailed` and is retried with the next one. A database of
 another schema is refused, not rewritten: the app keeps settings in memory for that run
-and says so. Plugins never see SQL. Conversations belong to the backend.
+and says so. Plugins never see this SQL. Conversations belong to the backend; the
+`workspace` plugin keeps its own record of the ones the app started in a separate
+database (see the shell and plugins note).
 
 ## Example
 

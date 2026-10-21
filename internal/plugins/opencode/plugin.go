@@ -162,7 +162,11 @@ var backoff = []time.Duration{time.Second, 3 * time.Second, 7 * time.Second, 15 
 // supervise keeps one connection up until ctx ends: connect, stream events,
 // and retry with backoff after a failure or drop.
 func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, conn Connection) {
-	post := func(st agent.Status) { run.Post(func() { p.setStatus(st) }) }
+	origin := "opencode" // a managed server keeps the conversations of every run in one place
+	if conn.Remote {
+		origin += " " + conn.URL
+	}
+	post := func(st agent.Status) { st.Origin = origin; run.Post(func() { p.setStatus(st) }) }
 	for failures := 0; ctx.Err() == nil; {
 		if failures > 0 {
 			select {

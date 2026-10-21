@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
@@ -34,20 +34,21 @@ func (x *commands) Setup(c *kernel.Context) error {
 	return nil
 }
 
-func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *commands, *ui.Tester) {
+func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Workspace, *plugintest.Chat, *commands, *ui.Tester) {
 	t.Helper()
-	a := plugintest.NewAgent()
-	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{
-		{ID: "s1", Title: "Fix the parser", Directory: "/w/app", Updated: 30},
-		{ID: "s2", Title: "Write docs", Updated: 20}}}
-	a.Pages["|old"] = agent.SessionPage{Sessions: []agent.Session{
+	ws := &plugintest.Workspace{Convs: []workspace.Conversation{
+		{ID: "s1", Title: "Fix the parser", Folder: "/w/app", Updated: 30},
+		{ID: "s2", Title: "Write docs", Updated: 20},
+		{ID: "s3", Title: "Plan the release", Updated: 10},
+		{ID: "s4", Title: "Tidy the tests", Updated: 9},
+		{ID: "s5", Title: "Bump the deps", Updated: 8},
 		{ID: "s9", Title: "Old migration notes", Updated: 1}}}
-	chat, ext, p := &plugintest.Chat{}, &commands{}, &Plugin{searchDelay: 1}
-	h := kerneltest.New(t, a, chat, ext, p)
+	chat, ext, p := &plugintest.Chat{}, &commands{}, &Plugin{}
+	h := kerneltest.New(t, ws, chat, ext, p)
 	h.Flush()
 	tt := ui.NewTester(p.view, 800, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	return h, p, a, chat, ext, tt
+	return h, p, ws, chat, ext, tt
 }
 
 // open shows the palette the way its command does and settles the frame.
@@ -130,16 +131,14 @@ func TestChoosingAConversationOpensIt(t *testing.T) {
 	}
 }
 
-func TestTypingSearchesConversationsBeyondTheNewest(t *testing.T) {
-	h, p, a, chat, _, tt := start(t)
+func TestTypingFindsConversationsBeyondTheNewest(t *testing.T) {
+	h, p, _, chat, _, tt := start(t)
 	open(h, p, tt)
-	tt.Type("old")
-	tt.Frame() // the frame notices the query and posts the search
-	h.Flush()
-	tt.Frame()
-	if got := a.Called("sessions |old"); got != 1 {
-		t.Fatalf("searches %d, calls %q", got, a.Calls())
+	if tt.HasText("Old migration notes") {
+		t.Fatalf("more than the newest five before typing: %q", tt.Texts())
 	}
+	tt.Type("old")
+	tt.Frame()
 	if !tt.HasText("Old migration notes") || tt.HasText("Fix the parser") {
 		t.Fatalf("rows %q", tt.Texts())
 	}
@@ -149,25 +148,19 @@ func TestTypingSearchesConversationsBeyondTheNewest(t *testing.T) {
 	if chat.Conv.Session != "s9" {
 		t.Fatalf("opened %+v", chat.Conv)
 	}
-	// Reopening starts from nothing: the old query and its results are gone.
+	// Reopening starts from nothing: the old query is gone.
 	open(h, p, tt)
 	if tt.HasText("Old migration notes") || p.state.Query != "" {
 		t.Fatalf("stale search after reopening: %q", tt.Texts())
 	}
 }
 
-func TestToggleClosesAndKeepsNoSearchBehind(t *testing.T) {
-	h, p, a, _, _, tt := start(t)
+func TestListsOnlyTheRecordedConversations(t *testing.T) {
+	h, p, ws, _, _, tt := start(t)
+	ws.Convs = ws.Convs[:1]
 	open(h, p, tt)
-	p.toggle()
-	tt.Frame()
-	if p.open {
-		t.Fatal("the command did not close the palette")
-	}
-	before := a.Called("sessions")
-	tt.Frame()
-	if a.Called("sessions") != before {
-		t.Fatal("a closed palette went to the backend")
+	if !tt.HasText("Fix the parser") || tt.HasText("Write docs") {
+		t.Fatalf("rows %q", tt.Texts())
 	}
 }
 

@@ -18,8 +18,10 @@ go tool mygo build       # production app/DMG in build/
 
 ## Features
 
-Chat with streaming markdown, tool calls, approvals and stop; a searchable, paged
-conversation list with rename, delete and unread marks; model, effort and mode
+Chat with streaming markdown, tool calls, approvals and stop; folders to work in,
+picked from the sidebar, ⌘O or the composer; a searchable conversation list of the
+chats started in this app, grouped by folder, with rename, delete and unread marks
+(the app's own record, in SQLite); model, effort and mode
 pickers; file and image attachments; desktop notifications for conversations in the background; settings for
 appearance, the OpenCode connection, Pi, notifications, and turning plugins on and
 off.
@@ -30,14 +32,15 @@ off.
 | --- | --- |
 | `main.go` | The plugins this build installs |
 | `internal/kernel` | Plugin lifecycle, services, events, pipelines, extension points, tasks, settings |
-| `internal/contract/*` | Declarations plugins share: `agent`, `chat`, `shell`, `settings` |
+| `internal/contract/*` | Declarations plugins share: `agent`, `chat`, `shell`, `settings`, `workspace` |
 | `internal/shell` | Window host: frame, slots, menus, shortcuts, SQLite settings store |
 | `internal/plugins/opencode` | OpenCode backend: managed or remote server, HTTP/SSE, reconnects |
 | `internal/plugins/pi` | Pi backend: RPC processes per session, session files |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model, effort and mode pickers in the composer |
 | `internal/plugins/attachments` | Files and images sent with a message |
-| `internal/plugins/sessions` | Sidebar conversation list |
+| `internal/plugins/workspace` | Folders and the conversations started here, in `workspace.db`; folder picker |
+| `internal/plugins/sessions` | Sidebar conversation list, grouped by folder |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
 | `internal/plugins/settings` | Settings page |
 | `internal/native` | Palette and small shared controls |

@@ -1,8 +1,8 @@
 # Shell and the built-in plugins
 
-Declared in `internal/contract/shell`, `internal/contract/chat` and
-`internal/contract/settings`; implemented by `internal/shell` and the plugins named
-below.
+Declared in `internal/contract/shell`, `internal/contract/chat`,
+`internal/contract/settings` and `internal/contract/workspace`; implemented by
+`internal/shell` and the plugins named below.
 
 ## Shell
 
@@ -37,8 +37,9 @@ Agent, Help, in that order), and the menu owns their first shortcut. Other short
 are window shortcuts. The menu is rebuilt whenever plugins change state.
 
 `shell.Host` gives plugins the window services they need: show a page, toasts,
-clipboard, opening links, desktop notifications (`Notify`) and whether the window is
-in front (`Foreground`). A clicked notification brings the window to the front, then
+clipboard, opening links, desktop notifications (`Notify`), whether the window is
+in front (`Foreground`) and the app's data folder (`DataDir`, where `settings.db`
+lives; a plugin names its files after its ID; empty in tests). A clicked notification brings the window to the front, then
 its ID is emitted on `shell.NoticeClicked`. The app's notifications are cleared when
 it becomes active. On macOS they need a packaged app (`mygo dev` or `mygo build`);
 under `go run` nothing is shown.
@@ -52,7 +53,11 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
   send or reply started for the previous conversation can't land in the next one.
 - Sending runs `chat.Outgoing` first, then creates the conversation when it is new,
-  then sends. The user's words show at once. A failed send is reported and never
+  then sends. The user's words show at once. A created conversation is announced on
+  `chat.Started` with the folder the draft named, and the open conversation keeps
+  that folder even when the backend reports its default instead, so ⌘N stays in it.
+- `chat.Controller.SetDirectory` changes the folder of a new chat without touching
+  the draft; it does nothing for a stored conversation. A failed send is reported and never
   retried, since it may have reached the agent.
 - General backend questions appear as typed interaction cards: Yes/No, every
   offered selection, a text input, or a multiline editor. Submission disables the
@@ -90,25 +95,87 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 Onevra's command dialog from a `shell.Overlays` entry. It needs no other plugin: the
 commands are every `kernel.Commands` entry that has a `Run`, shown with their
 shortcut spelled as in a macOS menu, and one that is not `Enabled` is listed greyed
-out and does nothing. Conversations come from `agent.Service.Sessions` when a backend
-is active, so the palette keeps working with the backend off. Opening reads the
-newest page; typing filters those and what a title search (after a short pause, a
-newer query replaces the older) adds beyond them, with the same matcher as the
-commands. With nothing typed it lists the five newest conversations, then the
-commands. Choosing runs the command, or opens the conversation through
-`chat.Controller`, once the handler that chose it has returned. The query and
-anything a search left behind are dropped each time the palette opens.
+out and does nothing. Conversations come from the workspace record
+(`workspace.ServiceKey`) when it is active, so the palette keeps working without it:
+only those the app started, with their folder. Typing filters them with the same
+matcher as the commands. With nothing typed it lists the five newest conversations,
+then the commands. Choosing runs the command, or opens the conversation through
+`chat.Controller`, once the handler that chose it has returned. The query is dropped
+each time the palette opens.
+
+## Workspace
+
+`internal/plugins/workspace` requires `agent.ServiceKey`, `chat.ControllerKey` and
+`shell.HostKey`, and provides `workspace.ServiceKey`: the app's own record of the
+folders the user works in and of the conversations started in this app. The backend
+keeps the messages; the record says which conversations are the app's and where they
+belong, so the sidebar, the palette and the notifications show nothing else.
+
+- It records a conversation on `chat.Started`, with the folder the user chose (empty
+  for the backend's default) and the backend's origin (`agent.Status.Origin`). A chosen
+  absolute folder that isn't known yet is added. Only the current origin's
+  conversations are listed, newest first; switching backend or server changes the list.
+- It follows `agent.Events`: a turn starting, ending or interrupted is activity;
+  `SessionRenamed` and `ModelChanged` update the title and model. When a recorded
+  conversation finishes a turn it reads the backend's newest page for titles, and once
+  per connection attempt it reads up to 20 pages until it has seen every recorded
+  conversation. A conversation the backend doesn't list stays recorded: a listing
+  can't prove it is gone.
+- `ChooseFolder` shows the system folder dialog off the UI thread, one at a time; the
+  chosen folder is added before its callback runs. "Open Folder…" (⌘O, File menu)
+  chooses one and starts a new chat there. A folder is a path on this Mac; with a
+  remote OpenCode server the same path must exist there.
+- For a new chat it adds a folder picker to `chat.ComposerAccessory` (leading): the
+  known folders, "No folder" (the agent's default) and "Choose folder…", applied
+  through `chat.Controller.SetDirectory` after the frame. A stored conversation shows
+  none.
+- Folders are listed by name. Removing one forgets the record of its conversations
+  under every origin; nothing is deleted from the backend or the disk.
+
+The record is kept in `workspace.db` in `shell.Host.DataDir` and read into memory when
+the plugin starts; until then `Loaded` is false and the lists are empty. Changes apply
+in memory and are announced on `workspace.Changed` at once. One worker writes them in
+order, a transaction per batch, and writes what is still queued when the plugin stops.
+Every statement is an upsert or a delete, so a failed batch is written again with the
+next change; the first failure in a run is reported in a toast. A database of another
+schema is refused, not migrated: the record lives in memory for that run and a toast
+says so. Without a data folder (tests) it always lives in memory.
+
+```sql
+-- PRAGMA user_version = 1
+CREATE TABLE folders (
+  path      TEXT PRIMARY KEY,   -- absolute and clean
+  collapsed INTEGER NOT NULL,   -- the sidebar shows only its header
+  added     INTEGER NOT NULL);  -- Unix ms
+CREATE TABLE conversations (
+  origin         TEXT NOT NULL, -- agent.Status.Origin
+  session        TEXT NOT NULL,
+  folder         TEXT NOT NULL, -- a folders.path, or '' for the backend's default
+  title          TEXT NOT NULL,
+  model_provider TEXT NOT NULL, model_id TEXT NOT NULL, model_variant TEXT NOT NULL,
+  created        INTEGER NOT NULL,
+  updated        INTEGER NOT NULL, -- last activity seen, Unix ms
+  PRIMARY KEY (origin, session));
+```
 
 ## Sessions and settings
 
-`internal/plugins/sessions` contributes the sidebar list (`shell.Sidebar`, growing to
-fill it) and its rename/delete dialogs (`shell.Overlays`). It reloads the first page
-when the backend becomes ready and after a turn ends, pages with "Show more", searches
-after a short pause (a newer query cancels the older), and marks conversations that
-finished a turn while another was open. Rows prioritize the conversation title;
-tooltips show the full title and project path. The options button stays keyboard
-accessible and appears on hover, focus, or selection. It has no pins, archive or
-grouping by folder.
+`internal/plugins/sessions` requires the workspace record and contributes the sidebar
+list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). Above
+the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
+button and the search field. Each folder has a header with its name (the path in a
+tooltip) that collapses it, remembered in the record, and, on hover or focus, a "+"
+that starts a chat there and an options menu (New Chat, Remove Folder…). Under it are
+its conversations, newest first, or "No conversations". Conversations without a known
+folder follow under "Other chats"; with no folders at all the list is flat. Search
+filters titles as you type, shows matches under their folders even when collapsed, and
+hides folders without one. Rows show the title, an unread mark for a recorded
+conversation that finished a turn while another was open, and an options menu
+(Rename…, Remove from List, Delete…) that stays keyboard accessible and appears on
+hover, focus or selection. Rename and delete go to the backend, then the record;
+"Remove from List" only forgets the record. A failed delete is reported and the
+conversation stays listed. Removing a folder asks first and counts the conversations
+that leave the list.
 
 `internal/plugins/settings` contributes the settings page, a sidebar button and
 "Settings…" (⌘,). The page hides the conversation sidebar and offers “Back to chat” above its own
@@ -176,7 +243,8 @@ it is plain text.
 
 `internal/plugins/notifications` listens to `agent.Events` and notifies a finished or
 failed turn, or an approval, of a conversation the user isn't looking at: another
-conversation or page is on show, or the window isn't in front. An interrupted turn is
+conversation or page is on show, or the window isn't in front. While the workspace
+record is active, only the conversations it holds are notified, titled from it. An interrupted turn is
 the user's own doing and isn't notified. A conversation whose title it doesn't know is
 looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
 clicking it opens that conversation. Its settings section turns each kind off.

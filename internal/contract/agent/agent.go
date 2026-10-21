@@ -123,6 +123,10 @@ type Status struct {
 	Endpoint string // where the backend listens, for display
 	Version  string // the backend's own version, when known
 	Err      error  // why the attempt is Down
+	// Origin names where the backend keeps its conversations, such as
+	// "opencode" or "opencode https://host:4096". A session ID means
+	// something only under the origin it came from. Empty while stopped.
+	Origin string
 }
 
 // ---- Identity

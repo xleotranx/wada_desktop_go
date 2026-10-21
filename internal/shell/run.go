@@ -27,8 +27,9 @@ func Run(plugins ...kernel.Plugin) {
 	var store kernel.Store = &memoryStore{}
 	var storeErr error
 	var db *sqliteStore
-	if dir, err := dataDir(); err != nil {
-		storeErr = err
+	dir, err := dataDir()
+	if err != nil {
+		storeErr, dir = err, ""
 	} else if db, err = openStore(filepath.Join(dir, "settings.db")); err != nil {
 		storeErr = err
 	} else {
@@ -47,7 +48,7 @@ func Run(plugins ...kernel.Plugin) {
 		var err error
 		s, err = New(Options{Post: win.Update, Store: store, Strict: os.Getenv("WADA_STRICT") == "1",
 			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource,
-			Notify: notifier(), Clipboard: readClipboard, Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
+			Notify: notifier(), Clipboard: readClipboard, DataDir: dir, Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
 		}, plugins...)
 		if err != nil {
 			log.Fatal(err)

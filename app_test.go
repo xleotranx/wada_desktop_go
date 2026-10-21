@@ -9,6 +9,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	chatcontract "wada-desktop-go/internal/contract/chat"
+	wscontract "wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugins/attachments"
@@ -19,6 +20,7 @@ import (
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugintest"
 	"wada-desktop-go/internal/shell"
 
@@ -43,7 +45,8 @@ func startApp(t *testing.T) *app {
 	a := plugintest.NewAgent()
 	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{
 		{ID: "s1", Title: "Fix the parser", Directory: "/work/app", Updated: 30},
-		{ID: "s2", Title: "Write the docs", Directory: "/work/docs", Updated: 20}}}
+		{ID: "s2", Title: "Write the docs", Directory: "/work/docs", Updated: 20},
+		{ID: "cli", Title: "Started in a terminal", Directory: "/work/app", Updated: 10}}}
 	files := plugintest.NewFiles(map[string]string{
 		"src/main.go": "package main\n",
 		"src/mail.go": "package main // mail\n",
@@ -72,7 +75,7 @@ func startApp(t *testing.T) *app {
 	}
 	s, err := shell.New(shell.Options{Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a, files, &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
-		&sessions.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		&workspace.Plugin{}, &sessions.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +89,13 @@ func startApp(t *testing.T) *app {
 			t.Error(err)
 		}
 	})
+	// The app lists only what it started: as if it had started these two.
+	for _, c := range []chatcontract.Conversation{
+		{Session: "s2", Title: "Write the docs", Directory: "/work/docs"},
+		{Session: "s1", Title: "Fix the parser", Directory: "/work/app"},
+	} {
+		kernel.Emit(s.Kernel, chatcontract.Started, c)
+	}
 	tt := ui.NewTester(s.View, 1200, 800)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	ap := &app{t: t, shell: s, tt: tt, agent: a, files: files, run: run}
@@ -174,6 +184,35 @@ func TestPaletteOpensAConversationWithoutTheSidebar(t *testing.T) {
 	}
 	if !slices.Contains(a.agent.Calls(), "messages s2") {
 		t.Fatalf("calls %q", a.agent.Calls())
+	}
+}
+
+func TestSidebarGroupsTheAppsOwnConversationsByFolder(t *testing.T) {
+	a := startApp(t)
+	for _, want := range []string{"app", "docs", "Fix the parser", "Write the docs"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q is missing from the sidebar: %q", want, a.tt.Texts())
+		}
+	}
+	if a.tt.HasText("Started in a terminal") {
+		t.Fatal("the sidebar lists a conversation the app did not start")
+	}
+	if err := a.tt.Click("New chat in docs"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if err := a.tt.Click("Compose"); err != nil {
+		t.Fatal(err)
+	}
+	a.tt.Type("outline the guide")
+	a.tt.Key(0, ui.KeyEnter)
+	a.settle()
+	if !slices.Contains(a.agent.Calls(), "create /work/docs") {
+		t.Fatalf("calls %q", a.agent.Calls())
+	}
+	ws, _ := kernel.Use[wscontract.Service](a.shell.Kernel, wscontract.ServiceKey)
+	if conv, ok := ws.Lookup("new"); !ok || conv.Folder != "/work/docs" {
+		t.Fatalf("the new conversation was recorded as %+v, %v", conv, ok)
 	}
 }
 

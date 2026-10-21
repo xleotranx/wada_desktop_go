@@ -107,6 +107,14 @@ func (p *Plugin) NewChat(directory string) {
 	p.focus = true
 }
 
+func (p *Plugin) SetDirectory(directory string) {
+	if p.conv.Session != "" || p.conv.Directory == directory {
+		return
+	}
+	p.conv.Directory = directory
+	kernel.Emit(p.ctx, chat.Changed, p.conv)
+}
+
 // switchTo replaces the open conversation. Its work is cancelled with its
 // scope, so nothing it started can land in the next one.
 func (p *Plugin) switchTo(conv chat.Conversation) {
@@ -195,8 +203,11 @@ func (p *Plugin) send() {
 			p.t.note("The chat did not start: " + errText(err))
 			return
 		}
-		p.conv.Session, p.conv.Directory, p.conv.Model = s.ID, cmp.Or(s.Directory, p.conv.Directory), s.Model
+		// The folder stays the one chosen, so a next chat and the sidebar
+		// keep to it even when the backend names its default.
+		p.conv.Session, p.conv.Model = s.ID, s.Model
 		kernel.Emit(p.ctx, chat.Changed, p.conv)
+		kernel.Emit(p.ctx, chat.Started, chat.Conversation{Session: s.ID, Title: s.Title, Directory: d.Directory, Model: s.Model})
 		if err != nil {
 			p.t.note(err.Error())
 		}

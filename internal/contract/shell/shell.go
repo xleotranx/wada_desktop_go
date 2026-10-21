@@ -76,6 +76,10 @@ type Host interface {
 	Notify(n Notice)
 	// Foreground reports that the window is on screen and focused.
 	Foreground() bool
+	// DataDir is the folder where the app keeps its data; a plugin keeps
+	// its files there, named after its ID. Empty when nothing may be written,
+	// as in tests.
+	DataDir() string
 
 	// Appearance is "system", "light" or "dark".
 	Appearance() string

@@ -12,6 +12,7 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
@@ -36,7 +37,7 @@ type Agent struct {
 
 func NewAgent() *Agent {
 	return &Agent{Stored: map[agent.SessionID][]agent.Message{}, Pages: map[string]agent.SessionPage{},
-		Fail: map[string]error{}, State: agent.Status{State: agent.Ready, Attempt: 1}}
+		Fail: map[string]error{}, State: agent.Status{State: agent.Ready, Attempt: 1, Origin: "fake"}}
 }
 
 func (*Agent) Manifest() kernel.Manifest {
@@ -168,6 +169,7 @@ type Host struct {
 	Notices    []shell.Notice
 	Clip       shell.Clipboard // what Clipboard returns
 	Background bool            // the window is not in front
+	Data       string          // what DataDir returns
 }
 
 func (*Host) Manifest() kernel.Manifest {
@@ -191,6 +193,7 @@ func (h *Host) Enable(id string) error     { h.Toggled = append(h.Toggled, "+"+i
 func (h *Host) Disable(id string) error    { h.Toggled = append(h.Toggled, "-"+id); return nil }
 func (h *Host) Notify(n shell.Notice)      { h.Notices = append(h.Notices, n) }
 func (h *Host) Foreground() bool           { return !h.Background }
+func (h *Host) DataDir() string            { return h.Data }
 
 // Chat provides chat.ControllerKey without a page.
 type Chat struct {
@@ -217,6 +220,13 @@ func (f *Chat) Open(s agent.Session) {
 func (f *Chat) NewChat(dir string) {
 	f.Conv = chat.Conversation{Directory: dir}
 	kernel.Emit(f.ctx, chat.Changed, f.Conv)
+}
+
+func (f *Chat) SetDirectory(dir string) {
+	if f.Conv.Session == "" {
+		f.Conv.Directory = dir
+		kernel.Emit(f.ctx, chat.Changed, f.Conv)
+	}
 }
 
 // Files provides agent.FilesKey over an in-memory tree, so a test can mention
@@ -285,4 +295,81 @@ func (f *Files) Read(_ context.Context, directory, path string) ([]byte, error) 
 		return nil, fmt.Errorf("%s: no such file", path)
 	}
 	return data, nil
+}
+
+// Workspace provides workspace.ServiceKey in memory. ChooseFolder picks
+// Chosen at once; an empty Chosen is a cancelled dialog.
+type Workspace struct {
+	ctx       *kernel.Context
+	Convs     []workspace.Conversation // newest first
+	FolderSet []workspace.Folder       // by name
+	Chosen    string
+	Pending   bool // the record has not been read yet
+}
+
+func (*Workspace) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "fake-workspace", Provides: []kernel.Named{workspace.ServiceKey}}
+}
+
+func (w *Workspace) Setup(c *kernel.Context) error {
+	w.ctx = c
+	return kernel.Provide[workspace.Service](c, workspace.ServiceKey, w)
+}
+
+func (w *Workspace) changed() { kernel.Emit(w.ctx, workspace.Changed, struct{}{}) }
+
+func (w *Workspace) Loaded() bool                            { return !w.Pending }
+func (w *Workspace) Folders() []workspace.Folder             { return w.FolderSet }
+func (w *Workspace) Conversations() []workspace.Conversation { return w.Convs }
+
+func (w *Workspace) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
+	i := slices.IndexFunc(w.Convs, func(c workspace.Conversation) bool { return c.ID == id })
+	if i < 0 {
+		return workspace.Conversation{}, false
+	}
+	return w.Convs[i], true
+}
+
+func (w *Workspace) AddFolder(path string) error {
+	if !slices.ContainsFunc(w.FolderSet, func(f workspace.Folder) bool { return f.Path == path }) {
+		w.FolderSet = append(w.FolderSet, workspace.Folder{Path: path})
+		w.changed()
+	}
+	return nil
+}
+
+func (w *Workspace) RemoveFolder(path string) {
+	w.FolderSet = slices.DeleteFunc(w.FolderSet, func(f workspace.Folder) bool { return f.Path == path })
+	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.Folder == path })
+	w.changed()
+}
+
+func (w *Workspace) SetCollapsed(path string, collapsed bool) {
+	for i := range w.FolderSet {
+		if w.FolderSet[i].Path == path {
+			w.FolderSet[i].Collapsed = collapsed
+		}
+	}
+	w.changed()
+}
+
+func (w *Workspace) ChooseFolder(done func(path string)) {
+	if w.Chosen != "" {
+		_ = w.AddFolder(w.Chosen)
+		done(w.Chosen)
+	}
+}
+
+func (w *Workspace) Retitle(id agent.SessionID, title string) {
+	for i := range w.Convs {
+		if w.Convs[i].ID == id {
+			w.Convs[i].Title = title
+		}
+	}
+	w.changed()
+}
+
+func (w *Workspace) Forget(id agent.SessionID) {
+	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.ID == id })
+	w.changed()
 }

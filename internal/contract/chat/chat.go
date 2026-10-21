@@ -18,8 +18,13 @@ const PageID = "chat.conversation"
 var (
 	ControllerKey = kernel.NewKey[Controller]("chat.controller")
 
-	// Changed is emitted when the open conversation, its title or its model changes.
+	// Changed is emitted when the open conversation, its title, its folder
+	// or its model changes.
 	Changed = kernel.NewTopic[Conversation]("chat.changed")
+	// Started is emitted once the backend has created a conversation for the
+	// first message of a new chat. Directory is the folder the user chose for
+	// it, empty for the backend's default, whatever the backend reports.
+	Started = kernel.NewTopic[Conversation]("chat.started")
 
 	// Outgoing runs on the UI thread when the user sends a message, before
 	// anything reaches the backend. A transform may rewrite the draft (expand
@@ -101,4 +106,7 @@ type Controller interface {
 	Open(s agent.Session)
 	// NewChat shows an empty conversation that will work in directory.
 	NewChat(directory string)
+	// SetDirectory changes the folder of a new chat that has not been sent,
+	// keeping the draft. It does nothing while a stored conversation is open.
+	SetDirectory(directory string)
 }

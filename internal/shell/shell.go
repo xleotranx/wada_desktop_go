@@ -35,6 +35,8 @@ type Options struct {
 	Foreground func() bool
 	// Clipboard reads the clipboard for a paste; nil in tests, where it is empty.
 	Clipboard func() shell.Clipboard
+	// DataDir is where plugins keep their files; empty in tests.
+	DataDir string
 }
 
 // Shell is a kernel plus the window that shows it.
@@ -49,7 +51,7 @@ type Shell struct {
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
 	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, notify: opts.Notify, foreground: opts.Foreground,
-		clipboard: opts.Clipboard}}
+		clipboard: opts.Clipboard, dataDir: opts.DataDir}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
 	s.host.k = s.Kernel
 	if err := s.Kernel.Install(append([]kernel.Plugin{s.host}, plugins...)...); err != nil {
@@ -349,6 +351,7 @@ type host struct {
 	notify        func(shell.Notice)
 	clipboard     func() shell.Clipboard
 	foreground    func() bool
+	dataDir       string
 	appearance    *kernel.Setting[string]
 	page          string
 	toasts        []ui.Toast
@@ -412,6 +415,7 @@ func (h *host) Notify(n shell.Notice) {
 }
 
 func (h *host) Foreground() bool { return h.foreground == nil || h.foreground() }
+func (h *host) DataDir() string  { return h.dataDir }
 
 func (h *host) Appearance() string {
 	switch v := h.appearance.Get(); v {

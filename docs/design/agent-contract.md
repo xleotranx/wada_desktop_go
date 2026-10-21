@@ -38,6 +38,10 @@ Rules every backend follows:
   such as setting the model, fails.
 - `Status.Attempt` increases with every connection attempt. A consumer that keeps
   server state reloads it when a new attempt becomes `Ready`.
+- `Status.Origin` names where the backend keeps its conversations, set on every
+  status from the first attempt on: `opencode` for the managed server (every run
+  shares its storage), `opencode <url>` for a remote one, `pi <session folder>` for Pi.
+  A session ID means something only under its origin.
 - Events are emitted only after the stream is established, in order, in batches of
   at most 64 events or 256 KiB, collected for at most 1/60 s. At most one batch is
   in flight to the UI thread, so a busy UI slows the stream instead of queueing.

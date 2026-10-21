@@ -62,6 +62,27 @@ func TestFirstMessageCreatesTheConversationThenSends(t *testing.T) {
 	}
 }
 
+func TestFolderOfANewChatChangesWithoutLosingTheDraftAndIsAnnounced(t *testing.T) {
+	h, p, _, _ := start(t)
+	var started []chat.Conversation
+	kernel.On(h, chat.Started, func(c chat.Conversation) { started = append(started, c) })
+	p.NewChat("/work")
+	p.draft = "hello"
+	p.SetDirectory("/other")
+	if p.draft != "hello" || p.conv.Directory != "/other" {
+		t.Fatalf("draft %q conversation %+v", p.draft, p.conv)
+	}
+	p.send()
+	h.Flush()
+	if len(started) != 1 || started[0].Session != "new" || started[0].Directory != "/other" {
+		t.Fatalf("started %+v", started)
+	}
+	p.SetDirectory("/elsewhere") // a stored conversation keeps its folder
+	if p.conv.Directory != "/other" {
+		t.Fatalf("conversation %+v", p.conv)
+	}
+}
+
 func TestHandledInputReleasesComposerWithoutSettlingAnIndependentRun(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		t.Run(fmt.Sprint(running), func(t *testing.T) {

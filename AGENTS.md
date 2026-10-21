@@ -16,12 +16,13 @@ protocols to simplify a refactor.
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
   slots, file drops, completions), `shell` (window slots, host service), `settings`
-  (settings sections).
+  (settings sections), `workspace` (folders and the conversations the app started).
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
   page), `models` (composer pickers), `attachments` (files sent with a message), `mentions`
-  (`@file` in the composer), `sessions` (sidebar list), `palette` (⌘K), `notifications`
+  (`@file` in the composer), `workspace` (folders, the app's conversation record in
+  `workspace.db`, folder picker), `sessions` (sidebar list by folder), `palette` (⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.
 - `internal/native`: the semantic palette and small shared controls.
@@ -81,9 +82,10 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 for captures and experiments; never reset developer data during verification.
 
 Settings live in `settings.db` (schema 1) under `$WADA_DATA_DIR` or
-`~/Library/Application Support/wada-desktop-go/`. A database of another schema is
-refused, not migrated; delete it explicitly to start over. Conversations belong to
-the backend.
+`~/Library/Application Support/wada-desktop-go/`; the folders and the record of the
+conversations the app started live beside it in `workspace.db` (schema 1). A
+database of another schema is refused, not migrated; delete it explicitly to start
+over. Conversations' messages belong to the backend.
 
 Window frame restoration uses `StateKey: "main"`. F12 / Alt+Cmd+I opens the
 inspector; Shift+Cmd+C picks an element.

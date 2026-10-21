@@ -12,6 +12,7 @@ import (
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/settings"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/native"
 
@@ -95,10 +96,22 @@ func (p *Plugin) seen(id agent.SessionID) bool {
 }
 
 // notify shows body for the conversation unless the user is looking at it.
-// A conversation without a known title is looked up on the backend first.
+// Only conversations started in this app are notified while the workspace
+// record is active. A conversation without a known title is looked up on the
+// backend first.
 func (p *Plugin) notify(id agent.SessionID, body string) {
 	if id == "" || p.seen(id) {
 		return
+	}
+	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
+		conv, known := ws.Lookup(id)
+		if !known {
+			return
+		}
+		if conv.Title != "" {
+			p.show(conv.Session(), body)
+			return
+		}
 	}
 	if conv := p.chat.Current(); conv.Session == id {
 		p.known[id] = agent.Session{ID: id, Title: conv.Title, Directory: conv.Directory, Model: conv.Model}

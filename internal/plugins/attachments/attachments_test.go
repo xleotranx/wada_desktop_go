@@ -9,7 +9,9 @@ import (
 	"slices"
 	"testing"
 
+	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
@@ -133,5 +135,64 @@ func TestMIME(t *testing.T) {
 		if got := mimeOf(c.path, c.data); got != c.want {
 			t.Errorf("mimeOf(%q) = %q, want %q", c.path, got, c.want)
 		}
+	}
+}
+
+func paste(h *kerneltest.Harness, text string) bool {
+	took := false
+	for _, e := range kernel.Items(h, chat.Paste) {
+		kernel.Invoke(h, e, func(fn func(string) bool) { took = took || fn(text) })
+	}
+	return took
+}
+
+func TestPasteTakesFilesAndImages(t *testing.T) {
+	h, p, host, dir := start(t)
+	if paste(h, "plain words") {
+		t.Fatal("took a text paste")
+	}
+	host.Clip = shell.Clipboard{Files: []string{filepath.Join(dir, "notes.txt")}}
+	if !paste(h, "notes.txt") {
+		t.Fatal("did not take pasted files")
+	}
+	shot, _ := os.ReadFile(filepath.Join(dir, "shot.png"))
+	host.Clip = shell.Clipboard{PNG: shot}
+	if paste(h, "a caption") {
+		t.Fatal("took an image pasted with text")
+	}
+	for range 2 {
+		if !paste(h, "") {
+			t.Fatal("did not take a pasted image")
+		}
+	}
+	h.Flush()
+	if !slices.Equal(names(p), []string{"notes.txt", "Pasted image.png", "Pasted image 2.png"}) || p.pending[1].thumb == nil {
+		t.Fatalf("pending %q", names(p))
+	}
+}
+
+// types is a backend that takes only text.
+type types struct{}
+
+func (types) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "types", Provides: []kernel.Named{agent.FileTypesKey}}
+}
+func (types) Setup(c *kernel.Context) error {
+	return kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, types{})
+}
+func (types) Accepts(mime string) bool { return mime == "text/plain" }
+func (types) Summary() string          { return "text files" }
+
+func TestRefusesWhatTheBackendDoesNotTake(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(dir, "b.zip"), []byte{0, 1}, 0o600)
+	host := &plugintest.Host{}
+	p := &Plugin{}
+	h := kerneltest.New(t, host, types{}, p)
+	drop(h, filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.zip"))
+	h.Flush()
+	if !slices.Equal(names(p), []string{"a.txt"}) || len(host.Toasts) != 1 {
+		t.Fatalf("pending %q toasts %q", names(p), host.Toasts)
 	}
 }

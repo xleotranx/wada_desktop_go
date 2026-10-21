@@ -34,6 +34,10 @@ var (
 	// FileDrop handlers take the paths of files dropped on the composer, on
 	// the UI thread. The composer accepts drops only while one exists.
 	FileDrop = kernel.NewPoint[func(paths []string)]("chat.file-drop")
+	// Paste handlers see every paste into the composer, in order, with the
+	// clipboard's text (empty for an image). The first to return true takes
+	// the paste, and the text is not inserted.
+	Paste = kernel.NewPoint[func(text string) bool]("chat.paste")
 )
 
 // Conversation is the conversation on show. An empty Session is a new chat

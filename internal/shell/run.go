@@ -47,7 +47,7 @@ func Run(plugins ...kernel.Plugin) {
 		var err error
 		s, err = New(Options{Post: win.Update, Store: store, Strict: os.Getenv("WADA_STRICT") == "1",
 			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource,
-			Notify: notifier(), Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
+			Notify: notifier(), Clipboard: readClipboard, Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
 		}, plugins...)
 		if err != nil {
 			log.Fatal(err)
@@ -113,6 +113,14 @@ func Run(plugins ...kernel.Plugin) {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// readClipboard reads local files, or else an image, off the clipboard.
+func readClipboard() shell.Clipboard {
+	if files, err := mygo.Clipboard.ReadFiles(); err == nil && len(files) > 0 {
+		return shell.Clipboard{Files: files}
+	}
+	return shell.Clipboard{PNG: mygo.Clipboard.ReadImage()}
 }
 
 // notifier shows notices through the system, or is nil where it can't (on

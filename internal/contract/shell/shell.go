@@ -40,6 +40,12 @@ var (
 	NoticeClicked = kernel.NewTopic[string]("shell.notice-clicked")
 )
 
+// Clipboard is what a paste can attach: local file paths, or an image.
+type Clipboard struct {
+	Files []string
+	PNG   []byte // an image as PNG; nil without one
+}
+
 // Notice is a desktop notification. A notice with the ID of one still shown
 // replaces it.
 type Notice struct {
@@ -59,6 +65,8 @@ type Host interface {
 	Toast(t ui.Toast)
 	// Copy puts text on the clipboard.
 	Copy(text string) error
+	// Clipboard reads the files and image on the clipboard, for a paste.
+	Clipboard() Clipboard
 	// OpenURL opens a web or mail address with the desktop.
 	OpenURL(url string)
 	// Notify shows a desktop notification, when the platform can.

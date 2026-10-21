@@ -83,7 +83,10 @@ backend's `ModelChanged` confirms it; a failure is reported and the choice rever
 ## Attachments
 
 `internal/plugins/attachments` adds a paperclip to `chat.ComposerAccessory`, an
-"Attach Files…" command (⇧⌘A, Chat menu) and a `chat.FileDrop` handler. Files are
+"Attach Files…" command (⇧⌘A, Chat menu), a `chat.FileDrop` handler and a
+`chat.Paste` handler: pasted files are attached, and so is a pasted image unless text
+came with it (`shell.Host.Clipboard` reads both). Files the backend's
+`agent.FileTypesKey` refuses (Pi: images and text only) are reported when added. Files are
 read off the UI thread, typed by extension and contents (text stays `text/*`
 whatever the extension), and shown as removable chips with image thumbnails in
 `chat.ComposerAttachments`. A message takes at most 10 files, 10 MB each and 20 MB

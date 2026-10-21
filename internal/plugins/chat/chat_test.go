@@ -291,3 +291,27 @@ func TestFilesGoOutAndShowWithTheMessage(t *testing.T) {
 		t.Fatalf("note %q", last.text)
 	}
 }
+
+func TestPasteHandlersTakePastes(t *testing.T) {
+	var seen []string
+	taker := &extension{setup: func(c *kernel.Context) error {
+		return kernel.Contribute(c, chat.Paste, "extension.paste", 0, func(text string) bool {
+			seen = append(seen, text)
+			return text == "take me"
+		})
+	}}
+	h, p, _, _ := start(t, taker)
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	tt := ui.NewTester(p.view, 1000, 800)
+	p.focus = true
+	tt.Frame()
+	for _, clip := range []string{"take me", "keep me"} {
+		tt.SetClipboard(clip)
+		tt.Key(ui.Cmd, ui.KeyV)
+		tt.Frame()
+	}
+	if !slices.Equal(seen, []string{"take me", "keep me"}) || p.draft != "keep me" {
+		t.Fatalf("seen %q draft %q", seen, p.draft)
+	}
+}

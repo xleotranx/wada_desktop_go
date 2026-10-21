@@ -158,7 +158,8 @@ type Host struct {
 	PluginList []kernel.Status
 	Toggled    []string
 	Notices    []shell.Notice
-	Background bool // the window is not in front
+	Clip       shell.Clipboard // what Clipboard returns
+	Background bool            // the window is not in front
 }
 
 func (*Host) Manifest() kernel.Manifest {
@@ -169,18 +170,19 @@ func (h *Host) Setup(c *kernel.Context) error {
 	return kernel.Provide[shell.Host](c, shell.HostKey, h)
 }
 
-func (h *Host) ShowPage(id string)        { h.PageID = id }
-func (h *Host) Page() string              { return h.PageID }
-func (h *Host) Toast(t ui.Toast)          { h.Toasts = append(h.Toasts, t.Title) }
-func (h *Host) Copy(text string) error    { h.Copied = text; return nil }
-func (h *Host) OpenURL(url string)        { h.Opened = append(h.Opened, url) }
-func (h *Host) Appearance() string        { return h.Mode }
-func (h *Host) SetAppearance(mode string) { h.Mode = mode }
-func (h *Host) Plugins() []kernel.Status  { return h.PluginList }
-func (h *Host) Enable(id string) error    { h.Toggled = append(h.Toggled, "+"+id); return nil }
-func (h *Host) Disable(id string) error   { h.Toggled = append(h.Toggled, "-"+id); return nil }
-func (h *Host) Notify(n shell.Notice)     { h.Notices = append(h.Notices, n) }
-func (h *Host) Foreground() bool          { return !h.Background }
+func (h *Host) ShowPage(id string)         { h.PageID = id }
+func (h *Host) Page() string               { return h.PageID }
+func (h *Host) Toast(t ui.Toast)           { h.Toasts = append(h.Toasts, t.Title) }
+func (h *Host) Copy(text string) error     { h.Copied = text; return nil }
+func (h *Host) Clipboard() shell.Clipboard { return h.Clip }
+func (h *Host) OpenURL(url string)         { h.Opened = append(h.Opened, url) }
+func (h *Host) Appearance() string         { return h.Mode }
+func (h *Host) SetAppearance(mode string)  { h.Mode = mode }
+func (h *Host) Plugins() []kernel.Status   { return h.PluginList }
+func (h *Host) Enable(id string) error     { h.Toggled = append(h.Toggled, "+"+id); return nil }
+func (h *Host) Disable(id string) error    { h.Toggled = append(h.Toggled, "-"+id); return nil }
+func (h *Host) Notify(n shell.Notice)      { h.Notices = append(h.Notices, n) }
+func (h *Host) Foreground() bool           { return !h.Background }
 
 // Chat provides chat.ControllerKey without a page.
 type Chat struct {

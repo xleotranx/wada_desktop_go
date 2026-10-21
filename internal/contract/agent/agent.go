@@ -18,6 +18,9 @@ var (
 	ServiceKey = kernel.NewKey[Service]("agent.service")
 	ModelsKey  = kernel.NewKey[Models]("agent.models") // optional
 	ModesKey   = kernel.NewKey[Modes]("agent.modes")   // optional
+	// FileTypesKey is provided by a backend that takes only some kinds of
+	// files. Without it, a backend takes any file.
+	FileTypesKey = kernel.NewKey[FileTypes]("agent.file-types")
 
 	// Events carries ordered batches of normalized events from the current
 	// connection, emitted on the UI thread.
@@ -70,6 +73,14 @@ type Models interface {
 // agent mode (OpenCode's "build" and "plan").
 type Modes interface {
 	Modes(ctx context.Context) ([]Mode, error)
+}
+
+// FileTypes says which files a backend takes.
+type FileTypes interface {
+	// Accepts reports whether a file of this MIME type can be sent.
+	Accepts(mime string) bool
+	// Summary names what it takes, for the user: "images and text files".
+	Summary() string
 }
 
 // ---- Connection

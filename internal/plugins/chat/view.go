@@ -269,6 +269,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	accessories := kernel.Items(p.ctx, chat.ComposerAccessory)
 	attachments := kernel.Items(p.ctx, chat.ComposerAttachments)
 	drops := kernel.Items(p.ctx, chat.FileDrop)
+	pastes := kernel.Items(p.ctx, chat.Paste)
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			options := onechat.ComposerOptions{
@@ -283,6 +284,17 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				}
 			}
 			options.AcceptFiles = len(drops) > 0
+			if len(pastes) > 0 {
+				options.OnPaste = func(text string) bool {
+					took := false
+					for _, e := range pastes {
+						if !took {
+							kernel.Invoke(p.ctx, e, func(paste func(string) bool) { took = paste(text) })
+						}
+					}
+					return took
+				}
+			}
 			if len(accessories) > 0 {
 				options.Accessory = func(c *ui.Context) {
 					for _, e := range accessories {

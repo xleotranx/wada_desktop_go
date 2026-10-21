@@ -33,6 +33,8 @@ type Options struct {
 	// is shown and the window counts as in front.
 	Notify     func(shell.Notice)
 	Foreground func() bool
+	// Clipboard reads the clipboard for a paste; nil in tests, where it is empty.
+	Clipboard func() shell.Clipboard
 }
 
 // Shell is a kernel plus the window that shows it.
@@ -45,7 +47,8 @@ type Shell struct {
 
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
-	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, notify: opts.Notify, foreground: opts.Foreground}}
+	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, notify: opts.Notify, foreground: opts.Foreground,
+		clipboard: opts.Clipboard}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
 	s.host.k = s.Kernel
 	if err := s.Kernel.Install(append([]kernel.Plugin{s.host}, plugins...)...); err != nil {
@@ -282,6 +285,7 @@ type host struct {
 	k             *kernel.Kernel
 	setTheme      func(mygo.ThemeSource)
 	notify        func(shell.Notice)
+	clipboard     func() shell.Clipboard
 	foreground    func() bool
 	appearance    *kernel.Setting[string]
 	page          string
@@ -326,6 +330,13 @@ func (h *host) Toast(t ui.Toast) {
 }
 
 func (h *host) Copy(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
+
+func (h *host) Clipboard() shell.Clipboard {
+	if h.clipboard == nil {
+		return shell.Clipboard{}
+	}
+	return h.clipboard()
+}
 
 func (h *host) OpenURL(url string) { h.services.OpenURL(url) }
 

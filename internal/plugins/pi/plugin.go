@@ -88,7 +88,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "pi", Title: "Pi", DefaultOff: true,
 		Description: "Chat with the Pi coding agent, run by the app.",
-		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey},
+		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.FileTypesKey},
 	}
 }
 
@@ -106,6 +106,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	for _, err := range []error{
 		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
+		kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, fileTypes{}),
 		kernel.Contribute(c, kernel.Commands, "pi.reconnect", 0, kernel.Command{
 			Title: "Restart Pi", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),

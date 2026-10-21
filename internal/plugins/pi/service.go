@@ -109,6 +109,15 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) error {
 	return l.p.call(ctx, "prompt", cmd, nil)
 }
 
+// fileTypes is what prompt can send: images, and text inlined.
+type fileTypes struct{}
+
+func (fileTypes) Accepts(mime string) bool {
+	return strings.HasPrefix(mime, "image/") || strings.HasPrefix(mime, "text/")
+}
+
+func (fileTypes) Summary() string { return "images and text files" }
+
 // prompt is the RPC prompt for a send. Pi takes images; text files join the
 // message as fenced blocks; any other file is refused before sending.
 func prompt(req agent.Send) (map[string]any, error) {

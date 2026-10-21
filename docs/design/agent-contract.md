@@ -79,7 +79,8 @@ session folder, both empty for Pi's defaults. "Restart Pi" restarts its processe
   app has no place to answer them.
 - Images go in the prompt's `images`. Text files are appended to the message as fenced
   blocks headed `(file: name)`. Any other file makes `Send` fail with `ErrNotSent`.
-  Stored images come back as files named "image", since Pi keeps no names.
+  Stored images come back as files named "image", since Pi keeps no names. It
+  provides `agent.FileTypesKey` so other files are refused when added.
 - Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
   provide `ModesKey`, and the mode picker stays hidden.
 

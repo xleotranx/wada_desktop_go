@@ -13,6 +13,7 @@ import (
 	"wada-desktop-go/internal/contract/settings"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -160,14 +161,25 @@ func action(a string) string {
 }
 
 func (p *Plugin) section(c *ui.Context) {
-	for _, s := range []struct {
-		setting *kernel.Setting[bool]
-		label   string
-	}{{p.finished, "When a turn finishes"}, {p.approvals, "When an approval is needed"}} {
-		c.Key(s.label)
-		on := s.setting.Get()
-		if components.Switch(c, &on, s.label); on != s.setting.Get() {
-			p.ctx.Post(func() { s.setting.Set(on) }) // after the frame, not while rendering
+	pal := native.PaletteFor(c)
+	for i, s := range []struct {
+		setting            *kernel.Setting[bool]
+		label, description string
+	}{{p.finished, "When a turn finishes", "Know when a response is ready."}, {p.approvals, "When an approval is needed", "Know when a conversation needs your attention."}} {
+		if i > 0 {
+			ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
 		}
+		c.Key(s.label)
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Padding(4, 0).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
+				ui.Text(c, s.label).FontSize(13.5).FontWeight(500).TextColor(pal.Text)
+				ui.Text(c, s.description).FontSize(12).TextColor(pal.Muted)
+			})
+			on := s.setting.Get()
+			components.Switch(c, &on, "Notify: "+s.label, components.SwitchOptions{HideLabel: true})
+			if on != s.setting.Get() {
+				p.ctx.Post(func() { s.setting.Set(on) })
+			}
+		})
 	}
 }

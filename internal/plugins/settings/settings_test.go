@@ -27,7 +27,7 @@ func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 	host.PluginList = h.Plugins()
 	tt := ui.NewTester(p.view, 900, 1200)
 	tt.Frame()
-	for _, want := range []string{"Appearance", "Extra section", "Extra body", "Plugins", "Required"} {
+	for _, want := range []string{"Appearance", "Extra section", "Plugins"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q in %q", want, tt.Texts())
 		}
@@ -38,17 +38,63 @@ func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 	if err := tt.Click("Dark"); err != nil {
 		t.Fatal(err)
 	}
+	if tt.HasText("Extra body") {
+		t.Fatal("inactive section rendered")
+	}
+	if err := tt.Click("Extra section"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Extra body") {
+		t.Fatal("selected section did not render")
+	}
+	if err := tt.Click("Plugins"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Required") {
+		t.Fatal("missing required plugin status")
+	}
 	if err := tt.Click("Turn off Extra"); err != nil {
 		t.Fatal(err)
 	}
+	h.RunPosts()
 	tt.Frame()
 	if host.Mode != "dark" || !slices.Equal(host.Toggled, []string{"-extra"}) {
 		t.Fatalf("mode %q toggled %q", host.Mode, host.Toggled)
 	}
-	if err := tt.Click("Done"); err != nil {
+	if err := tt.Click("Back to chat"); err != nil {
 		t.Fatal(err)
 	}
 	if host.PageID != "" {
-		t.Fatalf("page %q after Done", host.PageID)
+		t.Fatalf("page %q after Back to chat", host.PageID)
+	}
+}
+
+func TestSelectionFallsBackWhenASectionIsRemoved(t *testing.T) {
+	host := &plugintest.Host{Mode: "system"}
+	p := &Plugin{}
+	h := kerneltest.New(t, host, p, contributor{})
+	tt := ui.NewTester(p.view, 900, 550)
+	if err := tt.Click("Extra section"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Extra body") {
+		t.Fatal("section did not open")
+	}
+	if err := h.Disable("extra"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("Extra body") || !tt.HasText("Color theme") {
+		t.Fatalf("missing fallback: %q", tt.Texts())
+	}
+	if err := tt.Click("Dark"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if host.Mode != "dark" {
+		t.Fatal("appearance control stopped working after section removal")
 	}
 }

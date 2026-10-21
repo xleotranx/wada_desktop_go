@@ -47,7 +47,7 @@ func TestListLoadsPagesAndOpens(t *testing.T) {
 	}
 	tt := ui.NewTester(p.view, 320, 600)
 	tt.Frame()
-	if !tt.HasText("First") || !tt.HasText("app") || tt.HasText("Show more") {
+	if !tt.HasText("First") || tt.HasText("app") || tt.HasText("Show more") {
 		t.Fatalf("rows %q", tt.Texts())
 	}
 	if err := tt.Click("Second"); err != nil {
@@ -123,5 +123,27 @@ func TestRenameAndDelete(t *testing.T) {
 	h.Flush()
 	if len(host.Toasts) != 1 || !slices.Contains(ids(p.sessions), "s2") {
 		t.Fatalf("failed delete: toasts %q list %v", host.Toasts, ids(p.sessions))
+	}
+}
+
+func TestConversationActionsRemainKeyboardAccessible(t *testing.T) {
+	_, p, _, _, _ := start(t)
+	tt := ui.NewTester(p.view, 300, 500)
+	for range 12 {
+		if tt.Focused("Options for First") && !tt.Focused("First") {
+			break
+		}
+		tt.Key(0, ui.KeyTab)
+	}
+	if !tt.Focused("Options for First") || tt.Focused("First") {
+		t.Fatal("conversation actions are not keyboard accessible")
+	}
+	tt.Key(0, ui.KeySpace)
+	if err := tt.ChooseMenuItem("Rename…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if p.renaming == nil || p.renaming.ID != "s1" {
+		t.Fatal("rename action did not open")
 	}
 }

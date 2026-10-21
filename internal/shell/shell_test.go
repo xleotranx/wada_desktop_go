@@ -72,6 +72,10 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 			t.Fatalf("missing %q in %q", want, tt.Texts())
 		}
 	}
+	visibleTitle, ok := tt.Find("Main page")
+	if !ok || visibleTitle.X+visibleTitle.W/2 < 748 || visibleTitle.X+visibleTitle.W/2 > 750 {
+		t.Fatalf("expanded title is not centered over the chat: %+v", visibleTitle)
+	}
 	if title != "Main page — Wada" {
 		t.Fatalf("window title %q", title)
 	}
@@ -91,6 +95,24 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("Sidebar section") {
 		t.Fatal("sidebar still shown")
+	}
+	for _, want := range []string{"Other body", "Badge"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %q after hiding sidebar", want)
+		}
+	}
+	host.ShowPage("notes.main")
+	tt.Frame()
+	titleBounds, ok := tt.Find("Main page")
+	if !ok || titleBounds.X+titleBounds.W/2 < 599 || titleBounds.X+titleBounds.W/2 > 601 {
+		t.Fatalf("collapsed title is not centered: %+v", titleBounds)
+	}
+	if err := tt.Click("Show sidebar"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Sidebar section") {
+		t.Fatal("sidebar did not return")
 	}
 }
 
@@ -193,5 +215,39 @@ func TestNoticesReachTheDesktopAndClicksReachPlugins(t *testing.T) {
 	s.NoticeClicked("chat:s1")
 	if len(shown) != 1 || shown[0].ID != "chat:s1" || host.Foreground() || len(clicked) != 1 || clicked[0] != "chat:s1" {
 		t.Fatalf("shown %+v foreground %v clicked %q", shown, host.Foreground(), clicked)
+	}
+}
+
+func TestPageCanHideSidebarWithoutChangingPreference(t *testing.T) {
+	p := &plugin{id: "pages", setup: func(c *kernel.Context) error {
+		if err := kernel.Contribute(c, shell.Sidebar, "pages.list", 0, text("Conversations")); err != nil {
+			return err
+		}
+		if err := kernel.Contribute(c, shell.Pages, "pages.chat", 0, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Chat body") }}); err != nil {
+			return err
+		}
+		return kernel.Contribute(c, shell.Pages, "pages.focused", 1, shell.Page{HideSidebar: true, Render: func(c *ui.Context) { ui.Text(c, "Focused body") }})
+	}}
+	s, _ := newShell(t, p)
+	tt := ui.NewTester(s.View, 900, 600)
+	host, _ := kernel.Use(s.Kernel, shell.HostKey)
+	for _, hidden := range []bool{false, true} {
+		s.host.sidebarHidden.Set(hidden)
+		host.ShowPage("pages.focused")
+		tt.Frame()
+		if tt.HasText("Conversations") || !tt.HasText("Focused body") {
+			t.Fatalf("focused page: %q", tt.Texts())
+		}
+		if err := tt.Click("Show sidebar"); err == nil {
+			t.Fatal("sidebar toggle is available on focused page")
+		}
+		if s.host.sidebarHidden.Get() != hidden {
+			t.Fatal("page changed sidebar preference")
+		}
+		host.ShowPage("pages.chat")
+		tt.Frame()
+		if tt.HasText("Conversations") == hidden {
+			t.Fatal("sidebar preference was not restored")
+		}
 	}
 }

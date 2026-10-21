@@ -5,7 +5,6 @@ package sessions
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -331,15 +330,18 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, s agent.Session) {
 	case b.Hovered():
 		b.Background(pal.Hover)
 	}
+	tooltip := title
+	if s.Directory != "" {
+		tooltip += "\n" + s.Directory
+	}
+	b.Tooltip(tooltip)
 	b.OnClick(func() { p.open(s) })
 	b.Children(func() {
 		ui.Text(c, title).FontSize(13.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
-		if s.Directory != "" {
-			ui.Text(c, filepath.Base(s.Directory)).FontSize(10.5).TextColor(pal.Faint).Shrink(0).SingleLine()
-		}
 		if p.unread[s.ID] {
 			ui.Box(c).Size(7, 7).Radius(4).Background(pal.Orange).Shrink(0).Label("Unread")
 		}
+		c.Key("options")
 		kebab := ui.ButtonBase(c).Label("Options for "+title).Size(22, 22).Radius(6).Center().Shrink(0)
 		kebab.Menu(func(m *ui.Menu) {
 			if m.Item("Rename…").Chosen() {
@@ -352,7 +354,12 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, s agent.Session) {
 		if kebab.Hovered() {
 			kebab.Background(pal.Hover)
 		}
-		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Faint) })
+		// Keep the control mounted so Tab can reveal it without moving the title.
+		if !current && !b.Hovered() && !b.FocusWithin() && !kebab.Focused() && !kebab.Hovered() {
+			kebab.Opacity(0)
+		}
+		kebab.Tooltip("Conversation options")
+		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
 	})
 }
 

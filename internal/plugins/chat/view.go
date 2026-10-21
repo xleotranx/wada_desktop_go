@@ -21,7 +21,7 @@ import (
 func (p *Plugin) view(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	p.prepareMarkdown(c, pal)
-	ui.Column(c).Grow(1).FillHeight().Background(pal.Bg).Children(func() {
+	ui.Column(c).Grow(1).FillHeight().Background(pal.CanvasBg).Children(func() {
 		ui.Box(c).Grow(1).Children(func() {
 			switch {
 			case len(p.t.rows) > 0 || p.working():
@@ -74,7 +74,7 @@ func (p *Plugin) empty(c *ui.Context, pal native.Palette) {
 			title = "This conversation is empty"
 		}
 		ui.Text(c, title).FontSize(26).FontWeight(600).TextColor(pal.Text)
-		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(11.5).TextColor(pal.Faint)
+		ui.Text(c, "Enter sends  ·  Shift+Enter adds a line").FontSize(12).TextColor(pal.Muted)
 	})
 }
 
@@ -275,7 +275,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			options := onechat.ComposerOptions{
-				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send message", StopLabel: "Stop the agent",
+				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send", StopLabel: "Stop",
 				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
 			}
 			if len(attachments) > 0 {
@@ -322,7 +322,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				})
 			}
 			if st := p.agent.Status(); st.State != agent.Ready {
-				ui.Text(c, connectionLine(st)).FontSize(11.5).TextColor(pal.Faint).Margin(6, 0, 0, 0).SingleLine()
+				ui.Text(c, connectionLine(st)).FontSize(12).TextColor(pal.Muted).Margin(6, 0, 0, 0).SingleLine()
 			}
 		})
 	})

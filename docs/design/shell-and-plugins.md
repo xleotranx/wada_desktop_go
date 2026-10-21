@@ -19,6 +19,16 @@ contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey`,
 | `shell.TitleBar` | items at the end of the title strip |
 | `shell.Overlays` | above everything (dialogs) |
 
+The conversation sidebar sits on the warm window background. Main pages occupy
+an inset, rounded panel with a lighter canvas and a subtle border and shadow.
+A separate window toolbar above both panes keeps the sidebar toggle at the left,
+the page title centered over the conversation pane, and title-bar contributions
+at the right. With the sidebar hidden, the title is centered over the window. The sidebar resize divider blends into the window
+background while retaining pointer and keyboard resizing.
+
+A `shell.Page` can set `HideSidebar` to use the full content area and omit the
+sidebar toggle, while keeping the same toolbar and inset canvas. This leaves the saved sidebar visibility and width unchanged.
+
 Every render, command and title callback runs through `kernel.Invoke`, so a panic
 disables only that plugin; the shell shows a toast naming it.
 
@@ -70,12 +80,18 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 fill it) and its rename/delete dialogs (`shell.Overlays`). It reloads the first page
 when the backend becomes ready and after a turn ends, pages with "Show more", searches
 after a short pause (a newer query cancels the older), and marks conversations that
-finished a turn while another was open. It has no pins, archive or grouping by folder.
+finished a turn while another was open. Rows prioritize the conversation title;
+tooltips show the full title and project path. The options button stays keyboard
+accessible and appears on hover, focus, or selection. It has no pins, archive or
+grouping by folder.
 
 `internal/plugins/settings` contributes the settings page, a sidebar button and
-"Settings…" (⌘,). It draws every `settings.Sections` entry in order, and adds its own
-Appearance and Plugins sections; the latter turns plugins on and off through
-`shell.Host`. The OpenCode, Pi and notifications plugins contribute their own sections.
+"Settings…" (⌘,). The page hides the conversation sidebar and offers “Back to chat” above its own
+navigation. It lists `settings.Sections` entries in order in a navigation column and renders
+only the selected section in a separately scrolling detail pane. If that section
+disappears, it shows the first available section. It adds its own Appearance and
+Plugins sections; appearance offers System, Light and Dark choices, and the plugin
+list uses switches to turn optional plugins on and off through `shell.Host`. The OpenCode, Pi and notifications plugins contribute their own sections.
 
 ## Plugin diagnostics
 
@@ -96,7 +112,8 @@ conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
 Switch work and the pending choice belong to that conversation; navigating away
 cancels the work and drops its completion.
-`chat.Conversation.Model` carries the open conversation's model.
+`chat.Conversation.Model` carries the open conversation's model. The model picker
+has a subtle filled background; effort and mode use quieter text controls.
 
 ## Attachments
 

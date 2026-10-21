@@ -21,6 +21,9 @@ type View struct {
 type Page struct {
 	Title  func() string // shown in the title bar and the window title; may be nil
 	Render func(c *ui.Context)
+	// HideSidebar gives this page the full content area and omits the sidebar toggle.
+	// The user’s saved sidebar visibility and width are preserved.
+	HideSidebar bool
 }
 
 var (

@@ -11,6 +11,7 @@ import (
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -195,6 +196,7 @@ func (p *Plugin) label(ref agent.ModelRef) string {
 }
 
 func (p *Plugin) view(c *ui.Context) {
+	pal := native.PaletteFor(c)
 	ref := p.current()
 	options := make([]onechat.Option, 0, len(p.catalog))
 	for _, m := range p.catalog {
@@ -211,11 +213,12 @@ func (p *Plugin) view(c *ui.Context) {
 	if !p.loaded {
 		empty = "Loading models…"
 	}
-	ui.Row(c).AlignItems(ui.Center).Gap(2).MinWidth(0).Children(func() {
+	ui.Row(c).AlignItems(ui.Center).Gap(6).MinWidth(0).Children(func() {
 		picked := onechat.Picker(c, &p.modelPicker, onechat.PickerOptions{
 			Label: p.label(ref), SearchLabel: "Search models", EmptyText: empty,
 			Icon: lucide.Cpu, Options: options, Selected: modelKey(ref), Width: 300,
 		})
+		picked.Trigger.MaxWidth(220).Background(pal.Selected).Tooltip("Model: " + p.label(ref))
 		if picked.Chosen != "" {
 			i := slices.IndexFunc(p.catalog, func(m agent.Model) bool { return modelKey(m.Ref) == picked.Chosen })
 			if i >= 0 {
@@ -236,8 +239,9 @@ func (p *Plugin) view(c *ui.Context) {
 				selected = defaultEffort
 			}
 			chosen := onechat.Picker(c, &p.effortPicker, onechat.PickerOptions{
-				Label: effortLabel, Icon: lucide.Gauge, Options: efforts, Selected: selected, Width: 200,
+				Label: effortLabel, Options: efforts, Selected: selected, Width: 200,
 			})
+			chosen.Trigger.MaxWidth(120).Tooltip("Reasoning effort")
 			if chosen.Chosen != "" {
 				next := ref
 				next.Variant = chosen.Chosen
@@ -277,7 +281,7 @@ func (p *Plugin) modeView(c *ui.Context) {
 		}
 	}
 	picked := onechat.Picker(c, &p.modePicker, onechat.PickerOptions{
-		Label: label, Icon: lucide.Bot, Options: options, Selected: selected, Width: 260,
+		Label: label, Options: options, Selected: selected, Width: 260,
 	})
 	if picked.Chosen != "" {
 		p.newMode.Set(picked.Chosen)

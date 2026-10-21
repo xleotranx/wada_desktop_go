@@ -68,7 +68,7 @@ func TestSwitchesTurnNoticesOff(t *testing.T) {
 	h, p, _, host := start(t)
 	tt := ui.NewTester(p.section, 600, 300)
 	tt.Frame()
-	if err := tt.Click("When a turn finishes"); err != nil {
+	if err := tt.Click("Notify: When a turn finishes"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

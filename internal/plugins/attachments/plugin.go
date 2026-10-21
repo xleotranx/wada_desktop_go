@@ -266,12 +266,15 @@ func mimeOf(path string, data []byte) string {
 func (p *Plugin) button(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	label := "Attach files"
-	b := ui.ButtonBase(c).Label(label).Size(28, 28).Radius(7).Center().Cursor(ui.CursorPointer).Tooltip(label)
-	if b.Hovered() {
-		b.Background(pal.Hover)
-	}
-	b.OnClick(p.pick)
-	b.Children(func() { ui.Icon(c, lucide.Paperclip()).FontSize(15).TextColor(pal.Muted) })
+	ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(0, 6, 0, 0).Children(func() {
+		b := ui.ButtonBase(c).Label(label).Size(28, 28).Radius(7).Center().Cursor(ui.CursorPointer).Tooltip(label)
+		if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.OnClick(p.pick)
+		b.Children(func() { ui.Icon(c, lucide.Paperclip()).FontSize(15).TextColor(pal.Muted) })
+		ui.Box(c).Width(1).Height(16).Background(pal.Hairline)
+	})
 }
 
 func (p *Plugin) list(c *ui.Context) {

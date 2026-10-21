@@ -31,7 +31,16 @@ func (p *Plugin) section(c *ui.Context) {
 		p.form.conn = p.conn.Get()
 	}
 	edit := func() { p.form.dirty, p.form.err = true, "" }
-	ui.Text(c, statusText(p.status)).FontSize(12.5).TextColor(pal.Muted)
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+		tint := pal.Muted
+		if p.status.State == agent.Ready {
+			tint = pal.GreenBadge
+		}
+		ui.Box(c).Size(7, 7).Radius(4).Background(tint)
+		ui.Text(c, statusText(p.status)).FontSize(12.5).TextColor(pal.Muted).Grow(1).MinWidth(0)
+	})
+	ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
+	ui.Text(c, "Connection mode").FontSize(14).FontWeight(500).TextColor(pal.Text)
 	ui.Row(c).Gap(8).Children(func() {
 		native.Choice(c, "Run locally", !p.form.conn.Remote, func() { p.form.conn.Remote = false; edit() })
 		native.Choice(c, "Connect to a server", p.form.conn.Remote, func() { p.form.conn.Remote = true; edit() })
@@ -44,7 +53,7 @@ func (p *Plugin) section(c *ui.Context) {
 			Label("Password").Placeholder("Password").FontSize(13).Password()
 		pw.OnChange(edit)
 	} else {
-		ui.Text(c, "The app starts `opencode serve` from your PATH and stops it on quit.").FontSize(12).TextColor(pal.Faint)
+		ui.Text(c, "Wada starts OpenCode on this Mac and stops it when you quit.").FontSize(12).TextColor(pal.Muted)
 	}
 	if p.form.err != "" {
 		ui.Text(c, p.form.err).FontSize(12).TextColor(pal.Danger)

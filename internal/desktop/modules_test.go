@@ -25,7 +25,7 @@ func (chatBackend) Client(agent.Config) (agent.Client, error) {
 	return nil, errors.New("no workspace client")
 }
 func (chatBackend) ValidateAddress(address string) (string, error) { return address, nil }
-func newCoreTestApp(t *testing.T, factories ...feature.Factory) *app {
+func newCoreTestApp(t testing.TB, factories ...feature.Factory) *app {
 	t.Helper()
 	a := newApp(chatBackend{}, factories...)
 	a.runtime.background = func(work func() func()) { work()() }

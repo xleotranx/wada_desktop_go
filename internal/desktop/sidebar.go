@@ -155,67 +155,7 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 			}
 
 			if a.search.searchText == "" {
-				// The lists scroll once they outgrow the pane, under the
-				// New chat and search rows, which stay put.
-				ui.Scroll(c).Grow(1).FillWidth().Gap(2).Children(func() {
-					if a.layout.sidebarFilter != "" {
-						a.filteredChats(c, p)
-						return
-					}
-					a.sectionHeading(c, p, "Pinned", nil)
-					pins := a.pinnedSessions()
-					if len(pins) == 0 {
-						ui.Row(c).Height(27).Padding(0, 8).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, "No pinned chats").FontSize(12.5).TextColor(p.Faint).SingleLine()
-						})
-					} else {
-						for _, s := range pins {
-							a.pinnedSessionRow(c, p, s)
-						}
-					}
-
-					addProjects := a.openProjectDialog
-					if !a.localActive() {
-						// A remote server's folders are its own disk's; the
-						// system panel is this machine's to hand over.
-						addProjects = func() { a.browseServerFolders(false) }
-					}
-					if !a.hasWorkspaceFeatures() {
-						a.sectionHeading(c, p, "Chats", nil)
-						for _, session := range a.listedSessions() {
-							if !a.scope().pinned[session.ID] {
-								a.sessionRow(c, p, session)
-							}
-						}
-						if a.scope().nextCursor != "" {
-							if components.Button(c, "Load older chats", components.ButtonSecondary).Clicked() {
-								a.loadOlderChats()
-							}
-						}
-						return
-					}
-					a.sectionHeading(c, p, "Projects", addProjects)
-					projects := a.projectDirectories()
-					if len(projects) == 0 {
-						hint := "Add a project to get started"
-						if !a.localActive() {
-							hint = "The server lists its projects here"
-						}
-						ui.Text(c, hint).FontSize(12).TextColor(p.Faint).MarginStart(8)
-					}
-					visible := len(projects)
-					if !a.layout.projectsExpanded && visible > 5 {
-						visible = 5
-					}
-					ui.Column(c).FillWidth().Gap(2).Children(func() {
-						for _, dir := range projects[:visible] {
-							a.projectDragRow(c, p, dir)
-						}
-						if visible < len(projects) || a.layout.projectsExpanded {
-							a.moreProjectsRow(c, p, len(projects)-visible)
-						}
-					})
-				})
+				a.sidebarList(c, p)
 			}
 			if a.search.searchText != "" {
 				a.searchResultsPane(c, p)
@@ -435,13 +375,14 @@ func (a *app) sectionHeading(c *ui.Context, p palette, title string, add func())
 	})
 }
 
-func (a *app) pinnedSessions() []agent.Session {
-	out := make([]agent.Session, 0, len(a.scope().pinned))
+func (a *app) pinnedSessions() []*agent.Session {
+	out := make([]*agent.Session, 0, len(a.scope().pinned))
 	order := make(map[string]int, len(a.scope().pinOrder))
 	for i, id := range a.scope().pinOrder {
 		order[id] = i
 	}
-	for _, s := range a.scope().sessions {
+	for i := range a.scope().sessions {
+		s := &a.scope().sessions[i]
 		if a.scope().pinned[s.ID] && !a.chatArchived(s.ID) {
 			out = append(out, s)
 		}
@@ -569,29 +510,21 @@ const projectChatPreview = 5
 // projectRow is one folder of the Projects list, with its chats nested
 // under it while it is open: clicking the row folds them away or back,
 // and the hover + starts a fresh chat there.
-func (a *app) projectRow(c *ui.Context, p palette, dir string) ui.Element {
+func (a *app) projectRow(c *ui.Context, p palette, dir string, chatCount int, active bool) ui.Element {
 	name := dirBase(dir)
 	folders := a.projectFolders(dir)
-	chats := a.projectChats(dir)
 	open := !a.layout.projectCollapsed[dir]
 	label := "Show chats in " + name
 	if open {
 		label = "Hide chats in " + name
 	}
 	c.Key("project:" + dir)
-	active := false
-	for _, s := range chats {
-		if s.ID == string(a.conversation.target.session) {
-			active = true
-			break
-		}
-	}
 	b := a.row(c, p, label, active)
 	b.Height(30).Tooltip(strings.Join(folders, "\n"))
 	hovered := b.Hovered()
 	b.OnClick(func() { a.toggleProjectOpen(dir) })
 	b.Children(func() {
-		if len(chats) > 0 {
+		if chatCount > 0 {
 			chev := icChevRight
 			if open {
 				chev = icChevDown
@@ -666,29 +599,14 @@ func (a *app) projectRow(c *ui.Context, p palette, dir string) ui.Element {
 		options.Children(func() { ui.Icon(c, icEllipsis).FontSize(13).TextColor(p.Muted) })
 	})
 
-	if !open || len(chats) == 0 {
-		return b
-	}
-	visible := len(chats)
-	if !a.layout.projectChatsShown[dir] && visible > projectChatPreview {
-		visible = projectChatPreview
-	}
-	ui.Column(c).FillWidth().Gap(1).Children(func() {
-		for _, s := range chats[:visible] {
-			a.projectChatRow(c, p, s)
-		}
-		if len(chats) > projectChatPreview {
-			a.moreProjectChatsRow(c, p, dir, len(chats)-projectChatPreview)
-		}
-	})
 	return b
 }
 
 // projectDragRow lets a local project be dragged over another to change
 // the list's order. A server's projects come from its own report and have
 // nothing here to reorder.
-func (a *app) projectDragRow(c *ui.Context, p palette, dir string) {
-	row := a.projectRow(c, p, dir)
+func (a *app) projectDragRow(c *ui.Context, p palette, dir string, chatCount int, active bool) {
+	row := a.projectRow(c, p, dir, chatCount, active)
 	if !a.localActive() {
 		return
 	}
@@ -706,10 +624,11 @@ func (a *app) projectDragRow(c *ui.Context, p palette, dir string) {
 
 // projectChats lists the conversations working in one project's folder,
 // newest first, the way the tree nests them.
-func (a *app) projectChats(dir string) []agent.Session {
+func (a *app) projectChats(dir string) []*agent.Session {
 	folders := a.projectFolders(dir)
-	var chats []agent.Session
-	for _, s := range a.scope().sessions {
+	var chats []*agent.Session
+	for i := range a.scope().sessions {
+		s := &a.scope().sessions[i]
 		if a.chatArchived(s.ID) {
 			continue
 		}

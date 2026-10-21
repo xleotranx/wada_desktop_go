@@ -116,6 +116,8 @@ type searchState struct {
 
 // viewState owns the view fields coordinated on the UI thread.
 type viewState struct {
+	sidebarList       ui.ListState
+	sidebarRows       []sidebarItem
 	sidebarW          float32
 	browserW          float32
 	sidebarCollapsed  bool

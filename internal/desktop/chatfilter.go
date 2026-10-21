@@ -1,8 +1,6 @@
 package desktop
 
 import (
-	"fmt"
-
 	"wada-desktop-go/internal/agent"
 
 	"github.com/egoist/mygo/ui"
@@ -19,11 +17,15 @@ const (
 // field takes over the list while it has a query, so a filter starts by
 // closing it.
 func (a *app) setSidebarFilter(value string) {
+	previous := a.layout.sidebarFilter
 	switch value {
 	case sidebarFilterUnread, sidebarFilterAttention, sidebarFilterDrafts, sidebarFilterArchived:
 		a.layout.sidebarFilter = value
 	default:
 		a.layout.sidebarFilter = ""
+	}
+	if a.layout.sidebarFilter != previous {
+		a.layout.sidebarList = ui.ListState{}
 	}
 	a.search.searchText = ""
 	a.search.searchOpen = false
@@ -46,10 +48,11 @@ func sidebarFilterLabel(value string) string {
 
 // filteredSessions lists what the active filter shows, once each, in the
 // server's own order.
-func (a *app) filteredSessions() []agent.Session {
+func (a *app) filteredSessions() []*agent.Session {
 	scope := a.scope()
-	out := make([]agent.Session, 0, len(scope.sessions))
-	for _, s := range scope.sessions {
+	out := make([]*agent.Session, 0, len(scope.sessions))
+	for i := range scope.sessions {
+		s := &scope.sessions[i]
 		archived := scope.archived[s.ID]
 		if a.layout.sidebarFilter == sidebarFilterArchived {
 			// Only the archived filter shows them, and it shows nothing else.
@@ -77,9 +80,8 @@ func (a *app) filteredSessions() []agent.Session {
 	return out
 }
 
-// filteredChats draws the sidebar list while a filter is on.
-func (a *app) filteredChats(c *ui.Context, p palette) {
-	rows := a.filteredSessions()
+// filteredChatsHeading labels the active filter and lets the user clear it.
+func (a *app) filteredChatsHeading(c *ui.Context, p palette) {
 	ui.Row(c).Height(28).Padding(0, 8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, sidebarFilterLabel(a.layout.sidebarFilter)).FontSize(11.5).
 			FontWeight(600).TextColor(p.Muted).SingleLine()
@@ -94,14 +96,6 @@ func (a *app) filteredChats(c *ui.Context, p palette) {
 			ui.Icon(c, icClose).FontSize(11).TextColor(p.Faint)
 		})
 	})
-	if len(rows) == 0 {
-		ui.Text(c, fmt.Sprintf("No %s.", filterEmptyNoun(a.layout.sidebarFilter))).
-			FontSize(12.5).TextColor(p.Faint).Margin(4, 0, 0, 8)
-		return
-	}
-	for _, s := range rows {
-		a.sessionRow(c, p, s)
-	}
 }
 
 func filterEmptyNoun(value string) string {

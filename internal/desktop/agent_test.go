@@ -765,7 +765,7 @@ func TestSidebarScrollsWhenRowsOverflow(t *testing.T) {
 	if !tt.HasText("Pinned 00") {
 		t.Fatalf("the first pinned chat is not listed: %v", tt.Texts())
 	}
-	if last, ok := tt.Find("Pinned 39"); !ok || last.W != 0 || last.H != 0 {
+	if last, ok := tt.Find("Pinned 39"); ok && last.W > 0 && last.H > 0 {
 		t.Fatalf("the last pinned chat fits without a scroll: %+v", last)
 	}
 

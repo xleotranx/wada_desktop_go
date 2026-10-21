@@ -1,22 +1,17 @@
 // Package usage shows, at the end of the composer, what the open conversation
-// has cost and how full its context window is. The backends report usage
+// has cost and how full its context window is, with a panel that breaks the
+// latest answer's tokens down and totals the conversation. The backends report usage
 // with the stored messages, not in their events, so the plugin reads the
 // conversation's messages when it opens and again after every turn.
 package usage
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
-
-	"github.com/egoist/mygo/ui"
-	onechat "github.com/oneo-me/onevra/source/components/chat"
 )
 
 // Plugin is the usage meter. The zero value is ready to install.
@@ -37,7 +32,7 @@ type Plugin struct {
 	catalogRead bool
 	catalogTask kernel.Task
 
-	meter onechat.MeterState
+	open bool // the panel
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -65,7 +60,7 @@ func (p *Plugin) follow(id agent.SessionID) {
 		return
 	}
 	p.load.Cancel()
-	p.session, p.sum, p.known, p.meter.Open = id, summary{}, false, false
+	p.session, p.sum, p.known, p.open = id, summary{}, false, false
 	if id != "" {
 		p.reload()
 	}
@@ -113,9 +108,14 @@ func (p *Plugin) readCatalog() {
 
 // summary is a conversation's usage.
 type summary struct {
-	cost    float64
-	context int            // tokens the latest answer filled
-	model   agent.ModelRef // the model that gave it
+	cost    float64      // the whole conversation's
+	total   agent.Tokens // the whole conversation's
+	replies int          // assistant messages
+
+	// The latest answer that reported tokens: what fills the context now.
+	last     agent.Tokens
+	lastCost float64
+	model    agent.ModelRef
 }
 
 func summarize(messages []agent.Message) summary {
@@ -124,71 +124,28 @@ func summarize(messages []agent.Message) summary {
 		if m.Role != agent.RoleAssistant {
 			continue
 		}
+		s.replies++
 		s.cost += m.Cost
-		if n := m.Tokens.Context(); n > 0 {
-			s.context, s.model = n, m.Model
+		t := m.Tokens
+		s.total.Input += t.Input
+		s.total.Output += t.Output
+		s.total.Reasoning += t.Reasoning
+		s.total.CacheRead += t.CacheRead
+		s.total.CacheWrite += t.CacheWrite
+		if t.Context() > 0 {
+			s.last, s.lastCost, s.model = t, m.Cost, m.Model
 		}
 	}
 	return s
 }
 
-// window is the context window of the latest answer's model; 0 when unknown.
-func (p *Plugin) window() int {
+// model is the catalog's entry for the latest answer's model; zero when the
+// catalog doesn't have it.
+func (p *Plugin) model() agent.Model {
 	for _, m := range p.catalog {
 		if m.Ref.Provider == p.sum.model.Provider && m.Ref.ID == p.sum.model.ID {
-			return m.Context
+			return m
 		}
 	}
-	return 0
-}
-
-func (p *Plugin) view(c *ui.Context) {
-	if !p.known || (p.sum.cost == 0 && p.sum.context == 0) {
-		return
-	}
-	pal := native.PaletteFor(c)
-	ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
-		if p.sum.cost > 0 {
-			ui.Text(c, dollars(p.sum.cost)).FontSize(12).TextColor(pal.Muted).SingleLine().Label("Cost " + dollars(p.sum.cost))
-		}
-		if p.sum.context > 0 {
-			value, fraction := tokens(p.sum.context)+" tokens", -1.0
-			if limit := p.window(); limit > 0 {
-				fraction = float64(p.sum.context) / float64(limit)
-				value = fmt.Sprintf("%s / %s (%d%%)", tokens(p.sum.context), tokens(limit), int(fraction*100+.5))
-			}
-			onechat.ContextMeter(c, &p.meter, onechat.ContextMeterOptions{
-				Label: "Context window", Tooltip: "Context " + value, Title: "Context window", Value: value, Fraction: fraction,
-			})
-		}
-	})
-}
-
-// dollars spells a cost: "$0.42", or "<$0.01" for less than a cent.
-func dollars(v float64) string {
-	if v < 0.005 {
-		return "<$0.01"
-	}
-	return fmt.Sprintf("$%.2f", v)
-}
-
-// tokens spells a count shortly: "812", "4.2k", "45k", "1.2M".
-func tokens(n int) string {
-	switch {
-	case n < 1000:
-		return strconv.Itoa(n)
-	case n < 10_000:
-		return trim(fmt.Sprintf("%.1f", float64(n)/1000)) + "k"
-	case n < 999_500:
-		return strconv.Itoa((n+500)/1000) + "k"
-	}
-	return trim(fmt.Sprintf("%.1f", float64(n)/1_000_000)) + "M"
-}
-
-// trim drops a trailing ".0".
-func trim(s string) string {
-	if len(s) > 2 && s[len(s)-2:] == ".0" {
-		return s[:len(s)-2]
-	}
-	return s
+	return agent.Model{}
 }

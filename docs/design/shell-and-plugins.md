@@ -229,15 +229,25 @@ has a subtle filled background; effort and mode use quieter text controls.
 ## Usage
 
 `internal/plugins/usage` requires `agent.ServiceKey` and `chat.ControllerKey` and adds
-the open conversation's usage to `chat.ComposerTrailing`: its total cost, then
-Onevra's context ring for how full the context window is, from the latest assistant
-message's `Tokens.Context` over its model's `Model.Context`. Clicking the ring shows
-the numbers ("44k / 200k (22%)"); without a catalog or a window it shows the tokens
-alone. Backends report usage only with stored messages, so the plugin reads the
-conversation's `Messages` when it opens and again when one of its turns ends. A read
-belongs to the conversation it was for: a later navigation drops it, and a failed
-read shows nothing, since the chat page reports the failure. A new chat, or a
-conversation with no usage, shows nothing. The model catalog is read once.
+a button to `chat.ComposerTrailing`: the conversation's total cost, the share of the
+context window in use and a ring that fills with it (the accent, a warning from 80%,
+danger from 95%). What fills the context is the latest assistant message that reported
+tokens: its `Tokens.Context` over its model's `Model.Context`. The button opens a panel
+with:
+
+- the context window: used over the window, a strip with each kind of token in its own
+  color and the free space, and a line for each kind (input, cache read, cache write,
+  output, reasoning) and the free space with its share of the window, or of what is
+  used when the window is unknown;
+- the conversation: the model (with its variant), the number of replies, the total
+  cost and the latest reply's ("Free" on a free model);
+- the conversation's tokens of each kind, summed over every reply.
+
+Backends report usage only with stored messages, so the plugin reads the conversation's
+`Messages` when it opens and again when one of its turns ends. A read belongs to the
+conversation it was for: a later navigation drops it, and a failed read shows nothing,
+since the chat page reports the failure. A new chat, or a conversation with no usage,
+shows nothing. The model catalog is read once, for names and context windows.
 
 ## Attachments
 

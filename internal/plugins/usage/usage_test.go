@@ -45,11 +45,8 @@ func TestOpenConversationShowsCostAndContext(t *testing.T) {
 	if !tt.HasText("$0.42") {
 		t.Fatalf("cost: %q", tt.Texts())
 	}
-	if p.sum.context != 44_000 || p.window() != 200_000 {
-		t.Fatalf("context %d of %d", p.sum.context, p.window())
-	}
-	if _, ok := tt.Find("Context window"); !ok {
-		t.Fatal("no context meter")
+	if p.sum.last.Context() != 44_000 || p.model().Context != 200_000 || !tt.HasText("22%") {
+		t.Fatalf("context %d of %d: %q", p.sum.last.Context(), p.model().Context, tt.Texts())
 	}
 	chat.NewChat("")
 	h.Flush()
@@ -73,8 +70,38 @@ func TestTurnEndReadsUsageAgain(t *testing.T) {
 	}
 	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TextDelta, Session: "s1"}, {Kind: agent.TurnSucceeded, Session: "s1"}})
 	h.Flush()
-	if a.Called("messages") != reads+1 || p.sum.cost != 1.42 || p.sum.context != 100 {
+	if a.Called("messages") != reads+1 || p.sum.cost != 1.42 || p.sum.last.Context() != 100 || p.sum.replies != 3 {
 		t.Fatalf("reads %d, usage %+v", a.Called("messages")-reads, p.sum)
+	}
+}
+
+func TestPanelBreaksTheContextDown(t *testing.T) {
+	h, p, _, chat := start(t)
+	chat.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	tt := ui.NewTester(p.view, 420, 700)
+	tt.Frame()
+	if err := tt.Click("Context window"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	// The latest answer: 2k in, 41k cached, 500 out, 500 reasoning, of 200k.
+	for _, want := range []string{"44k / 200k", "Cache read", "41k", "20.5%", "Free space", "156k", "78%",
+		"Replies", "2", "Total cost", "$0.42", "Latest reply", "$0.17", "Tokens in this conversation", "49k"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %q in %q", want, tt.Texts())
+		}
+	}
+}
+
+func TestSummaryTotalsTheConversation(t *testing.T) {
+	s := summarize([]agent.Message{
+		{Role: agent.RoleUser},
+		{Role: agent.RoleAssistant, Cost: 0.1, Tokens: agent.Tokens{Input: 10, Output: 2, CacheRead: 5}},
+		{Role: agent.RoleAssistant, Cost: 0.2}, // reported nothing: the context stays the previous answer's
+	})
+	if s.replies != 2 || s.total != (agent.Tokens{Input: 10, Output: 2, CacheRead: 5}) || s.last.Context() != 17 || s.lastCost != 0.1 {
+		t.Fatalf("summary %+v", s)
 	}
 }
 
@@ -95,6 +122,14 @@ func TestSpelling(t *testing.T) {
 		if got := tokens(n); got != want {
 			t.Errorf("tokens(%d) = %q, want %q", n, got, want)
 		}
+	}
+	for n, want := range map[[2]int]string{{0, 100}: "0%", {1, 10_000}: "<0.1%", {74, 1000}: "7.4%", {1, 2}: "50%", {5, 0}: ""} {
+		if got := share(n[0], n[1]); got != want {
+			t.Errorf("share(%v) = %q, want %q", n, got, want)
+		}
+	}
+	if cost(0, true) != "Free" || cost(0, false) != "$0.00" {
+		t.Error("zero cost")
 	}
 	for v, want := range map[float64]string{0.001: "<$0.01", 0.42: "$0.42", 12.345: "$12.35"} {
 		if got := dollars(v); got != want {

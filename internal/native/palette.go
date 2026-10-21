@@ -10,7 +10,7 @@ type Palette struct {
 	Text, Muted, Faint                                 ui.Color
 	Orange                                             ui.Color
 	DetailBg                                           ui.Color
-	Danger, DangerText                                 ui.Color
+	Danger, DangerText, Warning                        ui.Color
 	DiffAdd, DiffDel                                   ui.Color
 	Link                                               ui.Color
 	GreenBadge                                         ui.Color
@@ -42,6 +42,7 @@ func PaletteFor(c *ui.Context) Palette {
 		DetailBg:   t.Surface,
 		Danger:     t.Danger,
 		DangerText: DangerText,
+		Warning:    t.Warning,
 		DiffAdd:    t.Success,
 		DiffDel:    t.Danger,
 		Link:       t.Accent,

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+
 	"wada-desktop-go/internal/agent"
 
 	"github.com/egoist/mygo/ui"
@@ -653,40 +654,20 @@ func (a *app) settingsAppearance(c *ui.Context, p palette) {
 // a manual. The divider keys ride under the groups because they belong to
 // a focused divider rather than to the window.
 func (a *app) settingsShortcuts(c *ui.Context, p palette) {
+	rows := make([][2]string, 0, len(a.shortcutSpecs()))
+	for _, spec := range a.shortcutSpecs() {
+		rows = append(rows, [2]string{spec.label, a.shortcutKeys(spec.id)})
+	}
 	groups := []struct {
 		title string
 		rows  [][2]string
 	}{
-		{"General", [][2]string{
-			{"Command palette", "⌘K"},
-			{"Settings", "⌘,"},
-			{"Keyboard shortcuts", "⌘/"},
-			{"Open a folder", "⌘O"},
+		{"Window commands", rows},
+		{"Navigation and input", [][2]string{
 			{"Close a dialog or find", "Esc"},
-			{"Conversation text larger", "⌘="},
-			{"Conversation text smaller", "⌘-"},
-			{"Reset conversation text", "⌘0"},
-		}},
-		{"Chats", [][2]string{
-			{"New chat", "⌘N"},
 			{"Open a recent chat", "⌘1…9"},
-			{"Find in chat", "⌘F"},
 			{"Find next match", "⌘G"},
 			{"Find previous match", "⌘⇧G"},
-			{"Search chats", "⌘⌥F"},
-			{"Choose a model", "⌃⇧M"},
-			{"Mark chat unread or read", "⌘⇧U"},
-			{"Next chat needing attention", "⌥⌘A"},
-		}},
-		{"Workspace", [][2]string{
-			{"Toggle sidebar", "⌘B"},
-			{"Toggle terminal", "⌘J / ⌃`"},
-			{"Toggle tools", "⌘⇧J"},
-			{"Toggle full view", "⌘⇧F"},
-			{"Activity view", "⌥⌘U"},
-			{"Quick open file", "⌘P"},
-			{"Toggle file pane", "⌘⇧E"},
-			{"Open Changes", "⌃⇧G"},
 			{"Move a focused divider", "← → / ↑ ↓"},
 			{"Reset a focused divider", "Home / End"},
 		}},
@@ -719,7 +700,7 @@ func (a *app) settingsShortcuts(c *ui.Context, p palette) {
 									AlignItems(ui.Center).Children(func() {
 									ui.Text(c, row[0]).FontSize(13).TextColor(p.Text).SingleLine()
 									ui.Spacer(c)
-									a.keycap(c, p, a.shortcutRowKeys(row[0], row[1]))
+									a.keycap(c, p, row[1])
 								})
 							}
 						})

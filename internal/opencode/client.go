@@ -18,10 +18,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/workspace"
-
-	"time"
 )
 
 // agent drives a headless opencode server: the app spawns `opencode serve`

@@ -3,16 +3,14 @@ package desktop
 import (
 	"context"
 	"crypto/rand"
-	"wada-desktop-go/internal/agent"
-	"wada-desktop-go/internal/runner"
-
 	"fmt"
-
 	"maps"
-
 	"slices"
 	"strings"
 	"time"
+
+	"wada-desktop-go/internal/agent"
+	"wada-desktop-go/internal/runner"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"

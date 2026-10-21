@@ -2,14 +2,15 @@ package coding
 
 import (
 	"fmt"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"path/filepath"
 	"sort"
+
 	"wada-desktop-go/internal/native"
 	"wada-desktop-go/internal/workspace"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 // openQuickOpen shows the centered file picker. It reads from the Files
@@ -72,7 +73,7 @@ func (a *Module) QuickOpenDialog(c *ui.Context, p native.Palette) {
 	if st == nil {
 		return
 	}
-	native.Dialog(c, p, &a.QuickOpen, 600, "Open file", func() {
+	native.Dialog(c, &a.QuickOpen, 600, "Open file", func() {
 		in := components.TextBox(c, &st.Query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
 			FillWidth().Label("Search files").Placeholder("Search files by name").
 			FontSize(13.5).OnTextKey(func(k ui.TextKey) bool {

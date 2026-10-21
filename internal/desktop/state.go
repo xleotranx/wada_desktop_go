@@ -60,6 +60,7 @@ type connectionsState struct {
 	serverFacts      map[string]agent.Facts
 	modelOff         map[string]bool
 	route            uint64
+	attempt          uint64
 }
 
 // conversationState owns the conversation fields coordinated on the UI thread.

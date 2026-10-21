@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/runner"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // A backend without filesystem or configuration capabilities exercises the shell
@@ -109,17 +110,20 @@ func TestChatOnlyCompositionRestoresStreamsStopsAndKeepsDrafts(t *testing.T) {
 }
 
 type notesModule struct {
-	host   feature.Host
-	count  int
-	closed bool
+	actionReads, panelReads int
+	host                    feature.Host
+	count                   int
+	closed                  bool
 }
 
 func (n *notesModule) ID() string { return "notes" }
 func (n *notesModule) Close()     { n.closed = true }
 func (n *notesModule) Actions() []feature.Action {
+	n.actionReads++
 	return []feature.Action{{ID: "notes", Title: "Open notes", Shortcut: "notes", Mods: ui.Cmd | ui.Alt, Key: ui.KeyN, MenuGroup: "View", MenuLabel: "Notes", Slash: "/notes", Run: func() { n.host.OpenPanel("Notes") }}}
 }
 func (n *notesModule) Panels() []feature.Panel {
+	n.panelReads++
 	return []feature.Panel{{ID: "Notes", Title: "Notes", Open: func() {}, Refresh: func() {}, Render: func(c *ui.Context) { ui.Button(c, "Add note").OnClick(func() { n.count++ }) }}}
 }
 func TestIndependentModuleRegistersPanelCommandsAndInput(t *testing.T) {
@@ -141,6 +145,14 @@ func TestIndependentModuleRegistersPanelCommandsAndInput(t *testing.T) {
 	a.conversation.draft = "/notes"
 	if !a.send() || a.conversation.draft != "" {
 		t.Fatal("module slash command was not handled")
+	}
+	a.openSettings(tabShortcuts)
+	tt.Frame()
+	if !tt.HasText("Open notes") {
+		t.Fatal("registered module shortcut is missing from keyboard settings")
+	}
+	if notes.actionReads != 1 || notes.panelReads != 1 {
+		t.Fatalf("contributions rebuilt during frames: actions=%d panels=%d", notes.actionReads, notes.panelReads)
 	}
 	a.closeWork()
 	if !notes.closed {
@@ -189,5 +201,33 @@ func TestBackendSettingsUseSeparateStores(t *testing.T) {
 	}
 	if _, err := metadataPath("../escape"); err == nil {
 		t.Fatal("backend id escaped its data directory")
+	}
+}
+
+func TestNewBackendAttemptInvalidatesPendingModuleRequest(t *testing.T) {
+	var module *notesModule
+	a := newCoreTestApp(t, func(host feature.Host) feature.Module { module = &notesModule{host: host}; return module })
+	runnerSink{a}.Status(runner.Status{Attempt: 1, State: healthConnecting})
+	var worker func() func()
+	a.runtime.background = func(work func() func()) { worker = work }
+	applied := false
+	feature.Run(module.host, new(feature.Request), func(context.Context) (string, error) { return "earlier attempt", nil }, func(string, error) { applied = true })
+	publish := worker()
+	old := a.runtime.workCtx
+	runnerSink{a}.Status(runner.Status{Attempt: 2, State: healthConnecting})
+	publish()
+	if applied || old.Err() == nil {
+		t.Fatalf("attempt replacement: applied=%v old work canceled=%v", applied, old.Err() != nil)
+	}
+}
+
+func TestChatOnlyKeyboardOmitsUninstalledFeatures(t *testing.T) {
+	a := newCoreTestApp(t)
+	a.openSettings(tabShortcuts)
+	tt := ui.NewTester(a.view, 1400, 920)
+	for _, label := range []string{"Toggle terminal", "Quick open file", "Open a folder", "Open Changes", "Toggle Files"} {
+		if tt.HasText(label) {
+			t.Fatalf("keyboard settings advertise uninstalled feature %q", label)
+		}
 	}
 }

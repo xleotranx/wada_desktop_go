@@ -15,13 +15,14 @@ import (
 // palette.go means a pane has grown its own theme. Tests may name a
 // literal color to check a pixel; the app's surfaces may not.
 func TestColorsStayInThePalette(t *testing.T) {
+	sourceRoot := filepath.Join("..", "..")
 	var files []string
-	err := filepath.WalkDir("../..", func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() {
-			if path != "." && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "build") {
+			if path != sourceRoot && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "build") {
 				return filepath.SkipDir
 			}
 			return nil
@@ -34,9 +35,12 @@ func TestColorsStayInThePalette(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(files) == 0 {
+		t.Fatal("palette guard did not scan any Go source")
+	}
 	fset := token.NewFileSet()
 	for _, name := range files {
-		if filepath.Base(name) == "palette.go" || strings.HasSuffix(name, "_test.go") {
+		if filepath.Clean(name) == filepath.Join("..", "..", "internal", "native", "palette.go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		f, perr := parser.ParseFile(fset, name, nil, 0)

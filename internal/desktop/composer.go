@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
@@ -127,7 +128,7 @@ func (a *app) insertFileMention(path string) {
 // dialog is the frame every dialog shares: Onevra's modal panel over a dimmed
 // window, sized to the content it holds.
 func dialog(c *ui.Context, p palette, open *bool, width float32, label string, fn func()) {
-	native.Dialog(c, p, open, width, label, fn)
+	native.Dialog(c, open, width, label, fn)
 }
 
 func textField(c *ui.Context, label string, value *string, placeholder string) {

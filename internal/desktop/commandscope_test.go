@@ -2,10 +2,10 @@ package desktop
 
 import (
 	"testing"
+
 	"wada-desktop-go/internal/agent"
 
 	"github.com/egoist/mygo/ui"
-
 	"github.com/oneo-me/onevra/source/components/command"
 )
 

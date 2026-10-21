@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"time"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/workspace"
 )

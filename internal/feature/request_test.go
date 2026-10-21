@@ -29,3 +29,19 @@ func TestModuleLifetimeRejectsPendingWorkAndPublication(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestRejectsEarlierAttemptOnTheSameConnection(t *testing.T) {
+	lifetime, stop := context.WithCancel(context.Background())
+	defer stop()
+	current := Context{Work: lifetime, Connection: 1, Attempt: 1, Revision: 1}
+	var worker func() func()
+	host := Host{Lifetime: lifetime, Context: func() Context { return current }, Background: func(work func() func()) { worker = work }}
+	applied := false
+	Run(host, new(Request), func(context.Context) (string, error) { return "old attempt", nil }, func(string, error) { applied = true })
+	publish := worker()
+	current.Attempt = 2
+	publish()
+	if applied {
+		t.Fatal("earlier backend attempt updated the module")
+	}
+}

@@ -3,16 +3,17 @@ package coding
 import (
 	"context"
 	"fmt"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"path/filepath"
 	"strings"
 	"time"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
 	"wada-desktop-go/internal/workspace"
 
 	"github.com/egoist/mygo/ui"
 	onechat "github.com/oneo-me/onevra/source/components/chat"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 // mentionLimit bounds the @-file menu: enough to pick from, few enough

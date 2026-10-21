@@ -3,22 +3,25 @@ package coding
 import (
 	"context"
 	"fmt"
-	"github.com/egoist/mygo/ui"
-	onechat "github.com/oneo-me/onevra/source/components/chat"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"time"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
 	"wada-desktop-go/internal/workspace"
+
+	"github.com/egoist/mygo/ui"
+	onechat "github.com/oneo-me/onevra/source/components/chat"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 func (a *Module) WatchWorkspacePolicy(dir string) {
-	if a.Policy.Dir == dir && a.Policy.Route == a.host.Context().Connection && a.Policy.Remote == !a.host.Context().Local {
+	if a.Policy.Dir == dir && a.Policy.Route == a.host.Context().Connection && a.Policy.Attempt == a.host.Context().Attempt && a.Policy.Remote == !a.host.Context().Local {
 		return
 	}
 	a.Policy.Request.Stop()
 	a.Policy.Version++
 	a.Policy.Route = a.host.Context().Connection
+	a.Policy.Attempt = a.host.Context().Attempt
 	a.Policy.Remote = !a.host.Context().Local
 	a.Policy.Dir, a.Policy.Level = dir, "ask"
 	select {
@@ -45,12 +48,13 @@ func (a *Module) AcceptPolicy(result workspace.PolicyResult) {
 // over its API: nothing of this machine to watch, so the pill leans ask
 // until the server answers, and a fresh ask lands when the chat moves.
 func (a *Module) WatchServerPolicy(dir string) {
-	if a.Policy.Dir == dir && a.Policy.Route == a.host.Context().Connection && a.Policy.Remote == !a.host.Context().Local {
+	if a.Policy.Dir == dir && a.Policy.Route == a.host.Context().Connection && a.Policy.Attempt == a.host.Context().Attempt && a.Policy.Remote == !a.host.Context().Local {
 		return
 	}
 	a.Policy.Request.Stop()
 	a.Policy.Version++
 	a.Policy.Route = a.host.Context().Connection
+	a.Policy.Attempt = a.host.Context().Attempt
 	a.Policy.Remote = !a.host.Context().Local
 	a.Policy.Dir, a.Policy.Level = dir, "ask"
 	select {

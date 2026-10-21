@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+
 	"wada-desktop-go/internal/chat"
 
 	"github.com/egoist/mygo/ui"

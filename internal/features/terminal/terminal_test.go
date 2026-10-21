@@ -2,9 +2,11 @@ package terminal
 
 import (
 	"context"
-	term "github.com/egoist/mygo/plugins/terminal"
 	"testing"
+
 	"wada-desktop-go/internal/feature"
+
+	term "github.com/egoist/mygo/plugins/terminal"
 )
 
 func TestClosePreventsQueuedShellStartup(t *testing.T) {

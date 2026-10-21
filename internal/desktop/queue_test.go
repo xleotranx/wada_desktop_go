@@ -3,6 +3,7 @@ package desktop
 import (
 	"slices"
 	"testing"
+
 	"wada-desktop-go/internal/agent"
 
 	"github.com/egoist/mygo/ui"

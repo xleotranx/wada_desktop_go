@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"wada-desktop-go/internal/agent"
 )
 
@@ -152,13 +153,14 @@ var eventKinds = map[EventKind]agent.EventKind{
 func (u decodedUpdate) normalized() agent.Update {
 	out := agent.Update{Kind: eventKinds[u.Kind], SessionID: u.SessionID, Model: u.Model, Title: u.Title, Bytes: u.Bytes}
 	if t := u.Text; t != nil {
-		out.Text = &agent.TextData{SessionID: t.SessionID, MessageID: t.MessageID, Ordinal: t.Ordinal, Delta: t.Delta, Text: t.Text}
+		// The DTO differs only in JSON tags, so normalization needs no second payload.
+		out.Text = (*agent.TextData)(t)
 	}
 	if t := u.Tool; t != nil {
 		out.Tool = &agent.ToolData{SessionID: t.SessionID, ID: t.ID, Name: t.Name, Command: t.Command, Content: normalizeOutput(t.Content), Status: t.Metadata.Status, Exit: t.Metadata.Exit, Truncated: t.Metadata.Truncated}
 	}
 	if p := u.Permission; p != nil {
-		out.Permission = &agent.PermissionData{SessionID: p.SessionID, ID: p.ID, Action: p.Action, Resources: p.Resources, Save: p.Save}
+		out.Permission = (*agent.PermissionData)(p)
 	}
 	return out
 }

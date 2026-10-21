@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"context"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/runner"
@@ -15,9 +17,21 @@ func (s runnerSink) Status(status runner.Status) {
 		h.detail = status.Err.Error()
 	}
 	s.a.setHealth(s.a.connections.activeServer, h)
+	if uint64(status.Attempt) != s.a.connections.attempt {
+		s.a.connections.attempt = uint64(status.Attempt)
+		s.a.runtime.stopWork()
+		s.a.runtime.workCtx, s.a.runtime.stopWork = context.WithCancel(s.a.runtime.lifetime)
+		s.a.services.valid = false
+		s.a.workspaceChanged()
+	}
 	if status.State == healthReady {
 		s.a.setFacts(s.a.connections.activeServer, status.Facts)
 		s.a.modulesReady()
+		if !s.a.layout.browserCollapsed {
+			if panel, ok := s.a.featurePanel(s.a.layout.browserTool); ok && panel.Open != nil {
+				panel.Open()
+			}
+		}
 	}
 	if status.State == healthDown {
 		s.a.finishCutTurns()

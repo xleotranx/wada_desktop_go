@@ -3,16 +3,22 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/egoist/mygo/ui"
+	"sort"
 	"strings"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
-
 	"wada-desktop-go/internal/workspace"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (a *app) installFeatures(factories []feature.Factory) {
+	a.registeredShortcuts = append([]shortcutSpec(nil), shortcutSpecs...)
+	a.registeredSlashes = append([]slashCommand(nil), slashCommands...)
+	a.registeredPanels = []feature.Panel{{ID: "Activity", Title: "Activity", Description: "Watch what the turn and the conversation have run, newest first.", Icon: icActivity, Render: func(c *ui.Context) { a.activityBody(c, paletteFor(c)) }}}
+
 	host := feature.Host{
 		OpenFolder: a.openProjectDialog, Lifetime: a.runtime.lifetime, Note: a.streamLine,
 		ComposerBlocked: func() bool {
@@ -76,11 +82,17 @@ func (a *app) installFeatures(factories []feature.Factory) {
 					reject(module, fmt.Sprintf("invalid or duplicate feature action %q", action.ID))
 				}
 				actionIDs[action.ID] = true
+				a.registeredActions = append(a.registeredActions, action)
+				if action.Slash != "" {
+					run := action.Run
+					a.registeredSlashes = append(a.registeredSlashes, slashCommand{action.Slash, action.Title, action.Description, func(*app) { run() }})
+				}
 				if action.Shortcut != "" {
 					if shortcutIDs[action.Shortcut] {
 						reject(module, fmt.Sprintf("duplicate shortcut %q", action.Shortcut))
 					}
 					shortcutIDs[action.Shortcut] = true
+					a.registeredShortcuts = append(a.registeredShortcuts, shortcutSpec{action.Shortcut, action.Title, action.Mods, action.Key})
 				}
 			}
 		}
@@ -90,10 +102,12 @@ func (a *app) installFeatures(factories []feature.Factory) {
 					reject(module, fmt.Sprintf("invalid or duplicate panel %q", panel.ID))
 				}
 				panelIDs[panel.ID] = true
+				a.registeredPanels = append(a.registeredPanels, panel)
 			}
 		}
 		a.features = append(a.features, module)
 	}
+	sort.Slice(a.registeredSlashes, func(i, j int) bool { return a.registeredSlashes[i].name < a.registeredSlashes[j].name })
 }
 func (a *app) featureContext() feature.Context {
 	cfg := a.activeServerConn()
@@ -115,29 +129,10 @@ func (a *app) featureContext() feature.Context {
 		}
 	}
 
-	return feature.Context{Closed: a.runtime.closed, Unavailable: a.services.err, Connection: a.connections.route, Policy: a.services.policy, Ready: a.connections.serverHealth[cfg.id].status == healthReady, IsDraft: a.conversation.target.isDraft(), Revision: a.featureRevision, Server: a.connections.activeServer, Directory: a.chatDir(), Home: a.preferences.home, Local: a.localActive(), Work: a.runtime.workCtx, Workspace: a.services.files}
+	return feature.Context{Attempt: a.connections.attempt, Closed: a.runtime.closed, Unavailable: a.services.err, Connection: a.connections.route, Policy: a.services.policy, Ready: a.connections.serverHealth[cfg.id].status == healthReady, IsDraft: a.conversation.target.isDraft(), Revision: a.featureRevision, Server: a.connections.activeServer, Directory: a.chatDir(), Home: a.preferences.home, Local: a.localActive(), Work: a.runtime.workCtx, Workspace: a.services.files}
 }
-func (a *app) featurePanel(id string) (feature.Panel, bool) {
-	for _, module := range a.features {
-		if provider, ok := module.(feature.Panels); ok {
-			for _, panel := range provider.Panels() {
-				if panel.ID == id {
-					return panel, true
-				}
-			}
-		}
-	}
-	return feature.Panel{}, false
-}
-func (a *app) featureActions() []feature.Action {
-	var out []feature.Action
-	for _, module := range a.features {
-		if provider, ok := module.(feature.Actions); ok {
-			out = append(out, provider.Actions()...)
-		}
-	}
-	return out
-}
+func (a *app) featurePanel(id string) (feature.Panel, bool) { return a.panel(id) }
+func (a *app) featureActions() []feature.Action             { return a.registeredActions }
 func (a *app) runFeatureAction(id string) bool {
 	for _, action := range a.featureActions() {
 		if action.ID == id {
@@ -161,8 +156,6 @@ func (a *app) setBottomOpen(open bool) {
 		bottom.SetOpen(open)
 	}
 }
-func (a *app) toggleTerminal() { a.runFeatureAction("terminal") }
-func (a *app) openQuickOpen()  { a.runFeatureAction("files") }
 func (a *app) openWorkspaceFile(path string) {
 	for _, module := range a.features {
 		if opener, ok := module.(feature.FileOpener); ok {
@@ -211,14 +204,6 @@ func (a *app) restoreModules(state map[string]json.RawMessage) {
 }
 func (a *app) openLocalPath(c *ui.Context, path string) { native.OpenLocalPath(c, path) }
 
-func (a *app) recentFilesFor(dir string) []workspace.FileEntry {
-	for _, module := range a.features {
-		if files, ok := module.(feature.FileSuggestions); ok {
-			return files.RecentFilesFor(dir)
-		}
-	}
-	return nil
-}
 func (a *app) dismissModuleDialogs() {
 	for _, module := range a.features {
 		if d, ok := module.(feature.Dismissible); ok {
@@ -289,7 +274,7 @@ func (a *app) startModules() {
 }
 func (a *app) moduleComposerActions(c *ui.Context, compact bool) {
 	for _, module := range a.features {
-		if controls, ok := module.(feature.PolicyControl); ok {
+		if controls, ok := module.(feature.Accessory); ok {
 			controls.ComposerActions(c, compact)
 		}
 	}

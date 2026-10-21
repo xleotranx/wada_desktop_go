@@ -2,8 +2,8 @@ package desktop
 
 import (
 	"context"
-	"wada-desktop-go/internal/agent"
 
+	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/runner"
 )
 

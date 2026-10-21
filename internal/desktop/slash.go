@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -183,14 +182,4 @@ func (a *app) slashHelpDialog(c *ui.Context, p palette) {
 	})
 }
 
-func (a *app) slashCommands() []slashCommand {
-	commands := append([]slashCommand(nil), slashCommands...)
-	for _, action := range a.featureActions() {
-		if action.Slash != "" {
-			run := action.Run
-			commands = append(commands, slashCommand{action.Slash, action.Title, action.Description, func(*app) { run() }})
-		}
-	}
-	sort.Slice(commands, func(i, j int) bool { return commands[i].name < commands[j].name })
-	return commands
-}
+func (a *app) slashCommands() []slashCommand { return a.registeredSlashes }

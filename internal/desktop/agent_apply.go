@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"strings"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 )

@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"encoding/json"
-
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"

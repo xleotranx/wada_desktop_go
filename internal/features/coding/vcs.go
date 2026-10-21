@@ -2,15 +2,15 @@ package coding
 
 import (
 	"context"
-	"time"
-	"wada-desktop-go/internal/workspace"
-
 	"fmt"
-	"github.com/oneo-me/onevra/source/icons/lucide"
+	"time"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
+	"wada-desktop-go/internal/workspace"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 // vcsKey names one server's workspace in the branch cache.

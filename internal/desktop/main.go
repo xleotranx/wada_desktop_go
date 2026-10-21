@@ -12,8 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
+	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/runner"
 	"wada-desktop-go/internal/workspace"
 
@@ -21,7 +23,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/theme"
-	"wada-desktop-go/internal/feature"
 )
 
 // attachState is the file-attach dialog, quoting a workspace file into
@@ -89,17 +90,21 @@ type serverScope struct {
 
 // app is the state the window shows.
 type app struct {
-	savedModules    map[string]json.RawMessage
-	services        featureServices
-	backend         agent.Backend
-	runtime         runtimeState
-	connections     connectionsState
-	conversation    conversationState
-	preferences     preferencesState
-	search          searchState
-	layout          viewState
-	features        []feature.Module
-	featureRevision uint64
+	registeredActions   []feature.Action
+	registeredPanels    []feature.Panel
+	registeredShortcuts []shortcutSpec
+	registeredSlashes   []slashCommand
+	savedModules        map[string]json.RawMessage
+	services            featureServices
+	backend             agent.Backend
+	runtime             runtimeState
+	connections         connectionsState
+	conversation        conversationState
+	preferences         preferencesState
+	search              searchState
+	layout              viewState
+	features            []feature.Module
+	featureRevision     uint64
 }
 
 func newApp(backend agent.Backend, factories ...feature.Factory) *app {
@@ -626,8 +631,7 @@ func Run(backend agent.Backend, factories ...feature.Factory) {
 					win.Update(func() { a.openSettings(tab) })
 					wait = 6 * time.Second // the catalog fills in behind the page
 				}
-				if _, terminal := os.LookupEnv("WADA_TERMINAL"); terminal {
-					win.Update(a.toggleTerminal)
+				if os.Getenv("WADA_TERMINAL") != "" || os.Getenv("WADA_TERMINAL_MAX") != "" {
 					wait = 8 * time.Second
 				}
 

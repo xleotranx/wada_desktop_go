@@ -94,6 +94,13 @@ func (a *app) shortcutConflict(id string, c chord) (string, bool) {
 			return fixed.label, true
 		}
 	}
+	for _, action := range a.featureActions() {
+		for _, extra := range action.ExtraKeys {
+			if (chord{extra.Mods, extra.Key}) == c {
+				return action.Title, true
+			}
+		}
+	}
 	return "", false
 }
 
@@ -173,40 +180,6 @@ func chordLabel(c chord) string {
 	return b.String()
 }
 
-// shortcutRowIDs maps the keyboard page's labels to editable commands.
-var shortcutRowIDs = map[string]string{
-	"Command palette":             "palette",
-	"New chat":                    "new-chat",
-	"Find in chat":                "find",
-	"Search chats":                "search",
-	"Quick open file":             "quick-open",
-	"Toggle sidebar":              "sidebar",
-	"Toggle terminal":             "terminal",
-	"Toggle tools":                "tools",
-	"Toggle full view":            "full-view",
-	"Activity view":               "activity",
-	"Mark chat unread or read":    "unread",
-	"Next chat needing attention": "next-marked",
-	"Toggle file pane":            "files",
-	"Open Changes":                "changes",
-	"Choose a model":              "model",
-	"Settings":                    "settings",
-}
-
-// shortcutRowKeys writes the keycap for a keyboard-page row, following a
-// remap when one exists.
-func (a *app) shortcutRowKeys(label, fallback string) string {
-	id, ok := shortcutRowIDs[label]
-	if !ok {
-		return fallback
-	}
-	keys := a.shortcutKeys(id)
-	if id == "terminal" {
-		keys += " / ⌃`"
-	}
-	return keys
-}
-
 // shortcutActionIDs maps palette actions to the command that owns the key.
 var shortcutActionIDs = map[string]string{
 	"action:new-chat":     "new-chat",
@@ -216,16 +189,12 @@ var shortcutActionIDs = map[string]string{
 	"action:unread":       "unread",
 	"action:next-marked":  "next-marked",
 	"action:activity":     "activity",
-	"action:files":        "quick-open",
-	"action:changes":      "changes",
 	"action:settings":     "settings",
-	"action:terminal":     "terminal",
 	"action:show-tools":   "tools",
 	"action:hide-tools":   "tools",
 	"action:show-sidebar": "sidebar",
 	"action:hide-sidebar": "sidebar",
 	"action:full-view":    "full-view",
-	"action:folder":       "open-folder",
 	"action:shortcuts":    "shortcuts",
 }
 
@@ -359,12 +328,4 @@ func (a *app) shortcutRecorder(c *ui.Context, p palette) {
 	})
 }
 
-func (a *app) shortcutSpecs() []shortcutSpec {
-	specs := append([]shortcutSpec(nil), shortcutSpecs...)
-	for _, action := range a.featureActions() {
-		if action.Shortcut != "" {
-			specs = append(specs, shortcutSpec{action.Shortcut, action.Title, action.Mods, action.Key})
-		}
-	}
-	return specs
-}
+func (a *app) shortcutSpecs() []shortcutSpec { return a.registeredShortcuts }

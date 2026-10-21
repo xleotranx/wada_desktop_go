@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"wada-desktop-go/internal/agent"
 )
 
@@ -213,5 +214,23 @@ func TestNormalizedStreamFiltersUnknownAndBoundsMalformedDiagnostics(t *testing.
 	}, func(string) { notices++ })
 	if err != nil || notices != 1 || count != 1 {
 		t.Fatalf("err=%v notices=%d updates=%d", err, notices, count)
+	}
+}
+
+func TestTextNormalizationDoesNotAllocateASecondPayload(t *testing.T) {
+	raw := []byte(`{"sessionID":"s","assistantMessageID":"m","ordinal":0,"delta":"hello"}`)
+	wire := testing.AllocsPerRun(100, func() {
+		var payload TextData
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			panic(err)
+		}
+	})
+	normalized := testing.AllocsPerRun(100, func() {
+		if _, _, err := DecodeEvent(Event{Type: string(TextDelta), Data: raw}); err != nil {
+			panic(err)
+		}
+	})
+	if normalized > wire {
+		t.Fatalf("normalized payload uses %.0f allocations, wire decode %.0f", normalized, wire)
 	}
 }

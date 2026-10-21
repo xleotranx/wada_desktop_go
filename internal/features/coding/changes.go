@@ -3,12 +3,12 @@ package coding
 import (
 	"context"
 	"fmt"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
 	"wada-desktop-go/internal/workspace"
@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 // The two reads the Changes tool offers.

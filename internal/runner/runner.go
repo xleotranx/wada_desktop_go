@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 )
@@ -31,6 +32,7 @@ type Failure struct {
 }
 
 type Status struct {
+	Attempt Attempt
 	State   string
 	Facts   agent.Facts
 	Address string
@@ -273,16 +275,20 @@ func (r *Runner) run() {
 				}
 			})
 		}
-		post(func(s Sink) { s.Status(Status{State: "connecting", Address: owner.connection.Address}) })
+		post(func(s Sink) {
+			s.Status(Status{Attempt: attempt, State: "connecting", Address: owner.connection.Address})
+		})
 		client, err := r.options.Start(attemptCtx, owner.connection)
 		if err != nil {
 			cancel()
 			r.publish(owner.generation, attempt, func(s Sink) {
-				s.Status(Status{State: "down", Err: err, Address: owner.connection.Address})
+				s.Status(Status{Attempt: attempt, State: "down", Err: err, Address: owner.connection.Address})
 				s.Notice("The agent would not come up: " + err.Error())
 			})
 		} else {
-			post(func(s Sink) { s.Status(Status{State: "ready", Address: client.Endpoint(), Facts: client.Info()}) })
+			post(func(s Sink) {
+				s.Status(Status{Attempt: attempt, State: "ready", Address: client.Endpoint(), Facts: client.Info()})
+			})
 			r.bootstrap(attemptCtx, client, owner.connection, post)
 
 			uncertain := r.serve(attemptCtx, client, owner, attempt, post)
@@ -293,7 +299,7 @@ func (r *Runner) run() {
 			// on it would press the drop's status out of the pipe with
 			// the dead work.
 			r.publish(owner.generation, attempt, func(s Sink) {
-				s.Status(Status{State: "down", Address: client.Endpoint()})
+				s.Status(Status{Attempt: attempt, State: "down", Address: client.Endpoint()})
 				if uncertain {
 					s.Notice("The connection ended while an action was running. Inspect the server state before retrying.")
 				} else {

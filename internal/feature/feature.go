@@ -5,14 +5,17 @@ package feature
 import (
 	"context"
 	"encoding/json"
-	"github.com/egoist/mygo/ui"
+
 	"wada-desktop-go/internal/workspace"
+
+	"github.com/egoist/mygo/ui"
 )
 
 type Context struct {
 	Closed                  bool
 	Unavailable             error
 	Connection              uint64
+	Attempt                 uint64
 	Policy                  workspace.Policy
 	Ready, IsDraft          bool
 	Revision                uint64
@@ -21,6 +24,10 @@ type Context struct {
 	Work                    context.Context
 	Workspace               workspace.Client
 }
+
+// Host state/context callbacks run on the UI thread. Background schedules an
+// immutable request and publishes its returned closure on that thread; Post is
+// the dispatcher workers may call. Modules derive and cancel a child Lifetime.
 type Host struct {
 	OpenFolder      func()
 	Lifetime        context.Context
@@ -43,7 +50,12 @@ type Module interface {
 	ID() string
 	Close()
 }
+type KeyBinding struct {
+	Mods ui.Modifiers
+	Key  ui.Key
+}
 type Action struct {
+	ExtraKeys                        []KeyBinding
 	ID, Title, Description, Shortcut string
 	MenuGroup, MenuLabel, Slash      string
 	Mods                             ui.Modifiers
@@ -58,6 +70,8 @@ type Panel struct {
 	Render                 func(*ui.Context)
 	Refresh                func()
 }
+
+// Contributions are registered once; dynamic UI state belongs inside callbacks.
 type Actions interface{ Actions() []Action }
 type Panels interface{ Panels() []Panel }
 type ContextAware interface{ ContextChanged() }
@@ -75,16 +89,12 @@ type Bottom interface {
 	Layout(*ui.Context, float32, func())
 	IsOpen() bool
 	SetOpen(bool)
-	Toggle()
 	ResetSize()
 }
 
 type FileOpener interface{ OpenFile(string) }
 type FileDrag struct{ Path string }
 
-type FileSuggestions interface {
-	RecentFilesFor(string) []workspace.FileEntry
-}
 type Dismissible interface{ Dismiss() }
 
 // Composer contributions receive input only after the shell handles its keys.
@@ -97,7 +107,7 @@ type Composer interface {
 }
 type Header interface{ Header(*ui.Context) }
 type Ready interface{ Connected() }
-type PolicyControl interface{ ComposerActions(*ui.Context, bool) }
+type Accessory interface{ ComposerActions(*ui.Context, bool) }
 
 type Starter interface{ Start() }
 

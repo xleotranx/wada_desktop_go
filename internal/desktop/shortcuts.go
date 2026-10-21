@@ -38,9 +38,9 @@ func (a *app) appShortcuts(c *ui.Context) {
 		if action.Shortcut != "" {
 			a.bindShortcut(c, action.Shortcut, action.Run)
 		}
-	}
-	if a.hasFeatureAction("terminal") {
-		c.OnShortcut(ui.Ctrl, ui.KeyBackquote, a.toggleTerminal)
+		for _, binding := range action.ExtraKeys {
+			c.OnShortcut(binding.Mods, binding.Key, action.Run)
+		}
 	}
 	a.bindShortcut(c, "settings", func() { a.openSettings("") })
 	a.bindShortcut(c, "shortcuts", func() { a.openSettings(tabShortcuts) })

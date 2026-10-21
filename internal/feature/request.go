@@ -32,7 +32,8 @@ func Run[T any](h Host, r *Request, work func(context.Context) (T, error), done 
 		return func() {
 			defer cancel()
 			defer stopLifetime()
-			if h.Lifetime.Err() == nil && !h.Context().Closed && ctx.Err() == nil && r.revision == revision && h.Context().Revision == snapshot.Revision && h.Context().Connection == snapshot.Connection {
+			current := h.Context()
+			if h.Lifetime.Err() == nil && !current.Closed && ctx.Err() == nil && r.revision == revision && current.Revision == snapshot.Revision && current.Connection == snapshot.Connection && current.Attempt == snapshot.Attempt {
 				done(value, err)
 			}
 		}

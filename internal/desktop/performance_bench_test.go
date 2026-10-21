@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"testing"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/opencode"

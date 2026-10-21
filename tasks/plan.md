@@ -38,6 +38,46 @@ Use focused package tests between slices, full `make check` at completion, and n
 captures with temporary `WADA_DATA_DIR` for default and chat-only compositions.
 No developer metadata is reset. No backend is added speculatively.
 
-## Evidence
+## Verification evidence — 2026-10-21
 
-Baseline: `go test ./...` passed (root 5.245s). The first full modular gate passed: MyGo vet, lint (0 issues), race tests and no-cgo tests. Final evidence is recorded on completion.
+- Baseline `go test ./...`: passed (original root package 5.245s).
+- Full modular `make check`: MyGo lifetime vet, lint (0 issues), race suite and
+  no-cgo suite passed on the final code, including the moved palette guard and
+  module-aware keyboard settings (desktop race 40.297s; no-cgo 4.985s).
+- Independent core/backend and notes-module composition tests pass. Module
+  shutdown, explicit watcher startup, immutable saved settings and connection
+  attempt freshness and module-aware keyboard settings have regression coverage. No existing regressions are disabled for this work.
+- A temporary runner import of OpenCode was rejected by depguard and removed.
+  A temporary feature-local `palette.go` literal was rejected by the palette
+  guard and removed. The guard exempts only the actual shared native palette.
+- `WADA_LIVE_AGENT=1 go test -run 'TestLiveLocation|TestLiveSessionOps'
+  ./internal/desktop`: passed (25.293s). These checks do not generate model turns.
+- Native chat-only and default/two-terminal/maximized captures were inspected.
+  Both used fresh temporary WADA_DATA_DIR paths. No developer store was reset.
+  Images: `/Users/leotran/.codex/visualizations/2026/10/21/01a15cc3-0ba2-7851-8b8f-667bc4dbc080/modular-chat/`.
+
+## Performance ledger
+
+The original source was also archived into a temporary directory to measure the
+actual pre-change baseline with the same Go/module versions, rather than relying
+on an older development report. Headless timings vary; these are allocation and
+layout checks, not claims about GPU/idle behavior or a timing improvement.
+
+| Change | Measurement | Decision |
+| --- | --- | --- |
+| Reuse decoded text allocation during normalization | Stream/4096: initial modular 1,172,414 B and 8,228 allocations; corrected 844,531–844,646 B and 4,130 allocations | Keep; neutral types retain original streaming allocation behavior |
+| Cache static action/panel/shortcut/slash declarations at registration | Transcript/1000: initial modular approximately 123 KB/frame; corrected approximately 8.6 KB/frame | Keep; descriptors are installation-time declarations |
+| Compare final frames with actual original source | Original transcript/1000: 8,541 B, 173 allocations; final: 8,586–8,587 B, 165 allocations. Original sidebar/2000: 13,416 B, 322 allocations; final: 13,464 B, 314 allocations | Comparable frame allocation size, eight fewer allocations/frame |
+
+Three final benchmark samples: transcript/1000 171.6–174.5 us; sidebar/2000
+143.6–143.9 us; stream/4096 1.455–1.461 ms. A regression test prevents allocating
+a second normalized text payload; a composition test ensures declarations are
+read once, rather than rebuilding them during every frame.
+
+## Deliberate scope
+
+Modules are compiled Go code installed at startup. Pi and runtime plugin loading
+are not implemented. The native shell retains optional folder/context navigation;
+file/diff/review, mentions, VCS decoration, permission controls and terminal state
+are module-owned. Existing app settings now live under a backend-specific folder;
+the old unscoped development database remains untouched and is not imported.

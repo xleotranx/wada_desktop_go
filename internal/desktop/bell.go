@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"slices"
+
 	"wada-desktop-go/internal/agent"
 	"wada-desktop-go/internal/chat"
 

@@ -1,8 +1,9 @@
 package desktop
 
 import (
-	"github.com/egoist/mygo/ui"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // TestSlashCommandRunsLocally keeps a command out of the transcript and

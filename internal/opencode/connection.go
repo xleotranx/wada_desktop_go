@@ -5,14 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"wada-desktop-go/internal/agent"
-
 	"net"
 	"net/http"
 	"net/url"
-
 	"strings"
 	"time"
+
+	"wada-desktop-go/internal/agent"
 )
 
 // serverKey makes a fresh secret for the app's own server, 43 URL-safe

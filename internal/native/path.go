@@ -1,8 +1,9 @@
 package native
 
 import (
-	"github.com/egoist/mygo/ui"
 	"net/url"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func OpenLocalPath(c *ui.Context, path string) {

@@ -4,12 +4,14 @@ package coding
 import (
 	"context"
 	"encoding/json"
-	"github.com/egoist/mygo/ui"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"path/filepath"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
 	"wada-desktop-go/internal/workspace"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/icons/lucide"
 )
 
 type Module struct {
@@ -171,6 +173,7 @@ func (a *Module) Connected() {
 type PolicyState struct {
 	Request                       feature.Request
 	Version, Route, WriteRevision uint64
+	Attempt                       uint64
 	Remote                        bool
 	Tail                          <-chan struct{}
 	Dir, Level                    string

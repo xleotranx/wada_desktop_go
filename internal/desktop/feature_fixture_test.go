@@ -2,10 +2,12 @@ package desktop
 
 import (
 	"context"
-	"github.com/egoist/mygo/ui/editor"
+
 	"wada-desktop-go/internal/features/coding"
 	terminalfeature "wada-desktop-go/internal/features/terminal"
 	"wada-desktop-go/internal/workspace"
+
+	"github.com/egoist/mygo/ui/editor"
 )
 
 func codingModule(a *app) *coding.Module {
@@ -72,4 +74,9 @@ func vcsKey(server, dir string) string              { return coding.VCSKey(serve
 func mentionToken(draft string) (int, string, bool) { return coding.MentionToken(draft) }
 func watchPolicy(ctx context.Context, policy workspace.Policy, dirs <-chan policyTarget, writes <-chan policyChange, publish func(policyResult)) {
 	policy.(workspace.PolicyMonitor).MonitorPolicy(ctx, dirs, writes, publish)
+}
+
+func (a *app) openQuickOpen() { codingModule(a).OpenQuickOpen() }
+func (a *app) recentFilesFor(dir string) []workspace.FileEntry {
+	return codingModule(a).RecentFilesFor(dir)
 }

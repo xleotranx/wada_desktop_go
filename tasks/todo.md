@@ -7,5 +7,5 @@
 - [x] Move native shell into desktop and expose explicit startup composition.
 - [x] Remove page-preview stub and obsolete persisted tab paths.
 - [x] Prove chat-only and default module compositions with behavioral tests.
-- [ ] Enforce imports, review changes, run full checks and native captures.
-- [ ] Update README and AGENTS with actual boundaries and extension instructions.
+- [x] Enforce imports, review changes, run full checks and native captures.
+- [x] Update README and AGENTS with actual boundaries and extension instructions.

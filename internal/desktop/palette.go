@@ -1,8 +1,9 @@
 package desktop
 
 import (
-	"github.com/egoist/mygo/ui"
 	"wada-desktop-go/internal/native"
+
+	"github.com/egoist/mygo/ui"
 )
 
 type palette = native.Palette

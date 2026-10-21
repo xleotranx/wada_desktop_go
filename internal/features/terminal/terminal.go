@@ -1,20 +1,22 @@
 package terminal
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
-	"context"
-	"encoding/json"
+	"wada-desktop-go/internal/feature"
+	"wada-desktop-go/internal/native"
+
 	term "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
-	"wada-desktop-go/internal/feature"
-	"wada-desktop-go/internal/native"
 )
 
 // The bottom panel's opening height, the room it keeps and the limit that
@@ -343,7 +345,7 @@ func (a *Module) TerminalRenameDialog(c *ui.Context, p native.Palette) {
 	if index := a.TerminalTabIndex(st.Id); index >= 0 {
 		placeholder = TabLabel(a.Tabs[index])
 	}
-	native.Dialog(c, p, &st.Open, 380, "Rename terminal", func() {
+	native.Dialog(c, &st.Open, 380, "Rename terminal", func() {
 		ui.Text(c, "Rename terminal").FontSize(14).FontWeight(600)
 		ui.Text(c, "The name stays with this tab; emptying it brings the shell's own title back.").
 			FontSize(12.5).TextColor(p.Muted)
@@ -641,7 +643,7 @@ func (a *Module) SetOpen(open bool) { a.Open = open }
 func (a *Module) Toggle()           { a.ToggleTerminal() }
 func (a *Module) ResetSize()        { a.Height = terminalDefaultHeight }
 func (a *Module) Actions() []feature.Action {
-	return []feature.Action{{ID: "terminal", Title: "Toggle terminal", Description: "Open the shell beneath the chat", Shortcut: "terminal", Mods: ui.Cmd, Key: ui.KeyJ, MenuGroup: "View", MenuLabel: "Toggle Terminal", Slash: "/terminal", Icon: lucide.Terminal(), Run: a.ToggleTerminal}}
+	return []feature.Action{{ID: "terminal", Title: "Toggle terminal", Description: "Open the shell beneath the chat", ExtraKeys: []feature.KeyBinding{{Mods: ui.Ctrl, Key: ui.KeyBackquote}}, Shortcut: "terminal", Mods: ui.Cmd, Key: ui.KeyJ, MenuGroup: "View", MenuLabel: "Toggle Terminal", Slash: "/terminal", Icon: lucide.Terminal(), Run: a.ToggleTerminal}}
 }
 func (a *Module) Dialogs(c *ui.Context) { a.TerminalRenameDialog(c, native.PaletteFor(c)) }
 func (a *Module) Modal() bool           { return a.Rename != nil && a.Rename.Open }
@@ -677,3 +679,25 @@ func (a *Module) Layout(c *ui.Context, headerH float32, main func()) {
 }
 
 func (a *Module) Dismiss() { a.Rename = nil }
+
+func (a *Module) Start() {
+	if os.Getenv("WADA_CAPTURE") == "" {
+		return
+	}
+	if value, ok := os.LookupEnv("WADA_TERMINAL"); ok {
+		n, _ := strconv.Atoi(value)
+		n = min(max(n, 1), terminalTabLimit)
+		a.ToggleTerminal()
+		for range n - 1 {
+			a.NewTerminalTab()
+		}
+	}
+	if _, ok := os.LookupEnv("WADA_TERMINAL_MAX"); ok {
+		if !a.Open {
+			a.ToggleTerminal()
+		}
+		if !a.Maximized {
+			a.ToggleTerminalMaximize()
+		}
+	}
+}

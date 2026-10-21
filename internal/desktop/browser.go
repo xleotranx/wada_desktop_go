@@ -1,10 +1,12 @@
 package desktop
 
 import (
-	"github.com/egoist/mygo/ui"
 	"slices"
+
 	"wada-desktop-go/internal/feature"
 	"wada-desktop-go/internal/native"
+
+	"github.com/egoist/mygo/ui"
 )
 
 type paneTab struct{ kind string }
@@ -49,15 +51,7 @@ func (a *app) closeAllPaneTabs() {
 	a.layout.browserTool = ""
 	a.layout.browserCollapsed = true
 }
-func (a *app) panels() []feature.Panel {
-	panels := []feature.Panel{{ID: "Activity", Title: "Activity", Description: "Watch what the turn and the conversation have run, newest first.", Icon: icActivity, Open: func() {}, Render: func(c *ui.Context) { a.activityBody(c, paletteFor(c)) }, Refresh: func() {}}}
-	for _, module := range a.features {
-		if provider, ok := module.(feature.Panels); ok {
-			panels = append(panels, provider.Panels()...)
-		}
-	}
-	return panels
-}
+func (a *app) panels() []feature.Panel { return a.registeredPanels }
 func (a *app) panel(id string) (feature.Panel, bool) {
 	for _, panel := range a.panels() {
 		if panel.ID == id {
@@ -168,7 +162,9 @@ func (a *app) browserToolCard(c *ui.Context, p palette, name, detail, shortcut s
 	}
 	b.OnClick(func() { a.openTool(name) })
 	b.Children(func() {
-		ui.Icon(c, icon).FontSize(15).TextColor(p.Orange).Shrink(0)
+		if icon != nil {
+			ui.Icon(c, icon).FontSize(15).TextColor(p.Orange).Shrink(0)
+		}
 		ui.Column(c).MarginStart(9).Grow(1).MinWidth(0).Gap(1).AlignItems(ui.Start).Children(func() {
 			ui.Text(c, name).FontSize(13).FontWeight(500).TextColor(p.Text).SingleLine()
 			ui.Text(c, detail).FontSize(11.5).TextColor(p.Muted).SingleLine().Ellipsis("…")

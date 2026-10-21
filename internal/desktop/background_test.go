@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+
 	"wada-desktop-go/internal/chat"
 	"wada-desktop-go/internal/features/coding"
 	terminalfeature "wada-desktop-go/internal/features/terminal"

@@ -2,8 +2,9 @@ package desktop
 
 import (
 	"context"
-	"github.com/egoist/mygo/ui"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestDismissedDialogsCancelPostedRequestsOnRebuild(t *testing.T) {

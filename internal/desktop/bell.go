@@ -108,9 +108,9 @@ func (a *app) bellLabel() string {
 // in this chat, chats needing attention, unread chats, and the action
 // that clears the news the user has seen.
 func (a *app) bellPanel(c *ui.Context, p palette, anchor ui.Element) {
-	asks := a.pendingAsks()
-	attention, unread := a.bellChats()
 	components.Popover(c, anchor, &a.layout.bellOpen, func(panel ui.Element) {
+		asks := a.pendingAsks()
+		attention, unread := a.bellChats()
 		panel.Width(300).MaxHeight(430).Children(func() {
 			ui.Row(c).FillWidth().Height(26).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Notifications").FontSize(13).FontWeight(600).TextColor(p.Text)

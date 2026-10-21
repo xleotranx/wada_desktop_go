@@ -274,7 +274,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			options := onechat.ComposerOptions{
 				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send message", StopLabel: "Stop the agent",
-				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready,
+				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
 			}
 			if len(attachments) > 0 {
 				options.Attachments = func(c *ui.Context) {

@@ -47,6 +47,9 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   or a turn runs.
 - When the connection drops mid-turn, the turn is settled with a note. When a new
   connection attempt becomes ready, the open conversation is reloaded.
+- Sending waits for history to load. If live events overtake a history request,
+  the live transcript stays on screen and history is read again after the turn
+  settles. App notes survive the reload.
 - `chat.ComposerAccessory` entries are drawn in the composer's leading row; a model
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
   `chat.Outgoing`. `chat.ComposerAttachments` entries are drawn above the editor.

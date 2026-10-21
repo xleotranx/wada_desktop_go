@@ -315,3 +315,52 @@ func TestPasteHandlersTakePastes(t *testing.T) {
 		t.Fatalf("seen %q draft %q", seen, p.draft)
 	}
 }
+
+func TestHistoryLoadDoesNotReplaceLiveTurn(t *testing.T) {
+	for _, finishBeforeLoad := range []bool{false, true} {
+		t.Run(fmt.Sprint("finished=", finishBeforeLoad), func(t *testing.T) {
+			h, p, f, _ := start(t)
+			f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "history"}}
+			p.Open(agent.Session{ID: "s1"})
+			h.RunWork(0) // an older snapshot is waiting for the UI
+			kernel.Emit(h, agent.Events, []agent.Event{
+				{Kind: agent.TurnStarted, Session: "s1"},
+				textEvent(agent.TextDelta, "s1", "live answer", ""),
+			})
+			finish := func() {
+				f.Stored["s1"] = append(f.Stored["s1"], agent.Message{ID: "m", Role: agent.RoleAssistant,
+					Parts: []agent.Part{{Kind: agent.PartText, Text: "live answer"}}})
+				kernel.Emit(h, agent.Events, []agent.Event{
+					textEvent(agent.TextEnded, "s1", "", "live answer"),
+					{Kind: agent.TurnFailed, Session: "s1", Error: "turn error"},
+				})
+			}
+			if finishBeforeLoad {
+				finish()
+			}
+			h.RunPosts()
+			if !finishBeforeLoad {
+				if !p.running() || len(p.t.rows) != 1 || p.t.rows[0].text != "live answer" {
+					t.Fatalf("load erased live turn: running=%v rows=%v", p.running(), kinds(p))
+				}
+				finish()
+			}
+			h.Flush()
+			if p.running() || len(p.t.rows) != 3 || p.t.rows[0].text != "history" ||
+				p.t.rows[1].text != "live answer" || p.t.rows[2].text != "The agent stopped with an error: turn error" {
+				t.Fatalf("history did not reconcile after turn: running=%v rows=%v", p.running(), kinds(p))
+			}
+		})
+	}
+}
+
+func TestCannotSendWhileHistoryIsLoading(t *testing.T) {
+	h, p, f, _ := start(t)
+	p.Open(agent.Session{ID: "s1"})
+	p.draft = "wait for history"
+	p.send()
+	h.Flush()
+	if f.Called("send") != 0 || p.draft != "wait for history" {
+		t.Fatalf("sent during load: calls=%q draft=%q", f.Calls(), p.draft)
+	}
+}

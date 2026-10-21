@@ -25,12 +25,14 @@ type Plugin struct {
 	agent agent.Service
 	host  shell.Host
 
-	conv    chat.Conversation
-	scope   *kernel.Scope // the open conversation's work and nothing else
-	t       transcript
-	loading kernel.Task
-	sending bool   // a message is on its way and its turn hasn't started
-	attempt uint64 // the backend connection the transcript was read from
+	conv            chat.Conversation
+	scope           *kernel.Scope // the open conversation's work and nothing else
+	t               transcript
+	loading         kernel.Task
+	version         uint64 // live events received for the open conversation
+	reloadAfterTurn bool
+	sending         bool   // a message is on its way and its turn hasn't started
+	attempt         uint64 // the backend connection the transcript was read from
 
 	// View state.
 	draft    string
@@ -105,6 +107,8 @@ func (p *Plugin) NewChat(directory string) {
 // switchTo replaces the open conversation. Its work is cancelled with its
 // scope, so nothing it started can land in the next one.
 func (p *Plugin) switchTo(conv chat.Conversation) {
+	p.loading.Cancel()
+	p.reloadAfterTurn = false
 	if p.scope != nil {
 		p.scope.Dispose()
 	}
@@ -118,15 +122,34 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 }
 
 func (p *Plugin) load() {
+	if p.running() {
+		p.reloadAfterTurn = true
+		return
+	}
+	p.reloadAfterTurn = false
 	id := p.conv.Session
+	version, backend := p.version, p.agent
 	kernel.Go(p.scope, &p.loading, func(ctx context.Context) ([]agent.Message, error) {
-		return p.agent.Messages(ctx, id)
+		return backend.Messages(ctx, id)
 	}, func(messages []agent.Message, err error) {
 		if err != nil {
 			p.t.note("The conversation did not load: " + err.Error())
 			return
 		}
+		if p.version != version {
+			// Events have overtaken this snapshot. Keep the live transcript
+			// and read history again once the turn is quiet.
+			p.load()
+			return
+		}
+		var notes []*row
+		for _, r := range p.t.rows {
+			if r.kind == rowNote {
+				notes = append(notes, r)
+			}
+		}
 		p.t.load(messages)
+		p.t.rows = append(p.t.rows, notes...)
 		p.attempt = p.agent.Status().Attempt
 	})
 }
@@ -140,7 +163,7 @@ func (p *Plugin) running() bool { return p.sending || p.t.busy }
 // A failed send is reported, never retried: it may have reached the agent.
 func (p *Plugin) send() {
 	text := strings.TrimSpace(p.draft)
-	if text == "" || p.running() {
+	if text == "" || p.running() || p.loading.Running() {
 		return
 	}
 	d, err := kernel.Run(p.ctx, chat.Outgoing, chat.Draft{Session: p.conv.Session, Directory: p.conv.Directory, Text: text})
@@ -229,6 +252,7 @@ func (p *Plugin) events(batch []agent.Event) {
 		if ev.Session != p.conv.Session || ev.Session == "" {
 			continue
 		}
+		p.version++
 		switch ev.Kind {
 		case agent.SessionRenamed:
 			p.conv.Title = ev.Title
@@ -242,6 +266,9 @@ func (p *Plugin) events(batch []agent.Event) {
 			agent.ToolFinished, agent.ApprovalRequested:
 		}
 		p.t.apply(ev)
+	}
+	if p.reloadAfterTurn && !p.running() {
+		p.load()
 	}
 }
 

@@ -43,6 +43,7 @@ type Shell struct {
 	host   *host
 	opts   Options
 	title  string
+	accel  map[string]accelerator // parsed command shortcut strings, remembered so frames need not parse them
 }
 
 // New installs the shell's own plugin and then plugins, in that order.
@@ -258,13 +259,31 @@ func (s *Shell) shortcuts(c *ui.Context) {
 			keys = keys[1:]
 		}
 		for _, k := range keys {
-			a, err := parseAccelerator(k)
-			if err != nil {
+			a, ok := s.accelerator(k)
+			if !ok {
 				continue
 			}
 			c.OnShortcut(a.mods, a.key, func() { s.run(e) })
 		}
 	}
+}
+
+// accelerator parses a command shortcut string, remembering the parse: the
+// call runs every frame, and the strings change only when commands do.
+func (s *Shell) accelerator(k string) (accelerator, bool) {
+	if s.accel == nil {
+		s.accel = map[string]accelerator{}
+	}
+	if a, ok := s.accel[k]; ok {
+		return a, a.key != 0 // the zero value marks a string that failed to parse
+	}
+	a, err := parseAccelerator(k)
+	if err != nil {
+		s.accel[k] = accelerator{}
+		return accelerator{}, false
+	}
+	s.accel[k] = a
+	return a, true
 }
 
 func (s *Shell) run(e kernel.Entry[kernel.Command]) {

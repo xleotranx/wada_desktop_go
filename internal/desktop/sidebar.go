@@ -148,8 +148,6 @@ func (a *app) sidebarPane(c *ui.Context, p palette, headerH float32) {
 						a.saveState()
 					}
 				}
-			} else if a.preferences.metadataSaving {
-				ui.Text(c, "Saving…").FontSize(12).TextColor(p.Muted)
 			}
 			a.newChatRow(c, p)
 			if a.search.searchOpen {

@@ -501,7 +501,6 @@ func (a *app) saveState() {
 		return
 	}
 	a.preferences.metadataVersion++
-	a.preferences.metadataSaving = true
 	select {
 	case <-a.preferences.metadata.queue:
 	default:
@@ -513,7 +512,6 @@ func (a *app) acceptMetadataWrite(version uint64, err error) {
 	if a.runtime.closed || version != a.preferences.metadataVersion {
 		return
 	}
-	a.preferences.metadataSaving = false
 	a.preferences.metadataError = ""
 	if err != nil {
 		a.preferences.metadataError = "Changes are not saved: " + err.Error()

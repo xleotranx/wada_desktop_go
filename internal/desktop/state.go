@@ -97,7 +97,6 @@ type preferencesState struct {
 	commandRecents      []string
 	metadata            *metadataWriter
 	metadataVersion     uint64
-	metadataSaving      bool
 	metadataError       string
 	unavailableProjects map[string]bool
 }

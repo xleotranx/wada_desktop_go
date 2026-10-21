@@ -43,7 +43,7 @@ func Run(plugins ...kernel.Plugin) {
 		})
 		var err error
 		s, err = New(Options{Post: win.Update, Store: store, Strict: os.Getenv("WADA_STRICT") == "1",
-			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu}, plugins...)
+			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource}, plugins...)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -71,11 +71,8 @@ func Run(plugins ...kernel.Plugin) {
 		}
 		win.OnClosed(shutdown)
 		mygo.App.OnQuit(shutdown)
-		switch os.Getenv("WADA_APPEARANCE") {
-		case "light":
-			mygo.Theme.SetSource(mygo.ThemeLight)
-		case "dark":
-			mygo.Theme.SetSource(mygo.ThemeDark)
+		if mode := os.Getenv("WADA_APPEARANCE"); mode != "" {
+			s.host.applyTheme(mode) // for captures; not saved
 		}
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
 			win.OnReadyToShow(func() {

@@ -4,9 +4,9 @@ Status: accepted. The kernel is implemented in `internal/kernel`; this doc track
 
 ## Problem
 
-Every feature in the app today is wired into `internal/desktop` directly, or through
+Every feature in the previous app was wired into `internal/desktop` directly, or through
 `feature.Host` (15 callbacks) and about 15 optional module interfaces. Each new kind
-of feature has grown that surface. The backend contract is shaped by OpenCode's HTTP
+of feature grew that surface. The backend contract is shaped by OpenCode's HTTP
 API. We expect many more features and at least one more backend (Pi), so we need a
 core that stays small and stable while everything else is added around it.
 
@@ -36,10 +36,9 @@ core that stays small and stable while everything else is added around it.
 
 ```text
 main.go              composition: the list of plugins
-plugins/*            opencode · pi · chat · sessions · settings · notify · files …
+internal/plugins/*   opencode · chat · sessions · settings · (pi, notify, files …)
 internal/shell       window, layout, slots (Points of render funcs), menus, shortcuts
-internal/contract/*  declarations shared between plugins: agent, chat, …
-internal/session     pure conversation model
+internal/contract/*  declarations shared between plugins: agent, chat, shell, settings
 internal/kernel      this document — standard library only
 ```
 

@@ -46,7 +46,21 @@ provides `chat.ControllerKey`, and contributes the `chat.conversation` page with
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
   `chat.Outgoing`.
 
-## Not in this step
+## Sessions and settings
 
-The conversation list (sidebar), settings page, model picker, notifications and
-unread marks are separate plugins still to come.
+`internal/plugins/sessions` contributes the sidebar list (`shell.Sidebar`, growing to
+fill it) and its rename/delete dialogs (`shell.Overlays`). It reloads the first page
+when the backend becomes ready and after a turn ends, pages with "Show more", searches
+after a short pause (a newer query cancels the older), and marks conversations that
+finished a turn while another was open. Pins, archive and grouping by folder are not
+carried over.
+
+`internal/plugins/settings` contributes the settings page, a sidebar button and
+"Settings…" (⌘,). It draws every `settings.Sections` entry in order, and adds its own
+Appearance and Plugins sections; the latter turns plugins on and off through
+`shell.Host`. The OpenCode plugin contributes its connection section.
+
+## Not yet
+
+Model and mode pickers, notifications, attachments and keyboard-driven search are
+plugins still to come.

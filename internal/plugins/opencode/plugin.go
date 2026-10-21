@@ -29,6 +29,7 @@ type Plugin struct {
 	conn   *kernel.Setting[Connection]
 	run    *kernel.Scope // the current supervisor; replaced to reconnect
 	status agent.Status  // UI thread
+	form   form
 
 	mu       sync.Mutex
 	client   *client // the ready connection, or nil
@@ -74,7 +75,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
 		kernel.Provide[agent.Modes](c, agent.ModesKey, p),
 		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
-			Title: "Reconnect to OpenCode", Category: "Agent", Run: p.Reconnect}),
+			Title: "Reconnect to OpenCode", Category: "Agent", Menu: "Agent", Run: p.Reconnect}),
+		p.contributeSection(c),
 	} {
 		if err != nil {
 			return err

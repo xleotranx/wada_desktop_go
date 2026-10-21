@@ -28,6 +28,7 @@ type Options struct {
 	// SetTitle and SetMenu reach the native window and menu bar; nil in tests.
 	SetTitle func(string)
 	SetMenu  func(*mygo.Menu)
+	SetTheme func(mygo.ThemeSource)
 }
 
 // Shell is a kernel plus the window that shows it.
@@ -40,8 +41,9 @@ type Shell struct {
 
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
-	s := &Shell{opts: opts, host: &host{}}
+	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
+	s.host.k = s.Kernel
 	if err := s.Kernel.Install(append([]kernel.Plugin{s.host}, plugins...)...); err != nil {
 		return nil, err
 	}
@@ -137,7 +139,7 @@ func (s *Shell) View(c *ui.Context) {
 		}
 		width := h.sidebarWidth()
 		split := components.Split(c, &width, func() {
-			ui.Column(c).Width(width).FillHeight().Background(p.SidebarBg).Padding(4, 10, 6, 10).Gap(2).Children(func() {
+			ui.Column(c).Width(width).FillHeight().AlignItems(ui.Stretch).Background(p.SidebarBg).Padding(4, 10, 6, 10).Gap(2).Children(func() {
 				s.render(c, sidebar)
 			})
 		}, body, components.SplitOptions{FirstMin: sidebarMinWidth, SecondMin: pageMinWidth, Default: sidebarDefaultWidth})
@@ -153,7 +155,11 @@ func (s *Shell) View(c *ui.Context) {
 func (s *Shell) render(c *ui.Context, items []kernel.Entry[shell.View]) {
 	for _, e := range items {
 		c.Key(e.ID)
-		ui.Box(c).Children(func() {
+		box := ui.Box(c)
+		if e.Value.Grow {
+			box.Grow(1).MinHeight(0)
+		}
+		box.Children(func() {
 			kernel.Invoke(s.Kernel, e, func(v shell.View) { v.Render(c) })
 		})
 	}
@@ -265,6 +271,9 @@ func iconButton(c *ui.Context, p native.Palette, label string, icon *ui.SVG, on 
 // host is the shell's own plugin: it provides shell.Host and the window's
 // commands.
 type host struct {
+	k             *kernel.Kernel
+	setTheme      func(mygo.ThemeSource)
+	appearance    *kernel.Setting[string]
 	page          string
 	toasts        []ui.Toast
 	services      ui.Services
@@ -283,6 +292,8 @@ func (h *host) Setup(c *kernel.Context) error {
 	h.failed = map[string]bool{}
 	h.sidebarHidden = kernel.NewSetting(c, "sidebar-hidden", false)
 	h.sidebarW = kernel.NewSetting(c, "sidebar-width", sidebarDefaultWidth)
+	h.appearance = kernel.NewSetting(c, "appearance", "system")
+	h.applyTheme(h.Appearance())
 	if err := kernel.Provide[shell.Host](c, shell.HostKey, h); err != nil {
 		return err
 	}
@@ -307,3 +318,35 @@ func (h *host) Toast(t ui.Toast) {
 func (h *host) Copy(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
 
 func (h *host) OpenURL(url string) { h.services.OpenURL(url) }
+
+func (h *host) Appearance() string {
+	switch v := h.appearance.Get(); v {
+	case "light", "dark":
+		return v
+	}
+	return "system"
+}
+
+func (h *host) SetAppearance(mode string) {
+	h.appearance.Set(mode)
+	h.applyTheme(h.Appearance())
+}
+
+// applyTheme shows mode without saving it.
+func (h *host) applyTheme(mode string) {
+	if h.setTheme == nil {
+		return
+	}
+	switch mode {
+	case "light":
+		h.setTheme(mygo.ThemeLight)
+	case "dark":
+		h.setTheme(mygo.ThemeDark)
+	default:
+		h.setTheme(mygo.ThemeSystem)
+	}
+}
+
+func (h *host) Plugins() []kernel.Status { return h.k.Plugins() }
+func (h *host) Enable(id string) error   { return h.k.Enable(id) }
+func (h *host) Disable(id string) error  { return h.k.Disable(id) }

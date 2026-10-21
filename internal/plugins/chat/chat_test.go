@@ -1,100 +1,24 @@
 package chat
 
 import (
-	"context"
 	"errors"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
+	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// fakeAgent is a backend plugin whose answers the test controls.
-type fakeAgent struct {
-	mu       sync.Mutex
-	calls    []string
-	messages map[agent.SessionID][]agent.Message
-	sendErr  error
-	status   agent.Status
-}
-
-func (*fakeAgent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey}}
-}
-func (f *fakeAgent) Setup(c *kernel.Context) error {
-	f.status = agent.Status{State: agent.Ready, Attempt: 1}
-	return kernel.Provide[agent.Service](c, agent.ServiceKey, f)
-}
-func (f *fakeAgent) record(call string) {
-	f.mu.Lock()
-	f.calls = append(f.calls, call)
-	f.mu.Unlock()
-}
-func (f *fakeAgent) seen() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.calls)
-}
-func (f *fakeAgent) Status() agent.Status { return f.status }
-func (f *fakeAgent) Sessions(context.Context, agent.SessionQuery) (agent.SessionPage, error) {
-	return agent.SessionPage{}, nil
-}
-func (f *fakeAgent) Create(_ context.Context, req agent.CreateSession) (agent.Session, error) {
-	f.record("create " + req.Directory + " " + req.Model.ID)
-	return agent.Session{ID: "new", Directory: req.Directory}, nil
-}
-func (f *fakeAgent) Messages(_ context.Context, id agent.SessionID) ([]agent.Message, error) {
-	f.record("messages " + string(id))
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.messages[id], nil
-}
-func (f *fakeAgent) Send(_ context.Context, req agent.Send) error {
-	f.record("send " + string(req.Session) + " " + req.Text)
-	return f.sendErr
-}
-func (f *fakeAgent) Abort(_ context.Context, id agent.SessionID) error {
-	f.record("abort " + string(id))
-	return nil
-}
-func (f *fakeAgent) Reply(_ context.Context, req agent.Reply) error {
-	f.record("reply " + string(req.Approval))
-	return nil
-}
-func (f *fakeAgent) Rename(context.Context, agent.SessionID, string) error { return nil }
-func (f *fakeAgent) Delete(context.Context, agent.SessionID) error         { return nil }
-
-// fakeHost records what the chat asks of the window.
-type fakeHost struct {
-	page   string
-	toasts []string
-	copied string
-}
-
-func (*fakeHost) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-host", Provides: []kernel.Named{shell.HostKey}}
-}
-func (h *fakeHost) Setup(c *kernel.Context) error {
-	return kernel.Provide[shell.Host](c, shell.HostKey, h)
-}
-func (h *fakeHost) ShowPage(id string)     { h.page = id }
-func (h *fakeHost) Page() string           { return h.page }
-func (h *fakeHost) Toast(t ui.Toast)       { h.toasts = append(h.toasts, t.Title) }
-func (h *fakeHost) Copy(text string) error { h.copied = text; return nil }
-func (h *fakeHost) OpenURL(string)         {}
-
-func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *fakeAgent, *fakeHost) {
+func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Host) {
 	t.Helper()
-	f := &fakeAgent{messages: map[agent.SessionID][]agent.Message{}}
-	host := &fakeHost{}
+	f := plugintest.NewAgent()
+	host := &plugintest.Host{}
 	p := &Plugin{}
 	h := kerneltest.New(t, append([]kernel.Plugin{f, host, p}, extra...)...)
 	return h, p, f, host
@@ -124,7 +48,7 @@ func TestFirstMessageCreatesTheConversationThenSends(t *testing.T) {
 	}
 	p.send() // a second send while one is on its way does nothing
 	h.Flush()
-	if got := f.seen(); !slices.Equal(got, []string{"create /work ", "send new hello"}) {
+	if got := f.Calls(); !slices.Equal(got, []string{"create /work", "send new hello"}) {
 		t.Fatalf("calls %q", got)
 	}
 	if p.conv.Session != "new" || changed[len(changed)-1].Session != "new" {
@@ -152,13 +76,13 @@ func TestOutgoingPipelineRewritesAndRejects(t *testing.T) {
 	p.draft = "forbidden words"
 	p.send()
 	h.Flush()
-	if len(f.seen()) != 0 || p.draft != "forbidden words" || len(host.toasts) != 1 {
-		t.Fatalf("rejected draft went out: calls=%q draft=%q toasts=%q", f.seen(), p.draft, host.toasts)
+	if len(f.Calls()) != 0 || p.draft != "forbidden words" || len(host.Toasts) != 1 {
+		t.Fatalf("rejected draft went out: calls=%q draft=%q toasts=%q", f.Calls(), p.draft, host.Toasts)
 	}
 	p.draft = "fine"
 	p.send()
 	h.Flush()
-	if got := f.seen(); !slices.Equal(got, []string{"create  chosen", "send new FINE"}) {
+	if got := f.Calls(); !slices.Equal(got, []string{"create  chosen", "send new FINE"}) {
 		t.Fatalf("calls %q", got)
 	}
 }
@@ -208,15 +132,15 @@ func TestReplyRemovesTheApproval(t *testing.T) {
 	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.ApprovalRequested, Session: "s1", Approval: &approval}})
 	p.reply(approval, agent.Always)
 	h.Flush()
-	if !slices.Contains(f.seen(), "reply ap") || p.t.waitingApproval() {
-		t.Fatalf("calls %q rows %v", f.seen(), kinds(p))
+	if !slices.Contains(f.Calls(), "reply ap") || p.t.waitingApproval() {
+		t.Fatalf("calls %q rows %v", f.Calls(), kinds(p))
 	}
 }
 
 func TestSwitchingDropsTheEarlierConversationsLoad(t *testing.T) {
 	h, p, f, _ := start(t)
-	f.messages["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "from one"}}
-	f.messages["s2"] = []agent.Message{{Role: agent.RoleUser, Text: "from two"}}
+	f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "from one"}}
+	f.Stored["s2"] = []agent.Message{{Role: agent.RoleUser, Text: "from two"}}
 	p.Open(agent.Session{ID: "s1"})
 	p.Open(agent.Session{ID: "s2"})
 	h.RunWork(0) // s1 finishes first
@@ -229,14 +153,14 @@ func TestSwitchingDropsTheEarlierConversationsLoad(t *testing.T) {
 
 func TestFailedSendIsReportedNotRetried(t *testing.T) {
 	h, p, f, _ := start(t)
-	f.sendErr = errors.New("timeout")
+	f.Fail["Send"] = errors.New("timeout")
 	p.Open(agent.Session{ID: "s1"})
 	h.Flush()
 	p.draft = "hi"
 	p.send()
 	h.Flush()
 	sends := 0
-	for _, c := range f.seen() {
+	for _, c := range f.Calls() {
 		if strings.HasPrefix(c, "send") {
 			sends++
 		}
@@ -255,10 +179,10 @@ func TestReconnectSettlesTheTurnAndReloads(t *testing.T) {
 	if p.running() || kinds(p)[len(kinds(p))-1] != rowNote {
 		t.Fatalf("drop: running=%v rows=%v", p.running(), kinds(p))
 	}
-	f.messages["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "reloaded"}}
+	f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "reloaded"}}
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
 	h.Flush()
-	if got := f.seen(); !slices.Equal(got, []string{"messages s1", "messages s1"}) || p.t.rows[0].text != "reloaded" {
+	if got := f.Calls(); !slices.Equal(got, []string{"messages s1", "messages s1"}) || p.t.rows[0].text != "reloaded" {
 		t.Fatalf("calls %q rows %+v", got, p.t.rows)
 	}
 }
@@ -275,8 +199,8 @@ func TestComposerSendsAndApprovalButtonsAnswer(t *testing.T) {
 	tt.Frame()
 	h.Flush()
 	tt.Frame()
-	if !tt.HasText("ship it") || !slices.Contains(f.seen(), "send s1 ship it") {
-		t.Fatalf("composer send: calls %q texts %q", f.seen(), tt.Texts())
+	if !tt.HasText("ship it") || !slices.Contains(f.Calls(), "send s1 ship it") {
+		t.Fatalf("composer send: calls %q texts %q", f.Calls(), tt.Texts())
 	}
 	kernel.Emit(h, agent.Events, []agent.Event{
 		{Kind: agent.TurnStarted, Session: "s1"},
@@ -292,8 +216,8 @@ func TestComposerSendsAndApprovalButtonsAnswer(t *testing.T) {
 	tt.Frame()
 	h.Flush()
 	tt.Frame()
-	if !slices.Contains(f.seen(), "reply ap") || tt.HasText("Allow once") {
-		t.Fatalf("approval not answered: %q", f.seen())
+	if !slices.Contains(f.Calls(), "reply ap") || tt.HasText("Allow once") {
+		t.Fatalf("approval not answered: %q", f.Calls())
 	}
 }
 

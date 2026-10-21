@@ -13,6 +13,8 @@ import (
 // it builds elements and performs no external I/O or kernel mutation.
 type View struct {
 	Render func(c *ui.Context)
+	// Grow lets a sidebar section take the remaining height, as a list does.
+	Grow bool
 }
 
 // Page fills the window's main area. The shell shows one page at a time.
@@ -46,4 +48,14 @@ type Host interface {
 	Copy(text string) error
 	// OpenURL opens a web or mail address with the desktop.
 	OpenURL(url string)
+
+	// Appearance is "system", "light" or "dark".
+	Appearance() string
+	SetAppearance(mode string)
+
+	// Plugins reports every installed plugin; Enable and Disable turn one on
+	// or off and remember the choice.
+	Plugins() []kernel.Status
+	Enable(id string) error
+	Disable(id string) error
 }

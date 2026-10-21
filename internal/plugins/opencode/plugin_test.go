@@ -17,6 +17,8 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // fakeServer is a minimal OpenCode server: /info, the event stream and the
@@ -352,5 +354,36 @@ func TestDisableStopsTheConnection(t *testing.T) {
 	}
 	if _, err := p.Sessions(context.Background(), agent.SessionQuery{}); !errors.Is(err, agent.ErrNotConnected) {
 		t.Fatalf("disabled plugin still connected: %v", err)
+	}
+}
+
+func TestSettingsSectionSavesTheConnection(t *testing.T) {
+	first, second := newFakeServer(t), newFakeServer(t)
+	h, p := start(t, first)
+	first.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	tt := ui.NewTester(func(c *ui.Context) { ui.Column(c).Children(func() { p.section(c) }) }, 700, 500)
+	tt.Frame()
+	if !tt.HasText("Connected to "+first.URL+" · OpenCode 2.0.0") || !tt.HasText("Server address") {
+		t.Fatalf("section %q", tt.Texts())
+	}
+	p.form = form{conn: Connection{Remote: true, URL: "::bad::"}, dirty: true}
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !p.form.dirty || p.form.err == "" {
+		t.Fatalf("bad address saved: %+v", p.form)
+	}
+	p.form = form{conn: Connection{Remote: true, URL: second.URL, Password: second.password}, dirty: true}
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	second.stream(t)
+	waitFor(t, h, "ready on second", func() bool { return p.Status().Endpoint == second.URL && p.Status().State == agent.Ready })
+	if p.form.dirty || p.Connection().URL != second.URL {
+		t.Fatalf("form %+v connection %+v", p.form, p.Connection())
 	}
 }

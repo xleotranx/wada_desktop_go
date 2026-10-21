@@ -37,7 +37,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Contribute(c, shell.Pages, settings.PageID, 100, shell.Page{Title: func() string { return "Settings" }, Render: p.view}),
 		kernel.Contribute(c, shell.Sidebar, "settings.button", 100, shell.View{Render: p.sidebarButton}),
 		kernel.Contribute(c, kernel.Commands, "settings.open", 0, kernel.Command{
-			Title: "Settings…", Category: "App", Menu: "File", Keys: []string{"cmd+,"}, Run: open}),
+			Title: "Settings…", Menu: "File", Keys: []string{"cmd+,"}, Run: open}),
 		kernel.Contribute(c, settings.Sections, "settings.appearance", 0, settings.Section{
 			Title: "Appearance", Description: "How the app looks.", Render: p.appearance}),
 		kernel.Contribute(c, settings.Sections, "settings.plugins", 1000, settings.Section{

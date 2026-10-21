@@ -1,17 +1,7 @@
-# Design: agent contract
+# Agent contract
 
-Status: accepted. Declared in `internal/contract/agent`; implemented by
-`internal/plugins/opencode` and `internal/plugins/pi`.
-
-## Problem
-
-The old backend contract (`internal/agent`) had OpenCode's shape: connection
-details were HTTP addresses, passwords and pairing flags; methods took runs of
-string arguments; the event stream was pulled by a shared runner that also
-queued every command. A backend that speaks a different protocol, such as Pi's
-RPC over stdio, couldn't fit without changing the shell.
-
-## Decision
+Declared in `internal/contract/agent`; implemented by `internal/plugins/opencode` and
+`internal/plugins/pi`.
 
 A backend is a kernel plugin. It declares `Provides: agent.ServiceKey` (and
 optionally `agent.ModelsKey` and `agent.ModesKey`) and owns everything about
@@ -40,8 +30,8 @@ Rules every backend follows:
 - Events are emitted only after the stream is established, in order, in batches of
   at most 64 events or 256 KiB, collected for at most 1/60 s. At most one batch is
   in flight to the UI thread, so a busy UI slows the stream instead of queueing.
-- Unknown events are ignored. The first malformed known event of a stream is
-  reported in `Status.Err` without quoting its payload.
+- Unknown events are ignored. OpenCode reports the first malformed known event of a
+  stream in `Status.Err` without quoting its payload; Pi skips malformed lines.
 - Requests are independent: the contract has no command queue. Policies such as
   "one turn at a time" belong to the consumer (the chat plugin).
 
@@ -60,7 +50,8 @@ own kernel scope, so results of a replaced connection are dropped by the kernel.
 ## Pi plugin
 
 `internal/plugins/pi` (off by default) implements the same contract over a very
-different transport, without changes to the contract:
+different transport. It saves one setting, `settings`: the `pi` executable and the
+session folder, both empty for Pi's defaults. "Restart Pi" restarts its processes.
 
 - Pi's RPC mode (`pi --mode rpc`, JSONL on stdin/stdout) drives one session per
   process. A control process (`--no-session`) answers the model catalog and is the
@@ -72,7 +63,8 @@ different transport, without changes to the contract:
   for the messages. A folder that no longer exists falls back to the home folder.
 - Events map as: `agent_start` → TurnStarted; text block updates → Text*;
   `tool_execution_*` → ToolCalled/ToolFinished; `agent_settled` → TurnSucceeded,
-  TurnFailed (an assistant message stopped with an error) or TurnInterrupted
+  TurnFailed (an assistant message stopped with an error; `Error` carries it, or the
+  final error of Pi's retries) or TurnInterrupted
   (aborted); `session_info_changed` → SessionRenamed. A model switch is confirmed
   with a ModelChanged the plugin emits after `set_model` succeeds.
 - Extension `confirm` and `select` dialogs become approvals (Allow → yes or the first
@@ -83,22 +75,8 @@ different transport, without changes to the contract:
 
 Only one backend can be active: turn OpenCode off in Settings → Plugins, then turn Pi on.
 
-## Alternatives considered
+## Not supported
 
-**Keep a shared runner with a command queue.** It serialized every request
-through one worker per connection, which made unrelated reads wait for a running
-turn and put OpenCode's sequencing rules into the app's core.
-
-**Let consumers pull the event stream.** Each consumer would need its own stream
-or a fan-out of its own, and reconnect logic would be duplicated. The backend owns
-the one stream and publishes it through a topic.
-
-**Backend-neutral connection settings.** Address and password make no sense for a
-stdio backend. Each backend keeps its own settings and contributes its own
-settings page.
-
-## Not carried over
-
-Pairing links, editing OpenCode's permission files, workspace/VCS/file access,
-project listing, per-message usage reads, and multiple saved servers. Each can
-return later as an optional capability key, provided by the backends that support it.
+Pairing links, editing OpenCode's permission files, workspace, VCS and file access,
+project listing, per-message usage reads, and several saved servers. Any of these
+would be a new optional capability key, provided by the backends that support it.

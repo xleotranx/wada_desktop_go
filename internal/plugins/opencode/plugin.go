@@ -75,7 +75,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
 		kernel.Provide[agent.Modes](c, agent.ModesKey, p),
 		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
-			Title: "Reconnect to OpenCode", Category: "Agent", Menu: "Agent", Run: p.Reconnect}),
+			Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),
 	} {
 		if err != nil {

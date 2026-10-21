@@ -26,7 +26,7 @@ protocols to simplify a refactor.
 
 Design notes: [kernel API](docs/design/kernel-api.md),
 [agent contract](docs/design/agent-contract.md),
-[shell and chat](docs/design/shell-and-chat.md). Keep them in step with the code.
+[shell and built-in plugins](docs/design/shell-and-plugins.md). Keep them in step with the code.
 
 Before nontrivial UI work, read [.agents/skills/mygo-maintenance/SKILL.md](.agents/skills/mygo-maintenance/SKILL.md).
 Check APIs against the pinned module with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`,
@@ -53,6 +53,9 @@ particularly `ui/doc.go`.
 6. **Every color comes from `native.PaletteFor`.** A guard test enforces it.
 7. **Keep MyGo identity stable**: keys before stateful widgets, `ItemKey` on lists,
    persistent `ListState`/handles in plugin state.
+8. **Docs describe the code as it is.** No history, plans or examples of APIs that
+   don't exist. Update the design note in the same change as the code; delete a
+   doc rather than leave it stale.
 
 Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 

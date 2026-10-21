@@ -6,8 +6,8 @@ version: "2"
 linters:
   default: none
   enable:
-    - exhaustive # block, event and command dispatch name every member
-    - depguard # pure model, protocol and worker dependencies point outward
+    - exhaustive # switches over enums (agent events, plugin states) name every member
+    - depguard # the import boundaries between kernel, contracts, shell and plugins
     - ineffassign
     - staticcheck
     - unused

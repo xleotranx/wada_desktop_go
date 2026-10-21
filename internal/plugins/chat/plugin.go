@@ -64,10 +64,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[chat.Controller](c, chat.ControllerKey, p),
 		kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view}),
 		kernel.Contribute(c, kernel.Commands, "chat.new", 0, kernel.Command{
-			Title: "New Chat", Category: "Chat", Menu: "File", Keys: []string{"cmd+n"},
+			Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"},
 			Run: func() { p.NewChat(p.conv.Directory) }}),
 		kernel.Contribute(c, kernel.Commands, "chat.stop", 10, kernel.Command{
-			Title: "Stop the Agent", Category: "Chat", Menu: "Chat", Keys: []string{"cmd+."},
+			Title: "Stop the Agent", Menu: "Chat", Keys: []string{"cmd+."},
 			Enabled: p.running, Run: p.stop}),
 	} {
 		if err != nil {

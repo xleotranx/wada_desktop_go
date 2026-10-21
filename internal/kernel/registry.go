@@ -317,12 +317,11 @@ func Invoke[T any](o Owner, e Entry[T], fn func(T)) {
 // ---- Commands
 
 type Command struct {
-	Title    string
-	Category string      // groups commands in the palette, e.g. "Chat"
-	Menu     string      // app-menu path, e.g. "View"; empty means palette only
-	Keys     []string    // fixed accelerators, e.g. "cmd+shift+k"; parsed by the shell
-	Enabled  func() bool // nil means always enabled
-	Run      func()
+	Title   string
+	Menu    string      // menu-bar menu, e.g. "View"; empty for a shortcut-only command
+	Keys    []string    // fixed accelerators, e.g. "cmd+shift+k"; parsed by the shell
+	Enabled func() bool // nil means always enabled
+	Run     func()
 }
 
 var Commands = NewPoint[Command]("kernel.commands")

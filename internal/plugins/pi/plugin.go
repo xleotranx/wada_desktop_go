@@ -107,7 +107,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
 		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
 		kernel.Contribute(c, kernel.Commands, "pi.reconnect", 0, kernel.Command{
-			Title: "Restart Pi", Category: "Agent", Menu: "Agent", Run: p.Reconnect}),
+			Title: "Restart Pi", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),
 	} {
 		if err != nil {

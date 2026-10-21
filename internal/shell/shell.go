@@ -308,7 +308,7 @@ func (h *host) Setup(c *kernel.Context) error {
 		return err
 	}
 	return kernel.Contribute(c, kernel.Commands, "shell.toggle-sidebar", 0, kernel.Command{
-		Title: "Toggle Sidebar", Category: "View", Menu: "View", Keys: []string{"cmd+b"}, Run: h.toggleSidebar})
+		Title: "Toggle Sidebar", Menu: "View", Keys: []string{"cmd+b"}, Run: h.toggleSidebar})
 }
 
 func (h *host) sidebarWidth() float32 {

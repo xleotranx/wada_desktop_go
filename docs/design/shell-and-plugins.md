@@ -1,7 +1,8 @@
-# Design: shell and chat page
+# Shell and the built-in plugins
 
-Status: accepted. Declared in `internal/contract/shell` and `internal/contract/chat`;
-implemented by `internal/shell` and `internal/plugins/chat`.
+Declared in `internal/contract/shell`, `internal/contract/chat` and
+`internal/contract/settings`; implemented by `internal/shell` and the plugins named
+below.
 
 ## Shell
 
@@ -56,13 +57,12 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 fill it) and its rename/delete dialogs (`shell.Overlays`). It reloads the first page
 when the backend becomes ready and after a turn ends, pages with "Show more", searches
 after a short pause (a newer query cancels the older), and marks conversations that
-finished a turn while another was open. Pins, archive and grouping by folder are not
-carried over.
+finished a turn while another was open. It has no pins, archive or grouping by folder.
 
 `internal/plugins/settings` contributes the settings page, a sidebar button and
 "Settings…" (⌘,). It draws every `settings.Sections` entry in order, and adds its own
 Appearance and Plugins sections; the latter turns plugins on and off through
-`shell.Host`. The OpenCode plugin contributes its connection section.
+`shell.Host`. The OpenCode, Pi and notifications plugins contribute their own sections.
 
 ## Model picker
 
@@ -83,7 +83,3 @@ conversation or page is on show, or the window isn't in front. An interrupted tu
 the user's own doing and isn't notified. A conversation whose title it doesn't know is
 looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
 clicking it opens that conversation. Its settings section turns each kind off.
-
-## Not yet
-
-Attachments and keyboard-driven search are plugins still to come.

@@ -20,8 +20,9 @@ go tool mygo build       # production app/DMG in build/
 
 Chat with streaming markdown, tool calls, approvals and stop; a searchable, paged
 conversation list with rename, delete and unread marks; model, effort and mode
-pickers; settings for appearance, the OpenCode connection, and turning plugins on
-and off.
+pickers; desktop notifications for conversations in the background; settings for
+appearance, the OpenCode connection, Pi, notifications, and turning plugins on and
+off.
 
 ## Architecture
 
@@ -42,7 +43,7 @@ and off.
 
 Design notes: [kernel API](docs/design/kernel-api.md),
 [agent contract](docs/design/agent-contract.md),
-[shell and chat](docs/design/shell-and-chat.md).
+[shell and built-in plugins](docs/design/shell-and-plugins.md).
 
 ## Extend
 

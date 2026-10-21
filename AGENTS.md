@@ -1,10 +1,10 @@
 # AGENTS.md — wada_desktop_go
 
 A native MyGo desktop AI chat app. Everything is a plugin on a small kernel; all UI
-is Go, with Onevra components and theme. OpenCode is the current backend; Pi is
-expected as a second one. This is development software with no users: replace
-internal APIs directly and remove obsolete paths. Don't change OpenCode's external
-protocol to simplify a refactor.
+is Go, with Onevra components and theme. OpenCode is the default backend; Pi is the
+second (off by default). This is development software with no users: replace
+internal APIs directly and remove obsolete paths. Don't change OpenCode's or Pi's external
+protocols to simplify a refactor.
 
 ## Source map
 
@@ -18,7 +18,7 @@ protocol to simplify a refactor.
   slot), `shell` (window slots, host service), `settings` (settings sections).
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
-- `internal/plugins/*`: every feature. `opencode` (backend), `chat` (conversation
+- `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
   page), `models` (composer pickers), `sessions` (sidebar list), `settings`
   (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.

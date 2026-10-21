@@ -1,7 +1,7 @@
 # Design: agent contract
 
 Status: accepted. Declared in `internal/contract/agent`; implemented by
-`internal/plugins/opencode`.
+`internal/plugins/opencode` and `internal/plugins/pi`.
 
 ## Problem
 
@@ -56,6 +56,32 @@ Rules every backend follows:
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its
 own kernel scope, so results of a replaced connection are dropped by the kernel.
+
+## Pi plugin
+
+`internal/plugins/pi` (off by default) implements the same contract over a very
+different transport, without changes to the contract:
+
+- Pi's RPC mode (`pi --mode rpc`, JSONL on stdin/stdout) drives one session per
+  process. A control process (`--no-session`) answers the model catalog and is the
+  connection's health; each conversation gets its own process when first used
+  (`--session <file>`), and idle ones beyond four are stopped.
+- Pi has no command to list sessions, so the plugin reads the session files under the
+  session folder (`~/.pi/agent/sessions` unless configured): the header for the ID and
+  folder, `session_info` for the name, and the path from the last entry to the root
+  for the messages. A folder that no longer exists falls back to the home folder.
+- Events map as: `agent_start` → TurnStarted; text block updates → Text*;
+  `tool_execution_*` → ToolCalled/ToolFinished; `agent_settled` → TurnSucceeded,
+  TurnFailed (an assistant message stopped with an error) or TurnInterrupted
+  (aborted); `session_info_changed` → SessionRenamed. A model switch is confirmed
+  with a ModelChanged the plugin emits after `set_model` succeeds.
+- Extension `confirm` and `select` dialogs become approvals (Allow → yes or the first
+  option, Deny → no or cancel). `input` and `editor` dialogs are cancelled, since the
+  app has no place to answer them.
+- Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
+  provide `ModesKey`, and the mode picker stays hidden.
+
+Only one backend can be active: turn OpenCode off in Settings → Plugins, then turn Pi on.
 
 ## Alternatives considered
 

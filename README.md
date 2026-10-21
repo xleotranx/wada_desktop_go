@@ -2,12 +2,13 @@
 
 A native macOS AI chat app built with Go, MyGo and Onevra, with no webview. The app
 is a small plugin kernel; the window, the backend and every feature are plugins.
-OpenCode is the current backend.
+OpenCode is the default backend; Pi is the other one.
 
 ## Run
 
 Requires macOS, the Go version in `go.mod`, and the OpenCode CLI on `PATH` (or an
-OpenCode server to connect to from Settings).
+OpenCode server to connect to from Settings). To use Pi instead, install the `pi` CLI,
+then in Settings → Plugins turn OpenCode off and Pi on.
 
 ```sh
 go tool mygo dev .       # live reload; q quits, r rebuilds
@@ -31,6 +32,7 @@ and off.
 | `internal/contract/*` | Declarations plugins share: `agent`, `chat`, `shell`, `settings` |
 | `internal/shell` | Window host: frame, slots, menus, shortcuts, SQLite settings store |
 | `internal/plugins/opencode` | OpenCode backend: managed or remote server, HTTP/SSE, reconnects |
+| `internal/plugins/pi` | Pi backend: RPC processes per session, session files |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model, effort and mode pickers in the composer |
 | `internal/plugins/sessions` | Sidebar conversation list |

@@ -19,15 +19,15 @@ contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey`,
 | `shell.TitleBar` | items at the end of the title strip |
 | `shell.Overlays` | above everything (dialogs) |
 
-The conversation sidebar sits on the warm window background. Main pages occupy
-an inset, rounded panel with a lighter canvas and a subtle border and shadow.
-A separate window toolbar above both panes keeps the sidebar toggle at the left,
-the page title centered over the conversation pane, and title-bar contributions
-at the right. With the sidebar hidden, the title is centered over the window. The sidebar resize divider blends into the window
-background while retaining pointer and keyboard resizing.
+The window is flat: the sidebar and the page share the window background, split by
+a hairline that drags to resize the sidebar (and takes the keyboard). Each pane has
+its own header strip that drags the window: the sidebar's holds the sidebar toggle
+beside the window controls, the page's the page title at its start and title-bar
+contributions at its end. With the sidebar hidden, the toggle moves into the page's
+header before the title.
 
-A `shell.Page` can set `HideSidebar` to use the full content area and omit the
-sidebar toggle, while keeping the same toolbar and inset canvas. This leaves the saved sidebar visibility and width unchanged.
+A `shell.Page` can set `HideSidebar` to use the whole window and omit the sidebar
+toggle. This leaves the saved sidebar visibility and width unchanged.
 
 Every render, command and title callback runs through `kernel.Invoke`, so a panic
 disables only that plugin; the shell shows a toast naming it.

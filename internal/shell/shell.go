@@ -134,72 +134,49 @@ func (s *Shell) View(c *ui.Context) {
 		}
 		iconButton(c, p, label, lucide.PanelLeft(), h.toggleSidebar)
 	}
-	body := func() {
+	// pane is the page with its own header: the title at the start and
+	// title-bar contributions at the end. lead goes before the title, for the
+	// sidebar toggle when the sidebar is hidden.
+	pane := func(left float32, lead func()) {
 		ui.Column(c).Fill().MinWidth(0).MinHeight(0).Children(func() {
-			if hasPage {
-				kernel.Invoke(s.Kernel, page, func(pg shell.Page) { pg.Render(c) })
-			}
-		})
-	}
-	canvas := func() {
-		ui.Column(c).Fill().MinWidth(0).MinHeight(0).
-			Radius(16).Background(p.CanvasBg).Border(1, p.Hairline.Alpha(.8)).
-			Shadow(0, 2, 8, 0, p.Text.Alpha(.08)).Clip().Children(func() {
-			body()
-		})
-	}
-	ui.Column(c).Fill().Background(p.RailBg).Children(func() {
-		ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().AlignItems(ui.Center).Children(func() {
-			if showSidebar {
-				ui.Row(c).Width(h.sidebarWidth()+1).Shrink(0).FillHeight().AlignItems(ui.Center).
-					Padding(0, 12, 0, bar.Left+12).Children(toggle)
-			}
-			left := float32(12)
-			if showSidebar {
-				left = 8
-			}
-			ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Padding(0, 12, 0, left).Gap(8).Children(func() {
-				// Balance the controls around the center of the conversation pane.
-				reserve := float32(120)
-				if !showSidebar {
-					reserve = max(reserve, bar.Left+44)
+			ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().AlignItems(ui.Center).
+				Padding(0, 12, 0, left).Gap(8).Children(func() {
+				if lead != nil {
+					lead()
 				}
-				ui.Row(c).Width(0).Grow(1).MinWidth(reserve).AlignItems(ui.Center).Children(func() {
-					if !showSidebar && len(sidebar) > 0 && !pageHidesSidebar {
-						ui.Row(c).Padding(0, 0, 0, bar.Left).Children(toggle)
-					}
-				})
-				ui.Row(c).MinWidth(0).MaxWidth(480).Shrink(1).AlignItems(ui.Center).Children(titleText)
-				ui.Row(c).Width(0).Grow(1).MinWidth(reserve).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+				ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center).Children(titleText)
+				ui.Row(c).Shrink(0).AlignItems(ui.Center).Children(func() {
 					s.render(c, kernel.Items(s.Kernel, shell.TitleBar))
 				})
 			})
+			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Children(func() {
+				if hasPage {
+					kernel.Invoke(s.Kernel, page, func(pg shell.Page) { pg.Render(c) })
+				}
+			})
 		})
+	}
+	ui.Column(c).Fill().Background(p.CanvasBg).Children(func() {
 		if !showSidebar {
-			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Padding(4, 12, 12, 12).Children(canvas)
+			var lead func()
+			if len(sidebar) > 0 && !pageHidesSidebar {
+				lead = toggle
+			}
+			pane(bar.Left+12, lead)
 			return
 		}
-		panel := func() {
-			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Padding(4, 12, 12, 8).Children(canvas)
-		}
 		width := h.sidebarWidth()
-		// The resize handle blends into the window; panes keep their normal theme.
-		frameTheme := c.Theme()
-		splitTheme := *frameTheme
-		splitTheme.Border = p.RailBg
-		c.SetTheme(&splitTheme)
 		split := components.Split(c, &width, func() {
-			c.SetTheme(frameTheme)
-			ui.Column(c).Width(width).FillHeight().MinHeight(0).Padding(4, 10, 12, 10).Gap(2).Children(func() {
-				s.render(c, sidebar)
+			ui.Column(c).Width(width).FillHeight().MinHeight(0).Background(p.SidebarBg).Children(func() {
+				ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().AlignItems(ui.Center).
+					Padding(0, 12, 0, bar.Left+12).Children(toggle)
+				ui.Column(c).Fill().MinHeight(0).Padding(0, 10, 12, 10).Gap(2).Children(func() {
+					s.render(c, sidebar)
+				})
 			})
-			c.SetTheme(&splitTheme)
 		}, func() {
-			c.SetTheme(frameTheme)
-			panel()
-			c.SetTheme(&splitTheme)
+			pane(20, nil)
 		}, components.SplitOptions{FirstMin: sidebarMinWidth, SecondMin: pageMinWidth, Default: sidebarDefaultWidth})
-		c.SetTheme(frameTheme)
 		split.Label("Resize sidebar").Fill()
 		if split.Changed() {
 			h.sidebarW.Set(min(max(width, sidebarMinWidth), sidebarMaxWidth))

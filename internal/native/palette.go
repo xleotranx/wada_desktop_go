@@ -6,15 +6,14 @@ import "github.com/egoist/mygo/ui"
 // so hand-drawn panes and Onevra's controls share one material. Widgets that
 // need nothing special keep the theme's own colors.
 type Palette struct {
-	Bg, CanvasBg, SidebarBg, RailBg, Hover, Selected, Hairline ui.Color
-	ChromeWash                                                 ui.Color
-	Text, Muted, Faint                                         ui.Color
-	Orange                                                     ui.Color
-	DetailBg                                                   ui.Color
-	Danger, DangerText                                         ui.Color
-	DiffAdd, DiffDel                                           ui.Color
-	Link                                                       ui.Color
-	GreenBadge                                                 ui.Color
+	Bg, CanvasBg, SidebarBg, Hover, Selected, Hairline ui.Color
+	Text, Muted, Faint                                 ui.Color
+	Orange                                             ui.Color
+	DetailBg                                           ui.Color
+	Danger, DangerText                                 ui.Color
+	DiffAdd, DiffDel                                   ui.Color
+	Link                                               ui.Color
+	GreenBadge                                         ui.Color
 }
 
 // paletteFor maps the app's semantic colors onto Onevra's warm palettes.
@@ -33,8 +32,6 @@ func PaletteFor(c *ui.Context) Palette {
 		Bg:         t.Background,
 		CanvasBg:   t.Background.Mix(t.Surface, 0.75),
 		SidebarBg:  t.Surface,
-		RailBg:     t.Background.Mix(t.Text, 0.04),
-		ChromeWash: t.Background.Alpha(0.72),
 		Hover:      t.SurfaceHover,
 		Selected:   t.Text.Alpha(0.10),
 		Hairline:   t.Border,

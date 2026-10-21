@@ -73,8 +73,12 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 		}
 	}
 	visibleTitle, ok := tt.Find("Main page")
-	if !ok || visibleTitle.X+visibleTitle.W/2 < 748 || visibleTitle.X+visibleTitle.W/2 > 750 {
-		t.Fatalf("expanded title is not centered over the chat: %+v", visibleTitle)
+	// The title starts the page's own header, just past the sidebar.
+	if !ok || visibleTitle.X < sidebarDefaultWidth || visibleTitle.X > sidebarDefaultWidth+24 {
+		t.Fatalf("expanded title does not start the page header: %+v", visibleTitle)
+	}
+	if badge, ok := tt.Find("Badge"); !ok || badge.X+badge.W < 1200-16 {
+		t.Fatalf("title-bar item is not at the end of the header: %+v", badge)
 	}
 	if title != "Main page — Wada" {
 		t.Fatalf("window title %q", title)
@@ -104,8 +108,10 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	host.ShowPage("notes.main")
 	tt.Frame()
 	titleBounds, ok := tt.Find("Main page")
-	if !ok || titleBounds.X+titleBounds.W/2 < 599 || titleBounds.X+titleBounds.W/2 > 601 {
-		t.Fatalf("collapsed title is not centered: %+v", titleBounds)
+	// With the sidebar hidden the toggle leads the header, then the title.
+	toggleBounds, _ := tt.Find("Show sidebar")
+	if !ok || titleBounds.X < toggleBounds.X+toggleBounds.W || titleBounds.X > toggleBounds.X+toggleBounds.W+12 {
+		t.Fatalf("collapsed title does not follow the toggle %+v: %+v", toggleBounds, titleBounds)
 	}
 	if err := tt.Click("Show sidebar"); err != nil {
 		t.Fatal(err)

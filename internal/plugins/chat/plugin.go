@@ -17,6 +17,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 // Plugin is the chat page. The zero value is ready to install.
@@ -108,7 +109,7 @@ func (p *Plugin) NewChat(directory string) {
 }
 
 func (p *Plugin) SetDirectory(directory string) {
-	if p.conv.Session != "" || p.conv.Directory == directory {
+	if p.conv.Session != "" || p.conv.Starting || p.conv.Directory == directory {
 		return
 	}
 	p.conv.Directory = directory
@@ -194,24 +195,59 @@ func (p *Plugin) send() {
 		p.deliver(d.Session, d)
 		return
 	}
+	// The conversation is created on the plugin's lifetime, not the open
+	// conversation's: once the backend has it, it is recorded and gets its
+	// message even if the user has moved on meanwhile.
+	p.conv.Starting = true
+	scope, backend := p.scope, p.agent
 	var task kernel.Task
-	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.Session, error) {
-		return p.agent.Create(ctx, agent.CreateSession{Directory: d.Directory, Model: d.Model, Mode: d.Mode})
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Session, error) {
+		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Model: d.Model, Mode: d.Mode})
 	}, func(s agent.Session, err error) {
+		here := p.scope == scope
 		if s.ID == "" {
-			p.sending = false
-			p.t.note("The chat did not start: " + errText(err))
+			if here {
+				p.sending, p.conv.Starting = false, false
+				p.t.note("The chat did not start: " + errText(err))
+			} else {
+				p.host.Toast(ui.Toast{Title: "The chat did not start", Description: errText(err), Type: components.ToastError})
+			}
+			return
+		}
+		started := chat.Conversation{Session: s.ID, Title: s.Title, Directory: d.Directory, Model: s.Model}
+		if !here {
+			kernel.Emit(p.ctx, chat.Started, started)
+			p.sendAway(s.ID, d)
 			return
 		}
 		// The folder stays the one chosen, so a next chat and the sidebar
 		// keep to it even when the backend names its default.
-		p.conv.Session, p.conv.Model = s.ID, s.Model
+		p.conv.Session, p.conv.Model, p.conv.Starting = s.ID, s.Model, false
 		kernel.Emit(p.ctx, chat.Changed, p.conv)
-		kernel.Emit(p.ctx, chat.Started, chat.Conversation{Session: s.ID, Title: s.Title, Directory: d.Directory, Model: s.Model})
+		kernel.Emit(p.ctx, chat.Started, started)
 		if err != nil {
 			p.t.note(err.Error())
 		}
 		p.deliver(s.ID, d)
+	})
+}
+
+// sendAway sends the first message of a conversation the user left while it
+// was being created. Nothing of it is on show, so a failure is a toast.
+func (p *Plugin) sendAway(id agent.SessionID, d chat.Draft) {
+	backend := p.agent
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.SendDisposition, error) {
+		return backend.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
+	}, func(_ agent.SendDisposition, err error) {
+		switch {
+		case err == nil:
+		case errors.Is(err, agent.ErrNotSent):
+			p.host.Toast(ui.Toast{Title: "The message was not sent", Description: err.Error(), Type: components.ToastError})
+		default:
+			p.host.Toast(ui.Toast{Title: "The message may not have reached the agent", Description: err.Error() +
+				". Check the conversation before sending it again.", Type: components.ToastError})
+		}
 	})
 }
 

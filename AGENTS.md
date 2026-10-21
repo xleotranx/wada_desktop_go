@@ -25,7 +25,7 @@ protocols to simplify a refactor.
   `workspace.db`, folder picker), `sessions` (sidebar list by folder), `palette` (⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.
-- `internal/native`: the semantic palette and small shared controls.
+- `internal/native`: the semantic palette, small shared controls and `Tilde` for paths.
 
 Design notes: [kernel API](docs/design/kernel-api.md),
 [agent contract](docs/design/agent-contract.md),

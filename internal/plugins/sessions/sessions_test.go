@@ -202,3 +202,14 @@ func TestConversationActionsRemainKeyboardAccessible(t *testing.T) {
 		t.Fatal("rename action did not open")
 	}
 }
+
+func TestTheListFollowsTheRecord(t *testing.T) {
+	_, p, _, ws, _, _ := start(t)
+	tt := ui.NewTester(p.view, 320, 600)
+	tt.Frame()
+	ws.Retitle("s1", "Renamed elsewhere")
+	tt.Frame()
+	if !tt.HasText("Renamed elsewhere") || tt.HasText("First") {
+		t.Fatalf("rows %q", tt.Texts())
+	}
+}

@@ -223,7 +223,7 @@ func (f *Chat) NewChat(dir string) {
 }
 
 func (f *Chat) SetDirectory(dir string) {
-	if f.Conv.Session == "" {
+	if f.Conv.Session == "" && !f.Conv.Starting {
 		f.Conv.Directory = dir
 		kernel.Emit(f.ctx, chat.Changed, f.Conv)
 	}

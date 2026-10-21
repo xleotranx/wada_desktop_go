@@ -30,6 +30,10 @@ import (
 // conversations looking for the ones the app started.
 const syncPages = 20
 
+// syncSkew is how much older than its record a conversation's backend
+// activity may look, for the backend's clock and the time creating it took.
+const syncSkew = int64(10 * 60 * 1000)
+
 // Plugin is the workspace record. The zero value is ready to install.
 type Plugin struct {
 	ctx   *kernel.Context
@@ -50,7 +54,6 @@ type Plugin struct {
 	warned  bool // a failed save was reported
 
 	picker onechat.PickerState
-	home   string // shown as ~ in folder paths
 
 	// choose asks the user for a folder, off the UI thread; tests replace it.
 	choose func() (string, error)
@@ -90,7 +93,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	if p.now == nil {
 		p.now = func() int64 { return time.Now().UnixMilli() }
 	}
-	p.home = homeDir()
 	kernel.On(c, agent.StatusChanged, p.statusChanged)
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, chat.Started, p.started)
@@ -308,12 +310,13 @@ func (p *Plugin) started(conv chat.Conversation) {
 	if p.origin == "" || conv.Session == "" {
 		return
 	}
-	folder := conv.Directory
-	if folder != "" {
-		folder = filepath.Clean(folder)
-		if filepath.IsAbs(folder) {
-			p.addFolder(folder)
-		}
+	// Only an absolute folder is one the sidebar can group and remove; the
+	// backend resolves any other itself.
+	folder := filepath.Clean(conv.Directory)
+	if conv.Directory == "" || !filepath.IsAbs(folder) {
+		folder = ""
+	} else {
+		p.addFolder(folder)
 	}
 	now := p.now()
 	k := key{p.origin, conv.Session}
@@ -348,6 +351,7 @@ func (p *Plugin) events(batch []agent.Event) {
 		p.changed()
 	}
 	if finished {
+		p.maybeSync()  // after a full sync that failed
 		p.syncRecent() // a first turn is when the backend names a conversation
 	}
 }
@@ -381,18 +385,27 @@ func (p *Plugin) maybeSync() {
 func (p *Plugin) syncRecent() { p.sync(&p.recent, 1) }
 
 // sync reads up to pages of the backend's conversations, newest first, until
-// it has seen every one the app recorded, and takes their titles, models and
-// activity. A conversation the backend doesn't list stays recorded: a
-// listing can't prove it is gone, and the user can remove it.
+// it has seen every one the app recorded or reached activity older than any
+// of them, and takes their titles, models and activity. A conversation the
+// backend doesn't list stays recorded: a listing can't prove it is gone, and
+// the user can remove it. A full sync that fails is tried again after the
+// next finished turn.
 func (p *Plugin) sync(task *kernel.Task, pages int) {
 	want := map[agent.SessionID]bool{}
+	oldest := int64(0)
 	for _, c := range p.list {
 		want[c.ID] = true
+		if oldest == 0 || c.Created < oldest {
+			oldest = c.Created
+		}
 	}
 	if len(want) == 0 {
 		return
 	}
-	origin, backend := p.origin, p.agent
+	// A conversation is active on the backend at least since it was created,
+	// so nothing it lists after this can be one of them.
+	floor := oldest - syncSkew
+	origin, backend, full := p.origin, p.agent, task == &p.full
 	kernel.Go(p.ctx, task, func(ctx context.Context) ([]agent.Session, error) {
 		var seen []agent.Session
 		cursor := ""
@@ -407,16 +420,19 @@ func (p *Plugin) sync(task *kernel.Task, pages int) {
 					delete(want, s.ID)
 				}
 			}
-			if len(want) == 0 || page.Next == "" {
+			if len(want) == 0 || page.Next == "" || olderThan(page.Sessions, floor) {
 				break
 			}
 			cursor = page.Next
 		}
 		return seen, nil
-	}, func(seen []agent.Session, _ error) {
+	}, func(seen []agent.Session, err error) {
 		// A failed page keeps what came before it; the list itself is local.
 		if origin != p.origin {
 			return
+		}
+		if err != nil && full {
+			p.synced = 0
 		}
 		changed := false
 		for _, s := range seen {
@@ -432,4 +448,13 @@ func (p *Plugin) sync(task *kernel.Task, pages int) {
 			p.changed()
 		}
 	})
+}
+
+// olderThan reports that a page, newest first, ends with activity before floor.
+func olderThan(page []agent.Session, floor int64) bool {
+	if len(page) == 0 {
+		return false
+	}
+	last := page[len(page)-1].Updated
+	return last > 0 && last < floor
 }

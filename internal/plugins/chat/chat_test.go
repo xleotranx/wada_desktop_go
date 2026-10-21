@@ -424,3 +424,27 @@ func TestCannotSendWhileHistoryIsLoading(t *testing.T) {
 		t.Fatalf("sent during load: calls=%q draft=%q", f.Calls(), p.draft)
 	}
 }
+
+func TestAChatLeftWhileStartingIsStillAnnouncedAndSent(t *testing.T) {
+	h, p, f, _ := start(t)
+	var started []chat.Conversation
+	kernel.On(h, chat.Started, func(c chat.Conversation) { started = append(started, c) })
+	p.NewChat("/work")
+	p.draft = "hello"
+	p.send()
+	p.SetDirectory("/other") // the folder is fixed once the message is on its way
+	if !p.conv.Starting || p.conv.Directory != "/work" {
+		t.Fatalf("conversation %+v", p.conv)
+	}
+	p.NewChat("/next")
+	h.Flush()
+	if len(started) != 1 || started[0].Session != "new" || started[0].Directory != "/work" {
+		t.Fatalf("started %+v", started)
+	}
+	if got := f.Calls(); !slices.Equal(got, []string{"create /work", "send new hello"}) {
+		t.Fatalf("calls %q", got)
+	}
+	if p.conv.Session != "" || p.conv.Directory != "/next" || len(p.t.rows) != 0 {
+		t.Fatalf("the left chat landed in the next one: %+v rows %v", p.conv, kinds(p))
+	}
+}

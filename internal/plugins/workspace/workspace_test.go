@@ -89,7 +89,7 @@ func TestStartedConversationsAreRecordedAndKept(t *testing.T) {
 	if !ok || c.Folder != "/w/app" || c.Title != "Parser" || c.Model.ID != "m" || c.Created == 0 {
 		t.Fatalf("s1 %+v %v", c, ok)
 	}
-	if c, _ := g.p.Lookup("s3"); c.Folder != "relative" {
+	if c, _ := g.p.Lookup("s3"); c.Folder != "" { // the backend resolves a relative folder
 		t.Fatalf("s3 %+v", c)
 	}
 }
@@ -240,5 +240,34 @@ func TestComposerChipSetsTheNewChatsFolder(t *testing.T) {
 	tt.Frame()
 	if f.chat.Conv.Directory != "" || tt.HasText("No folder") {
 		t.Fatalf("a stored conversation shows the chip: %q", tt.Texts())
+	}
+}
+
+func TestSyncStopsBeforeTheRecordAndRetriesAfterAFailure(t *testing.T) {
+	f := start(t, "")
+	clock := int64(100_000_000)
+	f.p.now = func() int64 { clock++; return clock }
+	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "gone"})
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "x", Updated: clock}, {ID: "y", Updated: 1}}, Next: "c2"}
+	f.a.Pages["c2|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "z", Updated: 1}}}
+	f.a.State.Attempt = 2
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	f.h.Flush()
+	if got := f.a.Called("sessions"); got != 1 {
+		t.Fatalf("read past activity older than the record: %q", f.a.Calls())
+	}
+
+	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1"})
+	f.a.Fail["Sessions"] = errors.New("timeout")
+	f.a.State.Attempt = 3
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	f.h.Flush()
+	delete(f.a.Fail, "Sessions")
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Title: "Named", Updated: clock}}}
+	before := f.a.Called("sessions")
+	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "s1"}})
+	f.h.Flush()
+	if c, _ := f.p.Lookup("s1"); c.Title != "Named" || f.a.Called("sessions") != before+2 {
+		t.Fatalf("s1 %+v calls %q", c, f.a.Calls())
 	}
 }

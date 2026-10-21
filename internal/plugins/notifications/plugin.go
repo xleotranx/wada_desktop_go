@@ -34,6 +34,13 @@ type Plugin struct {
 	// known holds the conversations notices were shown for, so a click
 	// opens one with its title and folder.
 	known map[agent.SessionID]agent.Session
+	// waiting holds what came to notify before the workspace record was read.
+	waiting []notice
+}
+
+type notice struct {
+	id   agent.SessionID
+	body string
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -51,8 +58,9 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.finished = kernel.NewSetting(c, "turn-finished", true)
 	p.approvals = kernel.NewSetting(c, "approvals", true)
-	p.known = map[agent.SessionID]agent.Session{}
+	p.known, p.waiting = map[agent.SessionID]agent.Session{}, nil
 	kernel.On(c, agent.Events, p.events)
+	kernel.On(c, workspace.Changed, func(struct{}) { p.flush() })
 	kernel.On(c, shell.NoticeClicked, p.clicked)
 	return kernel.Contribute(c, settings.Sections, "notifications.section", 50, settings.Section{
 		Title: "Notifications", Description: "Shown only while you look at another conversation or another app.",
@@ -97,13 +105,17 @@ func (p *Plugin) seen(id agent.SessionID) bool {
 
 // notify shows body for the conversation unless the user is looking at it.
 // Only conversations started in this app are notified while the workspace
-// record is active. A conversation without a known title is looked up on the
-// backend first.
+// record is active; until it has been read, notices wait for it. A
+// conversation without a known title is looked up on the backend first.
 func (p *Plugin) notify(id agent.SessionID, body string) {
 	if id == "" || p.seen(id) {
 		return
 	}
 	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
+		if !ws.Loaded() {
+			p.waiting = append(p.waiting, notice{id, body})
+			return
+		}
 		conv, known := ws.Lookup(id)
 		if !known {
 			return
@@ -134,6 +146,18 @@ func (p *Plugin) notify(id agent.SessionID, body string) {
 			p.show(s, body)
 		})
 	})
+}
+
+// flush notifies what waited for the workspace record.
+func (p *Plugin) flush() {
+	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); len(p.waiting) == 0 || ok && !ws.Loaded() {
+		return
+	}
+	waiting := p.waiting
+	p.waiting = nil
+	for _, n := range waiting {
+		p.notify(n.id, n.body)
+	}
 }
 
 func (p *Plugin) show(s agent.Session, body string) {

@@ -8,7 +8,6 @@ package sessions
 import (
 	"cmp"
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -44,8 +43,10 @@ type Plugin struct {
 	removing string // the folder whose removal is being confirmed
 	removeOn bool
 
-	list ui.ListState
-	home string // shown as ~ in folder paths
+	list      ui.ListState
+	rows      []item // laid out for rowsQuery
+	rowsQuery string
+	rowsStale bool // the record changed since
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -62,9 +63,9 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.ws = kernel.Require(c, workspace.ServiceKey)
-	p.unread = map[agent.SessionID]bool{}
-	p.home, _ = os.UserHomeDir()
+	p.unread, p.rows, p.rowsStale = map[agent.SessionID]bool{}, nil, true
 	kernel.On(c, agent.Events, p.events)
+	kernel.On(c, workspace.Changed, func(struct{}) { p.rowsStale = true })
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { delete(p.unread, conv.Session) })
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Sidebar, "sessions.list", 10, shell.View{Render: p.view, Grow: true}),
@@ -246,6 +247,15 @@ func (p *Plugin) items() []item {
 	return out
 }
 
+// layout is the list's rows, laid out again only after the record or the
+// search changed.
+func (p *Plugin) layout() []item {
+	if p.rowsStale || p.query != p.rowsQuery {
+		p.rows, p.rowsQuery, p.rowsStale = p.items(), p.query, false
+	}
+	return p.rows
+}
+
 // ---- View
 
 func (p *Plugin) view(c *ui.Context) {
@@ -277,7 +287,7 @@ func (p *Plugin) view(c *ui.Context) {
 			ui.Text(c, "Loading conversations…").FontSize(12).TextColor(pal.Faint).Padding(8, 8)
 			return
 		}
-		rows := p.items()
+		rows := p.layout()
 		if len(rows) == 0 {
 			empty := "No conversations yet. Open a folder to keep its chats together."
 			if strings.TrimSpace(p.query) != "" {
@@ -314,7 +324,7 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
-	b.Tooltip(p.tilde(f.Path))
+	b.Tooltip(native.Tilde(f.Path))
 	b.OnClick(func() { p.ws.SetCollapsed(f.Path, !f.Collapsed) })
 	b.Children(func() {
 		chevron, icon := lucide.ChevronDown, lucide.FolderOpen
@@ -333,8 +343,9 @@ func (p *Plugin) folderRow(c *ui.Context, pal native.Palette, f workspace.Folder
 		c.Key("options")
 		kebab := ui.ButtonBase(c).Label("Options for "+name).Size(22, 22).Radius(6).Center().Shrink(0)
 		kebab.Menu(func(m *ui.Menu) {
+			// A menu is drawn while rendering; act once the frame is done.
 			if m.Item("New Chat").Chosen() {
-				p.chat.NewChat(f.Path)
+				p.ctx.Post(func() { p.chat.NewChat(f.Path) })
 			}
 			m.Separator()
 			if m.Item("Remove Folder…").Chosen() {
@@ -386,7 +397,7 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 				p.startRename(conv)
 			}
 			if m.Item("Remove from List").Chosen() {
-				p.forget(conv)
+				p.ctx.Post(func() { p.forget(conv) }) // not while rendering
 			}
 			m.Separator()
 			if m.Item("Delete…").Chosen() {
@@ -403,14 +414,6 @@ func (p *Plugin) row(c *ui.Context, pal native.Palette, conv workspace.Conversat
 		kebab.Tooltip("Conversation options")
 		kebab.Children(func() { ui.Icon(c, lucide.Ellipsis()).FontSize(13).TextColor(pal.Muted) })
 	})
-}
-
-// tilde shortens a path under the home folder.
-func (p *Plugin) tilde(path string) string {
-	if rest, ok := strings.CutPrefix(path, p.home+"/"); ok && p.home != "" {
-		return "~/" + rest
-	}
-	return path
 }
 
 func (p *Plugin) dialogs(c *ui.Context) {

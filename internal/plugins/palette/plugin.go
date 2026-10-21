@@ -6,7 +6,6 @@ package palette
 
 import (
 	"cmp"
-	"os"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -14,6 +13,7 @@ import (
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -38,7 +38,6 @@ type Plugin struct {
 
 	open  bool
 	state command.State
-	home  string // shown as ~ in a conversation's folder
 }
 
 func (*Plugin) Manifest() kernel.Manifest {
@@ -51,7 +50,6 @@ func (*Plugin) Manifest() kernel.Manifest {
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.open = false
-	p.home, _ = os.UserHomeDir()
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Overlays, "palette.dialog", 10, shell.View{Render: p.view}),
 		kernel.Contribute(c, kernel.Commands, openID, 0, kernel.Command{
@@ -133,7 +131,7 @@ func (p *Plugin) items() []command.Item {
 	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
 		for _, conv := range ws.Conversations() {
 			items = append(items, command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
-				Description: p.tilde(conv.Folder), Group: groupChats, Icon: lucide.MessageSquare()})
+				Description: native.Tilde(conv.Folder), Group: groupChats, Icon: lucide.MessageSquare()})
 		}
 	}
 	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
@@ -154,14 +152,6 @@ func (p *Plugin) items() []command.Item {
 		items = append(items, item)
 	}
 	return items
-}
-
-// tilde shortens a folder under the home folder.
-func (p *Plugin) tilde(dir string) string {
-	if rest, ok := strings.CutPrefix(dir, p.home+"/"); ok && p.home != "" {
-		return "~/" + rest
-	}
-	return dir
 }
 
 // filter matches typed words against titles and menus. With nothing typed it

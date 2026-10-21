@@ -22,8 +22,9 @@ var (
 	// or its model changes.
 	Changed = kernel.NewTopic[Conversation]("chat.changed")
 	// Started is emitted once the backend has created a conversation for the
-	// first message of a new chat. Directory is the folder the user chose for
-	// it, empty for the backend's default, whatever the backend reports.
+	// first message of a new chat, also when the user has opened another one
+	// meanwhile. Directory is the folder the user chose for it, empty for the
+	// backend's default, whatever the backend reports.
 	Started = kernel.NewTopic[Conversation]("chat.started")
 
 	// Outgoing runs on the UI thread when the user sends a message, before
@@ -87,6 +88,9 @@ type Conversation struct {
 	Title     string
 	Directory string
 	Model     agent.ModelRef // the conversation's model; zero when unknown or new
+	// Starting is set while the first message of a new chat is creating its
+	// conversation; its folder can no longer change.
+	Starting bool
 }
 
 // Draft is one message on its way out.
@@ -107,6 +111,7 @@ type Controller interface {
 	// NewChat shows an empty conversation that will work in directory.
 	NewChat(directory string)
 	// SetDirectory changes the folder of a new chat that has not been sent,
-	// keeping the draft. It does nothing while a stored conversation is open.
+	// keeping the draft. It does nothing while a stored conversation is open
+	// or the first message is Starting one.
 	SetDirectory(directory string)
 }

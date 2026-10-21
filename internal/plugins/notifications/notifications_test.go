@@ -6,6 +6,7 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
@@ -78,6 +79,24 @@ func TestSwitchesTurnNoticesOff(t *testing.T) {
 	}
 	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "s2"})
 	if len(host.Notices) != 0 {
+		t.Fatalf("notices %+v", host.Notices)
+	}
+}
+
+func TestNoticesWaitForTheWorkspaceRecord(t *testing.T) {
+	a := plugintest.NewAgent()
+	c, host := &plugintest.Chat{}, &plugintest.Host{}
+	ws := &plugintest.Workspace{Pending: true}
+	h := kerneltest.New(t, a, c, host, ws, &Plugin{})
+	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "ours"}, agent.Event{Kind: agent.TurnSucceeded, Session: "cli"})
+	if len(host.Notices) != 0 {
+		t.Fatalf("notified before the record was read: %+v", host.Notices)
+	}
+	ws.Pending = false
+	ws.Convs = []workspace.Conversation{{ID: "ours", Title: "Parser", Folder: "/w/app"}}
+	kernel.Emit(h, workspace.Changed, struct{}{})
+	h.Flush()
+	if len(host.Notices) != 1 || host.Notices[0].ID != "chat:ours" {
 		t.Fatalf("notices %+v", host.Notices)
 	}
 }

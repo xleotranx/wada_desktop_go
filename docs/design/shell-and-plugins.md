@@ -53,12 +53,16 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
   send or reply started for the previous conversation can't land in the next one.
 - Sending runs `chat.Outgoing` first, then creates the conversation when it is new,
-  then sends. The user's words show at once. A created conversation is announced on
+  then sends. The user's words show at once. While the conversation is being created
+  `chat.Conversation.Starting` is set. A created conversation is announced on
   `chat.Started` with the folder the draft named, and the open conversation keeps
   that folder even when the backend reports its default instead, so ⌘N stays in it.
+  Creating belongs to the plugin, not the conversation's scope: when the user has
+  opened another conversation meanwhile, the new one is still announced and its
+  message sent, and a failure is a toast.
 - `chat.Controller.SetDirectory` changes the folder of a new chat without touching
-  the draft; it does nothing for a stored conversation. A failed send is reported and never
-  retried, since it may have reached the agent.
+  the draft; it does nothing for a stored conversation or one that is Starting. A
+  failed send is reported and never retried, since it may have reached the agent.
 - General backend questions appear as typed interaction cards: Yes/No, every
   offered selection, a text input, or a multiline editor. Submission disables the
   card until its answer completes; a failed answer is reported without retrying.
@@ -112,23 +116,25 @@ keeps the messages; the record says which conversations are the app's and where 
 belong, so the sidebar, the palette and the notifications show nothing else.
 
 - It records a conversation on `chat.Started`, with the folder the user chose (empty
-  for the backend's default) and the backend's origin (`agent.Status.Origin`). A chosen
+  for the backend's default, and for a folder that isn't absolute) and the backend's origin (`agent.Status.Origin`). A chosen
   absolute folder that isn't known yet is added. Only the current origin's
   conversations are listed, newest first; switching backend or server changes the list.
 - It follows `agent.Events`: a turn starting, ending or interrupted is activity;
   `SessionRenamed` and `ModelChanged` update the title and model. When a recorded
   conversation finishes a turn it reads the backend's newest page for titles, and once
   per connection attempt it reads up to 20 pages until it has seen every recorded
-  conversation. A conversation the backend doesn't list stays recorded: a listing
-  can't prove it is gone.
+  conversation or reached activity more than ten minutes older than the oldest
+  one's creation. A failed connection sync is tried again after the next finished
+  turn. A conversation the backend doesn't list stays recorded: a listing can't
+  prove it is gone.
 - `ChooseFolder` shows the system folder dialog off the UI thread, one at a time; the
   chosen folder is added before its callback runs. "Open Folder…" (⌘O, File menu)
   chooses one and starts a new chat there. A folder is a path on this Mac; with a
   remote OpenCode server the same path must exist there.
 - For a new chat it adds a folder picker to `chat.ComposerAccessory` (leading): the
   known folders, "No folder" (the agent's default) and "Choose folder…", applied
-  through `chat.Controller.SetDirectory` after the frame. A stored conversation shows
-  none.
+  through `chat.Controller.SetDirectory` after the frame. A stored conversation, or
+  one Starting, shows none.
 - Folders are listed by name. Removing one forgets the record of its conversations
   under every origin; nothing is deleted from the backend or the disk.
 
@@ -172,7 +178,9 @@ filters titles as you type, shows matches under their folders even when collapse
 hides folders without one. Rows show the title, an unread mark for a recorded
 conversation that finished a turn while another was open, and an options menu
 (Rename…, Remove from List, Delete…) that stays keyboard accessible and appears on
-hover, focus or selection. Rename and delete go to the backend, then the record;
+hover, focus or selection. Menu choices act after the frame. The rows are laid out
+again only when `workspace.Changed` arrives or the search changes. Rename and delete
+go to the backend, then the record;
 "Remove from List" only forgets the record. A failed delete is reported and the
 conversation stays listed. Removing a folder asks first and counts the conversations
 that leave the list.
@@ -244,7 +252,8 @@ it is plain text.
 `internal/plugins/notifications` listens to `agent.Events` and notifies a finished or
 failed turn, or an approval, of a conversation the user isn't looking at: another
 conversation or page is on show, or the window isn't in front. While the workspace
-record is active, only the conversations it holds are notified, titled from it. An interrupted turn is
+record is active, only the conversations it holds are notified, titled from it; until
+the record has been read, notices wait and are shown on `workspace.Changed`. An interrupted turn is
 the user's own doing and isn't notified. A conversation whose title it doesn't know is
 looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
 clicking it opens that conversation. Its settings section turns each kind off.

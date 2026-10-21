@@ -390,8 +390,9 @@ first). After that, `Post` and task results for that scope are dropped.
 ## Storage
 
 The shell implements `Store` with SQLite through `github.com/egoist/mygo/plugins/sqlite`,
-which MyGo already bundles, so there is no new dependency. One database per backend
-profile holds one table:
+which MyGo already bundles, so there is no new dependency. One database,
+`settings.db` in `$WADA_DATA_DIR` or the user's config directory under
+`wada-desktop-go/`, holds one table:
 
 ```sql
 CREATE TABLE settings (
@@ -402,7 +403,8 @@ CREATE TABLE settings (
 );
 ```
 
-Each `Save` is one transaction that upserts or deletes the changed rows, so a crash
+A database of another schema is refused, never rewritten; the app then keeps settings
+in memory for that run and says so. Each `Save` is one transaction that upserts or deletes the changed rows, so a crash
 never leaves half-written settings and a change rewrites only its own rows. Plugins
 never see SQL; they use `Settings`. Conversation contents stay with the backend.
 A plugin that later needs its own queryable data gets a separate design rather than

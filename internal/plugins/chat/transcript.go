@@ -26,6 +26,7 @@ type row struct {
 	id       uint64
 	kind     rowKind
 	text     string
+	files    []agent.File // rowUser: what went with the words
 	stream   *strings.Builder
 	message  agent.MessageID
 	tool     *toolRow
@@ -65,8 +66,11 @@ func (t *transcript) add(r *row) *row {
 	return r
 }
 
-func (t *transcript) addUser(text string) { t.add(&row{kind: rowUser, text: text}) }
-func (t *transcript) note(text string)    { t.add(&row{kind: rowNote, text: text}) }
+func (t *transcript) addUser(text string, files []agent.File) {
+	t.add(&row{kind: rowUser, text: text, files: files})
+}
+
+func (t *transcript) note(text string) { t.add(&row{kind: rowNote, text: text}) }
 
 // load replaces the rows with a stored conversation.
 func (t *transcript) load(messages []agent.Message) {
@@ -74,8 +78,8 @@ func (t *transcript) load(messages []agent.Message) {
 	for _, m := range messages {
 		switch m.Role {
 		case agent.RoleUser:
-			if text := strings.TrimSpace(m.Text); text != "" {
-				t.addUser(text)
+			if text := strings.TrimSpace(m.Text); text != "" || len(m.Files) > 0 {
+				t.addUser(text, m.Files)
 			}
 		case agent.RoleAssistant:
 			for _, part := range m.Parts {

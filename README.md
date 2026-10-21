@@ -20,7 +20,7 @@ go tool mygo build       # production app/DMG in build/
 
 Chat with streaming markdown, tool calls, approvals and stop; a searchable, paged
 conversation list with rename, delete and unread marks; model, effort and mode
-pickers; desktop notifications for conversations in the background; settings for
+pickers; file and image attachments; desktop notifications for conversations in the background; settings for
 appearance, the OpenCode connection, Pi, notifications, and turning plugins on and
 off.
 
@@ -36,6 +36,7 @@ off.
 | `internal/plugins/pi` | Pi backend: RPC processes per session, session files |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model, effort and mode pickers in the composer |
+| `internal/plugins/attachments` | Files and images sent with a message |
 | `internal/plugins/sessions` | Sidebar conversation list |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
 | `internal/plugins/settings` | Settings page |

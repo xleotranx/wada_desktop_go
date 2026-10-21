@@ -22,7 +22,11 @@ Rules every backend follows:
   from any goroutine (normally a `kernel.Go` work function) and blocks on I/O.
 - Without a connection, methods return `agent.ErrNotConnected`.
 - Mutations (`Create`, `Send`, `Abort`, `Reply`, `Rename`, `Delete`) are never
-  retried by the backend. A failed mutation has an unknown outcome on the server.
+  retried by the backend. A failed mutation has an unknown outcome on the server,
+  except a `Send` whose error wraps `agent.ErrNotSent`: the backend refused it before
+  sending anything.
+- `Send.Files` go with the message; stored user messages list theirs in
+  `Message.Files`, without data.
 - `Create` returns the created session together with an error when a later step,
   such as setting the model, fails.
 - `Status.Attempt` increases with every connection attempt. A consumer that keeps
@@ -42,6 +46,9 @@ Rules every backend follows:
 - zero value: run `opencode serve` on a free local port, in the home directory,
   with a fresh password per run; the process ends with the plugin;
 - `{"remote": true, "url": …, "password": …}`: connect to that server.
+
+Files go in the prompt's `files` as `data:` URIs, which a remote server reads as well
+as a local one; the server stores them inline.
 
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its
@@ -70,6 +77,9 @@ session folder, both empty for Pi's defaults. "Restart Pi" restarts its processe
 - Extension `confirm` and `select` dialogs become approvals (Allow → yes or the first
   option, Deny → no or cancel). `input` and `editor` dialogs are cancelled, since the
   app has no place to answer them.
+- Images go in the prompt's `images`. Text files are appended to the message as fenced
+  blocks headed `(file: name)`. Any other file makes `Send` fail with `ErrNotSent`.
+  Stored images come back as files named "image", since Pi keeps no names.
 - Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
   provide `ModesKey`, and the mode picker stays hidden.
 

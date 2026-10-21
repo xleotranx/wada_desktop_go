@@ -245,7 +245,8 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 	}
 	for _, fn := range []func(context.Context) (struct{}, error){
 		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, s.Send(ctx, agent.Send{Session: "ses-9", Text: "hi"})
+			return struct{}{}, s.Send(ctx, agent.Send{Session: "ses-9", Text: "hi",
+				Files: []agent.File{{Name: "a.txt", MIME: "text/plain", Data: []byte("x")}}})
 		},
 		func(ctx context.Context) (struct{}, error) { return struct{}{}, s.Abort(ctx, "ses-9") },
 		func(ctx context.Context) (struct{}, error) {
@@ -278,7 +279,7 @@ func TestServiceCallsSpeakTheWire(t *testing.T) {
 	}
 	for route, body := range map[string]string{
 		"POST /session/ses-9/permission/perm%2F1/reply": `{"decision":"always"}`,
-		"POST /session/ses-9/prompt":                    `{"text":"hi"}`,
+		"POST /session/ses-9/prompt":                    `{"files":[{"name":"a.txt","uri":"data:text/plain;base64,eA=="}],"text":"hi"}`,
 	} {
 		if f.body(route) != body {
 			t.Errorf("%s body = %s", route, f.body(route))

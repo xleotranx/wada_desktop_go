@@ -26,8 +26,14 @@ var (
 	StatusChanged = kernel.NewTopic[Status]("agent.status")
 )
 
-// ErrNotConnected is returned by Service methods while there is no connection.
-var ErrNotConnected = errors.New("the agent is not connected")
+var (
+	// ErrNotConnected is returned by Service methods while there is no connection.
+	ErrNotConnected = errors.New("the agent is not connected")
+	// ErrNotSent is wrapped by a Send the backend refused before sending
+	// anything, such as one with a file it can't take. Unlike other Send
+	// errors, its outcome is known: the agent has nothing.
+	ErrNotSent = errors.New("the message was not sent")
+)
 
 // Service is the chat capability every backend provides.
 //
@@ -140,6 +146,15 @@ type CreateSession struct {
 type Send struct {
 	Session SessionID
 	Text    string
+	Files   []File
+}
+
+// File is a file sent with a user message. Data is set when sending; stored
+// messages carry only Name and MIME.
+type File struct {
+	Name string // the file's base name
+	MIME string // e.g. "image/png", "text/plain"
+	Data []byte
 }
 
 type Decision uint8
@@ -168,6 +183,7 @@ type Message struct {
 	ID     MessageID
 	Role   Role
 	Text   string // the user's words
+	Files  []File // the files sent with the user's words, without Data
 	Parts  []Part // the assistant's answer
 	Model  ModelRef
 	Cost   float64

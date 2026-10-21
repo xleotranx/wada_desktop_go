@@ -7,6 +7,7 @@ package chat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -151,10 +152,10 @@ func (p *Plugin) send() {
 		return
 	}
 	p.draft, p.sending = "", true
-	p.t.addUser(d.Text)
+	p.t.addUser(d.Text, d.Files)
 	p.list.ScrollToEnd()
 	if d.Session != "" {
-		p.deliver(d.Session, d.Text)
+		p.deliver(d.Session, d)
 		return
 	}
 	var task kernel.Task
@@ -171,16 +172,21 @@ func (p *Plugin) send() {
 		if err != nil {
 			p.t.note(err.Error())
 		}
-		p.deliver(s.ID, d.Text)
+		p.deliver(s.ID, d)
 	})
 }
 
-func (p *Plugin) deliver(id agent.SessionID, text string) {
+func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
 	var task kernel.Task
 	kernel.Go(p.scope, &task, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, p.agent.Send(ctx, agent.Send{Session: id, Text: text})
+		return struct{}{}, p.agent.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
 	}, func(_ struct{}, err error) {
-		if err != nil {
+		switch {
+		case err == nil:
+		case errors.Is(err, agent.ErrNotSent):
+			p.sending = false
+			p.t.note("The message was not sent" + strings.TrimPrefix(err.Error(), agent.ErrNotSent.Error()) + ".")
+		default:
 			p.sending = false
 			p.t.note("The message may not have reached the agent: " + err.Error() + ". Check the conversation before sending it again.")
 		}

@@ -3,6 +3,7 @@ package opencode
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,8 +124,19 @@ func (c *client) create(ctx context.Context, req agent.CreateSession) (agent.Ses
 	return s, nil
 }
 
+// send posts a prompt. Files go inline as data URIs, which a remote server
+// can read as well as a local one.
 func (c *client) send(ctx context.Context, req agent.Send) error {
-	return c.decode(ctx, "POST", sessionPath(req.Session, "/prompt"), map[string]any{"text": req.Text}, nil)
+	body := map[string]any{"text": req.Text}
+	if len(req.Files) > 0 {
+		files := make([]map[string]string, len(req.Files))
+		for i, f := range req.Files {
+			files[i] = map[string]string{"name": f.Name,
+				"uri": "data:" + cmp.Or(f.MIME, "application/octet-stream") + ";base64," + base64.StdEncoding.EncodeToString(f.Data)}
+		}
+		body["files"] = files
+	}
+	return c.decode(ctx, "POST", sessionPath(req.Session, "/prompt"), body, nil)
 }
 
 func (c *client) abort(ctx context.Context, id agent.SessionID) error {
@@ -175,9 +187,11 @@ type wireMessage struct {
 		Output    int `json:"output"`
 		Reasoning int `json:"reasoning"`
 	} `json:"tokens"`
-	Text    string `json:"text"`
+	Text    string     `json:"text"`
+	Files   []wireFile `json:"files"`
 	Payload struct {
-		Text string `json:"text"`
+		Text  string     `json:"text"`
+		Files []wireFile `json:"files"`
 	} `json:"payload"`
 	Model   wireModel `json:"model"`
 	Content []struct {
@@ -199,9 +213,18 @@ type wireMessage struct {
 	} `json:"content"`
 }
 
+// wireFile is a stored file attachment; its data is left undecoded.
+type wireFile struct {
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+}
+
 func (m wireMessage) message() agent.Message {
 	out := agent.Message{ID: agent.MessageID(m.ID), Text: cmp.Or(m.Payload.Text, m.Text), Model: m.Model.ref(), Cost: m.Cost,
 		Tokens: agent.Tokens{Output: m.Tokens.Output, Reasoning: m.Tokens.Reasoning}}
+	for _, f := range append(m.Files, m.Payload.Files...) {
+		out.Files = append(out.Files, agent.File{Name: cmp.Or(f.Name, "file"), MIME: f.MIME})
+	}
 	switch m.Type {
 	case "user":
 		out.Role = agent.RoleUser

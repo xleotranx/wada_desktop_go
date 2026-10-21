@@ -106,7 +106,11 @@ func (a *Agent) Messages(_ context.Context, id agent.SessionID) ([]agent.Message
 }
 
 func (a *Agent) Send(_ context.Context, req agent.Send) error {
-	return a.record("Send", "send "+string(req.Session)+" "+req.Text)
+	call := "send " + string(req.Session) + " " + req.Text
+	for _, f := range req.Files {
+		call += " +" + f.Name
+	}
+	return a.record("Send", call)
 }
 
 func (a *Agent) Abort(_ context.Context, id agent.SessionID) error {

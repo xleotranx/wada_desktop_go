@@ -49,7 +49,12 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   connection attempt becomes ready, the open conversation is reloaded.
 - `chat.ComposerAccessory` entries are drawn in the composer's leading row; a model
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
-  `chat.Outgoing`.
+  `chat.Outgoing`. `chat.ComposerAttachments` entries are drawn above the editor.
+- While a `chat.FileDrop` handler exists, the composer accepts dropped files and
+  passes their paths to the first handler after the frame.
+- A send the backend refused (`agent.ErrNotSent`) says the message was not sent; any
+  other failed send says it may not have reached the agent.
+- User messages show the files that went with them as chips.
 
 ## Sessions and settings
 
@@ -74,6 +79,17 @@ applied through `chat.Outgoing`, unless the backend no longer offers it. In an o
 conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
 `chat.Conversation.Model` carries the open conversation's model.
+
+## Attachments
+
+`internal/plugins/attachments` adds a paperclip to `chat.ComposerAccessory`, an
+"Attach Files…" command (⇧⌘A, Chat menu) and a `chat.FileDrop` handler. Files are
+read off the UI thread, typed by extension and contents (text stays `text/*`
+whatever the extension), and shown as removable chips with image thumbnails in
+`chat.ComposerAttachments`. A message takes at most 10 files, 10 MB each and 20 MB
+in all; a folder, an unreadable file or one over a limit is reported in a toast. Its
+`chat.Outgoing` transform runs last (order 1000): it refuses a send while files are
+still being read, then moves the files into `Draft.Files`.
 
 ## Notifications
 

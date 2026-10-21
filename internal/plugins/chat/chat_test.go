@@ -2,12 +2,14 @@ package chat
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
@@ -253,5 +255,39 @@ func TestFailedTurnShowsTheReason(t *testing.T) {
 	tr.apply(agent.Event{Kind: agent.TurnFailed, Session: "s", Error: "401: Invalid credential"})
 	if last := tr.rows[len(tr.rows)-1]; last.kind != rowNote || last.text != "The agent stopped with an error: 401: Invalid credential" || tr.busy {
 		t.Fatalf("note %+v busy %v", last, tr.busy)
+	}
+}
+
+func TestFilesGoOutAndShowWithTheMessage(t *testing.T) {
+	attach := &extension{setup: func(c *kernel.Context) error {
+		kernel.Transform(c, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, error) {
+			d.Files = append(d.Files, agent.File{Name: "shot.png", MIME: "image/png", Data: []byte{1}})
+			return d, nil
+		})
+		return kernel.Contribute(c, chat.ComposerAttachments, "extension.chips", 0,
+			shell.View{Render: func(c *ui.Context) { ui.Text(c, "pending chip") }})
+	}}
+	h, p, f, _ := start(t, attach)
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	tt := ui.NewTester(p.view, 1000, 800)
+	tt.Frame()
+	if !tt.HasText("pending chip") {
+		t.Fatalf("attachments slot missing: %q", tt.Texts())
+	}
+	p.draft = "look"
+	p.send()
+	h.Flush()
+	tt.Frame()
+	if !slices.Contains(f.Calls(), "send s1 look +shot.png") || !tt.HasText("shot.png") {
+		t.Fatalf("calls %q texts %q", f.Calls(), tt.Texts())
+	}
+	f.Fail["Send"] = fmt.Errorf("%w: Pi takes images and text files, not a.zip", agent.ErrNotSent)
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "s1"}})
+	p.draft = "again"
+	p.send()
+	h.Flush()
+	if last := p.t.rows[len(p.t.rows)-1]; last.text != "The message was not sent: Pi takes images and text files, not a.zip." {
+		t.Fatalf("note %q", last.text)
 	}
 }

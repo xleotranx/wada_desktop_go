@@ -106,7 +106,8 @@ func TestStoredMessagesConvert(t *testing.T) {
 		`{"type":"reasoning","text":"thinking"},{"type":"text","text":"Running it now."},` +
 		`{"type":"tool","id":"call_9","name":"shell","state":{"status":"completed","input":{"command":"make check"},` +
 		`"content":[{"type":"text","text":"ok\n"},{"type":"image","text":"skip"}],"metadata":{"exit":2,"truncated":true}}}]},` +
-		`{"id":"msg_u2","type":"user","text":"Top-level hello"},{"id":"idle","type":"idle"}]`
+		`{"id":"msg_u2","type":"user","text":"Top-level hello","files":[{"data":"eA==","mime":"image/png","source":{"type":"inline"},"name":"shot.png"}]},` +
+		`{"id":"idle","type":"idle"}]`
 	var wire []wireMessage
 	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
 		t.Fatal(err)
@@ -124,7 +125,7 @@ func TestStoredMessagesConvert(t *testing.T) {
 				{Kind: agent.PartTool, Tool: &agent.Tool{ID: "call_9", Name: "shell", Command: "make check",
 					Output: []string{"ok\n"}, Status: "completed", Exit: 2, Truncated: true}},
 			}},
-		{ID: "msg_u2", Role: agent.RoleUser, Text: "Top-level hello"},
+		{ID: "msg_u2", Role: agent.RoleUser, Text: "Top-level hello", Files: []agent.File{{Name: "shot.png", MIME: "image/png"}}},
 		{ID: "idle", Role: agent.RoleOther},
 	}
 	if !reflect.DeepEqual(got, want) {

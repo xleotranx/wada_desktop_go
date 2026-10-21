@@ -15,11 +15,11 @@ protocols to simplify a refactor.
 - `internal/contract/*`: declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slot), `shell` (window slots, host service), `settings` (settings sections).
+  slots, file drops), `shell` (window slots, host service), `settings` (settings sections).
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
-  page), `models` (composer pickers), `sessions` (sidebar list), `notifications`
+  page), `models` (composer pickers), `attachments` (files sent with a message), `sessions` (sidebar list), `notifications`
   (desktop notices for background conversations), `settings` (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.
 - `internal/native`: the semantic palette and small shared controls.

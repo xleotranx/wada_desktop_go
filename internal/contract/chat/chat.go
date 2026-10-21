@@ -28,6 +28,12 @@ var (
 	// ComposerAccessory views sit in the composer's leading row, such as a
 	// model or mode picker.
 	ComposerAccessory = kernel.NewPoint[shell.View]("chat.composer-accessory")
+	// ComposerAttachments views sit above the composer's editor, such as the
+	// files that will go with the message.
+	ComposerAttachments = kernel.NewPoint[shell.View]("chat.composer-attachments")
+	// FileDrop handlers take the paths of files dropped on the composer, on
+	// the UI thread. The composer accepts drops only while one exists.
+	FileDrop = kernel.NewPoint[func(paths []string)]("chat.file-drop")
 )
 
 // Conversation is the conversation on show. An empty Session is a new chat
@@ -46,6 +52,7 @@ type Draft struct {
 	Model     agent.ModelRef  // for a new conversation; zero for the default
 	Mode      string          // for a new conversation; empty for the default
 	Text      string
+	Files     []agent.File // sent with the message
 }
 
 // Controller navigates the chat view. Call it on the UI thread.

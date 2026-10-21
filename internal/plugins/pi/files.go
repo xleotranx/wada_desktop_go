@@ -60,6 +60,7 @@ type block struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	MimeType  string         `json:"mimeType"`
 }
 
 // sessionFile is what the list needs from one file.
@@ -180,7 +181,8 @@ func messagesOf(path []entry) []agent.Message {
 		}
 		switch m.Role {
 		case "user":
-			out = append(out, agent.Message{ID: agent.MessageID(e.ID), Role: agent.RoleUser, Text: textOf(m.Content)})
+			out = append(out, agent.Message{ID: agent.MessageID(e.ID), Role: agent.RoleUser, Text: textOf(m.Content),
+				Files: imagesOf(m.Content)})
 		case "assistant":
 			msg := agent.Message{ID: agent.MessageID(e.ID), Role: agent.RoleAssistant,
 				Model: agent.ModelRef{Provider: m.Provider, ID: m.Model}, Cost: m.Usage.Cost.Total,
@@ -220,6 +222,19 @@ func textOf(raw json.RawMessage) string {
 		return s
 	}
 	return strings.Join(textPieces(raw), "\n")
+}
+
+// imagesOf names the images of a user message; Pi keeps no file names.
+func imagesOf(raw json.RawMessage) []agent.File {
+	var blocks []block
+	json.Unmarshal(raw, &blocks)
+	var out []agent.File
+	for _, b := range blocks {
+		if b.Type == "image" {
+			out = append(out, agent.File{Name: "image", MIME: b.MimeType})
+		}
+	}
+	return out
 }
 
 func textPieces(raw json.RawMessage) []string {

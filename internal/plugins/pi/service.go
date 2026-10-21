@@ -1,9 +1,14 @@
 package pi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"wada-desktop-go/internal/contract/agent"
 )
@@ -97,7 +102,34 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) error {
 	if err != nil {
 		return err
 	}
-	return l.p.call(ctx, "prompt", map[string]any{"message": req.Text}, nil)
+	cmd, err := prompt(req)
+	if err != nil {
+		return err
+	}
+	return l.p.call(ctx, "prompt", cmd, nil)
+}
+
+// prompt is the RPC prompt for a send. Pi takes images; text files join the
+// message as fenced blocks; any other file is refused before sending.
+func prompt(req agent.Send) (map[string]any, error) {
+	text := req.Text
+	var images []map[string]string
+	for _, f := range req.Files {
+		switch {
+		case strings.HasPrefix(f.MIME, "image/"):
+			images = append(images, map[string]string{"type": "image", "mimeType": f.MIME,
+				"data": base64.StdEncoding.EncodeToString(f.Data)})
+		case utf8.Valid(f.Data) && !bytes.ContainsRune(f.Data, 0):
+			text += "\n\n(file: " + f.Name + ")\n```\n" + strings.TrimRight(string(f.Data), "\n") + "\n```"
+		default:
+			return nil, fmt.Errorf("%w: Pi takes images and text files, not %s", agent.ErrNotSent, f.Name)
+		}
+	}
+	cmd := map[string]any{"message": text}
+	if len(images) > 0 {
+		cmd["images"] = images
+	}
+	return cmd, nil
 }
 
 func (p *Plugin) Abort(ctx context.Context, id agent.SessionID) error {

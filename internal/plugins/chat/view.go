@@ -120,7 +120,17 @@ func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row) {
 		switch r.kind {
 		case rowUser:
 			onechat.Message(c, true, func(c *ui.Context) {
-				onechat.Bubble(c, func(c *ui.Context) { ui.Text(c, r.text).FontSize(14).LineHeight(1.45) })
+				if len(r.files) > 0 {
+					ui.Row(c).Wrap().Gap(6).Justify(ui.End).Children(func() {
+						for i, f := range r.files {
+							c.Key(i)
+							onechat.Attachment(c, onechat.AttachmentOptions{Label: f.Name, Icon: fileIcon(f.MIME)})
+						}
+					})
+				}
+				if r.text != "" {
+					onechat.Bubble(c, func(c *ui.Context) { ui.Text(c, r.text).FontSize(14).LineHeight(1.45) })
+				}
 			})
 		case rowText:
 			markdown.View(c, r.text, &p.md)
@@ -247,14 +257,32 @@ func approvalAsk(action string) string {
 	return "use " + action
 }
 
+// fileIcon is the chip icon for a file of this MIME type.
+func fileIcon(mime string) func() *ui.SVG {
+	if strings.HasPrefix(mime, "image/") {
+		return lucide.Image
+	}
+	return lucide.FileText
+}
+
 func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	accessories := kernel.Items(p.ctx, chat.ComposerAccessory)
+	attachments := kernel.Items(p.ctx, chat.ComposerAttachments)
+	drops := kernel.Items(p.ctx, chat.FileDrop)
 	ui.Column(c).FillWidth().Padding(8, 24, 16, 24).Children(func() {
 		ui.Column(c).MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).FillWidth().Children(func() {
 			options := onechat.ComposerOptions{
 				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send message", StopLabel: "Stop the agent",
 				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready,
 			}
+			if len(attachments) > 0 {
+				options.Attachments = func(c *ui.Context) {
+					for _, e := range attachments {
+						kernel.Invoke(p.ctx, e, func(v shell.View) { v.Render(c) })
+					}
+				}
+			}
+			options.AcceptFiles = len(drops) > 0
 			if len(accessories) > 0 {
 				options.Accessory = func(c *ui.Context) {
 					for _, e := range accessories {
@@ -272,6 +300,12 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 			}
 			if result.Stop {
 				p.stop()
+			}
+			if paths := result.Dropped; len(paths) > 0 && len(drops) > 0 {
+				// Handlers may change state, so they run after the frame.
+				p.ctx.Post(func() {
+					kernel.Invoke(p.ctx, drops[0], func(drop func([]string)) { drop(paths) })
+				})
 			}
 			if st := p.agent.Status(); st.State != agent.Ready {
 				ui.Text(c, connectionLine(st)).FontSize(11.5).TextColor(pal.Faint).Margin(6, 0, 0, 0).SingleLine()

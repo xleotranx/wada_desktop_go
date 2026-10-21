@@ -1,6 +1,7 @@
 package main
 
 import (
+	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
@@ -18,6 +19,7 @@ func main() {
 		&pi.Plugin{}, // off by default; turn OpenCode off to use it
 		&chat.Plugin{},
 		&models.Plugin{},
+		&attachments.Plugin{},
 		&sessions.Plugin{},
 		&notifications.Plugin{},
 		&settings.Plugin{},

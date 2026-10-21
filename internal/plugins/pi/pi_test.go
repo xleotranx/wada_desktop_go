@@ -2,6 +2,7 @@ package pi
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -257,5 +258,29 @@ func TestFailedTurnSaysWhy(t *testing.T) {
 	last := (*got)[len(*got)-1]
 	if last.Kind != agent.TurnFailed || last.Error != "401: Invalid credential (after 3 tries)" {
 		t.Fatalf("last event %+v", last)
+	}
+}
+
+func TestPromptCarriesFiles(t *testing.T) {
+	cmd, err := prompt(agent.Send{Text: "Look", Files: []agent.File{
+		{Name: "shot.png", MIME: "image/png", Data: []byte{0x89, 'P'}},
+		{Name: "notes.md", MIME: "text/markdown", Data: []byte("# Notes\n")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	images, _ := cmd["images"].([]map[string]string)
+	if cmd["message"] != "Look\n\n(file: notes.md)\n```\n# Notes\n```" || len(images) != 1 ||
+		images[0]["mimeType"] != "image/png" || images[0]["data"] != "iVA=" {
+		t.Fatalf("prompt %+v", cmd)
+	}
+	_, err = prompt(agent.Send{Text: "x", Files: []agent.File{{Name: "a.zip", MIME: "application/zip", Data: []byte{0, 1}}}})
+	if !errors.Is(err, agent.ErrNotSent) {
+		t.Fatalf("binary file: %v", err)
+	}
+	stored := messagesOf([]entry{{Type: "message", ID: "u", Message: json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"Look"},{"type":"image","data":"iVA=","mimeType":"image/png"}]}`)}})
+	if len(stored) != 1 || len(stored[0].Files) != 1 || stored[0].Files[0].MIME != "image/png" {
+		t.Fatalf("stored %+v", stored)
 	}
 }

@@ -92,7 +92,7 @@ func (p *Plugin) Open(s agent.Session) {
 	if s.ID == p.conv.Session && s.ID != "" {
 		return
 	}
-	p.switchTo(chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory})
+	p.switchTo(chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Model: s.Model})
 	p.load()
 }
 
@@ -166,7 +166,7 @@ func (p *Plugin) send() {
 			p.t.note("The chat did not start: " + errText(err))
 			return
 		}
-		p.conv.Session, p.conv.Directory = s.ID, cmp.Or(s.Directory, p.conv.Directory)
+		p.conv.Session, p.conv.Directory, p.conv.Model = s.ID, cmp.Or(s.Directory, p.conv.Directory), s.Model
 		kernel.Emit(p.ctx, chat.Changed, p.conv)
 		if err != nil {
 			p.t.note(err.Error())
@@ -227,10 +227,13 @@ func (p *Plugin) events(batch []agent.Event) {
 		case agent.SessionRenamed:
 			p.conv.Title = ev.Title
 			kernel.Emit(p.ctx, chat.Changed, p.conv)
+		case agent.ModelChanged:
+			p.conv.Model = ev.Model
+			kernel.Emit(p.ctx, chat.Changed, p.conv)
 		case agent.TurnStarted, agent.TurnSucceeded, agent.TurnFailed, agent.TurnInterrupted:
 			p.sending = false
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,
-			agent.ToolFinished, agent.ApprovalRequested, agent.ModelChanged:
+			agent.ToolFinished, agent.ApprovalRequested:
 		}
 		p.t.apply(ev)
 	}

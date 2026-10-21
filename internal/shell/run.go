@@ -19,7 +19,8 @@ import (
 //
 // Environment: WADA_DATA_DIR overrides where settings live; WADA_STRICT=1
 // re-panics plugin failures; WADA_CAPTURE=/path.png writes a screenshot after
-// startup and quits; WADA_APPEARANCE=light|dark fixes the palette.
+// startup (WADA_CAPTURE_WAIT, default 4s) and quits; WADA_APPEARANCE=light|dark
+// fixes the palette without saving it.
 func Run(plugins ...kernel.Plugin) {
 	var store kernel.Store = &memoryStore{}
 	var storeErr error
@@ -75,8 +76,12 @@ func Run(plugins ...kernel.Plugin) {
 			s.host.applyTheme(mode) // for captures; not saved
 		}
 		if out := os.Getenv("WADA_CAPTURE"); out != "" {
+			wait := 4 * time.Second
+			if d, err := time.ParseDuration(os.Getenv("WADA_CAPTURE_WAIT")); err == nil {
+				wait = d
+			}
 			win.OnReadyToShow(func() {
-				time.AfterFunc(4*time.Second, func() {
+				time.AfterFunc(wait, func() {
 					win.Update(func() {
 						if png, err := win.CapturePage(); err == nil {
 							os.WriteFile(out, png, 0o644)

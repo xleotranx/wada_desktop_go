@@ -18,8 +18,9 @@ go tool mygo build       # production app/DMG in build/
 ## Features
 
 Chat with streaming markdown, tool calls, approvals and stop; a searchable, paged
-conversation list with rename, delete and unread marks; settings for appearance,
-the OpenCode connection, and turning plugins on and off.
+conversation list with rename, delete and unread marks; model, effort and mode
+pickers; settings for appearance, the OpenCode connection, and turning plugins on
+and off.
 
 ## Architecture
 
@@ -31,6 +32,7 @@ the OpenCode connection, and turning plugins on and off.
 | `internal/shell` | Window host: frame, slots, menus, shortcuts, SQLite settings store |
 | `internal/plugins/opencode` | OpenCode backend: managed or remote server, HTTP/SSE, reconnects |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
+| `internal/plugins/models` | Model, effort and mode pickers in the composer |
 | `internal/plugins/sessions` | Sidebar conversation list |
 | `internal/plugins/settings` | Settings page |
 | `internal/native` | Palette and small shared controls |

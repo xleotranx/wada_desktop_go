@@ -1,0 +1,270 @@
+// Package models is the composer's model, effort and mode pickers. A new
+// conversation starts with the model and mode chosen here (remembered across
+// launches); choosing a model in an open conversation switches it there.
+package models
+
+import (
+	"context"
+	"slices"
+
+	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/kernel"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
+	onechat "github.com/oneo-me/onevra/source/components/chat"
+	"github.com/oneo-me/onevra/source/icons/lucide"
+)
+
+// Plugin is the model picker. The zero value is ready to install.
+type Plugin struct {
+	ctx    *kernel.Context
+	agent  agent.Service
+	models agent.Models
+	chat   chat.Controller
+	host   shell.Host
+
+	catalog  []agent.Model
+	fallback agent.ModelRef // the backend's default model
+	modes    []agent.Mode
+	loaded   bool
+	attempt  uint64
+	load     kernel.Task
+	switcher kernel.Task
+	pending  agent.ModelRef // asked of the open conversation, not yet confirmed
+
+	newModel *kernel.Setting[agent.ModelRef]
+	newMode  *kernel.Setting[string]
+
+	modelPicker, effortPicker, modePicker onechat.PickerState
+}
+
+func (*Plugin) Manifest() kernel.Manifest {
+	return kernel.Manifest{
+		ID: "models", Title: "Model picker",
+		Description: "Choose the model, effort and mode in the composer.",
+		Requires:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, chat.ControllerKey, shell.HostKey},
+	}
+}
+
+func (p *Plugin) Setup(c *kernel.Context) error {
+	p.ctx = c
+	p.agent = kernel.Require(c, agent.ServiceKey)
+	p.models = kernel.Require(c, agent.ModelsKey)
+	p.chat = kernel.Require(c, chat.ControllerKey)
+	p.host = kernel.Require(c, shell.HostKey)
+	p.newModel = kernel.NewSetting(c, "new-chat-model", agent.ModelRef{})
+	p.newMode = kernel.NewSetting(c, "new-chat-mode", "")
+	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
+		if st.State == agent.Ready && st.Attempt != p.attempt {
+			p.reload()
+		}
+	})
+	kernel.On(c, chat.Changed, func(conv chat.Conversation) {
+		if conv.Session == "" || conv.Model == p.pending {
+			p.pending = agent.ModelRef{}
+		}
+	})
+	if p.agent.Status().State == agent.Ready {
+		p.reload()
+	}
+	kernel.Transform(c, chat.Outgoing, 0, p.outgoing)
+	return kernel.Contribute(c, chat.ComposerAccessory, "models.pickers", 0, shell.View{Render: p.view})
+}
+
+type catalog struct {
+	models   []agent.Model
+	fallback agent.ModelRef
+	modes    []agent.Mode
+}
+
+// reload reads the catalog from the current connection. The default model and
+// modes are best effort; the model list is required.
+func (p *Plugin) reload() {
+	p.attempt = p.agent.Status().Attempt
+	modes, _ := kernel.Use(p.ctx, agent.ModesKey)
+	kernel.Go(p.ctx, &p.load, func(ctx context.Context) (catalog, error) {
+		var out catalog
+		var err error
+		if out.models, err = p.models.Models(ctx); err != nil {
+			return out, err
+		}
+		out.fallback, _ = p.models.DefaultModel(ctx)
+		if modes != nil {
+			out.modes, _ = modes.Modes(ctx)
+		}
+		return out, nil
+	}, func(cat catalog, err error) {
+		if err != nil {
+			p.host.Toast(ui.Toast{Title: "The model list did not load", Description: err.Error(), Type: components.ToastError})
+			return
+		}
+		p.catalog, p.fallback, p.modes, p.loaded = cat.models, cat.fallback, cat.modes, true
+	})
+}
+
+// outgoing gives a new conversation the chosen model and mode, unless another
+// transform chose already, or the backend no longer offers them.
+func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, error) {
+	if d.Session != "" {
+		return d, nil
+	}
+	if m := p.newModel.Get(); d.Model.IsZero() && !m.IsZero() && (!p.loaded || p.find(m) != nil) {
+		d.Model = m
+	}
+	if mode := p.newMode.Get(); d.Mode == "" && mode != "" &&
+		(!p.loaded || slices.ContainsFunc(p.modes, func(x agent.Mode) bool { return x.ID == mode })) {
+		d.Mode = mode
+	}
+	return d, nil
+}
+
+// current is the model the composer stands on: the open conversation's, or
+// the choice for a new one, or the backend's default.
+func (p *Plugin) current() agent.ModelRef {
+	conv := p.chat.Current()
+	switch {
+	case conv.Session == "":
+		if m := p.newModel.Get(); !m.IsZero() {
+			return m
+		}
+	case !p.pending.IsZero():
+		return p.pending
+	case !conv.Model.IsZero():
+		return conv.Model
+	}
+	return p.fallback
+}
+
+func (p *Plugin) find(ref agent.ModelRef) *agent.Model {
+	i := slices.IndexFunc(p.catalog, func(m agent.Model) bool {
+		return m.Ref.Provider == ref.Provider && m.Ref.ID == ref.ID
+	})
+	if i < 0 {
+		return nil
+	}
+	return &p.catalog[i]
+}
+
+// choose applies a model: remembered for new conversations, switched in the
+// open one.
+func (p *Plugin) choose(ref agent.ModelRef) {
+	conv := p.chat.Current()
+	if conv.Session == "" {
+		p.newModel.Set(ref)
+		return
+	}
+	p.pending = ref
+	kernel.Go(p.ctx, &p.switcher, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, p.models.SetModel(ctx, conv.Session, ref)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.pending = agent.ModelRef{}
+			p.host.Toast(ui.Toast{Title: "The model did not change", Description: err.Error(), Type: components.ToastError})
+		}
+	})
+}
+
+func modelKey(ref agent.ModelRef) string { return ref.Provider + "/" + ref.ID }
+
+func (p *Plugin) label(ref agent.ModelRef) string {
+	if m := p.find(ref); m != nil && m.Name != "" {
+		return m.Name
+	}
+	if ref.ID != "" {
+		return ref.ID
+	}
+	return "Default model"
+}
+
+func (p *Plugin) view(c *ui.Context) {
+	ref := p.current()
+	options := make([]onechat.Option, 0, len(p.catalog))
+	for _, m := range p.catalog {
+		o := onechat.Option{ID: modelKey(m.Ref), Label: m.Name, Group: m.Ref.Provider}
+		if o.Label == "" {
+			o.Label = m.Ref.ID
+		}
+		if m.Free {
+			o.Detail = "Free"
+		}
+		options = append(options, o)
+	}
+	empty := "No models match"
+	if !p.loaded {
+		empty = "Loading models…"
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(2).MinWidth(0).Children(func() {
+		picked := onechat.Picker(c, &p.modelPicker, onechat.PickerOptions{
+			Label: p.label(ref), SearchLabel: "Search models", EmptyText: empty,
+			Icon: lucide.Cpu, Options: options, Selected: modelKey(ref), Width: 300,
+		})
+		if picked.Chosen != "" {
+			i := slices.IndexFunc(p.catalog, func(m agent.Model) bool { return modelKey(m.Ref) == picked.Chosen })
+			if i >= 0 {
+				p.choose(p.catalog[i].Ref)
+			}
+		}
+		if m := p.find(ref); m != nil && len(m.Variants) > 0 {
+			efforts := []onechat.Option{{ID: defaultEffort, Label: "Default"}}
+			for _, v := range m.Variants {
+				efforts = append(efforts, onechat.Option{ID: v, Label: v})
+			}
+			effortLabel := ref.Variant
+			if effortLabel == "" {
+				effortLabel = "Default effort"
+			}
+			selected := ref.Variant
+			if selected == "" {
+				selected = defaultEffort
+			}
+			chosen := onechat.Picker(c, &p.effortPicker, onechat.PickerOptions{
+				Label: effortLabel, Icon: lucide.Gauge, Options: efforts, Selected: selected, Width: 200,
+			})
+			if chosen.Chosen != "" {
+				next := ref
+				next.Variant = chosen.Chosen
+				if next.Variant == defaultEffort {
+					next.Variant = ""
+				}
+				p.choose(next)
+			}
+		}
+		if p.chat.Current().Session == "" && len(p.modes) > 1 {
+			p.modeView(c)
+		}
+	})
+}
+
+// defaultEffort is the picker ID of the model's own default effort; picker
+// IDs can't be empty.
+const defaultEffort = "(default)"
+
+func (p *Plugin) modeView(c *ui.Context) {
+	options := make([]onechat.Option, 0, len(p.modes))
+	for _, m := range p.modes {
+		label := m.Name
+		if label == "" {
+			label = m.ID
+		}
+		options = append(options, onechat.Option{ID: m.ID, Label: label, Description: m.Description})
+	}
+	selected := p.newMode.Get()
+	if selected == "" {
+		selected = p.modes[0].ID
+	}
+	label := selected
+	for _, o := range options {
+		if o.ID == selected {
+			label = o.Label
+		}
+	}
+	picked := onechat.Picker(c, &p.modePicker, onechat.PickerOptions{
+		Label: label, Icon: lucide.Bot, Options: options, Selected: selected, Width: 260,
+	})
+	if picked.Chosen != "" {
+		p.newMode.Set(picked.Chosen)
+	}
+}

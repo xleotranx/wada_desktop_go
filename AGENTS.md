@@ -19,7 +19,8 @@ protocol to simplify a refactor.
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` (backend), `chat` (conversation
-  page), `sessions` (sidebar list), `settings` (settings page).
+  page), `models` (composer pickers), `sessions` (sidebar list), `settings`
+  (settings page).
 - `internal/plugintest`: fake agent, host and chat controller for plugin tests.
 - `internal/native`: the semantic palette and small shared controls.
 
@@ -63,7 +64,8 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 - `go test ./...`; focused: `go test -run TestFirstMessage ./internal/plugins/chat`.
 - `go tool mygo build`: production app/DMG in gitignored `build/`.
 
-`WADA_CAPTURE=/path/window.png go run .` captures the window and exits;
+`WADA_CAPTURE=/path/window.png go run .` captures the window and exits
+(`WADA_CAPTURE_WAIT=12s` waits longer, e.g. for the model catalog);
 `WADA_APPEARANCE=system|light|dark` fixes the palette without saving it;
 `WADA_STRICT=1` re-panics plugin failures. Always use a temporary `WADA_DATA_DIR`
 for captures and experiments; never reset developer data during verification.

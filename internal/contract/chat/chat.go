@@ -12,7 +12,7 @@ import (
 var (
 	ControllerKey = kernel.NewKey[Controller]("chat.controller")
 
-	// Changed is emitted when the open conversation, or its title, changes.
+	// Changed is emitted when the open conversation, its title or its model changes.
 	Changed = kernel.NewTopic[Conversation]("chat.changed")
 
 	// Outgoing runs on the UI thread when the user sends a message, before
@@ -32,6 +32,7 @@ type Conversation struct {
 	Session   agent.SessionID
 	Title     string
 	Directory string
+	Model     agent.ModelRef // the conversation's model; zero when unknown or new
 }
 
 // Draft is one message on its way out.

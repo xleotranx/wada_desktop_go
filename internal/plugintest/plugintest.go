@@ -17,7 +17,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Agent provides agent.ServiceKey with answers the test sets. Calls are
+// Agent provides agent.ServiceKey, ModelsKey and ModesKey with answers the test sets. Calls are
 // recorded as short strings, e.g. "send s1 hello".
 type Agent struct {
 	mu     sync.Mutex
@@ -26,6 +26,11 @@ type Agent struct {
 	Pages  map[string]agent.SessionPage // by "cursor|search"
 	Fail   map[string]error             // by method name, e.g. "Send"
 	State  agent.Status
+
+	// The model capabilities.
+	Catalog  []agent.Model
+	Default  agent.ModelRef
+	ModeList []agent.Mode
 }
 
 func NewAgent() *Agent {
@@ -34,11 +39,17 @@ func NewAgent() *Agent {
 }
 
 func (*Agent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey}}
+	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey}}
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
-	return kernel.Provide[agent.Service](c, agent.ServiceKey, a)
+	if err := kernel.Provide[agent.Service](c, agent.ServiceKey, a); err != nil {
+		return err
+	}
+	if err := kernel.Provide[agent.Models](c, agent.ModelsKey, a); err != nil {
+		return err
+	}
+	return kernel.Provide[agent.Modes](c, agent.ModesKey, a)
 }
 
 func (a *Agent) record(method, call string) error {
@@ -114,6 +125,25 @@ func (a *Agent) Delete(_ context.Context, id agent.SessionID) error {
 	return a.record("Delete", "delete "+string(id))
 }
 
+func (a *Agent) Models(context.Context) ([]agent.Model, error) {
+	if err := a.record("Models", "models"); err != nil {
+		return nil, err
+	}
+	return a.Catalog, nil
+}
+
+func (a *Agent) DefaultModel(context.Context) (agent.ModelRef, error) {
+	return a.Default, a.record("DefaultModel", "default-model")
+}
+
+func (a *Agent) SetModel(_ context.Context, id agent.SessionID, m agent.ModelRef) error {
+	return a.record("SetModel", strings.TrimSpace("set-model "+string(id)+" "+m.Provider+"/"+m.ID+" "+m.Variant))
+}
+
+func (a *Agent) Modes(context.Context) ([]agent.Mode, error) {
+	return a.ModeList, a.record("Modes", "modes")
+}
+
 // Host provides shell.HostKey and records what plugins ask of the window.
 type Host struct {
 	PageID     string
@@ -162,7 +192,7 @@ func (f *Chat) Setup(c *kernel.Context) error {
 func (f *Chat) Current() chat.Conversation { return f.Conv }
 
 func (f *Chat) Open(s agent.Session) {
-	f.Conv = chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory}
+	f.Conv = chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Model: s.Model}
 	kernel.Emit(f.ctx, chat.Changed, f.Conv)
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/opencode"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
@@ -13,6 +14,7 @@ func main() {
 	shell.Run(
 		&opencode.Plugin{},
 		&chat.Plugin{},
+		&models.Plugin{},
 		&sessions.Plugin{},
 		&settings.Plugin{},
 	)

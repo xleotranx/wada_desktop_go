@@ -60,7 +60,18 @@ carried over.
 Appearance and Plugins sections; the latter turns plugins on and off through
 `shell.Host`. The OpenCode plugin contributes its connection section.
 
+## Model picker
+
+`internal/plugins/models` requires `agent.ModelsKey` (so it is Blocked for a backend
+without a catalog) and adds pickers to `chat.ComposerAccessory`: the model, its effort
+when the model has variants, and the mode for a new conversation when the backend
+offers more than one. For a new conversation the choice is saved in its settings and
+applied through `chat.Outgoing`, unless the backend no longer offers it. In an open
+conversation, choosing a model calls `SetModel` and shows the choice until the
+backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
+`chat.Conversation.Model` carries the open conversation's model.
+
 ## Not yet
 
-Model and mode pickers, notifications, attachments and keyboard-driven search are
+Notifications, attachments and keyboard-driven search are
 plugins still to come.

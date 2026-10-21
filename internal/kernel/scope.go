@@ -110,13 +110,27 @@ func (s *Scope) Spawn(fn func(ctx context.Context)) {
 	if !sc.alive {
 		return
 	}
-	sc.k.workers.Add(1)
+	done := sc.beginWork()
 	go func() {
-		defer sc.k.workers.Done()
+		defer done()
 		if err := recovered(func() { fn(sc.ctx) }); err != nil {
 			s.Post(func() { sc.k.fail(sc.plugin, err) })
 		}
 	}()
+}
+
+// beginWork is called on the UI thread; its completion is safe on a worker.
+func (s *scope) beginWork() func() {
+	s.k.workers.Add(1)
+	if s.plugin != nil {
+		s.plugin.workers.Add(1)
+	}
+	return func() {
+		if s.plugin != nil {
+			s.plugin.workers.Add(-1)
+		}
+		s.k.workers.Done()
+	}
 }
 
 // Context is one plugin's handle: its root scope plus plugin-level facilities.

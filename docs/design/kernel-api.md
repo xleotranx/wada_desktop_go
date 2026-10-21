@@ -171,6 +171,12 @@ Blocked and shown that way in Settings → Plugins. Nothing else changes.
 
 ## Testing
 
+`Kernel.Inspect` returns plugin diagnostics in install order: status, resolved
+required-service providers, live scope count, registered services/listeners/
+transforms/contributions, running worker count and recovered panic stack. Workers
+remain counted after cancellation until their bodies exit, including work from a
+previous activation. The shell provides this read-only API as `InspectorKey`.
+
 `internal/kernel/kerneltest`:
 
 - `kerneltest.New(t, plugins...)` starts a Strict kernel with an in-memory store. The

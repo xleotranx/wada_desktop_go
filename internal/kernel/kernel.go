@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 // Plugin is one installable unit of the app.
@@ -114,6 +115,7 @@ type plugin struct {
 	ctx       *Context // non-nil while Active
 	settingUp bool
 	disposing bool
+	workers   atomic.Int64
 }
 
 func (p *plugin) id() string {

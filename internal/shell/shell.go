@@ -299,7 +299,7 @@ type host struct {
 var _ shell.Host = (*host)(nil)
 
 func (*host) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "shell", Title: "Window", Locked: true, Provides: []kernel.Named{shell.HostKey}}
+	return kernel.Manifest{ID: "shell", Title: "Window", Locked: true, Provides: []kernel.Named{shell.HostKey, kernel.InspectorKey}}
 }
 
 func (h *host) Setup(c *kernel.Context) error {
@@ -309,6 +309,9 @@ func (h *host) Setup(c *kernel.Context) error {
 	h.appearance = kernel.NewSetting(c, "appearance", "system")
 	h.applyTheme(h.Appearance())
 	if err := kernel.Provide[shell.Host](c, shell.HostKey, h); err != nil {
+		return err
+	}
+	if err := kernel.Provide[kernel.Inspector](c, kernel.InspectorKey, h.k); err != nil {
 		return err
 	}
 	return kernel.Contribute(c, kernel.Commands, "shell.toggle-sidebar", 0, kernel.Command{

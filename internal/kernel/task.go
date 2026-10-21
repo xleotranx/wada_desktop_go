@@ -24,12 +24,12 @@ func Go[T any](o Owner, t *Task, work func(context.Context) (T, error), apply fu
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.cancel, t.running = cancel, true
 	k := s.k
-	k.workers.Add(1)
+	done := s.beginWork()
 	k.opts.Background(func() {
 		var v T
 		var err error
 		perr := recovered(func() { v, err = work(ctx) })
-		k.workers.Done()
+		done()
 		k.opts.Post(func() {
 			cancel()
 			if t.gen != gen {

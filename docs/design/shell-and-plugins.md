@@ -8,7 +8,8 @@ below.
 
 `internal/shell` is the window host. It creates the kernel, opens the settings store,
 builds the window and menu bar, and every frame draws what plugins contribute. It
-contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey` and the
+contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey`,
+`kernel.InspectorKey` and the
 "Toggle Sidebar" command.
 
 | Point | Drawn |
@@ -75,6 +76,14 @@ finished a turn while another was open. It has no pins, archive or grouping by f
 "Settings…" (⌘,). It draws every `settings.Sections` entry in order, and adds its own
 Appearance and Plugins sections; the latter turns plugins on and off through
 `shell.Host`. The OpenCode, Pi and notifications plugins contribute their own sections.
+
+## Plugin diagnostics
+
+The `inspector` plugin adds View → Plugin diagnostics and a button in Settings.
+Its read-only page lists every installed plugin. Expanding one shows required
+service providers, missing requirements, owned registrations, scope and worker
+counts, and any failure and recovered panic stack. It uses the public
+`kernel.InspectorKey` service and shell page contributions.
 
 ## Model picker
 

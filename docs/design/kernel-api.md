@@ -86,7 +86,7 @@ Install ──► Disabled ──Enable──► (requirements met?) ──no─
 
 Disposing a scope marks it dead, cancels its `Lifetime`, disposes child scopes and
 runs its disposers, newest first. Afterwards its `Post` closures and task results are
-dropped.
+dropped, including failure reports from `Spawn` workers that panic after disposal.
 
 ## Threading
 

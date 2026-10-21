@@ -114,7 +114,7 @@ func (s *Scope) Spawn(fn func(ctx context.Context)) {
 	go func() {
 		defer sc.k.workers.Done()
 		if err := recovered(func() { fn(sc.ctx) }); err != nil {
-			sc.k.opts.Post(func() { sc.k.fail(sc.plugin, err) })
+			s.Post(func() { sc.k.fail(sc.plugin, err) })
 		}
 	}()
 }

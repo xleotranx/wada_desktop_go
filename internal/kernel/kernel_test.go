@@ -3,6 +3,7 @@ package kernel_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -589,4 +590,31 @@ func TestPluginsChangedReportsTransitions(t *testing.T) {
 		t.Fatalf("states %v", states)
 	}
 	closeClean(t, h)
+}
+
+func TestDisposedSpawnPanicDoesNotFailCurrentPlugin(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		t.Run(fmt.Sprint("restart=", restart), func(t *testing.T) {
+			p := plug("p", nil)
+			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p)
+			s := p.ctx.NewScope()
+			release := make(chan struct{})
+			s.Spawn(func(context.Context) { <-release; panic("obsolete worker") })
+			if restart {
+				if err := h.Disable("p"); err != nil {
+					t.Fatal(err)
+				}
+				if err := h.Enable("p"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s.Dispose()
+			}
+			close(release)
+			h.WaitPosts(1)
+			if st := state(t, h, "p"); st.State != kernel.Active {
+				t.Fatalf("disposed worker failed current plugin: %+v", st)
+			}
+		})
+	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,12 +15,14 @@ import (
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/inspector"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugintest"
 	"wada-desktop-go/internal/shell"
@@ -75,7 +78,7 @@ func startApp(t *testing.T) *app {
 	}
 	s, err := shell.New(shell.Options{Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a, files, &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
-		&workspace.Plugin{}, &sessions.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		&workspace.Plugin{}, &sessions.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,5 +249,80 @@ func TestMentionedFilesGoWithTheMessage(t *testing.T) {
 	}
 	if !a.tt.HasText("review @src/main.go now") || !a.tt.HasText("src/main.go") {
 		t.Fatalf("the transcript does not show the message and its file: %q", a.tt.Texts())
+	}
+}
+
+func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
+	a := startApp(t)
+	a.agent.Numbered = true
+	sessions := make(chan agent.SessionID, 8) // the conversation of each prompt, in order
+	a.agent.OnSend = func(req agent.Send) {
+		sessions <- req.Session
+		switch {
+		case strings.Contains(req.Text, "planning step"):
+			a.agent.Respond(req.Session, "1. Add the flag to `main.go`.")
+		case strings.Contains(req.Text, "review step"):
+			a.agent.Respond(req.Session, "Nothing to fix.\n\nVERDICT: PASS")
+		default: // the coder asks first
+			a.agent.Emit(agent.Event{Kind: agent.ApprovalRequested, Session: req.Session,
+				Approval: &agent.Approval{ID: "run-tests", Kind: agent.ToolShell, Resources: []string{"go test ./..."}}})
+		}
+	}
+	a.agent.Stored["new-2"] = []agent.Message{{ID: "m1", Role: agent.RoleUser, Text: "Carry out the task"}}
+
+	a.command("palette.open")
+	a.tt.Type("plan, code")
+	a.settle()
+	a.tt.Key(0, ui.KeyEnter)
+	a.settle()
+	if !a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, code, review") {
+		t.Fatalf("the palette did not ask for a brief: %q", a.tt.Texts())
+	}
+	a.tt.Type("add a --verbose flag")
+	a.settle()
+	if err := a.tt.Click("Start"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	a.until("the coder's permission request", func() bool { return a.tt.HasText("The agent wants to run a shell command") })
+	for _, want := range []string{"add a --verbose flag", "Plan", "Code", "go test ./...", "Needs you", "Workflow"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q is missing from the run: %q", want, a.tt.Texts())
+		}
+	}
+	if a.tt.HasText("Plan, code, review · Code") {
+		t.Fatal("a hidden step is listed in the sidebar")
+	}
+	if err := a.tt.Click("Allow once"); err != nil {
+		t.Fatal(err)
+	}
+	a.until("the permission delivered", func() bool { return len(a.agent.Replies()) == 1 })
+	a.agent.Respond("new-2", "Added the flag.")
+	a.until("the result", func() bool { return a.tt.HasText("Review passed") })
+	for _, want := range []string{"Done", "Result", "Added the flag.", "Nothing to fix.", "Review"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q is missing from the result: %q", want, a.tt.Texts())
+		}
+	}
+	if a.tt.HasText("VERDICT") {
+		t.Fatalf("the verdict line shows: %q", a.tt.Texts())
+	}
+	got := []agent.SessionID{<-sessions, <-sessions, <-sessions}
+	if !slices.Equal(got, []agent.SessionID{"new-1", "new-2", "new-3"}) {
+		t.Fatalf("prompts went to %q", got)
+	}
+
+	// Opening the coder's conversation records it, so the sidebar lists it.
+	if err := a.tt.Click("Open Code in chat"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	a.until("the conversation", func() bool { return a.tt.HasText("Carry out the task") })
+	ws, _ := kernel.Use[wscontract.Service](a.shell.Kernel, wscontract.ServiceKey)
+	if conv, ok := ws.Lookup("new-2"); !ok || conv.Title != "Plan, code, review · Code" {
+		t.Fatalf("the step was recorded as %+v, %v", conv, ok)
+	}
+	if _, ok := ws.Lookup("new-1"); ok {
+		t.Fatal("a step nobody opened was recorded")
 	}
 }

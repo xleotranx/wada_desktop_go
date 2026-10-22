@@ -62,11 +62,7 @@ func (p *Plugin) working() bool {
 }
 
 func (p *Plugin) prepareMarkdown(c *ui.Context, pal native.Palette) {
-	p.mdTheme = markdown.Theme{
-		FontSize: 14, Text: pal.Text, Muted: pal.Muted, Link: pal.Link, Strong: pal.Text, Code: pal.Text,
-		CodeBackground: pal.DetailBg, CodeBlockBackground: pal.DetailBg, CodeBlockBorder: pal.Hairline,
-		QuoteBar: pal.Hairline, QuoteText: pal.Muted, Rule: pal.Hairline, TableBorder: pal.Hairline,
-	}
+	p.mdTheme = native.MarkdownTheme(pal)
 	p.md.Theme = &p.mdTheme
 	p.md.ShareSelection = true
 	p.md.OnLink = p.openLink

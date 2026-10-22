@@ -1,8 +1,8 @@
 # Shell and the built-in plugins
 
 Declared in `internal/contract/shell`, `internal/contract/chat`,
-`internal/contract/settings` and `internal/contract/workspace`; implemented by
-`internal/shell` and the plugins named below.
+`internal/contract/settings`, `internal/contract/workspace` and
+`internal/contract/workflow`; implemented by `internal/shell` and the plugins named below.
 
 ## Shell
 
@@ -310,3 +310,63 @@ the record has been read, notices wait and are shown on `workspace.Changed`. An 
 the user's own doing and isn't notified. A conversation whose title it doesn't know is
 looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
 clicking it opens that conversation. Its settings section turns each kind off.
+
+## Workflows
+
+A flow is Go code that drives the agent backend through conversations the user does not
+see, and returns a result for the user. `internal/contract/workflow` declares the types:
+`Flow{ID, Title, Summary, Run}`, `Input{Brief, Directory}`, and the `Runner` a flow's
+`Run(ctx, Runner) (string, error)` is called with. `Runner.Step(ctx, Step)` sends one
+prompt, waits for the agent's turn to end and returns an `Answer{Session, Text}`; the
+flow decides from the text what to ask next, so branches and loops are plain Go. A
+`Step` names itself, its prompt, optionally an agent mode, and a `Session` to continue
+(an earlier answer's) instead of opening a new conversation. Flows use only the agent
+contract, so they run on every backend.
+
+`internal/plugins/workflow` provides `workflow.ServiceKey` and knows no flow. `Prompt(f)`
+opens a dialog for the brief, in the open chat's folder with a "Choose…" button when the
+workspace record is active; `Start(f, in)` runs the flow on a worker (`Spawn`) whose
+context ends when the user stops the run, and shows the run page. A panic in a flow fails
+its run, not the plugin. At most eight runs are kept; the oldest finished ones go first.
+
+- **Steps.** `Step` opens the conversation with `agent.Service.Create` (in the run's
+  folder, with the step's mode) unless the step continues one, registers it with the
+  engine on the UI thread, then sends the prompt and waits. `agent.Events` for a watched
+  conversation drive everything: `TextEnded` keeps the latest finished text block, which
+  is the answer when the turn succeeds (the stored messages stand in when the events
+  named none); `TurnSucceeded`, `TurnFailed` and `TurnInterrupted` wake the flow's
+  goroutine. A prompt the backend consumed as a command (`SendHandled`) fails the step.
+- **Permissions.** A step's `Policy{Allow, Deny}` lists `agent.ToolKind`s answered
+  without asking: Deny rejects, Allow allows once, and Deny wins. Any other request waits
+  in the step's card with Allow once, Allow for this run (every request of that kind in
+  the run from then on, those already waiting included) and Deny. A reply that can't be
+  delivered fails the attempt. Questions (`InteractionRequested`) are dismissed through
+  `agent.InteractionsKey` and the step says so; a backend that can't take the dismissal
+  fails the attempt.
+- **Failures.** The engine retries no mutation. A failed attempt (the conversation can't
+  be created, the prompt can't be sent, the turn fails) leaves the step "Needs your
+  decision": Try again repeats the attempt in the conversation already opened, Stop run
+  ends the run. Stop aborts a turn that is still running; if the abort fails, the step
+  says the agent may go on. Step returns `ErrStopped` once the run is stopped.
+- **Hidden conversations.** Step conversations are not recorded in the workspace, so the
+  sidebar, the palette and the notifications ignore them. "Open in chat" on a step emits
+  `chat.Started` once, which records it, then opens it in the chat.
+- **The page** (`workflow.run`, order 50; sidebar visible) shows the run chosen by a row of
+  chips when there is more than one: the brief and folder, a badge (Running, Needs you,
+  Done, Failed, Stopped), a card for each step with its state, the latest tool activity or
+  a preview of its answer, "Show answer" (the answer as markdown) and "Open in chat",
+  and at the end the result as markdown with Copy. A title-bar pill points at the run that
+  needs the user, else one that ended while another page was on show, else one still
+  running, and opens it. A run that ends while its page is not on show raises a toast, or
+  a desktop notice (ID `workflow`, whose click shows the run) when the window is not in
+  front; a stop the user asked for is not announced. "Show Workflow Run" (View menu)
+  opens the run that needs the user, else the newest.
+
+`internal/plugins/flows` brings the app's flows and a command for each, "<Title>…" in the
+Agent menu and the palette, that calls `Prompt`. **Plan, code, review** runs a plan step
+(read-only: edits are denied), a code step, then a review step (read-only) that must end
+with `VERDICT: PASS` or `VERDICT: FAIL`. A FAIL sends the findings back to the coder in
+its own conversation ("Fix 1") and a new reviewer looks again ("Review 2"), for at most
+three reviews. The result is how the review ended, the coder's last report and the
+reviewer's findings; a review with no verdict ends the run and says so. Steps read and
+search without asking; edits by the coder, and commands in any step, are put to the user.

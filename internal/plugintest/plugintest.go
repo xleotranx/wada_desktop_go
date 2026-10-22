@@ -21,8 +21,11 @@ import (
 // Agent provides the service, models, modes, interactions and rewinding with
 // answers the test sets. Calls are recorded as short strings, e.g. "send s1 hello".
 type Agent struct {
+	ctx         *kernel.Context
 	mu          sync.Mutex
 	calls       []string
+	replies     []agent.Reply
+	created     int
 	Stored      map[agent.SessionID][]agent.Message
 	Pages       map[string]agent.SessionPage // by "cursor|search"
 	Fail        map[string]error             // by method name, e.g. "Send"
@@ -31,6 +34,12 @@ type Agent struct {
 	// Forks makes Rewind go on in a new conversation, "<id>-fork", as Pi
 	// does, instead of rewinding in place.
 	Forks bool
+	// Numbered gives each created conversation its own ID, "new-1", "new-2",
+	// instead of "new" every time.
+	Numbered bool
+	// OnSend runs on the sending goroutine for every admitted Send, so a test
+	// can script what the agent does next with Emit and Respond.
+	OnSend func(req agent.Send)
 
 	// The model capabilities.
 	Catalog  []agent.Model
@@ -48,6 +57,7 @@ func (*Agent) Manifest() kernel.Manifest {
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
+	a.ctx = c
 	if err := kernel.Provide[agent.Service](c, agent.ServiceKey, a); err != nil {
 		return err
 	}
@@ -104,7 +114,14 @@ func (a *Agent) Create(_ context.Context, req agent.CreateSession) (agent.Sessio
 	if err := a.record("Create", strings.TrimSpace(fmt.Sprintf("create %s %s %s", req.Directory, req.Model.ID, req.Mode))); err != nil {
 		return agent.Session{}, err
 	}
-	return agent.Session{ID: "new", Directory: req.Directory}, nil
+	id := agent.SessionID("new")
+	if a.Numbered {
+		a.mu.Lock()
+		a.created++
+		id = agent.SessionID(fmt.Sprintf("new-%d", a.created))
+		a.mu.Unlock()
+	}
+	return agent.Session{ID: id, Directory: req.Directory}, nil
 }
 
 func (a *Agent) Messages(_ context.Context, id agent.SessionID) ([]agent.Message, error) {
@@ -121,7 +138,27 @@ func (a *Agent) Send(_ context.Context, req agent.Send) (agent.SendDisposition, 
 	for _, f := range req.Files {
 		call += " +" + f.Name
 	}
-	return a.Disposition, a.record("Send", call)
+	if err := a.record("Send", call); err != nil {
+		return a.Disposition, err
+	}
+	if a.OnSend != nil {
+		a.OnSend(req)
+	}
+	return a.Disposition, nil
+}
+
+// Emit delivers events the way a backend does: as one batch on the UI
+// thread. Call it from any goroutine.
+func (a *Agent) Emit(events ...agent.Event) {
+	a.ctx.Post(func() { kernel.Emit(a.ctx, agent.Events, events) })
+}
+
+// Respond emits a turn of session that ends with text as its final answer.
+func (a *Agent) Respond(session agent.SessionID, text string) {
+	a.Emit(
+		agent.Event{Kind: agent.TurnStarted, Session: session},
+		agent.Event{Kind: agent.TextEnded, Session: session, Text: &agent.TextEvent{Message: "m", Text: text}},
+		agent.Event{Kind: agent.TurnSucceeded, Session: session})
 }
 
 func (a *Agent) Abort(_ context.Context, id agent.SessionID) error {
@@ -129,7 +166,17 @@ func (a *Agent) Abort(_ context.Context, id agent.SessionID) error {
 }
 
 func (a *Agent) Reply(_ context.Context, req agent.Reply) error {
+	a.mu.Lock()
+	a.replies = append(a.replies, req)
+	a.mu.Unlock()
 	return a.record("Reply", "reply "+string(req.Approval))
+}
+
+// Replies returns the approval replies so far.
+func (a *Agent) Replies() []agent.Reply {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.replies)
 }
 
 func (a *Agent) Answer(_ context.Context, answer agent.InteractionAnswer) error {

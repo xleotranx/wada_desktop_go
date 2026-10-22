@@ -16,15 +16,19 @@ protocols to simplify a refactor.
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
   slots, file drops, completions), `shell` (window slots, host service), `settings`
-  (settings sections), `workspace` (folders and the conversations the app started).
+  (settings sections), `workspace` (folders and the conversations the app started),
+  `workflow` (the service that runs flows, and the types a flow is written with).
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
   page), `models` (composer pickers), `usage` (cost and context in the composer), `attachments` (files sent with a message), `mentions`
   (`@file` in the composer), `workspace` (folders, the app's conversation record in
-  `workspace.db`, folder picker), `sessions` (sidebar list by folder), `palette` (⌘K), `notifications`
+  `workspace.db`, folder picker), `sessions` (sidebar list by folder), `workflow` (the engine
+  that runs flows through hidden conversations, and its run page), `flows` (the app's flows,
+  such as plan → code → review), `palette` (⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).
-- `internal/plugintest`: fake agent, host and chat controller for plugin tests.
+- `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`), host,
+  chat controller, workspace and files for plugin tests.
 - `internal/native`: the semantic palette, small shared controls and `Tilde` for paths.
 
 Design notes: [kernel API](docs/design/kernel-api.md),

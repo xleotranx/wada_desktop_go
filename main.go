@@ -3,6 +3,7 @@ package main
 import (
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/inspector"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
@@ -13,6 +14,7 @@ import (
 	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
 	"wada-desktop-go/internal/plugins/usage"
+	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/shell"
 )
@@ -29,6 +31,8 @@ func main() {
 		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
 		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db
 		&sessions.Plugin{},
+		&workflow.Plugin{}, // runs flows through hidden conversations
+		&flows.Plugin{},    // plan, code, review, from the command palette
 		&palette.Plugin{},
 		&notifications.Plugin{},
 		&inspector.Plugin{},

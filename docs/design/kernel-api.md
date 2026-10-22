@@ -189,7 +189,11 @@ previous activation. The shell provides this read-only API as `InspectorKey`.
   across restarts, or fails plugins on panic instead of re-panicking.
 - Cleanup closes the kernel and fails the test if workers are still running.
 
-`internal/plugintest` has fakes for the contracts (agent, host, chat controller).
+`internal/plugintest` has fakes for the contracts (agent, host, chat controller,
+workspace, files). The fake agent is scripted from the test: `OnSend` runs for each
+admitted `Send` on the sending goroutine, and `Emit` and `Respond` deliver events as a
+backend does, one batch on the UI thread; `Numbered` gives every created conversation
+its own ID.
 Its `CheckBackend` suite runs against both protocol fixtures and checks failed sends
 are attempted once, disabled services return `ErrNotConnected`, and reactivation
 advances the connection generation.

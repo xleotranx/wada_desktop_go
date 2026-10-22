@@ -20,6 +20,8 @@ type Palette struct {
 	StripBg, PanelBg, DrawerBg ui.Color
 	// Raised lifts a bubble, chip or control off the panel.
 	Raised ui.Color
+	// ActiveTab fills the tab on show, lifted off the strip.
+	ActiveTab ui.Color
 	// Waiting marks what waits for the user, such as an approval.
 	Waiting ui.Color
 	// DiffAddBg and DiffDelBg are the backgrounds of added and removed lines.
@@ -67,8 +69,14 @@ func PaletteOf(t *ui.Theme) Palette {
 		marks, labels, tint = projectsLight, ui.RGB(0, 0, 0), 0.11
 	}
 	// The panel sits between the background and the surface, as the page
-	// always has; the active tab is the same color, so the two read as one.
+	// always has.
 	panel := t.Background.Mix(t.Surface, 0.75)
+	// The strip is darker than the panel in the light theme, so the panel's
+	// color lifts the active tab there; in the dark one the raised step does.
+	activeTab := panel
+	if t.Dark {
+		activeTab = t.Surface.Mix(t.SurfaceHover, 0.75)
+	}
 	var projects [5]ProjectColor
 	for i, m := range marks {
 		projects[i] = ProjectColor{Mark: m, Tint: m.Alpha(tint), Text: m.Mix(labels, 0.12)}
@@ -95,6 +103,7 @@ func PaletteOf(t *ui.Theme) Palette {
 		PanelBg:   panel,
 		DrawerBg:  panel.Mix(strip, 0.4),
 		Raised:    t.Surface.Mix(t.SurfaceHover, 0.75),
+		ActiveTab: activeTab,
 		Waiting:   t.Warning,
 		DiffAddBg: t.Success.Alpha(0.12),
 		DiffDelBg: t.Danger.Alpha(0.12),

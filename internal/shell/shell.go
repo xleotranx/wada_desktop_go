@@ -136,7 +136,6 @@ func (s *Shell) View(c *ui.Context) {
 				})
 			})
 		ui.Column(c).Fill().MinWidth(0).MinHeight(0).Padding(0, 8, 8, 8).Children(func() {
-			// No outline: the strip's tabs meet the panel's top edge.
 			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Background(p.PanelBg).Radius(12).Clip().Children(func() {
 				if hasPage {
 					kernel.Invoke(s.Kernel, page, func(pg shell.Page) { pg.Render(c) })

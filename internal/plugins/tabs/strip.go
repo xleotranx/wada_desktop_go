@@ -19,14 +19,13 @@ import (
 )
 
 const (
-	tabHeight   = 32 // to the strip's foot, so the active tab meets the panel
-	tabMaxWidth = 200
+	// Tabs are pills as tall as the strip's buttons, centered in the strip.
+	tabHeight   = controlSize
+	tabMaxWidth = 220
 	tabMinWidth = 80
-	tabGap      = 0 // a divider stands between inactive tabs instead
+	tabGap      = 4
 	closeSize   = 18
-	// controlSize is the strip's buttons, centered on the tabs.
 	controlSize = 28
-	controlLift = (tabHeight - controlSize) / 2
 )
 
 // strip draws the space switcher, then the space's tabs and the pages, the
@@ -35,11 +34,11 @@ const (
 // the previous frame.
 func (p *Plugin) strip(c *ui.Context) {
 	pal := native.PaletteFor(c)
-	ui.Row(c).Fill().AlignItems(ui.End).Gap(8).Children(func() {
+	ui.Row(c).Fill().AlignItems(ui.Center).Gap(8).Children(func() {
 		c.Key("space")
 		p.switcher(c, pal)
 		c.Key("tabs")
-		row := ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.End).Gap(tabGap).Clip()
+		row := ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.Center).Gap(tabGap).Clip()
 		width := row.Bounds().W
 		if width <= 0 && len(p.tabs) > 0 {
 			// Not laid out yet: draw everything once, then fit.
@@ -47,12 +46,7 @@ func (p *Plugin) strip(c *ui.Context) {
 		}
 		shown, hidden := fit(p.visible(), p.active, width-newButtonWidth)
 		row.Children(func() {
-			for i, t := range shown {
-				if i > 0 && t.ID != p.active && shown[i-1].ID != p.active {
-					c.Key("divider:" + t.ID)
-					ui.Box(c).Width(1).Height(14).Shrink(0).Background(pal.Hairline).
-						Margin(0, 0, (tabHeight-14)/2, 0)
-				}
+			for _, t := range shown {
 				c.Key(t.ID)
 				p.tab(c, pal, t)
 			}
@@ -62,14 +56,14 @@ func (p *Plugin) strip(c *ui.Context) {
 			}
 			c.Key("new")
 			add := ui.ButtonBase(c).Label("New chat").Tooltip("New chat  ⌘N").Size(controlSize, controlSize).Radius(7).
-				Center().Shrink(0).Margin(0, 0, controlLift, 6).Cursor(ui.CursorPointer)
+				Center().Shrink(0).Margin(0, 0, 0, 4).Cursor(ui.CursorPointer)
 			if add.Hovered() {
 				add.Background(pal.Hover)
 			}
 			add.OnClick(p.newChat)
 			add.Children(func() { ui.Icon(c, lucide.Plus()).FontSize(15).TextColor(pal.Muted) })
 		})
-		ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(2).Margin(0, 0, controlLift, 0).Children(func() {
+		ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(2).Children(func() {
 			if search, ok := p.command(shell.SearchCommand); ok {
 				c.Key("search")
 				p.endButton(c, pal, "All chats", "All chats  ⌘K", lucide.Search(), func() {
@@ -98,7 +92,7 @@ func spaceName(folder string) string {
 func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	name := spaceName(p.space)
 	b := ui.ButtonBase(c).Label("Space "+name).Height(controlSize).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
-		Margin(0, 0, controlLift, 0).Cursor(ui.CursorPointer)
+		Cursor(ui.CursorPointer)
 	if !p.switching { // the tooltip would cover the list
 		b.Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder")))
 	}
@@ -250,11 +244,12 @@ func (p *Plugin) spaceDot(c *ui.Context, pal native.Palette, folder string) {
 func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 	active := t.ID == p.active
 	b := ui.ButtonBase(c).Label(t.Title).MaxWidth(tabMaxWidth).MinWidth(tabMinWidth).Shrink(1).Height(tabHeight).
-		Radius(9, 9, 0, 0).Cursor(ui.CursorPointer)
+		Radius(8).Cursor(ui.CursorPointer)
 	fill := pal.StripBg
 	switch {
 	case active:
-		fill = pal.PanelBg
+		fill = pal.ActiveTab
+		b.Shadow(0, 1, 2, 0, pal.Text.Alpha(.08))
 	case b.Hovered():
 		fill = pal.Hover
 	}
@@ -353,7 +348,7 @@ func (p *Plugin) command(id string) (kernel.Entry[kernel.Command], bool) {
 func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) {
 	b := ui.ButtonBase(c).Label("More tabs").Tooltip(strconv.Itoa(len(hidden))+" more tabs").
 		Height(controlSize).Padding(0, 8).Radius(7).Gap(4).AlignItems(ui.Center).Shrink(0).
-		Margin(0, 0, controlLift, 6).Cursor(ui.CursorPointer)
+		Margin(0, 0, 0, 4).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}

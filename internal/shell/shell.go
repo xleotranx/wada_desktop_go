@@ -109,7 +109,7 @@ func (s *Shell) View(c *ui.Context) {
 	}
 	h.toasts = nil
 	p := native.PaletteFor(c)
-	if c.Vibrancy() {
+	if p.StripBg.A < 255 {
 		c.Root().Background(ui.Transparent)
 	}
 	page, hasPage := s.currentPage()
@@ -292,7 +292,7 @@ type host struct {
 	k           *kernel.Kernel
 	setTheme    func(mygo.ThemeSource)
 	setVibrancy func(on bool)
-	translucent *kernel.Setting[bool]
+	backdrop    *kernel.Setting[string]
 	notify      func(shell.Notice)
 	clipboard   func() shell.Clipboard
 	foreground  func() bool
@@ -314,10 +314,8 @@ func (h *host) Setup(c *kernel.Context) error {
 	h.failed = map[string]bool{}
 	h.appearance = kernel.NewSetting(c, "appearance", "system")
 	h.applyTheme(h.Appearance())
-	h.translucent = kernel.NewSetting(c, "translucent", true)
-	if h.setVibrancy != nil {
-		h.setVibrancy(h.translucent.Get())
-	}
+	h.backdrop = kernel.NewSetting(c, "backdrop", "clear")
+	h.applyBackdrop(h.Backdrop())
 	if err := kernel.Provide[shell.Host](c, shell.HostKey, h); err != nil {
 		return err
 	}
@@ -372,13 +370,20 @@ func (h *host) SetAppearance(mode string) {
 	h.applyTheme(h.Appearance())
 }
 
-func (h *host) Translucent() bool { return h.translucent.Get() }
+func (h *host) Backdrop() string { return h.backdrop.Get() }
 
-func (h *host) SetTranslucent(on bool) {
-	h.translucent.Set(on)
+func (h *host) SetBackdrop(mode string) {
+	h.backdrop.Set(mode)
+	h.applyBackdrop(mode)
+}
+
+// applyBackdrop shows the material for "frosted" and tells the palette when
+// the window is clear, which the window itself cannot report.
+func (h *host) applyBackdrop(mode string) {
 	if h.setVibrancy != nil {
-		h.setVibrancy(on)
+		h.setVibrancy(mode == "frosted")
 	}
+	native.SetClearWindow(mode == "clear")
 }
 
 // applyTheme shows mode without saving it.

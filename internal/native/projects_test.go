@@ -72,3 +72,21 @@ func TestGlassLetsTheMaterialThrough(t *testing.T) {
 		}
 	}
 }
+
+// TestClearWindowTintsTheDesktop veils the strip and the panel without a
+// material once the shell says the window is clear.
+func TestClearWindowTintsTheDesktop(t *testing.T) {
+	SetClearWindow(true)
+	defer SetClearWindow(false)
+	var p Palette
+	ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(theme.Palette(true))
+		p = PaletteFor(c)
+	}, 100, 100).Frame()
+	if p.StripBg.A == 0 || p.StripBg.A == 255 || p.PanelBg.A == 255 {
+		t.Errorf("strip alpha %d, panel alpha %d: want both veiled", p.StripBg.A, p.PanelBg.A)
+	}
+	if p.Bg.A != 255 {
+		t.Errorf("Bg alpha %d, want solid", p.Bg.A)
+	}
+}

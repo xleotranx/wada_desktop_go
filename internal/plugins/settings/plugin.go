@@ -152,18 +152,15 @@ func (p *Plugin) appearance(c *ui.Context) {
 		}
 	})
 	ui.Text(c, "System follows your Mac’s appearance automatically.").FontSize(12).TextColor(pal.Muted)
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Margin(8, 0, 0, 0).Children(func() {
-		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-			ui.Text(c, "Translucent window").FontSize(13.5).FontWeight(500).TextColor(pal.Text)
-			ui.Text(c, "Let the desktop show through the window, blurred.").FontSize(12).TextColor(pal.Muted)
-		})
-		on := p.host.Translucent()
-		value := on
-		components.Switch(c, &value, "Translucent window", components.SwitchOptions{HideLabel: true})
-		if value != on {
-			p.ctx.Post(func() { p.host.SetTranslucent(value) })
+	ui.Text(c, "Window background").FontSize(14).FontWeight(500).TextColor(pal.Text).Margin(8, 0, 0, 0)
+	backdrop := p.host.Backdrop()
+	ui.Row(c).Gap(8).Children(func() {
+		for _, mode := range []struct{ id, label string }{{"clear", "Clear"}, {"frosted", "Frosted"}, {"solid", "Solid"}} {
+			c.Key(mode.id)
+			native.Choice(c, mode.label, backdrop == mode.id, func() { p.host.SetBackdrop(mode.id) })
 		}
 	})
+	ui.Text(c, "Clear shows your desktop through the window, Frosted blurs it.").FontSize(12).TextColor(pal.Muted)
 }
 
 // windowPreview is a window in miniature: the strip with a project's tabs,

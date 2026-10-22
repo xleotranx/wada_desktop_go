@@ -42,8 +42,8 @@ func Run(plugins ...kernel.Plugin) {
 			Title: "Wada", Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
 			TitleBarStyle:        mygo.TitleBarHidden,
 			TrafficLightPosition: &mygo.Point{X: 14, Y: trafficLightY},
-			// The page paints the strip and panel translucent while the
-			// material shows (see Host.SetTranslucent), and opaque otherwise.
+			// The page paints the strip and panel translucent for a clear or
+			// frosted backdrop (see Host.SetBackdrop), and opaque otherwise.
 			Transparent: true,
 			StateKey:    "main",
 			Content:     ui.View(func(c *ui.Context) { s.View(c) }),

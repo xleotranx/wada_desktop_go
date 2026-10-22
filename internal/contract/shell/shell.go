@@ -94,10 +94,11 @@ type Host interface {
 	// Appearance is "system", "light" or "dark".
 	Appearance() string
 	SetAppearance(mode string)
-	// Translucent reports that the window shows the desktop, blurred, behind
-	// the strip and the panel, where the platform can.
-	Translucent() bool
-	SetTranslucent(on bool)
+	// Backdrop is what shows behind the strip and the panel: "clear" (the
+	// desktop as it is, under a tint), "frosted" (the desktop blurred, where
+	// the platform can) or "solid".
+	Backdrop() string
+	SetBackdrop(mode string)
 
 	// Plugins reports every installed plugin; Enable and Disable turn one on
 	// or off and remember the choice.

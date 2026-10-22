@@ -51,10 +51,37 @@ var (
 // material, the strip is clear and the panel lets it through.
 func PaletteFor(c *ui.Context) Palette {
 	p := PaletteOf(c.Theme())
-	if c.Vibrancy() {
+	switch {
+	case clearWindow:
+		p.clear(c.Theme())
+	case c.Vibrancy():
 		p.glass(c.Theme())
 	}
 	return p
+}
+
+// clearWindow is set by the shell while the window shows the desktop with no
+// material; only the shell knows, as the window reports no material then.
+var clearWindow bool
+
+// SetClearWindow tells the palette that the window is transparent with no
+// material behind it. It is called on the UI thread.
+func SetClearWindow(on bool) { clearWindow = on }
+
+// clear tints the desktop behind the window just enough to read on: the
+// strip and the panel are one veil of the background, darker in the dark
+// theme and lighter in the light one, and hover and the active tab are
+// tints over it. Cards, bubbles and the composer keep Bg and stay solid.
+func (p *Palette) clear(t *ui.Theme) {
+	strip, panel := float32(0.55), float32(0.62)
+	if t.Dark {
+		strip, panel = 0.45, 0.55
+	}
+	p.StripBg = t.Background.Alpha(strip)
+	p.PanelBg = t.Background.Alpha(panel)
+	p.DrawerBg = t.Text.Alpha(0.03)
+	p.ActiveTab = t.Text.Alpha(0.12)
+	p.Hover = t.Text.Alpha(0.08)
 }
 
 // glass lets the window's blurred material through: the strip draws nothing,

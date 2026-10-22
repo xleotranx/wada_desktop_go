@@ -88,9 +88,11 @@ func spaceName(folder string) string {
 // spaces.
 func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	name := spaceName(p.space)
-	b := ui.ButtonBase(c).Label("Space "+name).Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder"))).
-		Height(30).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
+	b := ui.ButtonBase(c).Label("Space "+name).Height(30).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
 		Margin(0, 0, 5, 0).Cursor(ui.CursorPointer)
+	if !p.switching { // the tooltip would cover the list
+		b.Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder")))
+	}
 	switch {
 	case p.switching:
 		b.Background(pal.Selected)
@@ -152,7 +154,7 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	action := func(label string, run func()) {
 		c.Key(label)
 		b := ui.ButtonBase(c).Label(label).FillWidth().Height(30).Padding(0, 8).Radius(6).AlignItems(ui.Center).
-			Cursor(ui.CursorPointer)
+			Justify(ui.Start).Cursor(ui.CursorPointer)
 		if b.Hovered() {
 			b.Background(pal.Hover)
 		}

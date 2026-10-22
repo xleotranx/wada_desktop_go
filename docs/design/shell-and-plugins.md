@@ -246,9 +246,11 @@ offers more than one choice. A backend without modes shows "Chat" when targets e
 The mode picker also lists `chat.Targets` after the modes, under the group each one
 names. Choosing a target applies to the next message only: it is not saved, the picker
 returns to the chosen mode once the message is sent, and it is dropped when another
-conversation opens or a later mode is chosen. The message goes to the target's `Take`
-through `chat.Outgoing` (order 0, before attachments and mentions) and the transform
-returns `chat.ErrTaken`. For a new conversation the mode choice is saved in its
+conversation opens, the new chat's folder changes or a later mode is chosen. The message
+goes to the target's `Take` through `chat.Outgoing` (order 0, before attachments and
+mentions) and the transform returns `chat.ErrTaken`. A target that is gone, or whose
+`Take` fails, makes the transform return an error instead: the message is not sent to
+the agent in its place and stays in the composer. For a new conversation the mode choice is saved in its
 settings and applied through `chat.Outgoing`, unless the backend no longer offers it. In an open
 conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.

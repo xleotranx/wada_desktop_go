@@ -8,6 +8,7 @@ package models
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 
@@ -46,8 +47,10 @@ type Plugin struct {
 	newMode  *kernel.Setting[string]
 	// target is the chat.Targets entry the next message goes to, instead of the
 	// agent. It is not remembered: the picker returns to the chosen mode once
-	// the message is sent, and when another conversation opens.
-	target string
+	// the message is sent, when another conversation opens and when the new
+	// chat's folder changes.
+	target    string
+	directory string // the new chat's folder the target was chosen in
 
 	modelPicker, effortPicker, modePicker onechat.PickerState
 }
@@ -93,6 +96,11 @@ func (p *Plugin) conversationChanged(conv chat.Conversation) {
 		p.pending = agent.ModelRef{}
 		p.target = ""
 	}
+	// Two new chats share the empty session; their folders tell them apart.
+	if conv.Directory != p.directory {
+		p.directory = conv.Directory
+		p.target = ""
+	}
 	if conv.Session == "" || conv.Model == p.pending {
 		p.pending = agent.ModelRef{}
 	}
@@ -131,19 +139,25 @@ func (p *Plugin) reload() {
 
 // outgoing gives a new conversation the chosen model and mode, unless another
 // transform chose already, or the backend no longer offers them. A message for
-// a target is handed to it and goes no further.
+// a target is handed to it and goes no further; one that is gone, or fails
+// to take it, is an error, so the message stays in the composer and never
+// reaches the agent in its place.
 func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, error) {
 	if d.Session != "" {
 		return d, nil
 	}
 	if id := p.target; id != "" {
 		p.target = ""
+		taken := false
 		for _, e := range kernel.Items(p.ctx, chat.Targets) {
 			if e.ID == id {
-				kernel.Invoke(p.ctx, e, func(t chat.Target) { t.Take(d) })
-				return d, chat.ErrTaken
+				kernel.Invoke(p.ctx, e, func(t chat.Target) { t.Take(d); taken = true })
 			}
 		}
+		if !taken {
+			return d, errTargetGone
+		}
+		return d, chat.ErrTaken
 	}
 	if m := p.newModel.Get(); d.Model.IsZero() && !m.IsZero() && (!p.loaded || p.find(m) != nil) {
 		d.Model = m
@@ -282,6 +296,9 @@ func (p *Plugin) view(c *ui.Context) {
 // defaultEffort is the picker ID of the model's own default effort; picker
 // IDs can't be empty.
 const defaultEffort = "(default)"
+
+// errTargetGone is reported when the chosen target did not take the message.
+var errTargetGone = errors.New("what the mode picker chose for it is no longer available; choose again")
 
 const (
 	targetPrefix = "target:" // tells a target's picker ID from a mode's

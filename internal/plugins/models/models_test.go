@@ -21,6 +21,11 @@ var (
 
 func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
 	t.Helper()
+	return startWith(t, kerneltest.Config{Store: store}, extra...)
+}
+
+func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
+	t.Helper()
 	a := plugintest.NewAgent()
 	a.Catalog = []agent.Model{
 		{Ref: alpha, Name: "Alpha", Free: true},
@@ -29,7 +34,7 @@ func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kern
 	a.Default = alpha
 	a.ModeList = []agent.Mode{{ID: "build", Name: "Build"}, {ID: "plan", Name: "Plan"}}
 	c, host, p := &plugintest.Chat{}, &plugintest.Host{}, &Plugin{}
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, append([]kernel.Plugin{a, c, host, p}, extra...)...)
+	h := kerneltest.Start(t, cfg, append([]kernel.Plugin{a, c, host, p}, extra...)...)
 	h.Flush()
 	return h, p, a, c, host
 }
@@ -247,6 +252,66 @@ func TestATargetIsDroppedWhenAnotherConversationOpens(t *testing.T) {
 	c.NewChat("/w")
 	if d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"}); err != nil || d.Text != "hi" || len(taken) != 0 {
 		t.Fatalf("a later new chat went to the target: %+v %v, taken %d", d, err, len(taken))
+	}
+}
+
+// chooseTarget picks the test target in the mode picker.
+func chooseTarget(t *testing.T, p *Plugin) {
+	t.Helper()
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	for _, click := range []string{"Build", "Plan, code, review"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatalf("click %q: %v in %q", click, err, tt.Texts())
+		}
+		tt.Frame()
+	}
+}
+
+func TestATargetIsDroppedWhenANewChatOpensInAnotherFolder(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	c.NewChat("/a")
+	chooseTarget(t, p)
+	c.NewChat("/b")
+	if d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Directory: "/b", Text: "hi"}); err != nil || d.Text != "hi" || len(taken) != 0 {
+		t.Fatalf("the new chat went to the target: %+v %v, taken %d", d, err, len(taken))
+	}
+}
+
+func TestAGoneTargetKeepsTheMessageFromTheAgent(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	chooseTarget(t, p)
+	if err := h.Disable("test-targets"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"})
+	if err == nil || errors.Is(err, chat.ErrTaken) {
+		t.Fatalf("error %v", err)
+	}
+	if d := outgoing(t, h, chat.Draft{Text: "again"}); d.Text != "again" {
+		t.Fatalf("the next message: %+v", d)
+	}
+}
+
+// panicking contributes a target whose Take fails.
+type panicking struct{}
+
+func (panicking) Manifest() kernel.Manifest { return kernel.Manifest{ID: "test-targets"} }
+
+func (panicking) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, chat.Targets, "test-targets.flow", 0, chat.Target{
+		Title: "Plan, code, review", Take: func(chat.Draft) { panic("broken") }})
+}
+
+func TestATargetThatFailsDoesNotTakeTheMessage(t *testing.T) {
+	h, p, _, _, _ := startWith(t, kerneltest.Config{Lenient: true}, panicking{})
+	chooseTarget(t, p)
+	_, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"})
+	if err == nil || errors.Is(err, chat.ErrTaken) {
+		t.Fatalf("error %v", err)
 	}
 }
 

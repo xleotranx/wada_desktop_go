@@ -257,3 +257,9 @@ func TestPageCanHideSidebarWithoutChangingPreference(t *testing.T) {
 		}
 	}
 }
+
+func TestDevelopmentKeepsItsOwnDataFolder(t *testing.T) {
+	if dataFolder(true) == dataFolder(false) || dataFolder(false) != "wada-desktop-go" {
+		t.Fatalf("dev %q, production %q", dataFolder(true), dataFolder(false))
+	}
+}

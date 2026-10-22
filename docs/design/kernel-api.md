@@ -131,8 +131,9 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 ## Storage
 
 The shell implements `kernel.Store` with SQLite through `github.com/egoist/mygo/plugins/sqlite`:
-`settings.db` in `$WADA_DATA_DIR`, or `~/Library/Application Support/wada-desktop-go/`,
-with one table:
+`settings.db` in `$WADA_DATA_DIR`, or else `~/Library/Application Support/wada-desktop-go/`
+for a production build (`mygo build`) and `wada-desktop-go-dev/` for a development run
+(`go run`, `mygo dev`; see `mygo.IsDev`), with one table:
 
 ```sql
 CREATE TABLE settings (

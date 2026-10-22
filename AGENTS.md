@@ -85,8 +85,9 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 `WADA_STRICT=1` re-panics plugin failures. Always use a temporary `WADA_DATA_DIR`
 for captures and experiments; never reset developer data during verification.
 
-Settings live in `settings.db` (schema 1) under `$WADA_DATA_DIR` or
-`~/Library/Application Support/wada-desktop-go/`; the folders and the record of the
+Settings live in `settings.db` (schema 1) under `$WADA_DATA_DIR`, or else
+`~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
+`wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
 conversations the app started live beside it in `workspace.db` (schema 1). A
 database of another schema is refused, not migrated; delete it explicitly to start
 over. Conversations' messages belong to the backend.

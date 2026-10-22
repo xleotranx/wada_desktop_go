@@ -10,13 +10,15 @@ import (
 
 	"wada-desktop-go/internal/kernel"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/sqlite"
 )
 
 const storeSchema = 1
 
-// dataDir is where the app keeps its settings: $WADA_DATA_DIR, or the user's
-// config directory.
+// dataDir is where the app keeps its data: $WADA_DATA_DIR, or a folder in
+// the user's config directory. A production build (`mygo build`) and a
+// development run keep theirs apart.
 func dataDir() (string, error) {
 	if dir := os.Getenv("WADA_DATA_DIR"); dir != "" {
 		return dir, nil
@@ -25,7 +27,15 @@ func dataDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "wada-desktop-go"), nil
+	return filepath.Join(dir, dataFolder(mygo.IsDev())), nil
+}
+
+// dataFolder names the app's folder in the user's config directory.
+func dataFolder(dev bool) string {
+	if dev {
+		return "wada-desktop-go-dev"
+	}
+	return "wada-desktop-go"
 }
 
 // sqliteStore is the kernel's settings store: one table of JSON values.

@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -96,5 +97,23 @@ func TestEventsBringTheLatestCommandAndTurnsReadChanges(t *testing.T) {
 	h.Flush()
 	if a.Called("changes s1") != reads+1 || !slices.EqualFunc(p.changes, a.Changed["s1"], func(x, y agent.FileChange) bool { return x.Path == y.Path }) {
 		t.Fatalf("changes %+v after %d reads", p.changes, a.Called("changes s1"))
+	}
+}
+
+func TestActivityIsReadAgainOnceTheBackendConnects(t *testing.T) {
+	h, p, a, chat := start(t)
+	a.Fail["Messages"] = errors.New("the agent is not connected")
+	a.Fail["Changes"] = errors.New("the agent is not connected")
+	chat.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	if p.last != nil || p.changes != nil {
+		t.Fatal("activity from failed reads")
+	}
+	delete(a.Fail, "Messages")
+	delete(a.Fail, "Changes")
+	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
+	h.Flush()
+	if p.last == nil || len(p.changes) != 2 {
+		t.Fatalf("last %+v changes %+v", p.last, p.changes)
 	}
 }

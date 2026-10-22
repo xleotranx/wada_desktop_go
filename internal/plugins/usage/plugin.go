@@ -51,6 +51,16 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.session, p.known, p.catalog, p.catalogRead = "", false, nil, false
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
 	kernel.On(c, agent.Events, p.events)
+	// A read before the backend connected failed; read again once it has.
+	attempt := p.agent.Status().Attempt
+	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
+		if st.State == agent.Ready && st.Attempt != attempt && p.session != "" {
+			p.reload()
+		}
+		if st.State == agent.Ready {
+			attempt = st.Attempt
+		}
+	})
 	p.follow(p.chat.Current().Session)
 	for _, err := range []error{
 		kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view}),

@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"errors"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -162,5 +163,21 @@ func TestWorkPanelTakesOverFromTheComposer(t *testing.T) {
 		if !panel.HasText(want) {
 			t.Fatalf("%q is missing from the work sections: %q", want, panel.Texts())
 		}
+	}
+}
+
+func TestUsageIsReadAgainOnceTheBackendConnects(t *testing.T) {
+	h, p, a, chat := start(t)
+	a.Fail["Messages"] = errors.New("the agent is not connected")
+	chat.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	if p.known {
+		t.Fatal("usage known from a failed read")
+	}
+	delete(a.Fail, "Messages")
+	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
+	h.Flush()
+	if !p.known || p.sum.cost == 0 {
+		t.Fatal("usage was not read again after the backend connected")
 	}
 }

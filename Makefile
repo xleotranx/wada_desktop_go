@@ -1,7 +1,7 @@
 # The gate for a change: lifetime vet, lint, then the tests under the race
 # detector and once more without cgo. Run `make check` before calling
 # anything done.
-.PHONY: check vet lint test test-nocgo
+.PHONY: check vet lint test test-nocgo demo
 
 check: vet lint test test-nocgo
 
@@ -18,3 +18,9 @@ test:
 
 test-nocgo:
 	CGO_ENABLED=0 go test ./...
+
+# The app on throwaway data: 12 folders, 56 chats (some hundreds of messages
+# long) and 24 open tabs, served by Pi from a temporary folder.
+demo:
+	@dir=$$(mktemp -d) && python3 -I scripts/seed.py "$$dir" && \
+		WADA_DATA_DIR="$$dir/data" PI_CODING_AGENT_SESSION_DIR="$$dir/pi-sessions" go run .

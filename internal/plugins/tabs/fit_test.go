@@ -112,3 +112,36 @@ func TestANarrowStripStillReachesEveryTab(t *testing.T) {
 }
 
 func agentID(i int) agent.SessionID { return agent.SessionID(fmt.Sprintf("c%d", i)) }
+
+func TestFitMovesWholeGroupsIntoTheOverflowLast(t *testing.T) {
+	list := many(3, "/w/a", "/w/b", "/w/c", "/w/d", "/w/e", "/w/f")
+	width := float32(tabMinWidth + 3*60 + overflowWidth)
+	plan := fit(list, "/w/a#0", nil, width)
+	if plan.need() > width {
+		t.Fatalf("the plan needs %v of %v: %q", plan.need(), width, drawn(plan))
+	}
+	if !plan.groups[len(plan.groups)-1].dropped || plan.groups[0].dropped || len(plan.groups[0].shown) == 0 {
+		t.Fatalf("plan %q", drawn(plan))
+	}
+	// Every tab is reachable once: drawn or in its label's menu while its
+	// group is drawn, else in the overflow menu.
+	seen := map[string]int{}
+	for _, g := range plan.groups {
+		if g.dropped {
+			continue
+		}
+		for _, tab := range g.tabs {
+			if !slices.ContainsFunc(plan.hidden, func(h tabs.Tab) bool { return h.ID == tab.ID }) {
+				seen[tab.ID]++
+			}
+		}
+	}
+	for _, tab := range plan.hidden {
+		seen[tab.ID]++
+	}
+	for _, tab := range list {
+		if seen[tab.ID] != 1 {
+			t.Fatalf("%s is reachable %d times", tab.ID, seen[tab.ID])
+		}
+	}
+}

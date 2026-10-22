@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -55,5 +56,22 @@ func TestWorkPanelShowsBesideAStoredConversation(t *testing.T) {
 	tt.Frame()
 	if p.WorkShown() || tt.HasText("always body") {
 		t.Fatalf("Toggle Work Panel left it: %q", tt.Texts())
+	}
+}
+
+func TestALoadThatWorksReplacesTheNoteOfOneThatFailed(t *testing.T) {
+	h, p, f, _ := start(t)
+	f.Stored["s1"] = []agent.Message{{ID: "u1", Role: agent.RoleUser, Text: "hello"}}
+	f.Fail["Messages"] = errors.New("the agent is not connected")
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	if len(p.t.rows) != 1 || p.t.rows[0].kind != rowNote {
+		t.Fatalf("rows %v", kinds(p))
+	}
+	delete(f.Fail, "Messages")
+	p.load()
+	h.Flush()
+	if got := kinds(p); len(got) != 1 || got[0] != rowUser {
+		t.Fatalf("the failure note outlived a load that worked: %v", got)
 	}
 }

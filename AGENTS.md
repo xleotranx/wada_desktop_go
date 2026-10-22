@@ -80,6 +80,9 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 - `WADA_LIVE_PI=1 [WADA_LIVE_PI_MODEL=provider/id] go test -run TestLivePi ./internal/plugins/pi`:
   one real model turn through the installed `pi`; skipped otherwise.
 - `go tool mygo build`: production app/DMG in gitignored `build/`.
+- `make demo`: the app on throwaway data from `scripts/seed.py` (many folders, chats,
+  long conversations and open tabs), served by the installed `pi` from a temporary
+  folder.
 
 `WADA_CAPTURE=/path/window.png go run .` captures the window and exits
 (`WADA_CAPTURE_WAIT=12s` waits longer, e.g. for the model catalog);

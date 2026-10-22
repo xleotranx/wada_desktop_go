@@ -11,8 +11,8 @@ import (
 
 // How the strip fits its tabs into its width. Tabs shrink to tabMinWidth;
 // past that, the groups the active tab is not in collapse to their labels,
-// farthest first, and then tabs move into the overflow menu, from the end,
-// never the active one.
+// farthest first; then tabs move into the overflow menu, from the end, never
+// the active one; and last whole collapsed groups follow them, from the end.
 
 const (
 	groupGap      = 10 // between groups
@@ -28,6 +28,7 @@ type stripGroup struct {
 	shown     []tabs.Tab // drawn after the label
 	collapsed bool       // shows its label with a count, by the user or to fit
 	manual    bool       // the user collapsed it
+	dropped   bool       // not drawn at all: its tabs are in the overflow menu
 }
 
 // stripPlan is what the strip draws: its groups, and the tabs only the
@@ -87,6 +88,21 @@ func fit(list []tabs.Tab, active string, manual map[string]bool, width float32) 
 			g.shown = slices.Delete(slices.Clone(g.shown), ti, ti+1)
 		}
 	}
+	// Last, the labels of the other groups, from the end.
+	for gi := len(plan.groups) - 1; gi >= 0 && plan.need() > width; gi-- {
+		g := &plan.groups[gi]
+		if gi == activeGroup || g.folder == "" {
+			continue
+		}
+		g.dropped, g.shown = true, nil
+		var mine []tabs.Tab
+		for _, t := range g.tabs {
+			if !slices.ContainsFunc(plan.hidden, func(h tabs.Tab) bool { return h.ID == t.ID }) {
+				mine = append(mine, t)
+			}
+		}
+		plan.hidden = append(mine, plan.hidden...)
+	}
 	return plan
 }
 
@@ -110,7 +126,7 @@ func (s stripPlan) need() float32 {
 	var w float32
 	drawn := 0
 	for _, g := range s.groups {
-		if g.folder == "" && len(g.shown) == 0 {
+		if g.dropped || (g.folder == "" && len(g.shown) == 0) {
 			continue
 		}
 		drawn++

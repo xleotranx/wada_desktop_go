@@ -39,7 +39,7 @@ func (p *Plugin) strip(c *ui.Context) {
 		plan := fit(p.tabs, p.active, p.collapsed(), width-newButtonWidth)
 		row.Children(func() {
 			for _, g := range plan.groups {
-				if g.folder == "" && len(g.shown) == 0 {
+				if g.dropped || (g.folder == "" && len(g.shown) == 0) {
 					continue
 				}
 				c.Key("group:" + g.folder + ":" + g.tabs[0].ID)
@@ -79,7 +79,13 @@ func (p *Plugin) strip(c *ui.Context) {
 // label and no line.
 func (p *Plugin) group(c *ui.Context, pal native.Palette, g stripGroup) {
 	color := pal.Projects[p.colorIndex(g.folder)]
-	ui.Row(c).MinWidth(0).Shrink(1).AlignItems(ui.End).Children(func() {
+	row := ui.Row(c).AlignItems(ui.End)
+	if len(g.shown) > 0 {
+		row.MinWidth(0).Shrink(1) // its tabs shrink; a label alone keeps its width
+	} else {
+		row.Shrink(0)
+	}
+	row.Children(func() {
 		if g.folder != "" {
 			ui.Column(c).Height(tabHeight).Shrink(0).Children(func() {
 				ui.Row(c).Grow(1).AlignItems(ui.Center).Padding(0, 4, 0, 0).Children(func() {
@@ -108,7 +114,7 @@ func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) 
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
-	b.Menu(func(m *ui.Menu) { p.tabItems(m, hidden) })
+	b.Menu(func(m *ui.Menu) { p.overflowItems(m, hidden) })
 	b.Children(func() {
 		ui.Icon(c, lucide.ChevronsRight()).FontSize(14).TextColor(pal.Muted)
 		ui.Text(c, strconv.Itoa(len(hidden))).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum")
@@ -180,6 +186,26 @@ func (p *Plugin) endButton(c *ui.Context, pal native.Palette, label, tip string,
 	}
 	b.OnClick(on)
 	b.Children(func() { ui.Icon(c, icon).FontSize(15).TextColor(pal.Muted) })
+}
+
+// overflowItems lists the tabs that do not fit: those without a folder,
+// then each folder's in a submenu named after it.
+func (p *Plugin) overflowItems(m *ui.Menu, hidden []tabs.Tab) {
+	var folders []string
+	byFolder := map[string][]tabs.Tab{}
+	for _, t := range hidden {
+		if t.Folder == "" {
+			p.tabItems(m, []tabs.Tab{t})
+			continue
+		}
+		if _, ok := byFolder[t.Folder]; !ok {
+			folders = append(folders, t.Folder)
+		}
+		byFolder[t.Folder] = append(byFolder[t.Folder], t)
+	}
+	for _, f := range folders {
+		m.Submenu(filepath.Base(f), func(sub *ui.Menu) { p.tabItems(sub, byFolder[f]) })
+	}
 }
 
 // newButtonWidth is the new-chat button and the gap before it.

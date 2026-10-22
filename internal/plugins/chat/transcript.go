@@ -33,6 +33,7 @@ type row struct {
 	tool        *toolRow
 	approval    *agent.Approval
 	interaction *interactionState
+	loadFailed  bool // rowNote: a read of history failed; a later read replaces it
 }
 
 type interactionState struct {

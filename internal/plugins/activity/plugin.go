@@ -47,6 +47,18 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.session, p.last, p.changes, p.open, p.shell = "", nil, nil, map[string]bool{}, map[string]bool{}
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
 	kernel.On(c, agent.Events, p.events)
+	// A read before the backend connected failed; read again once it has.
+	attempt := p.agent.Status().Attempt
+	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
+		if st.State == agent.Ready && st.Attempt != attempt && p.session != "" {
+			id := p.session
+			p.session = ""
+			p.follow(id)
+		}
+		if st.State == agent.Ready {
+			attempt = st.Attempt
+		}
+	})
 	p.follow(p.chat.Current().Session)
 	for _, err := range []error{
 		kernel.Contribute(c, chat.Work, "activity.changes", 0, chat.WorkSection{Title: "Changes",

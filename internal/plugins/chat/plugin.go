@@ -172,7 +172,7 @@ func (p *Plugin) load() {
 		return backend.Messages(ctx, id)
 	}, func(messages []agent.Message, err error) {
 		if err != nil {
-			p.t.note("The conversation did not load: " + err.Error())
+			p.t.add(&row{kind: rowNote, text: "The conversation did not load: " + err.Error(), loadFailed: true})
 			return
 		}
 		if p.version != version {
@@ -181,9 +181,11 @@ func (p *Plugin) load() {
 			p.load()
 			return
 		}
+		// App notes survive the reload, but not one saying an earlier read
+		// failed: this one worked.
 		var notes []*row
 		for _, r := range p.t.rows {
-			if r.kind == rowNote {
+			if r.kind == rowNote && !r.loadFailed {
 				notes = append(notes, r)
 			}
 		}

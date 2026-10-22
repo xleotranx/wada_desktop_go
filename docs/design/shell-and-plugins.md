@@ -83,6 +83,8 @@ Conversation settings section with the work panel's switch.
   or a turn runs.
 - When the connection drops mid-turn, the turn is settled with a note. When a new
   connection attempt becomes ready, the open conversation is reloaded.
+- A note that history failed to load goes when a later read works; other notes
+  survive a reload.
 - Sending waits for history to load. If live events overtake a history request,
   the live transcript stays on screen and history is read again after the turn
   settles. App notes survive the reload.
@@ -256,7 +258,9 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   draws everything and asks for another). Tabs shrink to 96 px; past that, the groups
   the active tab is not in collapse to their labels, farthest from it first, with the
   count of their tabs; then tabs move, from the end, into a "More tabs" menu after the
-  groups, never the active one. Collapsing to fit changes nothing saved.
+  groups, never the active one; last, other groups' labels follow, from the end. The
+  menu lists tabs without a folder, then a submenu per folder. A label alone keeps its
+  width. Collapsing to fit changes nothing saved.
 - A group's label is a menu: first the group's tabs the strip does not draw, then New
   Chat in the folder, Collapse Group (remembered in the record as `Folder.Collapsed`;
   a collapsed group shows its label with a count and only its active tab) or Expand
@@ -337,7 +341,8 @@ the total cost, the share of the context window in use and a ring that fills wit
 sections.
 
 Backends report usage only with stored messages, so the plugin reads the conversation's
-`Messages` when it opens and again when one of its turns ends. A read belongs to the
+`Messages` when it opens, again when one of its turns ends, and again when a new
+connection attempt becomes ready (a read before it failed). A read belongs to the
 conversation it was for: a later navigation drops it, and a failed read shows nothing,
 since the chat page reports the failure. A new chat, or a conversation with no usage,
 shows nothing. The model catalog is read once, for names and context windows.
@@ -358,7 +363,8 @@ contributes two `chat.Work` sections for the conversation on show:
   counts as a shell command when its `ToolStarted` or `ToolCalled` said so, or named
   a command): the command, the last 12 lines of its output and its exit status.
 
-Each section shows only while it has something to show.
+Both are read again when a new connection attempt becomes ready. Each section shows
+only while it has something to show.
 
 ## Attachments
 

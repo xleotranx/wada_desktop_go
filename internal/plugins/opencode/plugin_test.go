@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // fakeServer is a minimal OpenCode server: /info, the event stream and the
@@ -217,7 +218,7 @@ func start(t *testing.T, f *fakeServer) (*kerneltest.Harness, *Plugin) {
 		ch <- time.Now()
 		return ch
 	}}
-	return kerneltest.Start(t, kerneltest.Config{Store: store}, &plugintest.Host{}, p), p
+	return kerneltest.Start(t, kerneltest.Config{Store: store}, &kittest.Host{}, p), p
 }
 
 // waitFor runs posted work until cond holds.

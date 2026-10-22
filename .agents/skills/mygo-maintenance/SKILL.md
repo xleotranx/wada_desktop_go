@@ -42,7 +42,7 @@ The mechanical half of the rules above; don't re-derive it in review or leave it
 
 - `make vet` (`go tool mygo vet .`) owns the lifetime rules: `ui.Element`, the parts types, `ui.ListRow` and `*ui.Context` are flagged when stored in a struct or package variable, passed to a goroutine, or captured by one. "Keep Context out of app state and workers" and "never store an element or parts" are violations the gate catches, not judgment calls.
 - `make lint` keeps the closed sets and dead code honest: `exhaustive` over enum switches (agent event kinds, plugin states), and `depguard` over the kernel/contract/shell/plugin import boundaries, `staticcheck`, `ineffassign`, `unused`.
-- Guard tests hold the repo's conventions: `internal/native/palette_test.go` (every color from `native.PaletteFor`); the rest of the behavior lives in `ui.NewTester` tests beside each plugin.
+- Guard tests hold the repo's conventions: `colors_test.go` and the kit's `native/palette_test.go` (every color from `native.PaletteFor`, through `kittest.ColorsStayInThePalette`); the rest of the behavior lives in `ui.NewTester` tests beside each plugin.
 - `make test` runs the suite under the race detector; `make test-nocgo` without cgo.
 
 What stays judgment, because no check can see it: keys and identity order, bound-value timing, scoped shortcuts, side effects through actions rather than render passes, and committed geometry (`handle.Bounds` / `c.Resolve`). That is what the sections above are for.

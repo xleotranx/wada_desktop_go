@@ -15,16 +15,16 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/components/command"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 const (

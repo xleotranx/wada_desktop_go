@@ -1,61 +1,23 @@
 # Shell and the built-in plugins
 
-Declared in `internal/contract/shell`, `internal/contract/chat`,
-`internal/contract/settings`, `internal/contract/tabs`, `internal/contract/workspace`
-and `internal/contract/workflow`; implemented by `internal/shell` and the plugins named below.
+Declared in `internal/contract/chat`, `internal/contract/tabs`,
+`internal/contract/workspace` and `internal/contract/workflow`, beside the kit's
+`contract/shell` and `contract/settings`; implemented by the plugins named below.
 
 ## Shell
 
-`internal/shell` is the window host. It creates the kernel, opens the settings store,
-builds the window and menu bar, and every frame draws what plugins contribute. It
-contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey` and
-`kernel.InspectorKey`.
+The window, its settings store, the settings page and plugin diagnostics come from
+the kit (`github.com/xleotranx/wada-kit`, in `wada-kit/`); see its
+[shell note](../../wada-kit/docs/shell.md). Wada's `main.go` runs it as:
 
-| Point | Drawn |
-|---|---|
-| `shell.Pages` | the main area, one page at a time; the lowest Order is the default |
-| `shell.Strip` | views across the title strip, after the window controls |
-| `shell.TitleBar` | items at the end of the title strip |
-| `shell.Overlays` | above everything (dialogs) |
+- Name `Wada`, data folder `wada-desktop-go` (`wada-desktop-go-dev` for a
+  development run), environment prefix `WADA` (`WADA_DATA_DIR`, `WADA_CAPTURE`,
+  …);
+- a 1400 × 900 window, at least 900 × 600;
+- menus File, Chat, View, Agent, Help.
 
-The title strip, on `StripBg`, holds the strip views in a row after the window
-controls (one with `Grow` takes the remaining width), then the title-bar items. It
-drags the window where nothing in it takes the mouse. Without a strip view it shows
-the page's `Title` instead. Below it the page fills a panel on `PanelBg`, inset 8 px
-with a 12 px radius. The window title follows the page's `Title`.
-
-The window is created transparent. `shell.Host.Backdrop()` (the shell's `backdrop`
-setting) says what shows behind the strip and the panel:
-
-- `clear` (the default): the desktop as it is. The window reports no material then,
-  so the shell tells the palette with `native.SetClearWindow`, and `PaletteFor`
-  makes `StripBg` and `PanelBg` veils of the background and `DrawerBg`, `Hover` and
-  `ActiveTab` tints.
-- `frosted`: the platform's under-window material, blurred. `ui.Context.Vibrancy()`
-  reports it, and `PaletteFor` clears `StripBg`, veils `PanelBg` and `ActiveTab`, and
-  tints `DrawerBg` and `Hover`.
-- `solid`: the opaque palette.
-
-Whenever `StripBg` is not opaque the root draws no background. `Bg` stays solid for
-cards, bubbles and the composer.
-
-`shell.Host.ShowPage` emits `shell.PageChanged` with the ID it chose whenever that
-differs from the last one.
-
-Every render, command and title callback runs through `kernel.Invoke`, so a panic
-disables only that plugin; the shell shows a toast naming it.
-
-Commands with a `Menu` appear in the menu bar under that name (File, Chat, View,
-Agent, Help, in that order), and the menu owns their first shortcut. Other shortcuts
-are window shortcuts. The menu is rebuilt whenever plugins change state.
-
-`shell.Host` gives plugins the window services they need: show a page, toasts,
-clipboard, opening links, desktop notifications (`Notify`), whether the window is
-in front (`Foreground`) and the app's data folder (`DataDir`, where `settings.db`
-lives; a plugin names its files after its ID; empty in tests). A clicked notification brings the window to the front, then
-its ID is emitted on `shell.NoticeClicked`. The app's notifications are cleared when
-it becomes active. On macOS they need a packaged app (`mygo dev` or `mygo build`);
-under `go run` nothing is shown.
+The tabs plugin's strip fills the title strip, so the page title shows only in the
+window title.
 
 ## Chat page
 
@@ -307,23 +269,8 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 ## Settings
 
-`internal/plugins/settings` contributes the settings page and "Settings…" (⌘,); the
-tabs show the page as a tab. It lists `settings.Sections` entries in order in a navigation column and renders
-only the selected section in a separately scrolling detail pane. If that section
-disappears, it shows the first available section. It adds its own Appearance and
-Plugins sections; appearance offers System, Light and Dark (the default), each drawn as a small
-window in that theme (`native.PaletteOf`): the strip with a project's tabs over the
-panel, System half of each, and a Window background choice of Clear, Frosted or Solid. The plugin list uses switches to turn optional plugins on
-and off through `shell.Host`. The tabs, chat, OpenCode, Pi and notifications plugins
-contribute their own sections.
-
-## Plugin diagnostics
-
-The `inspector` plugin adds View → Plugin diagnostics and a button in Settings.
-Its read-only page lists every installed plugin. Expanding one shows required
-service providers, missing requirements, owned registrations, scope and worker
-counts, and any failure and recovered panic stack. It uses the public
-`kernel.InspectorKey` service and shell page contributions.
+The kit's settings page shows as a tab. The tabs, chat, OpenCode, Pi and
+notifications plugins contribute their own sections.
 
 ## Model picker
 

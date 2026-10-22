@@ -6,9 +6,9 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // workPlugin contributes two work sections, one shown only while full is set.

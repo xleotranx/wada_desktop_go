@@ -6,10 +6,9 @@ import (
 	"math"
 	"strconv"
 
-	"wada-desktop-go/internal/native"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // part is one kind of token in the latest answer's context.

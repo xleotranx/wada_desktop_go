@@ -5,24 +5,29 @@ import (
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/flows"
-	"wada-desktop-go/internal/plugins/inspector"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/opencode"
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/pi"
-	"wada-desktop-go/internal/plugins/settings"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
-	"wada-desktop-go/internal/shell"
+
+	"github.com/xleotranx/wada-kit/plugins/inspector"
+	"github.com/xleotranx/wada-kit/plugins/settings"
+	"github.com/xleotranx/wada-kit/shell"
 )
 
 // main is the composition: the plugins this build installs, in order.
 func main() {
-	shell.Run(
+	shell.Run(shell.App{
+		Name: "Wada", Folder: "wada-desktop-go", Env: "WADA",
+		Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
+		Menus: []string{"File", "Chat", "View", "Agent", "Help"},
+	},
 		&opencode.Plugin{},
 		&pi.Plugin{}, // off by default; turn OpenCode off to use it
 		&chat.Plugin{},

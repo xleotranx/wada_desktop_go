@@ -7,11 +7,12 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 var (
@@ -19,12 +20,12 @@ var (
 	beta  = agent.ModelRef{Provider: "acme", ID: "beta"}
 )
 
-func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
+func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	return startWith(t, kerneltest.Config{Store: store}, extra...)
 }
 
-func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
+func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Catalog = []agent.Model{
@@ -33,7 +34,7 @@ func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*ke
 	}
 	a.Default = alpha
 	a.ModeList = []agent.Mode{{ID: "build", Name: "Build"}, {ID: "plan", Name: "Plan"}}
-	c, host, p := &plugintest.Chat{}, &plugintest.Host{}, &Plugin{}
+	c, host, p := &plugintest.Chat{}, &kittest.Host{}, &Plugin{}
 	h := kerneltest.Start(t, cfg, append([]kernel.Plugin{a, c, host, p}, extra...)...)
 	h.Flush()
 	return h, p, a, c, host

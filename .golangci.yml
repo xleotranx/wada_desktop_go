@@ -17,25 +17,19 @@ linters:
       # still stand above it as its own case.
       default-signifies-exhaustive: false
     depguard:
+      # The kit (github.com/xleotranx/wada-kit) brings the kernel, the shell
+      # contract, settings sections and the palette; only main installs the
+      # kit's shell and plugins.
       rules:
-        kernel:
-          files: ["**/internal/kernel/**/*.go", "!$test"]
-          list-mode: strict
-          allow: ["$gostd", "wada-desktop-go/internal/kernel"]
         contract:
           files: ["**/internal/contract/**/*.go", "!$test"]
           list-mode: strict
-          allow: ["$gostd", "github.com/egoist/mygo/ui", "wada-desktop-go/internal/kernel", "wada-desktop-go/internal/contract"]
-        shell:
-          files: ["**/internal/shell/*.go", "!$test"]
-          list-mode: strict
           allow:
             - "$gostd"
-            - "github.com/egoist/mygo"
-            - "github.com/oneo-me/onevra/source"
-            - "wada-desktop-go/internal/kernel"
+            - "github.com/egoist/mygo/ui"
+            - "github.com/xleotranx/wada-kit/kernel"
+            - "github.com/xleotranx/wada-kit/contract"
             - "wada-desktop-go/internal/contract"
-            - "wada-desktop-go/internal/native"
         plugins:
           files: ["**/internal/plugins/**/*.go", "!$test"]
           list-mode: strict
@@ -43,14 +37,16 @@ linters:
             - "$gostd"
             - "github.com/egoist/mygo"
             - "github.com/oneo-me/onevra/source"
-            - "wada-desktop-go/internal/kernel"
+            - "github.com/xleotranx/wada-kit/kernel"
+            - "github.com/xleotranx/wada-kit/contract"
+            - "github.com/xleotranx/wada-kit/native"
             - "wada-desktop-go/internal/contract"
-            - "wada-desktop-go/internal/native"
         plugintest:
           files: ["**/internal/plugintest/*.go", "!$test"]
           list-mode: strict
-          allow: ["$gostd", "github.com/egoist/mygo/ui", "wada-desktop-go/internal/kernel", "wada-desktop-go/internal/contract"]
-        native:
-          files: ["**/internal/native/*.go", "!$test"]
-          list-mode: strict
-          allow: ["$gostd", "github.com/egoist/mygo/ui", "github.com/oneo-me/onevra/source"]
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo/ui"
+            - "github.com/xleotranx/wada-kit/kernel"
+            - "github.com/xleotranx/wada-kit/contract"
+            - "wada-desktop-go/internal/contract"

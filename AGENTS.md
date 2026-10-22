@@ -8,18 +8,26 @@ protocols to simplify a refactor.
 
 ## Source map
 
-- `main.go`: composition only — the list of plugins this build installs.
-- `internal/kernel`: plugin lifecycle, scoped/reversible registration, services
-  (`Key`), events (`Topic`), pipelines, extension points (`Point`), commands, tasks
-  and settings. Standard library only. `kerneltest` runs it in tests.
-- `internal/contract/*`: declarations shared between plugins — types, interfaces,
+- `wada-kit/`: the kit, its own Go module (`github.com/xleotranx/wada-kit`), which
+  Wada's `go.mod` replaces with this folder. It knows no app and never imports Wada.
+  - `kernel`: plugin lifecycle, scoped/reversible registration, services (`Key`),
+    events (`Topic`), pipelines, extension points (`Point`), commands, tasks and
+    settings. Standard library only. `kerneltest` runs it in tests.
+  - `contract/shell` (window slots, host service) and `contract/settings`
+    (settings sections).
+  - `shell`: the window host — kernel, SQLite settings store, frame/layout, menu bar
+    and shortcuts from commands; `shell.Run` takes the app's `shell.App`.
+  - `native`: the semantic palette, small shared controls and `Tilde` for paths.
+  - `plugins/settings` (settings page) and `plugins/inspector` (plugin diagnostics).
+  - `kittest`: the fake `shell.Host` and the palette guard for apps' tests.
+  - `examples/notes`: the smallest app on the kit; it must never need Wada.
+- `main.go`: composition only — Wada's `shell.App` and the plugins this build installs.
+- `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections, file drops, completions), `shell` (window slots, host service), `settings`
-  (settings sections), `tabs` (the open tabs), `workspace` (folders and the conversations the app started),
+  slots, work panel sections, file drops, completions), `tabs` (the open tabs),
+  `workspace` (folders and the conversations the app started),
   `workflow` (the service that runs flows, and the types a flow is written with).
-- `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
-  menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
   page), `models` (composer pickers), `usage` (cost and context in the work panel or the composer), `activity`
   (changed files and the last command in the work panel), `attachments` (files sent with a message), `mentions`
@@ -28,12 +36,11 @@ protocols to simplify a refactor.
   strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
   that runs flows through hidden conversations, and its run page), `flows` (the app's flows,
   such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
-  (desktop notices for background conversations), `settings` (settings page).
-- `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`), host,
-  chat controller, workspace and files for plugin tests.
-- `internal/native`: the semantic palette, small shared controls and `Tilde` for paths.
+  (desktop notices for background conversations).
+- `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),
+  chat controller, workspace and files for plugin tests; the host fake is `kittest.Host`.
 
-Design notes: [kernel API](docs/design/kernel-api.md),
+Design notes: [kernel API](wada-kit/docs/kernel-api.md), [kit shell](wada-kit/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
 [shell and built-in plugins](docs/design/shell-and-plugins.md). Keep them in step with the code.
 
@@ -72,7 +79,9 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 
 - `go tool mygo dev .`: live reload; q + Enter or Ctrl+C quits, r rebuilds.
 - `go run .`: run the app.
-- `make check`: MyGo lifetime vet, pinned lint, race tests, no-cgo tests; also CI.
+- `make check`: MyGo lifetime vet, pinned lint, race tests, no-cgo tests, for Wada and
+  then the kit (`make -C wada-kit check` alone); also CI.
+- `go run ./examples/notes` in `wada-kit/`: the kit's example app.
 - `go test ./...`; focused: `go test -run TestFirstMessage ./internal/plugins/chat`.
 - `go test -run NONE -bench . -benchtime 30x .`: draw and time whole-app
   frames on `ui.Tester` (see docs/performance.md for the readings and the

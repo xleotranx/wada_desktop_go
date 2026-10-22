@@ -4,10 +4,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"wada-desktop-go/internal/native"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // section is the Tabs settings: reopening, and each folder's color.

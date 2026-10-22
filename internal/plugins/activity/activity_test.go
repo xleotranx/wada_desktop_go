@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
 func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat) {

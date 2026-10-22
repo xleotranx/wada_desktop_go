@@ -2,11 +2,11 @@ package chat
 
 import (
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 const workWidth = 300

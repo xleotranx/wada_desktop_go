@@ -7,7 +7,8 @@ package tabs
 
 import (
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 var (

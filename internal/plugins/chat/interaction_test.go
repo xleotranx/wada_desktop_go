@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 func TestInteractionSelectionAndTextAnswers(t *testing.T) {

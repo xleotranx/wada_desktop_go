@@ -13,22 +13,22 @@ import (
 	chatcontract "wada-desktop-go/internal/contract/chat"
 	tabcontract "wada-desktop-go/internal/contract/tabs"
 	wscontract "wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
-	"wada-desktop-go/internal/plugins/inspector"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/palette"
-	"wada-desktop-go/internal/plugins/settings"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugintest"
-	"wada-desktop-go/internal/shell"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/plugins/inspector"
+	"github.com/xleotranx/wada-kit/plugins/settings"
+	"github.com/xleotranx/wada-kit/shell"
 )
 
 // The benchmarks draw the whole app — a strip of thirteen tabs (twelve in

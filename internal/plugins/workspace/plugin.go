@@ -16,14 +16,14 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	onechat "github.com/oneo-me/onevra/source/components/chat"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // syncPages bounds how far a full sync reads back through the backend's

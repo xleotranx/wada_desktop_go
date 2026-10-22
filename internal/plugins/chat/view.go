@@ -5,15 +5,15 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/oneo-me/onevra/source/components"
 	onechat "github.com/oneo-me/onevra/source/components/chat"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // view draws the page: the transcript over the composer or, for a chat with

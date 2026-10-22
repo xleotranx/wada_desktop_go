@@ -11,8 +11,9 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	wf "wada-desktop-go/internal/contract/workflow"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
+
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
 // runner is a scripted wf.Runner: it records each step and answers it with

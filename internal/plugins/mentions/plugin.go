@@ -19,12 +19,12 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Limits for one message. A mentioned file goes into the model's context, so

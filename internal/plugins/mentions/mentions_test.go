@@ -9,15 +9,17 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
+
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // png is the signature of a PNG file, which is all the type check reads.
 var png = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 
-func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Files, *plugintest.Chat, *plugintest.Host) {
+func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Files, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	files := plugintest.NewFiles(map[string]string{
 		"src/main.go": "package main\n",
@@ -26,7 +28,7 @@ func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, 
 		"logo.png":    string(png),
 		"tool.bin":    "\x00\x01\x02binary",
 	})
-	ctl, host := &plugintest.Chat{}, &plugintest.Host{}
+	ctl, host := &plugintest.Chat{}, &kittest.Host{}
 	p := &Plugin{delay: 1}
 	h := kerneltest.New(t, append([]kernel.Plugin{files, ctl, host, p}, extra...)...)
 	h.Flush()
@@ -309,7 +311,7 @@ func TestMentionBoundaries(t *testing.T) {
 }
 
 func TestIsBlockedWhereTheBackendCannotReadFiles(t *testing.T) {
-	ctl, host, p := &plugintest.Chat{}, &plugintest.Host{}, &Plugin{}
+	ctl, host, p := &plugintest.Chat{}, &kittest.Host{}, &Plugin{}
 	h := kerneltest.New(t, ctl, host, p)
 	for _, st := range h.Plugins() {
 		if st.Manifest.ID == "mentions" && (st.State != kernel.Blocked || !slices.Equal(st.Missing, []string{"agent.files"})) {

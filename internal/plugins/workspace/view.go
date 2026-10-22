@@ -3,11 +3,10 @@ package workspace
 import (
 	"path/filepath"
 
-	"wada-desktop-go/internal/native"
-
 	"github.com/egoist/mygo/ui"
 	onechat "github.com/oneo-me/onevra/source/components/chat"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // Picker IDs that aren't folders; a folder's ID is its path, which is

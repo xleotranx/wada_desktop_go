@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"wada-desktop-go/internal/kernel"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 var InteractionsKey = kernel.NewKey[Interactions]("agent.interactions")

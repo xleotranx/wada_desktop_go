@@ -7,10 +7,10 @@ import (
 	"errors"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // PageID is the conversation page. It is the default page, so the shell also

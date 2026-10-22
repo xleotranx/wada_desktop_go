@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"wada-desktop-go/internal/contract/tabs"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // What a tab's menu and the space switcher do: rename, forget and delete a

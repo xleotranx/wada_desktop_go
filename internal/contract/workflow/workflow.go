@@ -17,7 +17,8 @@ import (
 	"errors"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 var ServiceKey = kernel.NewKey[Service]("workflow.service")

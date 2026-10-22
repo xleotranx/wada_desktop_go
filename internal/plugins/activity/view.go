@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 const (

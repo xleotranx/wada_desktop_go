@@ -10,13 +10,14 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	wf "wada-desktop-go/internal/contract/workflow"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // The engine's goroutines are real; the test goroutine is the UI thread. What
@@ -28,7 +29,7 @@ type rig struct {
 	h    *kerneltest.Harness
 	p    *Plugin
 	a    *plugintest.Agent
-	host *plugintest.Host
+	host *kittest.Host
 	chat *plugintest.Chat
 }
 
@@ -36,7 +37,7 @@ func start(t *testing.T) *rig {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Numbered = true
-	host, c, p := &plugintest.Host{}, &plugintest.Chat{}, &Plugin{}
+	host, c, p := &kittest.Host{}, &plugintest.Chat{}, &Plugin{}
 	return &rig{t: t, h: kerneltest.New(t, a, host, c, p), p: p, a: a, host: host, chat: c}
 }
 

@@ -11,7 +11,8 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Plugin is the work panel's activity. The zero value is ready to install.

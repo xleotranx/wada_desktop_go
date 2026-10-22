@@ -6,11 +6,11 @@ import (
 
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
 // commands contributes two commands, as another plugin would.

@@ -2,12 +2,12 @@ package pi
 
 import (
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/settings"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/contract/settings"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 func (p *Plugin) contributeSection(c *kernel.Context) error {

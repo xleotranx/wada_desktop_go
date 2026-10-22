@@ -12,7 +12,7 @@ import (
 	"context"
 	"errors"
 
-	"wada-desktop-go/internal/kernel"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 var (

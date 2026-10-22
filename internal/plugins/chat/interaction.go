@@ -6,11 +6,11 @@ import (
 	"strconv"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 func (p *Plugin) answer(state *interactionState, answer agent.InteractionAnswer) {

@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
-	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // providersReady starts the plugin on f and waits for its provider list.
@@ -101,7 +101,7 @@ func TestProvidersSignInInTheBrowser(t *testing.T) {
 	click(t, tt, "Sign in")
 	waitFor(t, h, "sign-in started", func() bool { return p.prov.signIn != nil })
 	tt.Frame()
-	if host := p.host.(*plugintest.Host); !slices.Equal(host.Opened, []string{"https://auth.example/start"}) || !tt.HasText("Finish in your browser") {
+	if host := p.host.(*kittest.Host); !slices.Equal(host.Opened, []string{"https://auth.example/start"}) || !tt.HasText("Finish in your browser") {
 		t.Fatalf("opened %v, section %q", host.Opened, tt.Texts())
 	}
 	waitFor(t, h, "openai connected", func() bool { return linked(p, "openai") })

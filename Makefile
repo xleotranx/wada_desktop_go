@@ -1,9 +1,12 @@
 # The gate for a change: lifetime vet, lint, then the tests under the race
-# detector and once more without cgo. Run `make check` before calling
-# anything done.
-.PHONY: check vet lint test test-nocgo demo
+# detector and once more without cgo, for the app and then the kit beside
+# it. Run `make check` before calling anything done.
+.PHONY: check vet lint test test-nocgo kit demo
 
-check: vet lint test test-nocgo
+check: vet lint test test-nocgo kit
+
+kit:
+	$(MAKE) -C wada-kit check
 
 vet:
 	go tool mygo vet .

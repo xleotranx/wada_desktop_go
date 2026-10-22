@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel/kerneltest"
+
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
 // BackendCase adapts a protocol fixture to shared behavioral contract checks.

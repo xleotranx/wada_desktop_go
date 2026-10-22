@@ -1,0 +1,65 @@
+# The lint set is deliberately small and probationary: every check here
+# must catch what go vet cannot without crying wolf. Grow it on purpose;
+# drop a check the moment its noise outweighs its findings.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - exhaustive # switches over enums (plugin states) name every member
+    - depguard # the import boundaries between kernel, contracts, shell and plugins
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    exhaustive:
+      # A default case catches the zero value; every named member must
+      # still stand above it as its own case.
+      default-signifies-exhaustive: false
+    depguard:
+      # The kit knows no app: nothing here may import one.
+      rules:
+        kernel:
+          files: ["**/kernel/**/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/xleotranx/wada-kit/kernel"]
+        contract:
+          files: ["**/contract/**/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/egoist/mygo/ui", "github.com/xleotranx/wada-kit/kernel", "github.com/xleotranx/wada-kit/contract"]
+        shell:
+          files: ["**/shell/*.go", "!**/contract/**", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "github.com/xleotranx/wada-kit/kernel"
+            - "github.com/xleotranx/wada-kit/contract"
+            - "github.com/xleotranx/wada-kit/native"
+        plugins:
+          files: ["**/plugins/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "github.com/xleotranx/wada-kit/kernel"
+            - "github.com/xleotranx/wada-kit/contract"
+            - "github.com/xleotranx/wada-kit/native"
+        kittest:
+          files: ["**/kittest/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/egoist/mygo/ui", "github.com/xleotranx/wada-kit/kernel", "github.com/xleotranx/wada-kit/contract"]
+        native:
+          files: ["**/native/*.go", "!$test"]
+          list-mode: strict
+          allow: ["$gostd", "github.com/egoist/mygo/ui", "github.com/oneo-me/onevra/source"]
+        examples:
+          files: ["**/examples/**/*.go"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/egoist/mygo"
+            - "github.com/oneo-me/onevra/source"
+            - "github.com/xleotranx/wada-kit"

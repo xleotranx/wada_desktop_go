@@ -22,7 +22,8 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Settings is the plugin's saved configuration. Empty values use Pi's defaults.

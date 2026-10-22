@@ -13,9 +13,10 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
+
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
 const fixture = `{"type":"session","version":3,"id":"old-1","cwd":"/work/app"}

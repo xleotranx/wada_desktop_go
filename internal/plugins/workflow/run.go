@@ -10,7 +10,8 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	wf "wada-desktop-go/internal/contract/workflow"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // A run is one execution of a flow. Everything below belongs to the UI thread:

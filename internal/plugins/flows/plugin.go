@@ -6,7 +6,8 @@ package flows
 import (
 	"wada-desktop-go/internal/contract/chat"
 	wf "wada-desktop-go/internal/contract/workflow"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Plugin brings the app's flows. The zero value is ready to install.

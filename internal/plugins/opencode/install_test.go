@@ -17,8 +17,9 @@ import (
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel/kerneltest"
-	"wada-desktop-go/internal/plugintest"
+
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // tarball is an npm package holding package/bin/opencode with body.
@@ -103,7 +104,7 @@ func TestManagedServerRunsTheDownloadedBuild(t *testing.T) {
 	t.Setenv("WADA_FAKE_OPENCODE", "1")
 	tgz := tarball(t, "#!/bin/sh\nexec \""+os.Args[0]+"\" \"$@\"\n")
 	url, _ := serve(t, tgz)
-	host := &plugintest.Host{Data: t.TempDir()}
+	host := &kittest.Host{Data: t.TempDir()}
 	p := &Plugin{dir: t.TempDir(), rel: release{Version: "9.9.9", URL: url, Integrity: integrity(tgz)}}
 	h := kerneltest.New(t, host, p)
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })

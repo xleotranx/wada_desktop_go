@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
+
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Connection is the plugin's saved setting. The zero value runs a managed

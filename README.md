@@ -33,10 +33,9 @@ on and off.
 
 | Package | Responsibility |
 | --- | --- |
-| `main.go` | The plugins this build installs |
-| `internal/kernel` | Plugin lifecycle, services, events, pipelines, extension points, tasks, settings |
-| `internal/contract/*` | Declarations plugins share: `agent`, `chat`, `shell`, `settings`, `tabs`, `workspace`, `workflow` |
-| `internal/shell` | Window host: frame, slots, menus, shortcuts, SQLite settings store |
+| `wada-kit/` | The kit, its own Go module: kernel, window shell, palette, settings page, plugin diagnostics ([README](wada-kit/README.md)) |
+| `main.go` | Wada's name, window and menus, and the plugins this build installs |
+| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `chat`, `tabs`, `workspace`, `workflow` |
 | `internal/plugins/opencode` | OpenCode backend: managed or remote server, HTTP/SSE, reconnects |
 | `internal/plugins/pi` | Pi backend: RPC processes per session, session files |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
@@ -50,10 +49,8 @@ on and off.
 | `internal/plugins/workflow` | Runs flows through hidden conversations; a tab per run |
 | `internal/plugins/flows` | The app's flows, such as plan, code, review |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
-| `internal/plugins/settings` | Settings page |
-| `internal/native` | Palette and small shared controls |
 
-Design notes: [kernel API](docs/design/kernel-api.md),
+Design notes: [kernel API](wada-kit/docs/kernel-api.md), [kit shell](wada-kit/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
 [shell and built-in plugins](docs/design/shell-and-plugins.md).
 
@@ -84,9 +81,10 @@ enable one backend at a time in Settings → Plugins.
 ## Verify
 
 ```sh
-make check   # MyGo lifetime vet, lint, race tests and a no-cgo test pass; also CI
+make check   # MyGo lifetime vet, lint, race tests and a no-cgo test, for Wada and the kit; also CI
 WADA_DATA_DIR=/tmp/wada-preview WADA_CAPTURE=/tmp/wada.png go run .
 ```
 
-Tests run plugins in `kerneltest` harnesses with fakes from `internal/plugintest`, and
+Tests run plugins in `kerneltest` harnesses with fakes from `internal/plugintest` and
+the kit's `kittest`, and
 native views with `ui.NewTester`.

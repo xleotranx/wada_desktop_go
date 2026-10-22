@@ -14,13 +14,13 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/settings"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/oneo-me/onevra/source/components"
+	"github.com/xleotranx/wada-kit/contract/settings"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
 )
 
 // Plugin is the chat page. The zero value is ready to install.

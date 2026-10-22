@@ -7,10 +7,10 @@ import (
 	"unicode/utf8"
 
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/native"
 )
 
 // maxChoices is how many suggestions the list shows at once.

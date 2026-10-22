@@ -5,20 +5,21 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
-func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Chat, *plugintest.Host) {
+func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s2", Title: "Fix the build", Directory: "/w/app"}}}
-	c, host := &plugintest.Chat{}, &plugintest.Host{}
+	c, host := &plugintest.Chat{}, &kittest.Host{}
 	p := &Plugin{}
 	h := kerneltest.New(t, a, c, host, p)
 	c.Open(agent.Session{ID: "s1", Title: "On show"})
@@ -85,7 +86,7 @@ func TestSwitchesTurnNoticesOff(t *testing.T) {
 
 func TestNoticesWaitForTheWorkspaceRecord(t *testing.T) {
 	a := plugintest.NewAgent()
-	c, host := &plugintest.Chat{}, &plugintest.Host{}
+	c, host := &plugintest.Chat{}, &kittest.Host{}
 	ws := &plugintest.Workspace{Pending: true}
 	h := kerneltest.New(t, a, c, host, ws, &Plugin{})
 	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "ours"}, agent.Event{Kind: agent.TurnSucceeded, Session: "cli"})

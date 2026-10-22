@@ -7,14 +7,15 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 type fixture struct {
@@ -23,7 +24,7 @@ type fixture struct {
 	a    *plugintest.Agent
 	ws   *plugintest.Workspace
 	chat *plugintest.Chat
-	host *plugintest.Host
+	host *kittest.Host
 }
 
 func record() *plugintest.Workspace {
@@ -39,7 +40,7 @@ func record() *plugintest.Workspace {
 
 func start(t *testing.T, store *kerneltest.Store, ws *plugintest.Workspace) fixture {
 	t.Helper()
-	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: ws, chat: &plugintest.Chat{}, host: &plugintest.Host{}}
+	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: ws, chat: &plugintest.Chat{}, host: &kittest.Host{}}
 	pages := &pagesPlugin{}
 	f.h = kerneltest.Start(t, kerneltest.Config{Store: store}, f.a, f.ws, f.chat, f.host, pages, f.p)
 	f.h.Flush()
@@ -468,7 +469,7 @@ func (r *runPages) add(id, title string) *kernel.Scope {
 
 func TestAPageThatGoesAwayLosesItsTab(t *testing.T) {
 	runs := &runPages{}
-	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: record(), chat: &plugintest.Chat{}, host: &plugintest.Host{}}
+	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: record(), chat: &plugintest.Chat{}, host: &kittest.Host{}}
 	f.h = kerneltest.Start(t, kerneltest.Config{}, f.a, f.ws, f.chat, f.host, runs, f.p)
 	f.h.Flush()
 	f.open("s1")

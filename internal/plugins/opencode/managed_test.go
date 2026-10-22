@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/kernel/kerneltest"
-	"wada-desktop-go/internal/plugintest"
+
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
 // TestMain lets the test binary stand in for `opencode serve`.
@@ -47,7 +48,7 @@ func fakeServe() {
 func TestManagedServerRunsAndStopsWithThePlugin(t *testing.T) {
 	t.Setenv("WADA_FAKE_OPENCODE", "1")
 	p := &Plugin{exe: os.Args[0], dir: t.TempDir()}
-	h := kerneltest.New(t, &plugintest.Host{}, p)
+	h := kerneltest.New(t, &kittest.Host{}, p)
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
 	if p.Status().Version != "managed" {
 		t.Fatalf("status %+v", p.Status())

@@ -11,15 +11,15 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	"wada-desktop-go/internal/contract/shell"
-	"wada-desktop-go/internal/kernel"
-	"wada-desktop-go/internal/kernel/kerneltest"
-	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/xleotranx/wada-kit/contract/shell"
+	"github.com/xleotranx/wada-kit/kernel"
+	"github.com/xleotranx/wada-kit/kernel/kerneltest"
+	"github.com/xleotranx/wada-kit/kittest"
 )
 
-func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Host, string) {
+func start(t *testing.T) (*kerneltest.Harness, *Plugin, *kittest.Host, string) {
 	t.Helper()
 	dir := t.TempDir()
 	var img bytes.Buffer
@@ -27,7 +27,7 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Host, string
 	os.WriteFile(filepath.Join(dir, "shot.png"), img.Bytes(), 0o600)
 	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello"), 0o600)
 	os.Mkdir(filepath.Join(dir, "folder"), 0o700)
-	host := &plugintest.Host{}
+	host := &kittest.Host{}
 	p := &Plugin{}
 	h := kerneltest.New(t, host, p)
 	return h, p, host, dir
@@ -187,7 +187,7 @@ func TestRefusesWhatTheBackendDoesNotTake(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o600)
 	os.WriteFile(filepath.Join(dir, "b.zip"), []byte{0, 1}, 0o600)
-	host := &plugintest.Host{}
+	host := &kittest.Host{}
 	p := &Plugin{}
 	h := kerneltest.New(t, host, types{}, p)
 	drop(h, filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.zip"))

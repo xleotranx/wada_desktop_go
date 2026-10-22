@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,9 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	f := plugintest.NewAgent()
 	f.State = agent.Status{State: agent.Ready, Attempt: 1}
 	f.Stored[benchSession] = messages
+	for i := range 12 { // the open tabs' conversations
+		f.Stored[agent.SessionID(fmt.Sprintf("t%d", i))] = messages
+	}
 	page := agent.SessionPage{Sessions: make([]agent.Session, 24)}
 	for i := range page.Sessions {
 		page.Sessions[i] = agent.Session{ID: agent.SessionID(fmt.Sprintf("s%d", i)),
@@ -103,15 +107,28 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	}
 	ws.Convs = append(ws.Convs, wscontract.Conversation{ID: benchSession, Title: "Benchmark", Folder: "/work/app"})
 
+	// Workers post from their own goroutines; run drains on this one.
+	var mu sync.Mutex
 	var queue []func()
 	run := func() {
-		for len(queue) > 0 {
+		for {
+			mu.Lock()
+			if len(queue) == 0 {
+				mu.Unlock()
+				return
+			}
 			fn := queue[0]
 			queue = queue[1:]
+			mu.Unlock()
 			fn()
 		}
 	}
-	s, err := shell.New(shell.Options{Post: func(fn func()) { queue = append(queue, fn) },
+	post := func(fn func()) {
+		mu.Lock()
+		queue = append(queue, fn)
+		mu.Unlock()
+	}
+	s, err := shell.New(shell.Options{Post: post,
 		Store: kerneltest.NewStore()}, f, ws, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{},
 		&mentions.Plugin{}, &tabs.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
@@ -223,5 +240,25 @@ func BenchmarkTranscriptScroll(b *testing.B) {
 		tt.Scroll(700, 450, 0, dy)
 		dy = -dy
 		tt.Frame()
+	}
+}
+
+// BenchmarkSwitchTab shows another open conversation of 120 messages, as a
+// click on its tab does: the transcript is read again from the backend and
+// drawn, with the loading frame in between.
+func BenchmarkSwitchTab(b *testing.B) {
+	s, tt, run := benchApp(b, benchMessages(120))
+	controller, _ := kernel.Use[chatcontract.Controller](s.Kernel, chatcontract.ControllerKey)
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		controller.Open(agent.Session{ID: agent.SessionID(fmt.Sprintf("t%d", i%2)), Directory: "/work/app"})
+		for {
+			run()
+			tt.Frame()
+			if !tt.HasText("Loading the conversation…") {
+				break
+			}
+			runtime.Gosched()
+		}
 	}
 }

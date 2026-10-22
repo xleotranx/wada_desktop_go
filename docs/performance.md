@@ -21,16 +21,26 @@ go test -run NONE -bench . -benchtime 30x .
 | `TranscriptIdle` | One frame of a settled 120-row conversation |
 | `StreamDelta` | One frame per streamed text delta, the hot path of a live turn |
 | `TranscriptScroll` | One frame per wheel notch over the conversation |
+| `SwitchTab` | Showing another open conversation of 120 messages: the read from the backend, the loading frame and the drawn transcript |
 
 Current numbers on an M4 (30 iterations each; Tester excludes GPU paint and
 present, which `MYGO_FRAME_STATS` measures below):
 
 | Benchmark | Frame | Bytes | Allocs |
 |---|---|---:|---:|
-| EmptyPageIdle | 144 µs | 9,419 | 134 |
-| TranscriptIdle | 398 µs | 16,766 | 217 |
-| StreamDelta | 437 µs | 4.0 MB heap | — |
-| TranscriptScroll | 1.8 ms | 52,276 | 669 |
+| EmptyPageIdle | 128 µs | 7,764 | 88 |
+| TranscriptIdle | 232 µs | 15,376 | 182 |
+| StreamDelta | 207 µs | 12,291 | 158 |
+| TranscriptScroll | 1.7 ms | 46,505 | 516 |
+| SwitchTab | 3.4 ms | 816,053 | 1,995 |
+
+Most of the time of `TranscriptScroll` and `SwitchTab` is the Tester's
+software rasterizer repainting the window, which the GPU does in the real
+window; building and laying out the view is about 0.1 ms of a switch. A
+switch reads the whole conversation again: Pi parses a 200-turn, 164 KB
+session file in 1.5 ms (1.7 MB allocated), growing with the file, and
+OpenCode fetches it over HTTP. 3,000 switches across twelve tabs leave the
+heap within 0.5 MB of where it started.
 
 Most of the per-frame allocation floor is MyGo's element machinery, a pinned
 dependency. The app parses command shortcuts once rather than every frame;
@@ -51,11 +61,14 @@ app works, and `vmmap --summary PID` for the true cost of memory: `ps`
 counts the framework's mapped code, `Physical footprint` is the RAM the
 window actually holds.
 
-Current shape on an M4: the app idles at 0.0 % CPU (no frames are drawn
-when nothing changes), a turn streaming from OpenCode renders frames under
-the 8 ms threshold throughout, and the first boot frame is the only one over
-it (~15–19 ms). The idle footprint is ~45 MB and peak ~110 MB while the
-first frame and the font caches warm.
+Current shape on an M4, with `make demo`'s data (twelve folders, 56 chats,
+24 open tabs): the app idles at 0.0 % CPU (no frames are drawn when nothing
+changes), a turn streaming from OpenCode renders frames under the 8 ms
+threshold throughout, and the first boot frame is the only one over it
+(~24 ms, half of it the GPU's first present); the first transcript frame
+takes ~10 ms. While a turn runs, the "Working…" shimmer repaints at 30
+frames a second without building the view. The idle footprint is ~44 MB and
+peak ~113 MB while the first frame and the font caches warm.
 
 ## Bundle size
 

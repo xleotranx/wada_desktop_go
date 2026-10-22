@@ -72,9 +72,13 @@ func (n *notes) Setup(c *kernel.Context) error {
 
 func (n *notes) page(c *ui.Context) {
 	pal := native.PaletteFor(c)
-	list := slices.Clone(n.saved.Get())
+	list := n.saved.Get()
+	order := make([]int, len(list)) // indexes into list, in the order shown
+	for i := range order {
+		order[i] = i
+	}
 	if n.newest.Get() {
-		slices.Reverse(list)
+		slices.Reverse(order)
 	}
 	ui.Column(c).Fill().Padding(24).Gap(12).Children(func() {
 		box := components.TextBox(c, &n.draft, components.TextBoxOptions{}).FillWidth().
@@ -87,10 +91,10 @@ func (n *notes) page(c *ui.Context) {
 		if len(list) == 0 {
 			ui.Text(c, "No notes yet.").FontSize(13).TextColor(pal.Muted)
 		}
-		for i, text := range list {
-			c.Key(i)
+		for _, i := range order {
+			c.Key(i) // a note keeps its key wherever it shows
 			ui.Box(c).FillWidth().Padding(10, 12).Radius(8).Background(pal.Raised).Children(func() {
-				ui.Text(c, text).FontSize(14).TextColor(pal.Text)
+				ui.Text(c, list[i]).FontSize(14).TextColor(pal.Text)
 			})
 		}
 	})

@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"slices"
+	"strings"
 
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
@@ -198,10 +199,8 @@ func (s *Shell) syncTitle(page kernel.Entry[shell.Page], ok bool) {
 	title := s.opts.Name
 	if ok && page.Value.Title != nil {
 		kernel.Invoke(s.Kernel, page, func(pg shell.Page) {
-			if t := pg.Title(); t != "" && title != "" {
-				title = t + " — " + title
-			} else if t != "" {
-				title = t
+			if t := pg.Title(); t != "" {
+				title = strings.TrimSuffix(t+" — "+s.opts.Name, " — ")
 			}
 		})
 	}

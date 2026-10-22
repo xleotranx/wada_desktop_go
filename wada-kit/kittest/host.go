@@ -1,4 +1,5 @@
-// Package kittest has fakes of what the shell provides, for plugin tests.
+// Package kittest helps an app's tests: Host fakes what the shell provides
+// plugins, and ColorsStayInThePalette guards the app's colors.
 package kittest
 
 import (

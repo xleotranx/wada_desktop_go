@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -247,5 +249,59 @@ func TestNoticesReachTheDesktopAndClicksReachPlugins(t *testing.T) {
 func TestDevelopmentKeepsItsOwnDataFolder(t *testing.T) {
 	if dataFolder("notes", true) != "notes-dev" || dataFolder("notes", false) != "notes" {
 		t.Fatalf("dev %q, production %q", dataFolder("notes", true), dataFolder("notes", false))
+	}
+}
+
+// menuLabels names the menus after the app menu.
+func menuLabels(m *mygo.Menu) []string {
+	var out []string
+	for _, it := range m.Items()[1:] {
+		out = append(out, it.Label)
+	}
+	return out
+}
+
+func TestMenusFollowTheAppsOrder(t *testing.T) {
+	p := &plugin{id: "notes", setup: func(c *kernel.Context) error {
+		for i, menu := range []string{"Help", "Notes", "File", "Elsewhere"} {
+			if err := kernel.Contribute(c, kernel.Commands, fmt.Sprintf("notes.c%d", i), i,
+				kernel.Command{Title: "Run " + menu, Menu: menu, Run: func() {}}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	for _, tc := range []struct {
+		menus []string
+		want  []string
+	}{
+		{[]string{"File", "Notes", "Help"}, []string{"File", "Edit", "Notes", "Help", "Window"}},
+		{nil, []string{"File", "Edit", "View", "Help", "Window"}}, // View holds the developer tools
+	} {
+		var built *mygo.Menu
+		s, err := New(Options{Menus: tc.menus, Post: func(fn func()) { fn() }, Store: kerneltest.NewStore(),
+			SetMenu: func(m *mygo.Menu) { built = m }}, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if got := menuLabels(built); !slices.Equal(got, tc.want) {
+			t.Errorf("menus %q: menu bar %q, want %q", tc.menus, got, tc.want)
+		}
+		s.Close(context.Background())
+	}
+}
+
+func TestAppNeedsOnePlainFolderName(t *testing.T) {
+	for folder, ok := range map[string]bool{"notes": true, "": false, ".": false, "..": false,
+		"../shared": false, "/tmp/notes": false, "a/b": false} {
+		if err := (App{Name: "Notes", Folder: folder}).check(); (err == nil) != ok {
+			t.Errorf("folder %q: %v", folder, err)
+		}
+	}
+	if (App{Folder: "notes"}).check() == nil {
+		t.Error("an App without a Name was accepted")
 	}
 }

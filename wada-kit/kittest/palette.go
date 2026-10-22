@@ -11,6 +11,9 @@ import (
 	"testing"
 )
 
+// kitModule is the kit's module path: only its native/palette.go defines colors.
+const kitModule = "github.com/xleotranx/wada-kit"
+
 // ColorsStayInThePalette keeps every color of a module's interface in
 // native.PaletteFor: a ui.Hex or ui.RGBA in any Go file under root, the
 // module's root, means a pane has grown its own theme. Folders of other
@@ -18,6 +21,13 @@ import (
 // color to check a pixel, and the kit's own native/palette.go defines them.
 func ColorsStayInThePalette(t testing.TB, root string) {
 	t.Helper()
+	// The palette's own file is skipped only when root is the kit; an app's
+	// native/palette.go would be a second theme.
+	palette := ""
+	if mod, err := os.ReadFile(filepath.Join(root, "go.mod")); err == nil &&
+		strings.HasPrefix(string(mod), "module "+kitModule+"\n") {
+		palette = filepath.Join(root, "native", "palette.go")
+	}
 	var files []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -35,8 +45,7 @@ func ColorsStayInThePalette(t testing.TB, root string) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") &&
-			filepath.Clean(path) != filepath.Join(root, "native", "palette.go") {
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") && filepath.Clean(path) != palette {
 			files = append(files, path)
 		}
 		return nil

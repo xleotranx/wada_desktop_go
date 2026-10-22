@@ -21,13 +21,17 @@ import (
 	"github.com/xleotranx/wada-kit/shell"
 )
 
+// wada names the app, where its data lives (the folder and the WADA_
+// variables) and its window and menus.
+var wada = shell.App{
+	Name: "Wada", Folder: "wada-desktop-go", Env: "WADA",
+	Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
+	Menus: []string{"File", "Chat", "View", "Agent", "Help"},
+}
+
 // main is the composition: the plugins this build installs, in order.
 func main() {
-	shell.Run(shell.App{
-		Name: "Wada", Folder: "wada-desktop-go", Env: "WADA",
-		Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
-		Menus: []string{"File", "Chat", "View", "Agent", "Help"},
-	},
+	shell.Run(wada,
 		&opencode.Plugin{},
 		&pi.Plugin{}, // off by default; turn OpenCode off to use it
 		&chat.Plugin{},

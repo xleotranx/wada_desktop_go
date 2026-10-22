@@ -3,9 +3,11 @@ package shell
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xleotranx/wada-kit/contract/shell"
@@ -37,11 +39,21 @@ type App struct {
 	Menus []string
 }
 
+// check refuses an App without a Name, or whose Folder is not one plain
+// folder name, which would put the data outside the config directory.
+func (app App) check() error {
+	f := app.Folder
+	if app.Name == "" || f == "" || f == "." || f == ".." || filepath.Base(f) != f || strings.ContainsAny(f, `/\`) {
+		return fmt.Errorf("shell: the App needs a Name and a Folder that is one folder name, not %q", f)
+	}
+	return nil
+}
+
 // Run opens the app window with the shell and plugins, and returns when the
 // app quits.
 func Run(app App, plugins ...kernel.Plugin) {
-	if app.Name == "" || app.Folder == "" {
-		log.Fatal("shell: the App needs a Name and a Folder")
+	if err := app.check(); err != nil {
+		log.Fatal(err)
 	}
 	env := func(name string) string {
 		if app.Env == "" {

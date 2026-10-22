@@ -18,8 +18,8 @@ shell.Run(shell.App{
 - `Name` ends the window title, as "Page — Name".
 - `Folder` names the data folder in the user's config directory
   (`~/Library/Application Support/<Folder>/`); a development run (`go run`,
-  `mygo dev`) keeps its data in `<Folder>-dev/`. Run refuses an App without a Name
-  or a Folder.
+  `mygo dev`) keeps its data in `<Folder>-dev/`. Run refuses an App without a Name,
+  or whose Folder is not one plain folder name (no separators, `.` or `..`).
 - `Env`, when set, prefixes the environment variables Run reads:
   `<Env>_DATA_DIR` overrides the data folder; `<Env>_STRICT=1` re-panics plugin
   failures; `<Env>_CAPTURE=/path.png` writes a screenshot after startup

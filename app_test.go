@@ -80,7 +80,7 @@ func startApp(t *testing.T) *app {
 			fn()
 		}
 	}
-	s, err := shell.New(shell.Options{Post: post, Strict: true, Store: kerneltest.NewStore()},
+	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a, files, &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
 		&workspace.Plugin{}, &tabs.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
@@ -420,5 +420,20 @@ func TestTheModePickerRunsTheNextMessageAsAWorkflow(t *testing.T) {
 	a.settle()
 	if a.tt.HasText("outline the guide") || !a.tt.HasText("Build") {
 		t.Fatalf("the composer after the workflow: %q", a.tt.Texts())
+	}
+}
+
+// TestWadaKeepsItsDataAndMenus pins where Wada's data lives, which a new name
+// would quietly leave behind, and gives every command's menu a place in the
+// menu bar.
+func TestWadaKeepsItsDataAndMenus(t *testing.T) {
+	if wada.Name != "Wada" || wada.Folder != "wada-desktop-go" || wada.Env != "WADA" {
+		t.Fatalf("app %+v", wada)
+	}
+	ap := startApp(t)
+	for _, e := range kernel.Items(ap.shell.Kernel, kernel.Commands) {
+		if m := e.Value.Menu; m != "" && !slices.Contains(wada.Menus, m) {
+			t.Errorf("command %s names menu %q, which the menu bar lacks", e.ID, m)
+		}
 	}
 }

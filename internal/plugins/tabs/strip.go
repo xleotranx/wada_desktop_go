@@ -23,20 +23,31 @@ const (
 )
 
 // strip draws the tabs across the title strip: each folder's tabs after its
-// label, over a line in its color; then the new-chat button, and search and
-// settings at the end.
+// label, over a line in its color; then the overflow menu when some tabs do
+// not fit, the new-chat button, and search and settings at the end. The
+// tabs are fitted to the width the strip had in the previous frame.
 func (p *Plugin) strip(c *ui.Context) {
 	pal := native.PaletteFor(c)
-	collapsed := p.collapsed()
 	ui.Row(c).Fill().AlignItems(ui.End).Gap(8).Children(func() {
-		ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.End).Gap(10).Clip().Children(func() {
-			for start := 0; start < len(p.tabs); {
-				end := start + 1
-				for end < len(p.tabs) && p.tabs[end].Folder == p.tabs[start].Folder {
-					end++
+		c.Key("tabs")
+		row := ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.End).Gap(groupGap).Clip()
+		width := row.Bounds().W
+		if width <= 0 && len(p.tabs) > 0 {
+			// Not laid out yet: draw everything once, then fit.
+			c.Services().Invalidate()
+		}
+		plan := fit(p.tabs, p.active, p.collapsed(), width-newButtonWidth)
+		row.Children(func() {
+			for _, g := range plan.groups {
+				if g.folder == "" && len(g.shown) == 0 {
+					continue
 				}
-				p.group(c, pal, p.tabs[start:end], collapsed[p.tabs[start].Folder])
-				start = end
+				c.Key("group:" + g.folder + ":" + g.tabs[0].ID)
+				p.group(c, pal, g)
+			}
+			if len(plan.hidden) > 0 {
+				c.Key("more")
+				p.overflow(c, pal, plan.hidden)
 			}
 			c.Key("new")
 			add := ui.ButtonBase(c).Label("New chat").Tooltip("New chat  ⌘N").Size(30, 30).Radius(8).Center().
@@ -63,39 +74,44 @@ func (p *Plugin) strip(c *ui.Context) {
 	})
 }
 
-// group draws one folder's run of tabs after its label, whose menu acts on
-// the folder; tabs without a folder have no label and no line. A collapsed
-// group shows only its label, and its active tab.
-func (p *Plugin) group(c *ui.Context, pal native.Palette, run []tabs.Tab, collapsed bool) {
-	folder := run[0].Folder
-	c.Key("group:" + folder + ":" + run[0].ID)
-	color := pal.Projects[p.colorIndex(folder)]
+// group draws one folder's run of tabs after its label, whose menu reaches
+// the tabs not drawn and acts on the folder; tabs without a folder have no
+// label and no line.
+func (p *Plugin) group(c *ui.Context, pal native.Palette, g stripGroup) {
+	color := pal.Projects[p.colorIndex(g.folder)]
 	ui.Row(c).MinWidth(0).Shrink(1).AlignItems(ui.End).Children(func() {
-		if folder != "" {
-			name := filepath.Base(folder)
-			if collapsed {
-				name += " · " + strconv.Itoa(len(run))
-			}
+		if g.folder != "" {
 			ui.Column(c).Height(tabHeight).Shrink(0).Children(func() {
 				ui.Row(c).Grow(1).AlignItems(ui.Center).Padding(0, 4, 0, 0).Children(func() {
 					c.Key("label")
-					label := ui.ButtonBase(c).Label("Project "+filepath.Base(folder)).Tooltip(native.Tilde(folder)).
+					label := ui.ButtonBase(c).Label("Project "+filepath.Base(g.folder)).Tooltip(native.Tilde(g.folder)).
 						Padding(3, 8).Radius(6).Background(color.Tint).Cursor(ui.CursorPointer)
-					label.Menu(func(m *ui.Menu) { p.groupMenu(m, folder, collapsed) })
+					label.Menu(func(m *ui.Menu) { p.groupMenu(m, g) })
 					label.Children(func() {
-						ui.Text(c, name).FontSize(11).FontWeight(500).TextColor(color.Text).SingleLine()
+						ui.Text(c, labelText(g)).FontSize(11).FontWeight(500).TextColor(color.Text).SingleLine()
 					})
 				})
 				ui.Box(c).FillWidth().Height(groupLine).Background(color.Mark)
 			})
 		}
-		for _, t := range run {
-			if collapsed && t.ID != p.active {
-				continue
-			}
+		for _, t := range g.shown {
 			c.Key(t.ID)
-			p.tab(c, pal, t, color.Mark, folder != "")
+			p.tab(c, pal, t, color.Mark, g.folder != "")
 		}
+	})
+}
+
+// overflow is the button whose menu reaches the tabs that do not fit.
+func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) {
+	b := ui.ButtonBase(c).Label("More tabs").Tooltip(strconv.Itoa(len(hidden))+" more tabs").Height(30).
+		Padding(0, 8).Radius(8).Gap(4).AlignItems(ui.Center).Shrink(0).Margin(0, 0, 5, 0).Cursor(ui.CursorPointer)
+	if b.Hovered() {
+		b.Background(pal.Hover)
+	}
+	b.Menu(func(m *ui.Menu) { p.tabItems(m, hidden) })
+	b.Children(func() {
+		ui.Icon(c, lucide.ChevronsRight()).FontSize(14).TextColor(pal.Muted)
+		ui.Text(c, strconv.Itoa(len(hidden))).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum")
 	})
 }
 
@@ -165,6 +181,9 @@ func (p *Plugin) endButton(c *ui.Context, pal native.Palette, label, tip string,
 	b.OnClick(on)
 	b.Children(func() { ui.Icon(c, icon).FontSize(15).TextColor(pal.Muted) })
 }
+
+// newButtonWidth is the new-chat button and the gap before it.
+const newButtonWidth = 30 + groupGap
 
 // newChat opens a new chat (⌘N, and "+"), in the active tab's folder while
 // new chats join the current project.

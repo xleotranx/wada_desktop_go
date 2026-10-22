@@ -141,9 +141,9 @@ out and does nothing. Conversations and folders come from the workspace record
 only the conversations the app started, with their folder.
 
 With nothing typed it lists, in groups: the conversations open in tabs (from
-`tabs.ServiceKey`, when there is one), the five newest others ("Earlier"), the
-folders ("Projects", each with its count of chats, then "Open Folder…"), then the
-commands. Typing filters all of them with one matcher, older conversations
+`tabs.ServiceKey`, when there is one), the five newest others ("Earlier"), the five
+folders worked in last ("Projects", by their newest conversation or when they were
+added, each with its count of chats, then "Open Folder…"), then the commands. Typing filters all of them with one matcher, older conversations
 included. Choosing runs the command, opens the conversation through
 `chat.Controller` (the tabs follow), or starts a new chat in the folder, once the
 handler that chose it has returned. The query is dropped each time the palette opens.
@@ -252,9 +252,15 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   hovered tab, and on focus), then a "+" that opens a new chat (in the active tab's
   folder while new chats join the current project), then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
   (shows `settings.PageID` when contributed).
-- A group's label is a menu: New Chat in the folder, Collapse Group (remembered in the
-  record as `Folder.Collapsed`; a collapsed group shows its label with a count and
-  only its active tab) or Expand Group, and Remove Folder…, which asks first, counting
+- The strip fits its tabs to the width it had in the previous frame (the first frame
+  draws everything and asks for another). Tabs shrink to 96 px; past that, the groups
+  the active tab is not in collapse to their labels, farthest from it first, with the
+  count of their tabs; then tabs move, from the end, into a "More tabs" menu after the
+  groups, never the active one. Collapsing to fit changes nothing saved.
+- A group's label is a menu: first the group's tabs the strip does not draw, then New
+  Chat in the folder, Collapse Group (remembered in the record as `Folder.Collapsed`;
+  a collapsed group shows its label with a count and only its active tab) or Expand
+  Group, and Remove Folder…, which asks first, counting
   the conversations that leave the record, then closes the group's tabs.
 - A tab's context menu has Close Tab, and for a conversation Rename…, Remove from List
   and Delete…. Rename and delete go to the backend, then the record; Remove from List

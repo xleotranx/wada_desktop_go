@@ -3,6 +3,7 @@ package tabs
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -40,21 +41,42 @@ func (p *Plugin) tabMenu(m *ui.Menu, t tabs.Tab) {
 	}
 }
 
-// groupMenu fills the menu of a folder's label.
-func (p *Plugin) groupMenu(m *ui.Menu, folder string, collapsed bool) {
+// groupMenu fills the menu of a folder's label: first the group's tabs the
+// strip does not draw, then what acts on the folder.
+func (p *Plugin) groupMenu(m *ui.Menu, g stripGroup) {
+	var hidden []tabs.Tab
+	for _, t := range g.tabs {
+		if !slices.ContainsFunc(g.shown, func(s tabs.Tab) bool { return s.ID == t.ID }) {
+			hidden = append(hidden, t)
+		}
+	}
+	if len(hidden) > 0 {
+		p.tabItems(m, hidden)
+		m.Separator()
+	}
+	folder := g.folder
 	if m.Item("New Chat").Chosen() {
 		p.ctx.Post(func() { p.openDraft(folder) })
 	}
 	toggle := "Collapse Group"
-	if collapsed {
+	if g.manual {
 		toggle = "Expand Group"
 	}
 	if m.Item(toggle).Chosen() {
-		p.ctx.Post(func() { p.ws.SetCollapsed(folder, !collapsed) })
+		p.ctx.Post(func() { p.ws.SetCollapsed(folder, !g.manual) })
 	}
 	m.Separator()
 	if m.Item("Remove Folder…").Chosen() {
 		p.removing, p.removeOn = folder, true
+	}
+}
+
+// tabItems lists tabs in a menu; choosing one selects it.
+func (p *Plugin) tabItems(m *ui.Menu, list []tabs.Tab) {
+	for _, t := range list {
+		if m.Item(t.Title).Chosen() {
+			p.ctx.Post(func() { p.Select(t.ID) })
+		}
 	}
 }
 

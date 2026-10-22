@@ -9,6 +9,7 @@ package palette
 import (
 	"cmp"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -36,6 +37,7 @@ const (
 	sessionID    = "session:" // prefixes the item ID of a conversation
 	folderID     = "folder:"  // prefixes the item ID of a folder
 	recentShown  = 5          // earlier conversations listed before anything is typed
+	foldersShown = 5          // folders listed before anything is typed
 )
 
 // Plugin is All chats. The zero value is ready to install.
@@ -155,10 +157,11 @@ func (p *Plugin) items() []command.Item {
 			}
 		}
 		convs := ws.Conversations()
-		counts := map[string]int{}
+		counts, latest := map[string]int{}, map[string]int64{}
 		var earlier []command.Item
 		for _, conv := range convs {
 			counts[conv.Folder]++
+			latest[conv.Folder] = max(latest[conv.Folder], conv.Updated, conv.Created)
 			item := command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
 				Description: native.Tilde(conv.Folder), Group: groupEarlier, Icon: lucide.MessageSquare()}
 			if inTabs[conv.ID] {
@@ -169,7 +172,13 @@ func (p *Plugin) items() []command.Item {
 			earlier = append(earlier, item)
 		}
 		items = append(items, earlier...)
-		for _, f := range ws.Folders() {
+		// The folders worked in last come first; the filter shows only the
+		// first few before anything is typed.
+		folders := slices.Clone(ws.Folders())
+		slices.SortStableFunc(folders, func(a, b workspace.Folder) int {
+			return cmp.Compare(max(latest[b.Path], b.Added), max(latest[a.Path], a.Added))
+		})
+		for _, f := range folders {
 			items = append(items, command.Item{ID: folderID + f.Path, Title: filepath.Base(f.Path),
 				Description: chatsLabel(counts[f.Path]) + " · " + native.Tilde(f.Path), Group: groupFolders,
 				Icon: lucide.Folder(), Keywords: []string{"New chat in"}})
@@ -209,19 +218,26 @@ func chatsLabel(n int) string {
 }
 
 // filter matches typed words against titles and menus. With nothing typed it
-// lists only the latest few of the conversations not open in tabs.
+// lists only the latest few of the conversations not open in tabs, and of
+// the folders.
 func filter(items []command.Item, query string) []command.Item {
 	if strings.TrimSpace(query) != "" {
 		return command.Filter(items, query)
 	}
 	out := make([]command.Item, 0, len(items))
-	earlier := 0
+	earlier, folders := 0, 0
 	for _, it := range items {
-		if it.Group == groupEarlier {
+		switch {
+		case it.Group == groupEarlier:
 			if earlier == recentShown {
 				continue
 			}
 			earlier++
+		case strings.HasPrefix(it.ID, folderID):
+			if folders == foldersShown {
+				continue
+			}
+			folders++
 		}
 		out = append(out, it)
 	}

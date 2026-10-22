@@ -236,3 +236,32 @@ func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 		t.Fatalf("a project opened %+v", chat.Conv)
 	}
 }
+
+func TestOnlyTheLatestFoldersShowBeforeTyping(t *testing.T) {
+	ws := &plugintest.Workspace{}
+	for i := range 8 {
+		path := "/w/f" + string(rune('a'+i))
+		ws.FolderSet = append(ws.FolderSet, workspace.Folder{Path: path, Added: int64(i)})
+	}
+	ws.Convs = []workspace.Conversation{{ID: "s1", Title: "Old work", Folder: "/w/fa", Updated: 100}}
+	p := &Plugin{}
+	h := kerneltest.New(t, ws, &plugintest.Chat{}, p)
+	h.Flush()
+	var shown []string
+	for _, it := range filter(p.items(), "") {
+		if it.Group == groupFolders {
+			shown = append(shown, it.Title)
+		}
+	}
+	// fa was worked in last, then the newest added.
+	if want := []string{"fa", "fh", "fg", "ff", "fe"}; !slices.Equal(shown, want) {
+		t.Fatalf("folders %q", shown)
+	}
+	found := false
+	for _, it := range filter(p.items(), "fb") {
+		found = found || it.Title == "fb"
+	}
+	if !found {
+		t.Fatal("typing does not find a folder past the first few")
+	}
+}

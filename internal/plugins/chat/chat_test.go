@@ -595,3 +595,27 @@ func TestToolKindFromItsStartCarriesToTheCall(t *testing.T) {
 		t.Fatalf("other %+v", tr.rows[1].tool)
 	}
 }
+
+func TestFinishedTurnFoldsItsWorkAboveTheAnswer(t *testing.T) {
+	var tr transcript
+	tr.reset()
+	tool := func(id string) *agent.Tool { return &agent.Tool{ID: id, Kind: agent.ToolRead} }
+	tr.addUser("question", nil)
+	tr.apply(agent.Event{Kind: agent.TurnStarted, Session: "s"})
+	tr.apply(textEvent(agent.TextEnded, "s", "", "Let me look."))
+	tr.apply(agent.Event{Kind: agent.ToolFinished, Session: "s", Tool: tool("a")})
+	tr.apply(agent.Event{Kind: agent.ToolFinished, Session: "s", Tool: tool("b")})
+	if items := tr.items(); len(items) != 4 || slices.ContainsFunc(items, func(it item) bool { return it.work != nil || it.answer }) {
+		t.Fatalf("turn in flight folded: %+v", items)
+	}
+	tr.apply(agent.Event{Kind: agent.TextEnded, Session: "s", Text: &agent.TextEvent{Message: "m", Ordinal: 1, Text: "The answer."}})
+	tr.apply(agent.Event{Kind: agent.TurnSucceeded, Session: "s"})
+	items := tr.items()
+	if len(items) != 3 || items[0].row.kind != rowUser || items[0].answer || len(items[1].work) != 3 ||
+		items[2].row.text != "The answer." || !items[2].answer {
+		t.Fatalf("items %+v", items)
+	}
+	if label := workLabel(items[1].work); label != "Worked · 2 steps" {
+		t.Fatalf("label %q", label)
+	}
+}

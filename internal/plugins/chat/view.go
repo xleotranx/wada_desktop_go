@@ -136,26 +136,31 @@ func (p *Plugin) suggestions(c *ui.Context, pal native.Palette) {
 }
 
 func (p *Plugin) transcriptView(c *ui.Context, pal native.Palette) {
-	count := len(p.t.rows)
+	items := p.t.items()
+	count := len(items)
 	if p.working() {
 		count++
 	}
 	ui.List(c.Key(p.conv.Session), &p.list, count).Fill().Selectable().
 		Padding(26, 24, 18, 24).Gap(13).
 		ItemKey(func(i int) any {
-			if i == len(p.t.rows) {
+			if i == len(items) {
 				return "working"
 			}
-			return p.t.rows[i].id
+			return items[i].key()
 		}).
 		Rows(func(r ui.ListRow) {
-			if r.Index == len(p.t.rows) {
+			if r.Index == len(items) {
 				column(r.Context).Children(func() {
 					onechat.Shimmer(r.Context, "Working…", 13, pal.Muted, pal.Text)
 				})
 				return
 			}
-			p.rowView(r.Context, pal, p.t.rows[r.Index])
+			if it := items[r.Index]; it.work != nil {
+				p.workView(r.Context, pal, it.work)
+			} else {
+				p.rowView(r.Context, pal, it.row, it.answer)
+			}
 		})
 	if !p.list.AtEnd() {
 		ui.Row(c).Absolute().Left(0).Right(0).Bottom(12).Justify(ui.Center).Children(func() {
@@ -169,9 +174,11 @@ func column(c *ui.Context) ui.Element {
 	return ui.Column(c).FillWidth().MaxWidth(onechat.ContentWidth).Margin(0, ui.Auto).Gap(10)
 }
 
-func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row) {
+// rowView draws one row. Of the agent's words, only a finished turn's answer
+// can be copied; the user's always can.
+func (p *Plugin) rowView(c *ui.Context, pal native.Palette, r *row, answer bool) {
 	block := column(c)
-	copyable := (r.kind == rowUser || r.kind == rowText) && strings.TrimSpace(r.text) != ""
+	copyable := (r.kind == rowUser || answer) && strings.TrimSpace(r.text) != ""
 	// The last message can be retried or edited, taking its turn back.
 	replaceable := copyable && r.kind == rowUser && !p.replacing && p.canReplace() &&
 		p.t.lastUser() >= 0 && p.t.rows[p.t.lastUser()] == r
@@ -249,6 +256,39 @@ func (p *Plugin) copy(text string) {
 		return
 	}
 	p.host.Toast(ui.Toast{Title: "Message copied", Type: components.ToastSuccess})
+}
+
+// workView folds a finished turn's steps under one quiet header; opened, it
+// shows them as they were.
+func (p *Plugin) workView(c *ui.Context, pal native.Palette, work []*row) {
+	id := work[0].id
+	open := p.worked[id]
+	column(c).Gap(6).Children(func() {
+		label := workLabel(work)
+		head := ui.ButtonBase(c).Label(label).Height(28).Radius(6).Padding(0, 6).
+			Justify(ui.Start).AlignItems(ui.Center).Gap(5).Cursor(ui.CursorPointer)
+		if head.Hovered() {
+			head.Background(pal.Hover)
+		}
+		head.OnClick(func() { p.worked[id] = !p.worked[id] })
+		head.Children(func() {
+			ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted).SingleLine()
+			chev := lucide.ChevronRight()
+			if open {
+				chev = lucide.ChevronDown()
+			}
+			ui.Icon(c, chev).FontSize(11).TextColor(pal.Faint).Shrink(0)
+		})
+		ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
+		if open {
+			ui.Column(c).FillWidth().Gap(13).Padding(4, 0, 0, 0).Children(func() {
+				for _, r := range work {
+					c.Key(r.id)
+					p.rowView(c, pal, r, false)
+				}
+			})
+		}
+	})
 }
 
 func (p *Plugin) toolView(c *ui.Context, pal native.Palette, r *row) {

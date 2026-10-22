@@ -56,12 +56,12 @@ type textKey struct {
 // transcript is the open conversation's rows, built from stored messages and
 // then from live events. It is pure state: no I/O, no UI.
 type transcript struct {
-	rows      []*row
-	nextID    uint64
-	live      map[textKey]*row
-	tools     map[string]*row
-	started   map[string]agent.Tool // what ToolStarted said of a call, by ID
-	busy      bool
+	rows    []*row
+	nextID  uint64
+	live    map[textKey]*row
+	tools   map[string]*row
+	started map[string]agent.Tool // what ToolStarted said of a call, by ID
+	busy    bool
 }
 
 func (t *transcript) reset() {
@@ -285,4 +285,73 @@ func toolLabel(tool agent.Tool) string {
 		return "Used tool"
 	}
 	return "Used " + tool.Name
+}
+
+// item is one entry of the list the page draws: a row, or the work of a
+// finished turn folded under one header.
+type item struct {
+	row    *row
+	work   []*row // the turn's tool calls and the words between them
+	answer bool   // row is the final answer of a finished turn
+}
+
+// key identifies an item across frames; a fold takes its first row's id,
+// negated so it never meets a row's.
+func (it item) key() any {
+	if it.work != nil {
+		return -int64(it.work[0].id)
+	}
+	return it.row.id
+}
+
+// items folds each finished turn's work, from its first answer or tool call
+// through its last tool call, under one entry, so the answer that follows
+// stands alone as the answer. The turn in flight stays unfolded, so its
+// steps show as they happen, and has no answer yet.
+func (t *transcript) items() []item {
+	out := make([]item, 0, len(t.rows))
+	for start := 0; start < len(t.rows); {
+		end := start + 1
+		for end < len(t.rows) && t.rows[end].kind != rowUser {
+			end++
+		}
+		last := -1 // the turn's last tool call
+		settled := !t.busy || end < len(t.rows)
+		if settled {
+			for i := end - 1; i >= start && last < 0; i-- {
+				if t.rows[i].kind == rowTool {
+					last = i
+				}
+			}
+		}
+		fold := -1 // where the turn's fold stands in out
+		for i := start; i < end; i++ {
+			r := t.rows[i]
+			if i > last || (r.kind != rowTool && r.kind != rowText) {
+				out = append(out, item{row: r, answer: settled && r.kind == rowText})
+				continue
+			}
+			if fold < 0 {
+				fold = len(out)
+				out = append(out, item{})
+			}
+			out[fold].work = append(out[fold].work, r)
+		}
+		start = end
+	}
+	return out
+}
+
+// workLabel heads a fold: how many tool calls the turn made.
+func workLabel(work []*row) string {
+	calls := 0
+	for _, r := range work {
+		if r.kind == rowTool {
+			calls++
+		}
+	}
+	if calls == 1 {
+		return "Worked · 1 step"
+	}
+	return fmt.Sprintf("Worked · %d steps", calls)
 }

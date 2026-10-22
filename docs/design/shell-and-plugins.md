@@ -72,6 +72,11 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   offered selection, a text input, or a multiline editor. Submission disables the
   card until its answer completes; a failed answer is reported without retrying.
   Questions are removed on success or when the turn settles.
+- A turn's steps show as they happen. Once it settles, its work — from its first
+  words or tool call through its last tool call — folds under one "Worked · N
+  steps" header, closed, and the answer after it stands alone. Opening the header
+  shows the steps as they were. Of the agent's words, only that answer offers
+  Copy; the user's messages always do.
 - One message at a time: the composer is a Stop button while a message is on its way
   or a turn runs.
 - When the connection drops mid-turn, the turn is settled with a note. When a new

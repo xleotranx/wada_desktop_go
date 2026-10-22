@@ -46,7 +46,8 @@ type Plugin struct {
 	focus    bool
 	comp     completion
 	list     ui.ListState
-	expanded map[uint64]bool
+	expanded map[uint64]bool // tool calls opened to their detail
+	worked   map[uint64]bool // turns' folded work opened, by its first row
 	md       markdown.Options
 	mdTheme  markdown.Theme
 }
@@ -67,6 +68,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.expanded = map[uint64]bool{}
+	p.worked = map[uint64]bool{}
 	p.comp = newCompletion()
 	p.attempt = p.agent.Status().Attempt
 	p.switchTo(chat.Conversation{})
@@ -135,6 +137,7 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 	p.comp = newCompletion()
 	p.t.reset()
 	clear(p.expanded)
+	clear(p.worked)
 	p.list = ui.ListState{FollowEnd: true}
 	p.host.ShowPage(chat.PageID)
 	kernel.Emit(p.ctx, chat.Changed, conv)

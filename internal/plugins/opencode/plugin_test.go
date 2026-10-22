@@ -104,6 +104,10 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(route, "GET /fs/read/"): // what a server without the route answers
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, "<!doctype html>")
+	case route == "GET /session/ses-9/diff":
+		fmt.Fprint(w, `{"data":[`+
+			`{"file":"main.go","patch":"@@ -1 +1 @@\n-a\n+b\n","additions":1,"deletions":1,"status":"modified"},`+
+			`{"file":"new.go","additions":4,"deletions":0,"status":"added"},{"additions":1}]}`)
 	case route == "GET /model":
 		fmt.Fprint(w, `{"data":[`+
 			`{"id":"big","providerID":"p","name":"Big","cost":[{"input":1,"output":2}],"limit":{"context":200000,"output":8000}},`+
@@ -390,6 +394,25 @@ func TestRewindStagesWithoutFilesThenCommits(t *testing.T) {
 	}
 	if body := f.body("POST /session/ses-9/revert/stage"); !strings.Contains(body, `"messageID":"msg_u"`) || !strings.Contains(body, `"files":false`) {
 		t.Fatalf("stage body %s", body)
+	}
+}
+
+func TestChangesReadTheSessionDiff(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	f.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	changes, ok := kernel.Use(h, agent.ChangesKey)
+	if !ok {
+		t.Fatal("the backend does not list changes")
+	}
+	got, err := call(t, h, func(ctx context.Context) ([]agent.FileChange, error) { return changes.Changes(ctx, "ses-9") })
+	want := []agent.FileChange{
+		{Path: "main.go", Status: agent.FileModified, Added: 1, Removed: 1, Patch: "@@ -1 +1 @@\n-a\n+b\n"},
+		{Path: "new.go", Status: agent.FileAdded, Added: 4},
+	}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("changes %+v, %v", got, err)
 	}
 }
 

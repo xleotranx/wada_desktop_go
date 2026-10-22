@@ -1,6 +1,7 @@
 package main
 
 import (
+	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/flows"
@@ -27,6 +28,7 @@ func main() {
 		&chat.Plugin{},
 		&models.Plugin{},
 		&usage.Plugin{},
+		&activity.Plugin{}, // the files a conversation changed and its last command, in the work panel
 		&attachments.Plugin{},
 		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
 		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db

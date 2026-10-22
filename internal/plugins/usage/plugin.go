@@ -1,6 +1,7 @@
-// Package usage shows, at the end of the composer, what the open conversation
-// has cost and how full its context window is, with a panel that breaks the
-// latest answer's tokens down and totals the conversation. The backends report usage
+// Package usage shows what the open conversation has cost and how full its
+// context window is: as Context and Cost in the work panel, or, while that is
+// hidden, at the end of the composer with a popover that breaks the latest
+// answer's tokens down and totals the conversation. The backends report usage
 // with the stored messages, not in their events, so the plugin reads the
 // conversation's messages when it opens and again after every turn.
 package usage
@@ -38,7 +39,7 @@ type Plugin struct {
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "usage", Title: "Usage",
-		Description: "The open conversation's cost and context window, in the composer.",
+		Description: "The open conversation's cost and context window, in the work panel or the composer.",
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey},
 	}
 }
@@ -51,7 +52,18 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
 	kernel.On(c, agent.Events, p.events)
 	p.follow(p.chat.Current().Session)
-	return kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view})
+	for _, err := range []error{
+		kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view}),
+		kernel.Contribute(c, chat.Work, "usage.context", 20, chat.WorkSection{Title: "Context",
+			Shown: func() bool { return p.measured() && p.sum.last.Context() > 0 }, Render: p.contextSection}),
+		kernel.Contribute(c, chat.Work, "usage.cost", 30, chat.WorkSection{Title: "Cost",
+			Shown: p.measured, Render: p.costSection}),
+	} {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // follow measures the conversation on show from now on.

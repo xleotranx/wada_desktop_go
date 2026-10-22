@@ -230,6 +230,38 @@ func (c *client) rewind(ctx context.Context, id agent.SessionID, message agent.M
 	return nil
 }
 
+// changes reads the session's diff: each file as it is now against before
+// the session changed it.
+func (c *client) changes(ctx context.Context, id agent.SessionID) ([]agent.FileChange, error) {
+	var out struct {
+		Data []struct {
+			File      string `json:"file"`
+			Patch     string `json:"patch"`
+			Additions int    `json:"additions"`
+			Deletions int    `json:"deletions"`
+			Status    string `json:"status"`
+		} `json:"data"`
+	}
+	if err := c.decode(ctx, "GET", sessionPath(id, "/diff"), nil, &out); err != nil {
+		return nil, err
+	}
+	changes := make([]agent.FileChange, 0, len(out.Data))
+	for _, d := range out.Data {
+		if d.File == "" {
+			continue
+		}
+		ch := agent.FileChange{Path: d.File, Added: d.Additions, Removed: d.Deletions, Patch: d.Patch}
+		switch d.Status {
+		case "added":
+			ch.Status = agent.FileAdded
+		case "deleted":
+			ch.Status = agent.FileDeleted
+		}
+		changes = append(changes, ch)
+	}
+	return changes, nil
+}
+
 // toolKind maps OpenCode's tool and permission names onto the shared kinds.
 func toolKind(name string) agent.ToolKind {
 	switch name {

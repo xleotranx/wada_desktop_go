@@ -33,11 +33,17 @@ func (p *Plugin) parts(pal native.Palette) []part {
 	}
 }
 
+// measured reports that there is usage to show.
+func (p *Plugin) measured() bool {
+	return p.known && (p.sum.cost > 0 || p.sum.last.Context() > 0)
+}
+
 // view is the composer's usage button: the cost, the share of the context
-// window and a ring, opening the panel.
+// window and a ring, opening the panel. The work panel shows the same while
+// it is on show, so the button steps aside.
 func (p *Plugin) view(c *ui.Context) {
 	used := p.sum.last.Context()
-	if !p.known || (p.sum.cost == 0 && used == 0) {
+	if !p.measured() || p.chat.WorkShown() {
 		return
 	}
 	pal := native.PaletteFor(c)
@@ -73,31 +79,59 @@ func (p *Plugin) view(c *ui.Context) {
 
 // panel breaks the context down, then totals the conversation.
 func (p *Plugin) panel(c *ui.Context, pal native.Palette, used, window int) {
-	parts := p.parts(pal)
-	// Shares are of the window when it is known, else of what is used.
-	whole := cmp.Or(window, used)
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, "Context window").FontSize(13).FontWeight(600).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine()
-			value := tokens(used) + " tokens"
-			if window > 0 {
-				value = tokens(used) + " / " + tokens(window)
-			}
-			ui.Text(c, value).FontSize(12).TextColor(pal.Muted).Shrink(0)
+			ui.Text(c, contextValue(used, window)).FontSize(12).TextColor(pal.Muted).Shrink(0)
 		})
-		if used > 0 {
-			bar(c, pal, parts, max(window-used, 0))
-		}
-		for i, pt := range parts {
-			c.Key(i)
-			legend(c, pal, pt.label, tokens(pt.n), share(pt.n, whole), pt.color)
-		}
-		if window > 0 {
-			c.Key("free")
-			legend(c, pal, "Free space", tokens(max(window-used, 0)), share(max(window-used, 0), window), pal.Hairline)
-		}
+		p.breakdown(c, pal, used, window)
 	})
 	divider(c, pal)
+	p.totals(c, pal)
+}
+
+// contextSection is the work panel's Context: how full the window is, by kind.
+func (p *Plugin) contextSection(c *ui.Context) {
+	pal := native.PaletteFor(c)
+	used, window := p.sum.last.Context(), p.model().Context
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
+		ui.Text(c, contextValue(used, window)).FontSize(12.5).TextColor(pal.Text)
+		p.breakdown(c, pal, used, window)
+	})
+}
+
+// costSection is the work panel's Cost: the conversation's totals.
+func (p *Plugin) costSection(c *ui.Context) {
+	p.totals(c, native.PaletteFor(c))
+}
+
+func contextValue(used, window int) string {
+	if window > 0 {
+		return tokens(used) + " / " + tokens(window)
+	}
+	return tokens(used) + " tokens"
+}
+
+// breakdown is the context as a bar, then a legend line per kind.
+func (p *Plugin) breakdown(c *ui.Context, pal native.Palette, used, window int) {
+	parts := p.parts(pal)
+	// Shares are of the window when it is known, else of what is used.
+	whole := cmp.Or(window, used)
+	if used > 0 {
+		bar(c, pal, parts, max(window-used, 0))
+	}
+	for i, pt := range parts {
+		c.Key(i)
+		legend(c, pal, pt.label, tokens(pt.n), share(pt.n, whole), pt.color)
+	}
+	if window > 0 {
+		c.Key("free")
+		legend(c, pal, "Free space", tokens(max(window-used, 0)), share(max(window-used, 0), window), pal.Hairline)
+	}
+}
+
+// totals are the conversation's model, replies, costs and tokens.
+func (p *Plugin) totals(c *ui.Context, pal native.Palette) {
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		heading(c, pal, "Conversation")
 		m := p.model()

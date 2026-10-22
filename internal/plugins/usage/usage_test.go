@@ -137,3 +137,30 @@ func TestSpelling(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkPanelTakesOverFromTheComposer(t *testing.T) {
+	h, p, _, chat := start(t)
+	chat.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	chat.Work = true
+	meter := ui.NewTester(p.view, 400, 60)
+	meter.Frame()
+	if len(meter.Texts()) != 0 {
+		t.Fatalf("the composer shows usage beside the work panel: %q", meter.Texts())
+	}
+	if !p.measured() {
+		t.Fatal("the work sections have nothing to show")
+	}
+	panel := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(300).Children(func() {
+			p.contextSection(c)
+			p.costSection(c)
+		})
+	}, 300, 800)
+	panel.Frame()
+	for _, want := range []string{"44k / 200k", "Cache read", "Free space", "Total cost", "$0.42", "Tokens in this conversation"} {
+		if !panel.HasText(want) {
+			t.Fatalf("%q is missing from the work sections: %q", want, panel.Texts())
+		}
+	}
+}

@@ -26,6 +26,8 @@ type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
 	host  shell.Host
+	// workOn is whether the work panel shows beside a stored conversation.
+	workOn *kernel.Setting[bool]
 
 	conv            chat.Conversation
 	scope           *kernel.Scope // the open conversation's work and nothing else
@@ -67,6 +69,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
+	p.workOn = kernel.NewSetting(c, "work-panel", true)
 	p.expanded = map[uint64]bool{}
 	p.worked = map[uint64]bool{}
 	p.comp = newCompletion()
@@ -80,6 +83,9 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Contribute(c, kernel.Commands, "chat.new", 0, kernel.Command{
 			Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"},
 			Run: func() { p.NewChat(p.conv.Directory) }}),
+		kernel.Contribute(c, kernel.Commands, "chat.work", 5, kernel.Command{
+			Title: "Toggle Work Panel", Menu: "View", Keys: []string{"cmd+b"},
+			Run: func() { p.workOn.Set(!p.workOn.Get()) }}),
 		kernel.Contribute(c, kernel.Commands, "chat.stop", 10, kernel.Command{
 			Title: "Stop the Agent", Menu: "Chat", Keys: []string{"cmd+."},
 			Enabled: p.running, Run: p.stop}),

@@ -2,7 +2,7 @@
 // and what consumers may rely on. It holds declarations only.
 //
 // A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
-// FileTypesKey, FilesKey and RewindKey.
+// FileTypesKey, FilesKey, RewindKey and ChangesKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -29,6 +29,9 @@ var (
 	// RewindKey is provided by a backend that can take back the latest turns
 	// of a conversation, so a message can be retried or edited in place.
 	RewindKey = kernel.NewKey[Rewinder]("agent.rewind") // optional
+	// ChangesKey is provided by a backend that can tell which files a
+	// conversation changed, and how.
+	ChangesKey = kernel.NewKey[Changes]("agent.changes") // optional
 
 	// Events carries ordered batches of normalized events from the current
 	// connection, emitted on the UI thread.
@@ -110,6 +113,31 @@ type Files interface {
 	// Read returns the contents of the file at path, relative to directory.
 	Read(ctx context.Context, directory, path string) ([]byte, error)
 }
+
+// Changes is the optional capability of listing the files a conversation
+// changed. Like the rest of Service, it blocks on I/O and is called off the
+// UI thread.
+type Changes interface {
+	// Changes lists the files the conversation changed, each as it differs
+	// now from before the conversation touched it.
+	Changes(ctx context.Context, session SessionID) ([]FileChange, error)
+}
+
+// FileChange is one file a conversation changed.
+type FileChange struct {
+	Path           string // relative to the conversation's folder
+	Status         FileStatus
+	Added, Removed int    // lines
+	Patch          string // a unified diff; empty when the backend sends none
+}
+
+type FileStatus uint8
+
+const (
+	FileModified FileStatus = iota
+	FileAdded
+	FileDeleted
+)
 
 // Rewinder is the optional capability of taking back a conversation's latest
 // turns. Like the rest of Service, Rewind blocks on I/O and is called off the

@@ -24,7 +24,21 @@ func (p *Plugin) view(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	p.prepareMarkdown(c, pal)
 	blank := len(p.t.rows) == 0 && !p.working() && !p.loading.Running()
-	ui.Column(c).Grow(1).FillHeight().Background(pal.CanvasBg).Children(func() {
+	var work []kernel.Entry[chat.WorkSection]
+	if p.conv.Session != "" && p.workOn.Get() {
+		work = p.workSections()
+	}
+	ui.Row(c).Fill().MinHeight(0).Children(func() {
+		p.page(c, pal, blank)
+		if len(work) > 0 {
+			p.work(c, pal, work)
+		}
+	})
+}
+
+// page is the conversation itself, beside the work panel.
+func (p *Plugin) page(c *ui.Context, pal native.Palette, blank bool) {
+	ui.Column(c).Grow(1).MinWidth(0).FillHeight().Background(pal.CanvasBg).Children(func() {
 		top := ui.Column(c).FillWidth().Grow(1).MinHeight(0)
 		if blank {
 			top.Justify(ui.End)

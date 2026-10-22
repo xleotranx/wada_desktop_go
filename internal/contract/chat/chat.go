@@ -63,7 +63,20 @@ var (
 	// conversation with the agent, such as a workflow. The composer's mode
 	// picker lists them after the backend's modes.
 	Targets = kernel.NewPoint[Target]("chat.targets")
+	// Work sections fill the work panel beside a stored conversation, top to
+	// bottom by Order, such as its usage or the files it changed.
+	Work = kernel.NewPoint[WorkSection]("chat.work")
 )
+
+// WorkSection is one section of the work panel. Shown and Render run on the
+// UI thread while drawing, so they only read state.
+type WorkSection struct {
+	Title string
+	// Shown reports that the section has something to show now; nil means
+	// always. The panel shows while at least one section does.
+	Shown  func() bool
+	Render func(c *ui.Context)
+}
 
 // ErrTaken is what an Outgoing transform returns once it has taken the message
 // itself, as a Target does: nothing goes to the backend, no error is shown and
@@ -155,4 +168,7 @@ type Controller interface {
 	// SetDraft puts text in the composer of the open conversation, replacing
 	// what is there, and focuses it.
 	SetDraft(text string)
+	// WorkShown reports that the work panel is on show beside the open
+	// conversation. Call it on the UI thread; it only reads state.
+	WorkShown() bool
 }

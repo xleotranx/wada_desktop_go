@@ -41,6 +41,9 @@ type Agent struct {
 	// can script what the agent does next with Emit and Respond.
 	OnSend func(req agent.Send)
 
+	// Changed is what Changes returns, by conversation.
+	Changed map[agent.SessionID][]agent.FileChange
+
 	// The model capabilities.
 	Catalog  []agent.Model
 	Default  agent.ModelRef
@@ -49,11 +52,12 @@ type Agent struct {
 
 func NewAgent() *Agent {
 	return &Agent{Stored: map[agent.SessionID][]agent.Message{}, Pages: map[string]agent.SessionPage{},
-		Fail: map[string]error{}, State: agent.Status{State: agent.Ready, Attempt: 1, Origin: "fake"}}
+		Changed: map[agent.SessionID][]agent.FileChange{},
+		Fail:    map[string]error{}, State: agent.Status{State: agent.Ready, Attempt: 1, Origin: "fake"}}
 }
 
 func (*Agent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey}}
+	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey, agent.ChangesKey}}
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
@@ -68,6 +72,9 @@ func (a *Agent) Setup(c *kernel.Context) error {
 		return err
 	}
 	if err := kernel.Provide[agent.Rewinder](c, agent.RewindKey, a); err != nil {
+		return err
+	}
+	if err := kernel.Provide[agent.Changes](c, agent.ChangesKey, a); err != nil {
 		return err
 	}
 	return kernel.Provide[agent.Interactions](c, agent.InteractionsKey, a)
@@ -209,6 +216,15 @@ func (a *Agent) Rewind(_ context.Context, id agent.SessionID, message agent.Mess
 	return id, nil
 }
 
+func (a *Agent) Changes(_ context.Context, id agent.SessionID) ([]agent.FileChange, error) {
+	if err := a.record("Changes", "changes "+string(id)); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.Changed[id]), nil
+}
+
 func (a *Agent) Delete(_ context.Context, id agent.SessionID) error {
 	return a.record("Delete", "delete "+string(id))
 }
@@ -290,6 +306,7 @@ type Chat struct {
 	ctx   *kernel.Context
 	Conv  chat.Conversation
 	Draft string
+	Work  bool // what WorkShown reports
 }
 
 func (*Chat) Manifest() kernel.Manifest {
@@ -324,6 +341,8 @@ func (f *Chat) leave() {
 }
 
 func (f *Chat) SetDraft(text string) { f.Draft = text }
+
+func (f *Chat) WorkShown() bool { return f.Work }
 
 func (f *Chat) SetDirectory(dir string) {
 	if f.Conv.Session == "" && !f.Conv.Starting {

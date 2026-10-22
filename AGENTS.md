@@ -15,13 +15,14 @@ protocols to simplify a refactor.
 - `internal/contract/*`: declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, file drops, completions), `shell` (window slots, host service), `settings`
+  slots, work panel sections, file drops, completions), `shell` (window slots, host service), `settings`
   (settings sections), `tabs` (the open tabs), `workspace` (folders and the conversations the app started),
   `workflow` (the service that runs flows, and the types a flow is written with).
 - `internal/shell`: the window host — kernel, SQLite settings store, frame/layout,
   menu bar and shortcuts from commands. Knows no feature.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
-  page), `models` (composer pickers), `usage` (cost and context in the composer), `attachments` (files sent with a message), `mentions`
+  page), `models` (composer pickers), `usage` (cost and context in the work panel or the composer), `activity`
+  (changed files and the last command in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` in the composer), `workspace` (folders, the app's conversation record in
   `workspace.db`, folder picker), `tabs` (open chats and pages as tabs grouped by folder
   across the title strip, with their rename, delete and folder menus), `workflow` (the engine

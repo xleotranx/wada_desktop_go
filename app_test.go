@@ -13,6 +13,7 @@ import (
 	wscontract "wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
+	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/flows"
@@ -78,7 +79,7 @@ func startApp(t *testing.T) *app {
 		}
 	}
 	s, err := shell.New(shell.Options{Post: post, Strict: true, Store: kerneltest.NewStore()},
-		a, files, &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
+		a, files, &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
 		&workspace.Plugin{}, &tabs.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		t.Fatal(err)

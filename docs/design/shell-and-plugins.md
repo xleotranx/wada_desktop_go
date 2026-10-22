@@ -46,7 +46,7 @@ under `go run` nothing is shown.
 
 `internal/plugins/chat` (locked) requires `agent.ServiceKey` and `shell.HostKey`,
 provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
-"New Chat" (⌘N) and "Stop the Agent" (⌘.) commands.
+"New Chat" (⌘N), "Toggle Work Panel" (⌘B, View) and "Stop the Agent" (⌘.) commands.
 
 - A chat with nothing in it yet centers the composer between a greeting (with the
   chosen folder) and, for a new chat, starter suggestions that fill the draft. Once
@@ -90,6 +90,11 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   `chat.Outgoing`. `chat.ComposerTrailing` entries are drawn just before Send or
   Stop and keep their width. `chat.ComposerAttachments` entries are drawn above the
   editor.
+- Beside a stored conversation the page draws the work panel, a 300 px column on
+  `DrawerBg` at its end: each `chat.Work` section whose `Shown` holds (or has none),
+  in order, its title over what it renders. The panel shows while at least one
+  section does and the `work-panel` setting is on; ⌘B turns the setting over.
+  `Controller.WorkShown` reports it, so a plugin can step aside in the composer.
 - `chat.Targets` entries are other places a new chat's first message can go than a
   conversation with the agent, such as a workflow. A target has a group, a title, a
   summary and `Take(Draft)`. The mode picker lists them; the plugin that owns the
@@ -297,26 +302,47 @@ has a subtle filled background; effort and mode use quieter text controls.
 
 ## Usage
 
-`internal/plugins/usage` requires `agent.ServiceKey` and `chat.ControllerKey` and adds
-a button to `chat.ComposerTrailing`: the conversation's total cost, the share of the
-context window in use and a ring that fills with it (the accent, a warning from 80%,
-danger from 95%). What fills the context is the latest assistant message that reported
-tokens: its `Tokens.Context` over its model's `Model.Context`. The button opens a panel
-with:
+`internal/plugins/usage` requires `agent.ServiceKey` and `chat.ControllerKey`. What
+fills the context is the latest assistant message that reported tokens: its
+`Tokens.Context` over its model's `Model.Context`. It contributes two `chat.Work`
+sections:
 
-- the context window: used over the window, a strip with each kind of token in its own
-  color and the free space, and a line for each kind (input, cache read, cache write,
+- **Context**: used over the window, a strip with each kind of token in its own color
+  and the free space, and a line for each kind (input, cache read, cache write,
   output, reasoning) and the free space with its share of the window, or of what is
   used when the window is unknown;
-- the conversation: the model (with its variant), the number of replies, the total
-  cost and the latest reply's ("Free" on a free model);
-- the conversation's tokens of each kind, summed over every reply.
+- **Cost**: the model (with its variant), the number of replies, the total cost and
+  the latest reply's ("Free" on a free model), then the conversation's tokens of each
+  kind, summed over every reply.
+
+While the work panel is hidden it adds a button to `chat.ComposerTrailing` instead:
+the total cost, the share of the context window in use and a ring that fills with it
+(the accent, a warning from 80%, danger from 95%), opening a popover with both
+sections.
 
 Backends report usage only with stored messages, so the plugin reads the conversation's
 `Messages` when it opens and again when one of its turns ends. A read belongs to the
 conversation it was for: a later navigation drops it, and a failed read shows nothing,
 since the chat page reports the failure. A new chat, or a conversation with no usage,
 shows nothing. The model catalog is read once, for names and context windows.
+
+## Activity
+
+`internal/plugins/activity` requires `agent.ServiceKey` and `chat.ControllerKey` and
+contributes two `chat.Work` sections for the conversation on show:
+
+- **Changes**, when the backend provides `agent.ChangesKey`: the number of files and
+  the lines added and removed, then each file (its name, colored when added or
+  deleted, its folder and its counts), which opens to its diff: hunk headers muted,
+  added and removed lines on `DiffAddBg` and `DiffDelBg`, up to 400 lines. The
+  changes are read when the conversation opens and after each of its turns ends; a
+  failed read keeps what was shown.
+- **Last command**: the latest finished shell call, read from the stored messages
+  when the conversation opens and then taken from `ToolFinished` events (a call
+  counts as a shell command when its `ToolStarted` or `ToolCalled` said so, or named
+  a command): the command, the last 12 lines of its output and its exit status.
+
+Each section shows only while it has something to show.
 
 ## Attachments
 

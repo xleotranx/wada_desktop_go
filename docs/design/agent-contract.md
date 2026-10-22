@@ -17,6 +17,7 @@ reconnecting with backoff, and decoding its protocol.
 | `FileTypesKey` | `Key[FileTypes]` | optional: a backend that takes only some kinds of files says which |
 | `FilesKey` | `Key[Files]` | optional: find and read files of a conversation's folder, where the backend runs |
 | `RewindKey` | `Key[Rewinder]` | optional: take back a user message and everything after it |
+| `ChangesKey` | `Key[Changes]` | optional: the files a conversation changed, with line counts and a unified diff |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
 | `ModelsChanged` | `Topic[struct{}]` | the model catalog changed on the same connection; the model picker reloads it |
@@ -74,9 +75,10 @@ A backend is one plugin under `internal/plugins/<name>`; nothing outside it chan
 the line that installs it in `main.go`. It:
 
 1. provides `agent.ServiceKey`, and each optional key it can honor (`ModelsKey`,
-   `ModesKey`, `InteractionsKey`, `FileTypesKey`, `FilesKey`, `RewindKey`), listing
-   them in its manifest's `Provides`. Without an optional key the app hides what
-   depends on it: the pickers, `@` mentions, retry and edit;
+   `ModesKey`, `InteractionsKey`, `FileTypesKey`, `FilesKey`, `RewindKey`,
+   `ChangesKey`), listing them in its manifest's `Provides`. Without an optional key
+   the app hides what depends on it: the pickers, `@` mentions, retry and edit, the
+   work panel's Changes;
 2. translates its protocol into the contract inside its own package: events into
    `agent.Event`, stored messages into `agent.Message` oldest first, tool and
    permission names into `ToolKind`, usage into `Tokens` with reasoning apart from
@@ -122,6 +124,10 @@ It provides `agent.RewindKey` in place: `POST /session/<id>/revert/stage` with t
 message and `"files": false`, so the files stay, then `POST /session/<id>/revert/commit`,
 which removes the message and everything after it. A commit that fails after the stage
 is reported as such.
+
+It provides `agent.ChangesKey` from `GET /session/<id>/diff`: each file's path, status
+(added, deleted, otherwise modified), additions, deletions and patch. An entry without
+a path is skipped.
 
 A second settings section, Providers, manages the server's model providers over its
 integration routes, for a managed or a remote server alike. `GET /integration` is
@@ -183,6 +189,8 @@ conversation processes off the UI thread when the connection scope ends.
   extension cancels is an error.
 - Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
   provide `ModesKey`, and the mode picker stays hidden.
+- Pi keeps no record of the files a session changed, so it doesn't provide
+  `ChangesKey`.
 
 Only one backend can be active: turn OpenCode off in Settings → Plugins, then turn Pi on.
 

@@ -47,8 +47,31 @@ var (
 // PaletteFor maps the app's semantic colors onto Onevra's warm palettes.
 // The tabs sit on the strip, the page in a panel on the surface, and
 // selection, hairlines and accents are the theme's own, so a switch between
-// light and dark moves every pane at once.
-func PaletteFor(c *ui.Context) Palette { return PaletteOf(c.Theme()) }
+// light and dark moves every pane at once. While the window shows its
+// material, the strip is clear and the panel lets it through.
+func PaletteFor(c *ui.Context) Palette {
+	p := PaletteOf(c.Theme())
+	if c.Vibrancy() {
+		p.glass(c.Theme())
+	}
+	return p
+}
+
+// glass lets the window's blurred material through: the strip draws nothing,
+// the panel and the columns in it are tinted veils over it, and hover and the
+// active tab are tints too, so they read on any wallpaper. Cards, bubbles and
+// the composer keep Bg and stay solid.
+func (p *Palette) glass(t *ui.Theme) {
+	veil, tab := float32(0.80), float32(0.90)
+	if t.Dark {
+		veil, tab = 0.74, 0.85
+	}
+	p.StripBg = ui.Transparent
+	p.PanelBg = p.PanelBg.Alpha(veil)
+	p.DrawerBg = t.Text.Alpha(0.03)
+	p.ActiveTab = p.ActiveTab.Alpha(tab)
+	p.Hover = t.Text.Alpha(0.07)
+}
 
 // PaletteOf is the palette of a theme, such as one drawn as a preview while
 // another is in use.

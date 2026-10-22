@@ -49,3 +49,26 @@ func luminance(c ui.Color) float64 {
 	}
 	return 0.2126*lin(c.R) + 0.7152*lin(c.G) + 0.0722*lin(c.B)
 }
+
+// TestGlassLetsTheMaterialThrough clears the strip and veils the panel only
+// while the window shows its material; cards stay solid either way.
+func TestGlassLetsTheMaterialThrough(t *testing.T) {
+	for _, shows := range []bool{false, true} {
+		var p Palette
+		tr := ui.NewTester(func(c *ui.Context) {
+			c.SetTheme(theme.Palette(false))
+			p = PaletteFor(c)
+		}, 100, 100)
+		tr.SetVibrancy(shows)
+		tr.Frame()
+		if clear := p.StripBg.A == 0; clear != shows {
+			t.Errorf("material shows=%v: strip clear=%v", shows, clear)
+		}
+		if veiled := p.PanelBg.A < 255; veiled != shows {
+			t.Errorf("material shows=%v: panel veiled=%v", shows, veiled)
+		}
+		if p.Bg.A != 255 {
+			t.Errorf("material shows=%v: Bg alpha %d, want solid", shows, p.Bg.A)
+		}
+	}
+}

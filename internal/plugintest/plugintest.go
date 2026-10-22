@@ -255,6 +255,7 @@ type Host struct {
 	Toasts     []string
 	Copied     string
 	Opened     []string
+	Glass      bool // what Translucent reports
 	Mode       string
 	PluginList []kernel.Status
 	Toggled    []string
@@ -292,6 +293,8 @@ func (h *Host) Clipboard() shell.Clipboard { return h.Clip }
 func (h *Host) OpenURL(url string)         { h.Opened = append(h.Opened, url) }
 func (h *Host) Appearance() string         { return h.Mode }
 func (h *Host) SetAppearance(mode string)  { h.Mode = mode }
+func (h *Host) Translucent() bool          { return h.Glass }
+func (h *Host) SetTranslucent(on bool)     { h.Glass = on }
 func (h *Host) Plugins() []kernel.Status   { return h.PluginList }
 func (h *Host) Enable(id string) error     { h.Toggled = append(h.Toggled, "+"+id); return nil }
 func (h *Host) Disable(id string) error    { h.Toggled = append(h.Toggled, "-"+id); return nil }

@@ -105,7 +105,7 @@ func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	b.OnClick(func() { p.switching = !p.switching })
 	b.Children(func() {
 		p.spaceDot(c, pal, p.space)
-		ui.Text(c, name).FontSize(13).FontWeight(500).TextColor(pal.Text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+		ui.Text(c, name).FontSize(14).FontWeight(500).TextColor(pal.Text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 		if p.elsewhere() != tabs.Idle {
 			ui.Box(c).Size(6, 6).Radius(3).Background(pal.Orange).Shrink(0).Label("Activity in another space")
 		}
@@ -269,7 +269,7 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 			if active {
 				text = pal.Text
 			}
-			ui.Text(c, t.Title).FontSize(13).TextColor(text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Text(c, t.Title).FontSize(14).TextColor(text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 		})
 		c.Key("close")
 		x := ui.ButtonBase(c).Label("Close "+t.Title).Size(closeSize, closeSize).Radius(5).Center().

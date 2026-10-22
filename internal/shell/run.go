@@ -42,12 +42,22 @@ func Run(plugins ...kernel.Plugin) {
 			Title: "Wada", Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
 			TitleBarStyle:        mygo.TitleBarHidden,
 			TrafficLightPosition: &mygo.Point{X: 14, Y: trafficLightY},
-			StateKey:             "main",
-			Content:              ui.View(func(c *ui.Context) { s.View(c) }),
+			// The page paints the strip and panel translucent while the
+			// material shows (see Host.SetTranslucent), and opaque otherwise.
+			Transparent: true,
+			StateKey:    "main",
+			Content:     ui.View(func(c *ui.Context) { s.View(c) }),
 		})
 		var err error
 		s, err = New(Options{Post: win.Update, Store: store, Strict: os.Getenv("WADA_STRICT") == "1",
 			SetTitle: win.SetTitle, SetMenu: mygo.App.SetMenu, SetTheme: mygo.Theme.SetSource,
+			SetVibrancy: func(on bool) {
+				if on {
+					win.SetVibrancy(mygo.VibrancyUnderWindow)
+				} else {
+					win.SetVibrancy(mygo.VibrancyNone)
+				}
+			},
 			Notify: notifier(), Clipboard: readClipboard, DataDir: dir, Foreground: func() bool { return win.IsVisible() && !win.IsMinimized() && win.IsFocused() },
 		}, plugins...)
 		if err != nil {

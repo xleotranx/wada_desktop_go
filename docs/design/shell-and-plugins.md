@@ -24,6 +24,14 @@ drags the window where nothing in it takes the mouse. Without a strip view it sh
 the page's `Title` instead. Below it the page fills a panel on `PanelBg`, inset 8 px
 with a 12 px radius. The window title follows the page's `Title`.
 
+The window is created transparent. While `shell.Host.Translucent()` (the shell's
+`translucent` setting, on by default) it shows the platform's under-window material;
+`ui.Context.Vibrancy()` then reports it, the root draws no background, and
+`native.PaletteFor` clears `StripBg`, veils `PanelBg` and `ActiveTab`, and turns
+`DrawerBg` and `Hover` into tints, so the blurred desktop shows through. `Bg` stays
+solid for cards, bubbles and the composer. Where no material shows, the palette is
+opaque as before.
+
 `shell.Host.ShowPage` emits `shell.PageChanged` with the ID it chose whenever that
 differs from the last one.
 
@@ -291,7 +299,7 @@ only the selected section in a separately scrolling detail pane. If that section
 disappears, it shows the first available section. It adds its own Appearance and
 Plugins sections; appearance offers System, Light and Dark, each drawn as a small
 window in that theme (`native.PaletteOf`): the strip with a project's tabs over the
-panel, System half of each. The plugin list uses switches to turn optional plugins on
+panel, System half of each, and a "Translucent window" switch. The plugin list uses switches to turn optional plugins on
 and off through `shell.Host`. The tabs, chat, OpenCode, Pi and notifications plugins
 contribute their own sections.
 

@@ -28,6 +28,8 @@ type Options struct {
 	SetTitle func(string)
 	SetMenu  func(*mygo.Menu)
 	SetTheme func(mygo.ThemeSource)
+	// SetVibrancy shows or hides the blurred material behind the window.
+	SetVibrancy func(on bool)
 	// Notify and Foreground reach the desktop; nil in tests, where nothing
 	// is shown and the window counts as in front.
 	Notify     func(shell.Notice)
@@ -49,7 +51,7 @@ type Shell struct {
 
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
-	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, notify: opts.Notify, foreground: opts.Foreground,
+	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, setVibrancy: opts.SetVibrancy, notify: opts.Notify, foreground: opts.Foreground,
 		clipboard: opts.Clipboard, dataDir: opts.DataDir}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
 	s.host.k = s.Kernel
@@ -107,6 +109,9 @@ func (s *Shell) View(c *ui.Context) {
 	}
 	h.toasts = nil
 	p := native.PaletteFor(c)
+	if c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
+	}
 	page, hasPage := s.currentPage()
 	s.syncTitle(page, hasPage)
 	s.shortcuts(c)
@@ -284,17 +289,19 @@ func (s *Shell) buildMenu() {
 // host is the shell's own plugin: it provides shell.Host and the window's
 // commands.
 type host struct {
-	k          *kernel.Kernel
-	setTheme   func(mygo.ThemeSource)
-	notify     func(shell.Notice)
-	clipboard  func() shell.Clipboard
-	foreground func() bool
-	dataDir    string
-	appearance *kernel.Setting[string]
-	page       string
-	toasts     []ui.Toast
-	services   ui.Services
-	failed     map[string]bool
+	k           *kernel.Kernel
+	setTheme    func(mygo.ThemeSource)
+	setVibrancy func(on bool)
+	translucent *kernel.Setting[bool]
+	notify      func(shell.Notice)
+	clipboard   func() shell.Clipboard
+	foreground  func() bool
+	dataDir     string
+	appearance  *kernel.Setting[string]
+	page        string
+	toasts      []ui.Toast
+	services    ui.Services
+	failed      map[string]bool
 }
 
 var _ shell.Host = (*host)(nil)
@@ -307,6 +314,10 @@ func (h *host) Setup(c *kernel.Context) error {
 	h.failed = map[string]bool{}
 	h.appearance = kernel.NewSetting(c, "appearance", "system")
 	h.applyTheme(h.Appearance())
+	h.translucent = kernel.NewSetting(c, "translucent", true)
+	if h.setVibrancy != nil {
+		h.setVibrancy(h.translucent.Get())
+	}
 	if err := kernel.Provide[shell.Host](c, shell.HostKey, h); err != nil {
 		return err
 	}
@@ -359,6 +370,15 @@ func (h *host) Appearance() string {
 func (h *host) SetAppearance(mode string) {
 	h.appearance.Set(mode)
 	h.applyTheme(h.Appearance())
+}
+
+func (h *host) Translucent() bool { return h.translucent.Get() }
+
+func (h *host) SetTranslucent(on bool) {
+	h.translucent.Set(on)
+	if h.setVibrancy != nil {
+		h.setVibrancy(on)
+	}
 }
 
 // applyTheme shows mode without saving it.

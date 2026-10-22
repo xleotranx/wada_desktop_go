@@ -234,6 +234,7 @@ func (a *Agent) Modes(context.Context) ([]agent.Mode, error) {
 
 // Host provides shell.HostKey and records what plugins ask of the window.
 type Host struct {
+	ctx        *kernel.Context
 	PageID     string
 	Toasts     []string
 	Copied     string
@@ -252,10 +253,22 @@ func (*Host) Manifest() kernel.Manifest {
 }
 
 func (h *Host) Setup(c *kernel.Context) error {
+	h.ctx = c
 	return kernel.Provide[shell.Host](c, shell.HostKey, h)
 }
 
-func (h *Host) ShowPage(id string)         { h.PageID = id }
+// ShowPage records the page and emits shell.PageChanged when it changed, as
+// the shell does.
+func (h *Host) ShowPage(id string) {
+	if id == h.PageID {
+		return
+	}
+	h.PageID = id
+	if h.ctx != nil {
+		kernel.Emit(h.ctx, shell.PageChanged, id)
+	}
+}
+
 func (h *Host) Page() string               { return h.PageID }
 func (h *Host) Toast(t ui.Toast)           { h.Toasts = append(h.Toasts, t.Title) }
 func (h *Host) Copy(text string) error     { h.Copied = text; return nil }

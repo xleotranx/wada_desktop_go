@@ -208,10 +208,52 @@ CREATE TABLE conversations (
   PRIMARY KEY (origin, session));
 ```
 
+## Tabs
+
+`internal/plugins/tabs` requires `chat.ControllerKey`, `shell.HostKey` and
+`workspace.ServiceKey`, provides `tabs.ServiceKey` and contributes the `shell.Strip`
+view, so with it installed the window has the strip layout and no sidebar.
+
+- A tab only points at what it shows: a stored conversation, a new chat in a folder
+  (a draft), or a shell page other than the chat. The chat still has one open
+  conversation; selecting a tab opens it there (`Open`, `NewChat`) or shows its page.
+- Tabs follow navigation rather than drive it. After `chat.Changed` while the chat
+  page is on show, and after `shell.PageChanged`, what is shown becomes the active
+  tab: an open tab is selected, otherwise one opens. A new chat takes over the active
+  draft tab, and so does a stored conversation shown from one: sending a draft turns
+  its tab into the conversation. A conversation announced on `chat.Started` after the
+  user moved on opens in a background tab.
+- Tabs are grouped by folder: a group's tabs are adjacent, after a label with the
+  folder's name in its project color and over a line in that color; tabs without a
+  folder have neither. A new tab opens beside the active one when that is in its group,
+  else after its group, else at the end; a draft whose folder changes moves to its new
+  group. Each folder keeps the first of the palette's project colors no other folder
+  has, saved under `colors`.
+- A conversation tab shows what the conversation is doing, from `agent.Events`:
+  working once a turn starts or produces output, waiting for an approval or an answer,
+  unread when a turn ends while the tab is not on show (an interrupted turn is not),
+  idle otherwise. Showing the tab clears unread. `SessionRenamed` and the workspace
+  record keep titles current.
+- Closing a tab deletes nothing. Closing the active tab shows its right neighbour,
+  else its left one; closing the last one opens a new chat in its folder. A tab whose
+  conversation the record stops listing closes.
+- The open tabs and the active one are saved (`open`, `active`) and reopened once the
+  workspace record is read, without the conversations it no longer lists and pages no
+  plugin contributes. A conversation the chat already shows by then becomes the active
+  tab instead.
+- The strip draws a tab's marker, title and a close button (shown on the active and
+  hovered tab, and on focus), then a "+" that opens a new chat in the active tab's
+  folder, then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
+  (shows `settings.PageID` when contributed).
+- Commands: Close Tab (⌘W, File), Show Next Tab (⌃Tab) and Show Previous Tab (⌃⇧Tab,
+  View).
+
 ## Sessions and settings
 
 `internal/plugins/sessions` (locked) requires the workspace record and contributes the sidebar
-list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). Above
+list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). While a
+`shell.Strip` view exists, as with the tabs plugin, the window draws no sidebar, so the
+list is not shown. Above
 the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
 button and the search field. The field is a button that runs `shell.SearchCommand`
 (the palette's command) when a plugin contributes it; without one it is a text field

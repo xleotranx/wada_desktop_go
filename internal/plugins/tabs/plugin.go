@@ -1,0 +1,558 @@
+// Package tabs keeps the window's tabs: the conversations, new chats and
+// pages the user has open, grouped by folder across the title strip. Tabs
+// follow navigation: whatever the chat or the shell shows becomes the active
+// tab, so nothing has to open things through them. A background tab shows
+// what its conversation is doing, read from the agent's events.
+package tabs
+
+import (
+	"slices"
+	"strconv"
+
+	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/tabs"
+	"wada-desktop-go/internal/contract/workspace"
+	"wada-desktop-go/internal/kernel"
+	"wada-desktop-go/internal/native"
+)
+
+// Plugin is the tabs plugin. The zero value is ready to install.
+type Plugin struct {
+	ctx  *kernel.Context
+	chat chat.Controller
+	host shell.Host
+	ws   workspace.Service
+
+	saved       *kernel.Setting[[]saved]
+	savedActive *kernel.Setting[int]
+	// colors holds each folder's index into the palette's project colors.
+	colors *kernel.Setting[map[string]int]
+
+	tabs   []tabs.Tab // without State; states holds it
+	active string
+	states map[agent.SessionID]tabs.State
+	// recorded holds the conversations the workspace record has listed, so
+	// one it stops listing is closed but one it has not recorded yet is not.
+	recorded map[agent.SessionID]bool
+	restored bool
+	// selecting is set while Select navigates, so the navigation it causes
+	// is not followed as if someone else had caused it.
+	selecting bool
+	drafts    int // numbers the draft tabs' IDs
+}
+
+// saved is a tab as it is kept between runs.
+type saved struct {
+	Kind    tabs.Kind       `json:"kind"`
+	Session agent.SessionID `json:"session,omitempty"`
+	Folder  string          `json:"folder,omitempty"`
+	Page    string          `json:"page,omitempty"`
+	Title   string          `json:"title,omitempty"`
+}
+
+const newChatTitle = "New chat"
+
+func (*Plugin) Manifest() kernel.Manifest {
+	return kernel.Manifest{
+		ID: "tabs", Title: "Tabs",
+		Description: "Open chats as tabs across the window, grouped by folder.",
+		Provides:    []kernel.Named{tabs.ServiceKey},
+		Requires:    []kernel.Named{chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
+	}
+}
+
+func (p *Plugin) Setup(c *kernel.Context) error {
+	p.ctx = c
+	p.chat = kernel.Require(c, chat.ControllerKey)
+	p.host = kernel.Require(c, shell.HostKey)
+	p.ws = kernel.Require(c, workspace.ServiceKey)
+	p.saved = kernel.NewSetting[[]saved](c, "open", nil)
+	p.savedActive = kernel.NewSetting(c, "active", 0)
+	p.colors = kernel.NewSetting(c, "colors", map[string]int{})
+	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
+	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
+	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
+		return err
+	}
+	kernel.On(c, chat.Changed, p.followChat)
+	kernel.On(c, chat.Started, p.started)
+	kernel.On(c, shell.PageChanged, p.followPage)
+	kernel.On(c, agent.Events, p.events)
+	kernel.On(c, workspace.Changed, func(struct{}) { p.recordChanged() })
+	// Restoring navigates, which is not Setup's job: do it once set up.
+	c.Post(p.restore)
+	for _, err := range []error{
+		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true}),
+		kernel.Contribute(c, kernel.Commands, "tabs.close", 0, kernel.Command{
+			Title: "Close Tab", Menu: "File", Keys: []string{"cmd+w"},
+			Enabled: func() bool { return p.active != "" }, Run: func() { p.Close(p.active) }}),
+		kernel.Contribute(c, kernel.Commands, "tabs.next", 0, kernel.Command{
+			Title: "Show Next Tab", Menu: "View", Keys: []string{"ctrl+tab"},
+			Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(1) }}),
+		kernel.Contribute(c, kernel.Commands, "tabs.previous", 0, kernel.Command{
+			Title: "Show Previous Tab", Menu: "View", Keys: []string{"ctrl+shift+tab"},
+			Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(-1) }}),
+	} {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ---- tabs.Service
+
+func (p *Plugin) Tabs() []tabs.Tab {
+	out := make([]tabs.Tab, len(p.tabs))
+	for i, t := range p.tabs {
+		t.State = p.state(t)
+		out[i] = t
+	}
+	return out
+}
+
+func (p *Plugin) Active() (tabs.Tab, bool) {
+	i := p.find(p.active)
+	if i < 0 {
+		return tabs.Tab{}, false
+	}
+	t := p.tabs[i]
+	t.State = p.state(t)
+	return t, true
+}
+
+func (p *Plugin) Select(id string) {
+	i := p.find(id)
+	if i < 0 || id == p.active {
+		return
+	}
+	t := p.tabs[i]
+	p.selecting = true
+	switch t.Kind {
+	case tabs.Conversation:
+		s := agent.Session{ID: t.Session, Title: t.Title, Directory: t.Folder}
+		if conv, ok := p.ws.Lookup(t.Session); ok {
+			s = conv.Session()
+		}
+		p.chat.Open(s)
+		p.host.ShowPage(chat.PageID)
+	case tabs.Draft:
+		p.chat.NewChat(t.Folder)
+		p.host.ShowPage(chat.PageID)
+	case tabs.Page:
+		p.host.ShowPage(t.Page)
+	}
+	p.selecting = false
+	p.activate(t.ID)
+}
+
+func (p *Plugin) Close(id string) {
+	i := p.find(id)
+	if i < 0 {
+		return
+	}
+	closed := p.tabs[i]
+	p.tabs = slices.Delete(p.tabs, i, i+1)
+	if id != p.active {
+		p.changed()
+		return
+	}
+	p.active = ""
+	if len(p.tabs) == 0 {
+		// The last tab gives way to a new chat in its folder; following the
+		// chat makes that the new tab.
+		p.chat.NewChat(closed.Folder)
+		p.host.ShowPage(chat.PageID)
+		if p.active == "" {
+			p.showConversation(p.chat.Current())
+		}
+		return
+	}
+	p.Select(p.tabs[min(i, len(p.tabs)-1)].ID)
+}
+
+func (p *Plugin) Move(id string, index int) {
+	i := p.find(id)
+	if i < 0 {
+		return
+	}
+	t := p.tabs[i]
+	p.tabs = slices.Delete(p.tabs, i, i+1)
+	var group []int
+	for j, o := range p.tabs {
+		if o.Folder == t.Folder {
+			group = append(group, j)
+		}
+	}
+	var at int
+	switch {
+	case len(group) == 0:
+		at = min(i, len(p.tabs))
+	case index < len(group):
+		at = group[max(index, 0)]
+	default:
+		at = group[len(group)-1] + 1
+	}
+	p.tabs = slices.Insert(p.tabs, at, t)
+	p.changed()
+}
+
+// step selects the tab by off from the active one, wrapping around.
+func (p *Plugin) step(off int) {
+	if len(p.tabs) == 0 {
+		return
+	}
+	i := max(p.find(p.active), 0)
+	p.Select(p.tabs[(i+off+len(p.tabs))%len(p.tabs)].ID)
+}
+
+// ---- Following navigation
+
+func (p *Plugin) followChat(conv chat.Conversation) {
+	if !p.restored || p.selecting {
+		return
+	}
+	if page := p.host.Page(); page != "" && page != chat.PageID {
+		return
+	}
+	p.showConversation(conv)
+}
+
+func (p *Plugin) followPage(id string) {
+	if !p.restored || p.selecting {
+		return
+	}
+	if id == "" || id == chat.PageID {
+		p.showConversation(p.chat.Current())
+		return
+	}
+	tid := pageID(id)
+	if p.find(tid) >= 0 {
+		p.activate(tid)
+		return
+	}
+	p.insert(tabs.Tab{ID: tid, Kind: tabs.Page, Page: id, Title: p.pageTitle(id)})
+}
+
+// showConversation makes the conversation the chat shows the active tab.
+// A new chat takes over the active draft tab, as does the first stored
+// conversation shown from one: sending a draft turns its tab into the
+// conversation, and so does opening one from an empty tab.
+func (p *Plugin) showConversation(conv chat.Conversation) {
+	draft := p.find(p.active)
+	if draft >= 0 && p.tabs[draft].Kind != tabs.Draft {
+		draft = -1
+	}
+	if conv.Session == "" {
+		if draft < 0 {
+			p.insert(tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: conv.Directory, Title: newChatTitle})
+			return
+		}
+		if p.tabs[draft].Folder != conv.Directory {
+			p.tabs[draft].Folder = conv.Directory
+			p.regroup(draft)
+		}
+		p.changed()
+		return
+	}
+	if _, ok := p.ws.Lookup(conv.Session); ok {
+		p.recorded[conv.Session] = true
+	}
+	id := conversationID(conv.Session)
+	if i := p.find(id); i >= 0 {
+		if conv.Title != "" {
+			p.tabs[i].Title = conv.Title
+		}
+		p.activate(id)
+		return
+	}
+	t := tabs.Tab{ID: id, Kind: tabs.Conversation, Session: conv.Session, Folder: conv.Directory, Title: p.titleOf(conv)}
+	if draft < 0 {
+		p.insert(t)
+		return
+	}
+	p.ensureColor(t.Folder)
+	p.tabs[draft] = t
+	p.regroup(draft)
+	p.activate(id)
+}
+
+// started gives a conversation created after the user moved on its own tab,
+// in the background.
+func (p *Plugin) started(conv chat.Conversation) {
+	if !p.restored || p.find(conversationID(conv.Session)) >= 0 {
+		return
+	}
+	active := p.active
+	p.insert(tabs.Tab{ID: conversationID(conv.Session), Kind: tabs.Conversation, Session: conv.Session,
+		Folder: conv.Directory, Title: p.titleOf(conv)})
+	p.active = active
+	p.changed()
+}
+
+// ---- Restoring and the workspace record
+
+// restore reopens the tabs of the last run once the workspace record is
+// read, dropping conversations it no longer lists and pages no plugin
+// contributes. What the chat shows by then wins over the saved active tab.
+func (p *Plugin) restore() {
+	if p.restored || !p.ws.Loaded() {
+		return
+	}
+	p.restored = true
+	saved, active := p.saved.Get(), p.savedActive.Get()
+	activeID := ""
+	for i, s := range saved {
+		var t tabs.Tab
+		switch s.Kind {
+		case tabs.Conversation:
+			conv, ok := p.ws.Lookup(s.Session)
+			if !ok || p.find(conversationID(s.Session)) >= 0 {
+				continue
+			}
+			p.recorded[s.Session] = true
+			t = tabs.Tab{ID: conversationID(s.Session), Kind: tabs.Conversation, Session: s.Session,
+				Folder: conv.Folder, Title: titleOr(conv.Title, s.Title)}
+		case tabs.Draft:
+			t = tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: s.Folder, Title: newChatTitle}
+		case tabs.Page:
+			if !p.hasPage(s.Page) || p.find(pageID(s.Page)) >= 0 {
+				continue
+			}
+			t = tabs.Tab{ID: pageID(s.Page), Kind: tabs.Page, Page: s.Page, Title: p.pageTitle(s.Page)}
+		default:
+			continue
+		}
+		p.ensureColor(t.Folder)
+		p.tabs = append(p.tabs, t)
+		if i == active {
+			activeID = t.ID
+		}
+	}
+	if activeID == "" && len(p.tabs) > 0 {
+		activeID = p.tabs[0].ID
+	}
+	if conv := p.chat.Current(); conv.Session != "" || activeID == "" {
+		p.showConversation(conv)
+		return
+	}
+	p.Select(activeID)
+	p.changed()
+}
+
+// recordChanged restores once the record is read, then keeps titles in step
+// and closes the tabs of conversations the record stopped listing.
+func (p *Plugin) recordChanged() {
+	if !p.restored {
+		p.restore()
+		return
+	}
+	var gone []string
+	for i, t := range p.tabs {
+		if t.Kind != tabs.Conversation {
+			continue
+		}
+		conv, ok := p.ws.Lookup(t.Session)
+		switch {
+		case ok:
+			p.recorded[t.Session] = true
+			if conv.Title != "" {
+				p.tabs[i].Title = conv.Title
+			}
+		case p.recorded[t.Session]:
+			gone = append(gone, t.ID)
+		}
+	}
+	for _, id := range gone {
+		p.Close(id)
+	}
+	p.changed()
+}
+
+// ---- What conversations are doing
+
+func (p *Plugin) events(batch []agent.Event) {
+	moved := false
+	set := func(s agent.SessionID, st tabs.State) {
+		if p.states[s] != st {
+			p.states[s] = st
+			moved = true
+		}
+	}
+	for _, e := range batch {
+		if e.Session == "" {
+			continue
+		}
+		switch e.Kind {
+		case agent.TurnStarted, agent.TextStarted, agent.TextDelta, agent.ToolStarted, agent.ToolCalled, agent.ToolFinished:
+			set(e.Session, tabs.Working)
+		case agent.ApprovalRequested, agent.InteractionRequested:
+			set(e.Session, tabs.Waiting)
+		case agent.TurnSucceeded, agent.TurnFailed:
+			if p.onShow(e.Session) {
+				set(e.Session, tabs.Idle)
+			} else {
+				set(e.Session, tabs.Unread)
+			}
+		case agent.TurnInterrupted:
+			set(e.Session, tabs.Idle)
+		case agent.SessionRenamed:
+			if i := p.find(conversationID(e.Session)); i >= 0 && e.Title != "" && p.tabs[i].Title != e.Title {
+				p.tabs[i].Title = e.Title
+				moved = true
+			}
+		case agent.TextEnded, agent.ModelChanged:
+		}
+	}
+	if moved {
+		p.changed()
+	}
+}
+
+// onShow reports that the user is looking at the conversation's tab.
+func (p *Plugin) onShow(s agent.SessionID) bool {
+	page := p.host.Page()
+	return (page == "" || page == chat.PageID) && p.chat.Current().Session == s
+}
+
+func (p *Plugin) state(t tabs.Tab) tabs.State {
+	if t.Kind != tabs.Conversation {
+		return tabs.Idle
+	}
+	return p.states[t.Session]
+}
+
+// ---- The list
+
+func (p *Plugin) find(id string) int {
+	if id == "" {
+		return -1
+	}
+	return slices.IndexFunc(p.tabs, func(t tabs.Tab) bool { return t.ID == id })
+}
+
+// activate makes the tab the active one; a finished turn is seen once its
+// tab is.
+func (p *Plugin) activate(id string) {
+	p.active = id
+	if i := p.find(id); i >= 0 && p.states[p.tabs[i].Session] == tabs.Unread {
+		p.states[p.tabs[i].Session] = tabs.Idle
+	}
+	p.changed()
+}
+
+// insert adds t and makes it active: beside the active tab when that is in
+// t's group, else after the group's last tab, else at the end.
+func (p *Plugin) insert(t tabs.Tab) {
+	p.ensureColor(t.Folder)
+	p.tabs = slices.Insert(p.tabs, p.slot(t.Folder, -1), t)
+	p.activate(t.ID)
+}
+
+// regroup moves the tab at i to its group, after the folder changed.
+func (p *Plugin) regroup(i int) {
+	t := p.tabs[i]
+	p.tabs = slices.Delete(p.tabs, i, i+1)
+	p.tabs = slices.Insert(p.tabs, p.slot(t.Folder, i), t)
+}
+
+// slot is where a tab of the folder goes; fallback, when not negative, is
+// used for a folder with no tabs yet.
+func (p *Plugin) slot(folder string, fallback int) int {
+	if i := p.find(p.active); i >= 0 && p.tabs[i].Folder == folder {
+		return i + 1
+	}
+	last := -1
+	for i, t := range p.tabs {
+		if t.Folder == folder {
+			last = i
+		}
+	}
+	switch {
+	case last >= 0:
+		return last + 1
+	case fallback >= 0:
+		return min(fallback, len(p.tabs))
+	}
+	return len(p.tabs)
+}
+
+// changed saves the tabs and says so.
+func (p *Plugin) changed() {
+	keep := make([]saved, 0, len(p.tabs))
+	active := 0
+	for i, t := range p.tabs {
+		if t.ID == p.active {
+			active = i
+		}
+		keep = append(keep, saved{Kind: t.Kind, Session: t.Session, Folder: t.Folder, Page: t.Page, Title: t.Title})
+	}
+	p.saved.Set(keep)
+	p.savedActive.Set(active)
+	kernel.Emit(p.ctx, tabs.Changed, struct{}{})
+}
+
+// ensureColor gives a folder the first project color no other folder has.
+func (p *Plugin) ensureColor(folder string) {
+	colors := p.colors.Get()
+	if _, ok := colors[folder]; ok || folder == "" {
+		return
+	}
+	var used [len(native.Palette{}.Projects)]bool
+	for _, i := range colors {
+		if i >= 0 && i < len(used) {
+			used[i] = true
+		}
+	}
+	pick := len(colors) % len(used)
+	if i := slices.Index(used[:], false); i >= 0 {
+		pick = i
+	}
+	next := make(map[string]int, len(colors)+1)
+	for k, v := range colors {
+		next[k] = v
+	}
+	next[folder] = pick
+	p.colors.Set(next)
+}
+
+func (p *Plugin) draftID() string {
+	p.drafts++
+	return "draft:" + strconv.Itoa(p.drafts)
+}
+
+func (p *Plugin) titleOf(conv chat.Conversation) string {
+	if c, ok := p.ws.Lookup(conv.Session); ok && c.Title != "" {
+		return c.Title
+	}
+	return titleOr(conv.Title, "")
+}
+
+func (p *Plugin) hasPage(id string) bool {
+	return slices.ContainsFunc(kernel.Items(p.ctx, shell.Pages), func(e kernel.Entry[shell.Page]) bool { return e.ID == id })
+}
+
+func (p *Plugin) pageTitle(id string) string {
+	title := ""
+	for _, e := range kernel.Items(p.ctx, shell.Pages) {
+		if e.ID == id && e.Value.Title != nil {
+			kernel.Invoke(p.ctx, e, func(pg shell.Page) { title = pg.Title() })
+		}
+	}
+	return titleOr(title, "Page")
+}
+
+func titleOr(title, fallback string) string {
+	switch {
+	case title != "":
+		return title
+	case fallback != "":
+		return fallback
+	}
+	return newChatTitle
+}
+
+func conversationID(s agent.SessionID) string { return "chat:" + string(s) }
+func pageID(id string) string                 { return "page:" + id }

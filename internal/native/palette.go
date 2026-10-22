@@ -18,8 +18,6 @@ type Palette struct {
 	// StripBg is behind the window's title strip; PanelBg is the rounded
 	// panel the page sits in, and DrawerBg a column beside the page in it.
 	StripBg, PanelBg, DrawerBg ui.Color
-	// PanelEdge outlines the panel, quieter than a hairline.
-	PanelEdge ui.Color
 	// Raised lifts a bubble, chip or control off the panel.
 	Raised ui.Color
 	// Waiting marks what waits for the user, such as an approval.
@@ -92,7 +90,6 @@ func PaletteFor(c *ui.Context) Palette {
 		StripBg:   strip,
 		PanelBg:   t.Surface,
 		DrawerBg:  t.Surface.Mix(strip, 0.4),
-		PanelEdge: t.Border.Mix(t.Surface, 0.35),
 		Raised:    t.Surface.Mix(t.SurfaceHover, 0.75),
 		Waiting:   t.Warning,
 		DiffAddBg: t.Success.Alpha(0.12),

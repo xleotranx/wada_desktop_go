@@ -11,7 +11,6 @@ import (
 	"wada-desktop-go/internal/plugins/opencode"
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/pi"
-	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
@@ -31,10 +30,9 @@ func main() {
 		&attachments.Plugin{},
 		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
 		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db
-		&sessions.Plugin{},
-		&tabs.Plugin{},     // open chats as tabs across the window; replaces the sidebar
-		&workflow.Plugin{}, // runs flows through hidden conversations
-		&flows.Plugin{},    // plan, code, review, from the command palette
+		&tabs.Plugin{},      // open chats as tabs across the window; replaces the sidebar
+		&workflow.Plugin{},  // runs flows through hidden conversations
+		&flows.Plugin{},     // plan, code, review, from the command palette
 		&palette.Plugin{},
 		&notifications.Plugin{},
 		&inspector.Plugin{},

@@ -36,7 +36,7 @@ const (
 // Plugin is the workflow engine. The zero value is ready to install.
 //
 // The conversations of a flow's steps are opened with the backend but kept out
-// of the app's record, so the sidebar and the palette do not list them; a step
+// of the app's record, so the tabs and All chats do not list them; a step
 // is recorded when the user opens it in the chat.
 type Plugin struct {
 	ctx   *kernel.Context
@@ -373,7 +373,7 @@ func (p *Plugin) question(w *watch, in agent.Interaction) {
 // ---- Steps in the chat
 
 // openStep shows a step's conversation in the chat. The first time, it also
-// enters the conversation in the app's record, so the sidebar lists it from
+// enters the conversation in the app's record, so All chats lists it from
 // then on.
 func (p *Plugin) openStep(r *run, st *step) {
 	ctl, ok := kernel.Use(p.ctx, chat.ControllerKey)

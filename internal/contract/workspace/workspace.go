@@ -1,6 +1,6 @@
 // Package workspace declares the app's own record of where the user works:
 // the folders they chose and the conversations started in this app. The
-// sidebar and the palette list only these, grouped by folder; the backend
+// tabs and All chats list only these, grouped by folder; the backend
 // still owns each conversation's messages.
 package workspace
 
@@ -21,7 +21,7 @@ var (
 // Folder is a folder the user works in.
 type Folder struct {
 	Path      string // absolute and clean; what a conversation's Folder names
-	Collapsed bool   // the sidebar shows only its header
+	Collapsed bool   // its tab group shows only its label
 	Added     int64  // Unix milliseconds
 }
 

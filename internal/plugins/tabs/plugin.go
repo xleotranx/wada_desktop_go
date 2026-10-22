@@ -20,10 +20,11 @@ import (
 
 // Plugin is the tabs plugin. The zero value is ready to install.
 type Plugin struct {
-	ctx  *kernel.Context
-	chat chat.Controller
-	host shell.Host
-	ws   workspace.Service
+	ctx   *kernel.Context
+	agent agent.Service
+	chat  chat.Controller
+	host  shell.Host
+	ws    workspace.Service
 
 	saved       *kernel.Setting[[]saved]
 	savedActive *kernel.Setting[int]
@@ -47,6 +48,15 @@ type Plugin struct {
 	// chatTab is the tab the chat shows or showed last, which names the new
 	// chat whose text the chat leaves behind.
 	chatTab string
+
+	// The dialogs the menus open.
+	renaming tabs.Tab
+	title    string
+	renameOn bool
+	deleting tabs.Tab
+	deleteOn bool
+	removing string // the folder whose removal is being confirmed
+	removeOn bool
 }
 
 // saved is a tab as it is kept between runs.
@@ -62,15 +72,16 @@ const newChatTitle = "New chat"
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "tabs", Title: "Tabs",
+		ID: "tabs", Title: "Tabs", Locked: true,
 		Description: "Open chats as tabs across the window, grouped by folder.",
 		Provides:    []kernel.Named{tabs.ServiceKey},
-		Requires:    []kernel.Named{chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
+		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
 	}
 }
 
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
+	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.ws = kernel.Require(c, workspace.ServiceKey)
@@ -80,6 +91,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
 	p.unsent, p.chatTab = map[string]string{}, ""
+	p.renaming, p.renameOn, p.deleting, p.deleteOn, p.removing, p.removeOn = tabs.Tab{}, false, tabs.Tab{}, false, "", false
 	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
 		return err
 	}
@@ -93,6 +105,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	c.Post(p.restore)
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true}),
+		kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs}),
 		kernel.Contribute(c, kernel.Commands, "tabs.close", 0, kernel.Command{
 			Title: "Close Tab", Menu: "File", Keys: []string{"cmd+w"},
 			Enabled: func() bool { return p.active != "" }, Run: func() { p.Close(p.active) }}),

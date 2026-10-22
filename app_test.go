@@ -20,8 +20,8 @@ import (
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/palette"
-	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugintest"
@@ -79,7 +79,7 @@ func startApp(t *testing.T) *app {
 	}
 	s, err := shell.New(shell.Options{Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a, files, &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
-		&workspace.Plugin{}, &sessions.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		&workspace.Plugin{}, &tabs.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +145,18 @@ func (a *app) command(id string) {
 	a.t.Fatalf("no command %q", id)
 }
 
+// newChatIn starts a chat from the menu of a folder's tab group.
+func (a *app) newChatIn(folder string) {
+	a.t.Helper()
+	if err := a.tt.Click("Project " + folder); err != nil {
+		a.t.Fatal(err)
+	}
+	if err := a.tt.ChooseMenuItem("New Chat"); err != nil {
+		a.t.Fatal(err)
+	}
+	a.settle()
+}
+
 func (a *app) openConversation(s agent.Session) {
 	a.t.Helper()
 	ctl, _ := kernel.Use[chatcontract.Controller](a.shell.Kernel, chatcontract.ControllerKey)
@@ -155,16 +167,19 @@ func (a *app) openConversation(s agent.Session) {
 func TestPaletteRunsCommandsOtherPluginsContributed(t *testing.T) {
 	a := startApp(t)
 	a.command("palette.open")
-	for _, want := range []string{"Fix the parser", "Write the docs", "New Chat", "Settings…", "⌘,", "Toggle Sidebar", "Attach Files…"} {
+	for _, want := range []string{"Open in tabs", "Fix the parser", "Write the docs", "Projects", "Open Folder…", "New Chat", "Close Tab"} {
 		if !a.tt.HasText(want) {
 			t.Fatalf("%q is missing from the palette: %q", want, a.tt.Texts())
 		}
 	}
-	if a.tt.HasText("Command Palette…") {
+	if a.tt.HasText("All Chats…") {
 		t.Fatal("the palette lists itself")
 	}
 	a.tt.Type("settings")
 	a.settle()
+	if !a.tt.HasText("Settings…") || !a.tt.HasText("⌘,") {
+		t.Fatalf("the Settings command is not found: %q", a.tt.Texts())
+	}
 	a.tt.Key(0, ui.KeyEnter)
 	a.settle()
 	if !a.tt.HasText("Back to chat") {
@@ -172,11 +187,11 @@ func TestPaletteRunsCommandsOtherPluginsContributed(t *testing.T) {
 	}
 }
 
-func TestPaletteOpensAConversationWithoutTheSidebar(t *testing.T) {
+func TestAllChatsOpensAConversationInATab(t *testing.T) {
 	a := startApp(t)
 	a.agent.Stored["s2"] = []agent.Message{{ID: "m1", Role: agent.RoleUser, Text: "document the kernel"}}
 	a.command("palette.open")
-	a.tt.Type("docs")
+	a.tt.Type("write")
 	a.settle()
 	if a.tt.HasText("/work/app") { // the folder shows only in the palette
 		t.Fatalf("the filter kept an unrelated conversation: %q", a.tt.Texts())
@@ -189,22 +204,21 @@ func TestPaletteOpensAConversationWithoutTheSidebar(t *testing.T) {
 	if !slices.Contains(a.agent.Calls(), "messages s2") {
 		t.Fatalf("calls %q", a.agent.Calls())
 	}
+	if _, ok := a.tt.Find("Close Write the docs"); !ok {
+		t.Fatalf("the conversation has no tab: %q", a.tt.Texts())
+	}
 }
 
-func TestSidebarGroupsTheAppsOwnConversationsByFolder(t *testing.T) {
+func TestTabsGroupTheAppsOwnConversationsByFolder(t *testing.T) {
 	a := startApp(t)
+	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
+	a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
 	for _, want := range []string{"app", "docs", "Fix the parser", "Write the docs"} {
 		if !a.tt.HasText(want) {
-			t.Fatalf("%q is missing from the sidebar: %q", want, a.tt.Texts())
+			t.Fatalf("%q is missing from the tabs: %q", want, a.tt.Texts())
 		}
 	}
-	if a.tt.HasText("Started in a terminal") {
-		t.Fatal("the sidebar lists a conversation the app did not start")
-	}
-	if err := a.tt.Click("New chat in docs"); err != nil {
-		t.Fatal(err)
-	}
-	a.settle()
+	a.newChatIn("docs")
 	if err := a.tt.Click("Compose"); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +306,7 @@ func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
 		}
 	}
 	if a.tt.HasText("Plan, code, review · Code") {
-		t.Fatal("a hidden step is listed in the sidebar")
+		t.Fatal("a hidden step has a tab")
 	}
 	if err := a.tt.Click("Allow once"); err != nil {
 		t.Fatal(err)
@@ -313,7 +327,7 @@ func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
 		t.Fatalf("prompts went to %q", got)
 	}
 
-	// Opening the coder's conversation records it, so the sidebar lists it.
+	// Opening the coder's conversation records it, so All chats lists it.
 	if err := a.tt.Click("Open Code in chat"); err != nil {
 		t.Fatal(err)
 	}
@@ -338,10 +352,7 @@ func TestTheModePickerRunsTheNextMessageAsAWorkflow(t *testing.T) {
 		}
 		a.agent.Respond(req.Session, "Did it.")
 	}
-	if err := a.tt.Click("New chat in docs"); err != nil {
-		t.Fatal(err)
-	}
-	a.settle()
+	a.newChatIn("docs")
 	if err := a.tt.Click("Compose"); err != nil {
 		t.Fatal(err)
 	}

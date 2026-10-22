@@ -1,6 +1,6 @@
 // Package workspace keeps the app's own record of where the user works: the
 // folders they opened and the conversations started in this app, in
-// workspace.db beside the settings. The sidebar and the palette list only
+// workspace.db beside the settings. The tabs and All chats list only
 // these. It also adds "Open Folder…" and the composer's folder picker.
 package workspace
 
@@ -310,7 +310,7 @@ func (p *Plugin) started(conv chat.Conversation) {
 	if p.origin == "" || conv.Session == "" {
 		return
 	}
-	// Only an absolute folder is one the sidebar can group and remove; the
+	// Only an absolute folder is one the tabs can group and remove; the
 	// backend resolves any other itself.
 	folder := filepath.Clean(conv.Directory)
 	if conv.Directory == "" || !filepath.IsAbs(folder) {

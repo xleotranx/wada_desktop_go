@@ -31,7 +31,7 @@ func (p *Plugin) page(c *ui.Context) {
 			ui.Column(c).FillWidth().MaxWidth(820).MinWidth(0).Gap(18).Padding(20, 40, 40, 40).Children(func() {
 				p.nav(c, pal)
 				if r == nil {
-					ui.Text(c, "No workflow has run yet. Start one from the command palette (⌘K).").FontSize(13).TextColor(pal.Muted)
+					ui.Text(c, "No workflow has run yet. Start one from All chats (⌘K).").FontSize(13).TextColor(pal.Muted)
 					return
 				}
 				p.header(c, pal, r)

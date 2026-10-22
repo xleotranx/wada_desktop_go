@@ -35,8 +35,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	open := func() { p.host.ShowPage(settings.PageID) }
 	for _, err := range []error{
-		kernel.Contribute(c, shell.Pages, settings.PageID, 100, shell.Page{Title: func() string { return "Settings" }, Render: p.view, HideSidebar: true}),
-		kernel.Contribute(c, shell.Sidebar, "settings.button", 100, shell.View{Render: p.sidebarButton}),
+		kernel.Contribute(c, shell.Pages, settings.PageID, 100, shell.Page{Title: func() string { return "Settings" }, Render: p.view}),
 		kernel.Contribute(c, kernel.Commands, "settings.open", 0, kernel.Command{
 			Title: "Settings…", Menu: "File", Keys: []string{"cmd+,"}, Run: open}),
 		kernel.Contribute(c, settings.Sections, "settings.appearance", 0, settings.Section{
@@ -49,22 +48,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		}
 	}
 	return nil
-}
-
-func (p *Plugin) sidebarButton(c *ui.Context) {
-	pal := native.PaletteFor(c)
-	b := ui.ButtonBase(c).Label("Settings").Height(34).Radius(8).Padding(0, 8).FillWidth().
-		Justify(ui.Start).AlignItems(ui.Center).Gap(8).Cursor(ui.CursorPointer)
-	if p.host.Page() == settings.PageID {
-		b.Background(pal.Selected)
-	} else if b.Hovered() {
-		b.Background(pal.Hover)
-	}
-	b.OnClick(func() { p.host.ShowPage(settings.PageID) })
-	b.Children(func() {
-		ui.Icon(c, lucide.Settings()).FontSize(14).TextColor(pal.Text)
-		ui.Text(c, "Settings").FontSize(13.5).TextColor(pal.Text)
-	})
 }
 
 func (p *Plugin) view(c *ui.Context) {

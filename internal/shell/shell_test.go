@@ -56,7 +56,6 @@ func newShell(t *testing.T, plugins ...kernel.Plugin) (*Shell, func()) {
 func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	ran := 0
 	p := &plugin{id: "notes", setup: func(c *kernel.Context) error {
-		kernel.Contribute(c, shell.Sidebar, "notes.list", 0, text("Sidebar section"))
 		kernel.Contribute(c, shell.TitleBar, "notes.badge", 0, text("Badge"))
 		kernel.Contribute(c, shell.Pages, "notes.main", 0, shell.Page{Title: func() string { return "Main page" }, Render: func(c *ui.Context) { ui.Text(c, "Main body") }})
 		kernel.Contribute(c, shell.Pages, "notes.other", 1, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Other body") }})
@@ -67,18 +66,17 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	s.opts.SetTitle = func(t string) { title = t }
 	tt := ui.NewTester(s.View, 1200, 800)
 	tt.Frame()
-	for _, want := range []string{"Sidebar section", "Badge", "Main page", "Main body"} {
+	for _, want := range []string{"Badge", "Main page", "Main body"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q in %q", want, tt.Texts())
 		}
 	}
-	visibleTitle, ok := tt.Find("Main page")
-	// The title starts the page's own header, just past the sidebar.
-	if !ok || visibleTitle.X < sidebarDefaultWidth || visibleTitle.X > sidebarDefaultWidth+24 {
-		t.Fatalf("expanded title does not start the page header: %+v", visibleTitle)
+	// Without a Strip view the page's title leads the title strip.
+	if visibleTitle, ok := tt.Find("Main page"); !ok || visibleTitle.Y > float32(headerStrip) || visibleTitle.X > 24 {
+		t.Fatalf("title does not lead the strip: %+v", visibleTitle)
 	}
 	if badge, ok := tt.Find("Badge"); !ok || badge.X+badge.W < 1200-16 {
-		t.Fatalf("title-bar item is not at the end of the header: %+v", badge)
+		t.Fatalf("title-bar item is not at the end of the strip: %+v", badge)
 	}
 	if title != "Main page — Wada" {
 		t.Fatalf("window title %q", title)
@@ -93,38 +91,10 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	if !tt.HasText("Other body") || tt.HasText("Main body") {
 		t.Fatalf("page switch: %q", tt.Texts())
 	}
-	if err := tt.Click("Hide sidebar"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	if tt.HasText("Sidebar section") {
-		t.Fatal("sidebar still shown")
-	}
-	for _, want := range []string{"Other body", "Badge"} {
-		if !tt.HasText(want) {
-			t.Fatalf("missing %q after hiding sidebar", want)
-		}
-	}
-	host.ShowPage("notes.main")
-	tt.Frame()
-	titleBounds, ok := tt.Find("Main page")
-	// With the sidebar hidden the toggle leads the header, then the title.
-	toggleBounds, _ := tt.Find("Show sidebar")
-	if !ok || titleBounds.X < toggleBounds.X+toggleBounds.W || titleBounds.X > toggleBounds.X+toggleBounds.W+12 {
-		t.Fatalf("collapsed title does not follow the toggle %+v: %+v", toggleBounds, titleBounds)
-	}
-	if err := tt.Click("Show sidebar"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	if !tt.HasText("Sidebar section") {
-		t.Fatal("sidebar did not return")
-	}
 }
 
-func TestStripReplacesSidebarAndPageHeader(t *testing.T) {
+func TestStripReplacesThePageTitle(t *testing.T) {
 	p := &plugin{id: "tabs", setup: func(c *kernel.Context) error {
-		kernel.Contribute(c, shell.Sidebar, "tabs.list", 0, text("Sidebar section"))
 		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Grow: true, Render: func(c *ui.Context) {
 			ui.Row(c).Fill().Children(func() { ui.Text(c, "First tab") })
 		}})
@@ -137,8 +107,8 @@ func TestStripReplacesSidebarAndPageHeader(t *testing.T) {
 	s.opts.SetTitle = func(t string) { title = t }
 	tt := ui.NewTester(s.View, 1200, 800)
 	tt.Frame()
-	if tt.HasText("Sidebar section") || tt.HasText("Main page") {
-		t.Fatalf("strip layout drew the sidebar or the page title: %q", tt.Texts())
+	if tt.HasText("Main page") {
+		t.Fatalf("strip layout drew the page title: %q", tt.Texts())
 	}
 	if title != "Main page — Wada" {
 		t.Fatalf("window title %q", title)
@@ -174,7 +144,7 @@ func TestShowPageAnnouncesEachChange(t *testing.T) {
 
 func TestPanickingViewFailsOnlyItsPlugin(t *testing.T) {
 	bad := &plugin{id: "bad", setup: func(c *kernel.Context) error {
-		return kernel.Contribute(c, shell.Sidebar, "bad.view", 0, shell.View{Render: func(*ui.Context) { panic("broken view") }})
+		return kernel.Contribute(c, shell.TitleBar, "bad.view", 0, shell.View{Render: func(*ui.Context) { panic("broken view") }})
 	}}
 	good := &plugin{id: "good", setup: func(c *kernel.Context) error {
 		return kernel.Contribute(c, shell.Pages, "good.page", 0, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Still here") }})
@@ -271,40 +241,6 @@ func TestNoticesReachTheDesktopAndClicksReachPlugins(t *testing.T) {
 	s.NoticeClicked("chat:s1")
 	if len(shown) != 1 || shown[0].ID != "chat:s1" || host.Foreground() || len(clicked) != 1 || clicked[0] != "chat:s1" {
 		t.Fatalf("shown %+v foreground %v clicked %q", shown, host.Foreground(), clicked)
-	}
-}
-
-func TestPageCanHideSidebarWithoutChangingPreference(t *testing.T) {
-	p := &plugin{id: "pages", setup: func(c *kernel.Context) error {
-		if err := kernel.Contribute(c, shell.Sidebar, "pages.list", 0, text("Conversations")); err != nil {
-			return err
-		}
-		if err := kernel.Contribute(c, shell.Pages, "pages.chat", 0, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Chat body") }}); err != nil {
-			return err
-		}
-		return kernel.Contribute(c, shell.Pages, "pages.focused", 1, shell.Page{HideSidebar: true, Render: func(c *ui.Context) { ui.Text(c, "Focused body") }})
-	}}
-	s, _ := newShell(t, p)
-	tt := ui.NewTester(s.View, 900, 600)
-	host, _ := kernel.Use(s.Kernel, shell.HostKey)
-	for _, hidden := range []bool{false, true} {
-		s.host.sidebarHidden.Set(hidden)
-		host.ShowPage("pages.focused")
-		tt.Frame()
-		if tt.HasText("Conversations") || !tt.HasText("Focused body") {
-			t.Fatalf("focused page: %q", tt.Texts())
-		}
-		if err := tt.Click("Show sidebar"); err == nil {
-			t.Fatal("sidebar toggle is available on focused page")
-		}
-		if s.host.sidebarHidden.Get() != hidden {
-			t.Fatal("page changed sidebar preference")
-		}
-		host.ShowPage("pages.chat")
-		tt.Frame()
-		if tt.HasText("Conversations") == hidden {
-			t.Fatal("sidebar preference was not restored")
-		}
 	}
 }
 

@@ -8,34 +8,21 @@ Declared in `internal/contract/shell`, `internal/contract/chat`,
 
 `internal/shell` is the window host. It creates the kernel, opens the settings store,
 builds the window and menu bar, and every frame draws what plugins contribute. It
-contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey`,
-`kernel.InspectorKey` and the
-"Toggle Sidebar" command.
+contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey` and
+`kernel.InspectorKey`.
 
 | Point | Drawn |
 |---|---|
-| `shell.Sidebar` | sections stacked in the resizable sidebar; no entries, no sidebar |
 | `shell.Pages` | the main area, one page at a time; the lowest Order is the default |
+| `shell.Strip` | views across the title strip, after the window controls |
 | `shell.TitleBar` | items at the end of the title strip |
-| `shell.Strip` | views across the title strip, before the title-bar items; with one, the strip layout below |
 | `shell.Overlays` | above everything (dialogs) |
 
-The window is flat: the sidebar and the page share the window background, split by
-a hairline that drags to resize the sidebar (and takes the keyboard). Each pane has
-its own header strip that drags the window: the sidebar's holds the sidebar toggle
-beside the window controls, the page's the page title at its start and title-bar
-contributions at its end. With the sidebar hidden, the toggle moves into the page's
-header before the title.
-
-A `shell.Page` can set `HideSidebar` to use the whole window and omit the sidebar
-toggle. This leaves the saved sidebar visibility and width unchanged.
-
-While a `shell.Strip` entry exists the window is laid out differently. The title
-strip, on `StripBg`, holds the strip views in a row after the window controls (one
-with `Grow` takes the remaining width), then the title-bar items. It drags the window
-where nothing in it takes the mouse. Below it the page fills a panel on `PanelBg`,
-inset 8 px with a 12 px radius. There is no sidebar and no page title; the window
-title still follows the page's `Title`.
+The title strip, on `StripBg`, holds the strip views in a row after the window
+controls (one with `Grow` takes the remaining width), then the title-bar items. It
+drags the window where nothing in it takes the mouse. Without a strip view it shows
+the page's `Title` instead. Below it the page fills a panel on `PanelBg`, inset 8 px
+with a 12 px radius. The window title follows the page's `Title`.
 
 `shell.Host.ShowPage` emits `shell.PageChanged` with the ID it chose whenever that
 differs from the last one.
@@ -136,20 +123,24 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   sends nothing: it is noted and the conversation read again.
 - User messages show the files that went with them as chips.
 
-## Command palette
+## All chats
 
-`internal/plugins/palette` adds "Command Palette…" (⌘K, View menu) under the ID
-`shell.SearchCommand`, so the sidebar's search field opens it too. It toggles
+`internal/plugins/palette` adds "All Chats…" (⌘K, View menu) under the ID
+`shell.SearchCommand`, so the tab strip's search button opens it too. It toggles
 Onevra's command dialog from a `shell.Overlays` entry. It needs no other plugin: the
 commands are every `kernel.Commands` entry that has a `Run`, shown with their
 shortcut spelled as in a macOS menu, and one that is not `Enabled` is listed greyed
-out and does nothing. Conversations come from the workspace record
+out and does nothing. Conversations and folders come from the workspace record
 (`workspace.ServiceKey`) when it is active, so the palette keeps working without it:
-only those the app started, with their folder. Typing filters them with the same
-matcher as the commands. With nothing typed it lists the five newest conversations,
-then the commands. Choosing runs the command, or opens the conversation through
-`chat.Controller`, once the handler that chose it has returned. The query is dropped
-each time the palette opens.
+only the conversations the app started, with their folder.
+
+With nothing typed it lists, in groups: the conversations open in tabs (from
+`tabs.ServiceKey`, when there is one), the five newest others ("Earlier"), the
+folders ("Projects", each with its count of chats, then "Open Folder…"), then the
+commands. Typing filters all of them with one matcher, older conversations
+included. Choosing runs the command, opens the conversation through
+`chat.Controller` (the tabs follow), or starts a new chat in the folder, once the
+handler that chose it has returned. The query is dropped each time the palette opens.
 
 ## Workspace
 
@@ -157,8 +148,8 @@ each time the palette opens.
 and `shell.HostKey`, and provides `workspace.ServiceKey`: the app's own record of the
 folders the user works in and of the conversations started in this app. The backend
 keeps the messages; the record says which conversations are the app's and where they
-belong, so the sidebar, the palette and the notifications show nothing else. It and the
-sidebar list are locked: without them the app would keep no record of its
+belong, so the tabs, All chats and the notifications show nothing else. It and the
+tabs are locked: without them the app would keep no record of its
 conversations and offer no way back to one. Like Chat, they still become Blocked
 while no backend is active.
 
@@ -198,7 +189,7 @@ says so. Without a data folder (tests) it always lives in memory.
 -- PRAGMA user_version = 1
 CREATE TABLE folders (
   path      TEXT PRIMARY KEY,   -- absolute and clean
-  collapsed INTEGER NOT NULL,   -- the sidebar shows only its header
+  collapsed INTEGER NOT NULL,   -- its tab group shows only its label
   added     INTEGER NOT NULL);  -- Unix ms
 CREATE TABLE conversations (
   origin         TEXT NOT NULL, -- agent.Status.Origin
@@ -213,9 +204,9 @@ CREATE TABLE conversations (
 
 ## Tabs
 
-`internal/plugins/tabs` requires `chat.ControllerKey`, `shell.HostKey` and
-`workspace.ServiceKey`, provides `tabs.ServiceKey` and contributes the `shell.Strip`
-view, so with it installed the window has the strip layout and no sidebar.
+`internal/plugins/tabs` (locked) requires `agent.ServiceKey`, `chat.ControllerKey`,
+`shell.HostKey` and `workspace.ServiceKey`, provides `tabs.ServiceKey` and contributes
+the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 - A tab only points at what it shows: a stored conversation, a new chat in a folder
   (a draft), or a shell page other than the chat. The chat still has one open
@@ -253,38 +244,21 @@ view, so with it installed the window has the strip layout and no sidebar.
   hovered tab, and on focus), then a "+" that opens a new chat in the active tab's
   folder, then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
   (shows `settings.PageID` when contributed).
+- A group's label is a menu: New Chat in the folder, Collapse Group (remembered in the
+  record as `Folder.Collapsed`; a collapsed group shows its label with a count and
+  only its active tab) or Expand Group, and Remove Folder…, which asks first, counting
+  the conversations that leave the record, then closes the group's tabs.
+- A tab's context menu has Close Tab, and for a conversation Rename…, Remove from List
+  and Delete…. Rename and delete go to the backend, then the record; Remove from List
+  only forgets the record. Either closes the tab. A failed rename or delete is
+  reported and changes nothing. Menu choices act after the frame.
 - Commands: Close Tab (⌘W, File), Show Next Tab (⌃Tab) and Show Previous Tab (⌃⇧Tab,
   View).
 
-## Sessions and settings
+## Settings
 
-`internal/plugins/sessions` (locked) requires the workspace record and contributes the sidebar
-list (`shell.Sidebar`, growing to fill it) and its dialogs (`shell.Overlays`). While a
-`shell.Strip` view exists, as with the tabs plugin, the window draws no sidebar, so the
-list is not shown. Above
-the list are "New chat" (in the open conversation's folder, as ⌘N), an "Open folder…"
-button and the search field. The field is a button that runs `shell.SearchCommand`
-(the palette's command) when a plugin contributes it; without one it is a text field
-that filters the list. Each folder has a header with its name that collapses it, remembered in the record, and, on hover or focus, an options menu
-(New Chat, Remove Folder…) and, last, a "+" that starts a chat there. Under it are
-its conversations, newest first, or "No conversations". Conversations without a known
-folder follow under "Other chats"; with no folders at all the list is flat. The inline
-filter matches titles as you type, shows matches under their folders even when collapsed, and
-hides folders without one. With no conversations at all the list is a short note with
-an "Open folder…" button. Rows show the title, its last activity ("5m", "3h", a date)
-while the options button is hidden, an unread mark for a recorded
-conversation that finished a turn while another was open, and an options menu
-(Rename…, Remove from List, Delete…) that stays keyboard accessible and appears on
-hover, focus or selection. Menu choices act after the frame. The rows are laid out
-again only when `workspace.Changed` arrives or the search changes. Rename and delete
-go to the backend, then the record;
-"Remove from List" only forgets the record. A failed delete is reported and the
-conversation stays listed. Removing a folder asks first and counts the conversations
-that leave the list.
-
-`internal/plugins/settings` contributes the settings page, a sidebar button and
-"Settings…" (⌘,). The page hides the conversation sidebar and offers “Back to chat” above its own
-navigation. It lists `settings.Sections` entries in order in a navigation column and renders
+`internal/plugins/settings` contributes the settings page and "Settings…" (⌘,). The
+page offers “Back to chat” above its own navigation. It lists `settings.Sections` entries in order in a navigation column and renders
 only the selected section in a separately scrolling detail pane. If that section
 disappears, it shows the first available section. It adds its own Appearance and
 Plugins sections; appearance offers System, Light and Dark choices, and the plugin
@@ -425,9 +399,9 @@ its run, not the plugin. At most eight runs are kept; the oldest finished ones g
   ends the run. Stop aborts a turn that is still running; if the abort fails, the step
   says the agent may go on. Step returns `ErrStopped` once the run is stopped.
 - **Hidden conversations.** Step conversations are not recorded in the workspace, so the
-  sidebar, the palette and the notifications ignore them. "Open in chat" on a step emits
+  tabs, All chats and the notifications ignore them. "Open in chat" on a step emits
   `chat.Started` once, which records it, then opens it in the chat.
-- **The page** (`workflow.run`, order 50; sidebar visible) shows the run chosen by a row of
+- **The page** (`workflow.run`, order 50) shows the run chosen by a row of
   chips when there is more than one: the brief and folder, a badge (Running, Needs you,
   Done, Failed, Stopped), a card for each step with its state, the latest tool activity or
   a preview of its answer, "Show answer" (the answer as markdown) and "Open in chat",

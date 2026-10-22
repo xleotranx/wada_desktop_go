@@ -16,7 +16,6 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
-	"github.com/oneo-me/onevra/source/icons/lucide"
 	"github.com/oneo-me/onevra/source/theme"
 )
 
@@ -93,14 +92,12 @@ const (
 	trafficLightButton = 14
 	trafficLightY      = 18
 	headerStrip        = trafficLightButton + 2*trafficLightY
-
-	sidebarDefaultWidth float32 = 300
-	sidebarMinWidth     float32 = 220
-	sidebarMaxWidth     float32 = 520
-	pageMinWidth        float32 = 380
 )
 
-// View draws one frame.
+// View draws one frame: the title strip across the top, past the window
+// controls, and the page in a rounded panel below it. The strip holds the
+// Strip views, or the page's title when there are none, then the TitleBar
+// items at its end.
 func (s *Shell) View(c *ui.Context) {
 	theme.Apply(c)
 	h := s.host
@@ -115,91 +112,15 @@ func (s *Shell) View(c *ui.Context) {
 	s.shortcuts(c)
 	bar := c.TitleBar()
 	headerH := max(bar.Height, float32(headerStrip))
-	sidebar := kernel.Items(s.Kernel, shell.Sidebar)
-	pageHidesSidebar := hasPage && page.Value.HideSidebar
-	showSidebar := len(sidebar) > 0 && !h.sidebarHidden.Get() && !pageHidesSidebar
-
-	titleText := func() {
-		if hasPage && page.Value.Title != nil {
-			var title string
-			kernel.Invoke(s.Kernel, page, func(pg shell.Page) { title = pg.Title() })
-			ui.Text(c, title).FontSize(14).FontWeight(500).TextColor(p.Text).
-				Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
-		}
-	}
-	toggle := func() {
-		label := "Hide sidebar"
-		if !showSidebar {
-			label = "Show sidebar"
-		}
-		iconButton(c, p, label, lucide.PanelLeft(), h.toggleSidebar)
-	}
-	// pane is the page with its own header: the title at the start and
-	// title-bar contributions at the end. lead goes before the title, for the
-	// sidebar toggle when the sidebar is hidden.
-	pane := func(left float32, lead func()) {
-		ui.Column(c).Fill().MinWidth(0).MinHeight(0).Children(func() {
-			ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().AlignItems(ui.Center).
-				Padding(0, 12, 0, left).Gap(8).Children(func() {
-				if lead != nil {
-					lead()
-				}
-				ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center).Children(titleText)
-				ui.Row(c).Shrink(0).AlignItems(ui.Center).Children(func() {
-					s.render(c, kernel.Items(s.Kernel, shell.TitleBar))
-				})
-			})
-			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Children(func() {
-				if hasPage {
-					kernel.Invoke(s.Kernel, page, func(pg shell.Page) { pg.Render(c) })
-				}
-			})
-		})
-	}
-	if strip := kernel.Items(s.Kernel, shell.Strip); len(strip) > 0 {
-		s.panelled(c, p, strip, page, hasPage, bar.Left, headerH)
-		s.render(c, kernel.Items(s.Kernel, shell.Overlays))
-		components.Toasts(c, components.ToastOptions{Placement: components.ToastTopEnd, Inset: headerH})
-		return
-	}
-	ui.Column(c).Fill().Background(p.CanvasBg).Children(func() {
-		if !showSidebar {
-			var lead func()
-			if len(sidebar) > 0 && !pageHidesSidebar {
-				lead = toggle
-			}
-			pane(bar.Left+12, lead)
-			return
-		}
-		width := h.sidebarWidth()
-		split := components.Split(c, &width, func() {
-			ui.Column(c).Width(width).FillHeight().MinHeight(0).Background(p.SidebarBg).Children(func() {
-				ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().AlignItems(ui.Center).
-					Padding(0, 12, 0, bar.Left+12).Children(toggle)
-				ui.Column(c).Fill().MinHeight(0).Padding(0, 10, 12, 10).Gap(2).Children(func() {
-					s.render(c, sidebar)
-				})
-			})
-		}, func() {
-			pane(20, nil)
-		}, components.SplitOptions{FirstMin: sidebarMinWidth, SecondMin: pageMinWidth, Default: sidebarDefaultWidth})
-		split.Label("Resize sidebar").Fill()
-		if split.Changed() {
-			h.sidebarW.Set(min(max(width, sidebarMinWidth), sidebarMaxWidth))
-		}
-	})
-	s.render(c, kernel.Items(s.Kernel, shell.Overlays))
-	components.Toasts(c, components.ToastOptions{Placement: components.ToastTopEnd, Inset: headerH})
-}
-
-// panelled draws the window a Strip asks for: the strip views across the
-// title strip, past the window controls, with the TitleBar items at its end,
-// and the page in a rounded panel below it. There is no sidebar.
-func (s *Shell) panelled(c *ui.Context, p native.Palette, strip []kernel.Entry[shell.View],
-	page kernel.Entry[shell.Page], hasPage bool, left, headerH float32) {
+	strip := kernel.Items(s.Kernel, shell.Strip)
 	ui.Column(c).Fill().Background(p.StripBg).Children(func() {
-		ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().Padding(0, 12, 0, left+12).Gap(8).
+		ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().Padding(0, 12, 0, bar.Left+12).Gap(8).
 			Children(func() {
+				if len(strip) == 0 {
+					ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.Center).Children(func() {
+						s.pageTitle(c, p, page, hasPage)
+					})
+				}
 				for _, e := range strip {
 					c.Key(e.ID)
 					box := ui.Box(c).FillHeight()
@@ -223,6 +144,17 @@ func (s *Shell) panelled(c *ui.Context, p native.Palette, strip []kernel.Entry[s
 			})
 		})
 	})
+	s.render(c, kernel.Items(s.Kernel, shell.Overlays))
+	components.Toasts(c, components.ToastOptions{Placement: components.ToastTopEnd, Inset: headerH})
+}
+
+func (s *Shell) pageTitle(c *ui.Context, p native.Palette, page kernel.Entry[shell.Page], ok bool) {
+	if !ok || page.Value.Title == nil {
+		return
+	}
+	var title string
+	kernel.Invoke(s.Kernel, page, func(pg shell.Page) { title = pg.Title() })
+	ui.Text(c, title).FontSize(14).FontWeight(500).TextColor(p.Text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 }
 
 func (s *Shell) render(c *ui.Context, items []kernel.Entry[shell.View]) {
@@ -350,31 +282,20 @@ func (s *Shell) buildMenu() {
 	s.opts.SetMenu(mygo.NewMenu(menus))
 }
 
-func iconButton(c *ui.Context, p native.Palette, label string, icon *ui.SVG, on func()) {
-	b := ui.ButtonBase(c).Label(label).Size(30, 30).Radius(8).Center().Cursor(ui.CursorPointer).Tooltip(label)
-	if b.Hovered() {
-		b.Background(p.Hover)
-	}
-	b.OnClick(on)
-	b.Children(func() { ui.Icon(c, icon).FontSize(17).TextColor(p.Text) })
-}
-
 // host is the shell's own plugin: it provides shell.Host and the window's
 // commands.
 type host struct {
-	k             *kernel.Kernel
-	setTheme      func(mygo.ThemeSource)
-	notify        func(shell.Notice)
-	clipboard     func() shell.Clipboard
-	foreground    func() bool
-	dataDir       string
-	appearance    *kernel.Setting[string]
-	page          string
-	toasts        []ui.Toast
-	services      ui.Services
-	failed        map[string]bool
-	sidebarHidden *kernel.Setting[bool]
-	sidebarW      *kernel.Setting[float32]
+	k          *kernel.Kernel
+	setTheme   func(mygo.ThemeSource)
+	notify     func(shell.Notice)
+	clipboard  func() shell.Clipboard
+	foreground func() bool
+	dataDir    string
+	appearance *kernel.Setting[string]
+	page       string
+	toasts     []ui.Toast
+	services   ui.Services
+	failed     map[string]bool
 }
 
 var _ shell.Host = (*host)(nil)
@@ -385,25 +306,13 @@ func (*host) Manifest() kernel.Manifest {
 
 func (h *host) Setup(c *kernel.Context) error {
 	h.failed = map[string]bool{}
-	h.sidebarHidden = kernel.NewSetting(c, "sidebar-hidden", false)
-	h.sidebarW = kernel.NewSetting(c, "sidebar-width", sidebarDefaultWidth)
 	h.appearance = kernel.NewSetting(c, "appearance", "system")
 	h.applyTheme(h.Appearance())
 	if err := kernel.Provide[shell.Host](c, shell.HostKey, h); err != nil {
 		return err
 	}
-	if err := kernel.Provide[kernel.Inspector](c, kernel.InspectorKey, h.k); err != nil {
-		return err
-	}
-	return kernel.Contribute(c, kernel.Commands, "shell.toggle-sidebar", 0, kernel.Command{
-		Title: "Toggle Sidebar", Menu: "View", Keys: []string{"cmd+b"}, Run: h.toggleSidebar})
+	return kernel.Provide[kernel.Inspector](c, kernel.InspectorKey, h.k)
 }
-
-func (h *host) sidebarWidth() float32 {
-	return min(max(h.sidebarW.Get(), sidebarMinWidth), sidebarMaxWidth)
-}
-
-func (h *host) toggleSidebar() { h.sidebarHidden.Set(!h.sidebarHidden.Get()) }
 
 func (h *host) ShowPage(id string) {
 	if id == h.page {

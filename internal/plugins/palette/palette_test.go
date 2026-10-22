@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
@@ -192,5 +193,46 @@ func TestShortcutLabels(t *testing.T) {
 		if got := shortcutLabel(in); got != want {
 			t.Errorf("%q is %q, want %q", in, got, want)
 		}
+	}
+}
+
+// openTabs stands in for the tabs plugin with a fixed list.
+type openTabs struct{ list []tabs.Tab }
+
+func (*openTabs) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "tabs", Provides: []kernel.Named{tabs.ServiceKey}}
+}
+func (o *openTabs) Setup(c *kernel.Context) error {
+	return kernel.Provide[tabs.Service](c, tabs.ServiceKey, o)
+}
+func (o *openTabs) Tabs() []tabs.Tab         { return o.list }
+func (o *openTabs) Active() (tabs.Tab, bool) { return tabs.Tab{}, false }
+func (o *openTabs) Select(string)            {}
+func (o *openTabs) Close(string)             {}
+func (o *openTabs) Move(string, int)         {}
+
+func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
+	ws := &plugintest.Workspace{
+		FolderSet: []workspace.Folder{{Path: "/w/app"}, {Path: "/w/web"}},
+		Convs: []workspace.Conversation{
+			{ID: "s1", Title: "Fix the parser", Folder: "/w/app"},
+			{ID: "s2", Title: "Write docs", Folder: "/w/app"},
+		}}
+	chat, p := &plugintest.Chat{}, &Plugin{}
+	open := &openTabs{list: []tabs.Tab{{ID: "chat:s2", Kind: tabs.Conversation, Session: "s2"}}}
+	h := kerneltest.New(t, ws, chat, open, p)
+	h.Flush()
+	got := map[string]string{}
+	for _, it := range p.items() {
+		got[it.Title] = it.Group
+	}
+	for title, group := range map[string]string{"Write docs": groupOpen, "Fix the parser": groupEarlier, "app": groupFolders, "web": groupFolders} {
+		if got[title] != group {
+			t.Fatalf("%q is in %q, want %q (%v)", title, got[title], group, got)
+		}
+	}
+	p.run(folderID + "/w/web")
+	if chat.Conv.Directory != "/w/web" || chat.Conv.Session != "" {
+		t.Fatalf("a project opened %+v", chat.Conv)
 	}
 }

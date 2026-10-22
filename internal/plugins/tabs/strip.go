@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"path/filepath"
+	"strconv"
 
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/settings"
@@ -26,6 +27,7 @@ const (
 // settings at the end.
 func (p *Plugin) strip(c *ui.Context) {
 	pal := native.PaletteFor(c)
+	collapsed := p.collapsed()
 	ui.Row(c).Fill().AlignItems(ui.End).Gap(8).Children(func() {
 		ui.Row(c).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.End).Gap(10).Clip().Children(func() {
 			for start := 0; start < len(p.tabs); {
@@ -33,7 +35,7 @@ func (p *Plugin) strip(c *ui.Context) {
 				for end < len(p.tabs) && p.tabs[end].Folder == p.tabs[start].Folder {
 					end++
 				}
-				p.group(c, pal, p.tabs[start:end])
+				p.group(c, pal, p.tabs[start:end], collapsed[p.tabs[start].Folder])
 				start = end
 			}
 			c.Key("new")
@@ -61,24 +63,36 @@ func (p *Plugin) strip(c *ui.Context) {
 	})
 }
 
-// group draws one folder's run of tabs; tabs without a folder have no label
-// and no line.
-func (p *Plugin) group(c *ui.Context, pal native.Palette, run []tabs.Tab) {
+// group draws one folder's run of tabs after its label, whose menu acts on
+// the folder; tabs without a folder have no label and no line. A collapsed
+// group shows only its label, and its active tab.
+func (p *Plugin) group(c *ui.Context, pal native.Palette, run []tabs.Tab, collapsed bool) {
 	folder := run[0].Folder
 	c.Key("group:" + folder + ":" + run[0].ID)
 	color := pal.Projects[p.colorIndex(folder)]
 	ui.Row(c).MinWidth(0).Shrink(1).AlignItems(ui.End).Children(func() {
 		if folder != "" {
 			name := filepath.Base(folder)
+			if collapsed {
+				name += " · " + strconv.Itoa(len(run))
+			}
 			ui.Column(c).Height(tabHeight).Shrink(0).Children(func() {
 				ui.Row(c).Grow(1).AlignItems(ui.Center).Padding(0, 4, 0, 0).Children(func() {
-					ui.Text(c, name).FontSize(11).FontWeight(500).TextColor(color.Text).Background(color.Tint).
-						Padding(3, 8).Radius(6).SingleLine().Label("Project " + name)
+					c.Key("label")
+					label := ui.ButtonBase(c).Label("Project "+filepath.Base(folder)).Tooltip(native.Tilde(folder)).
+						Padding(3, 8).Radius(6).Background(color.Tint).Cursor(ui.CursorPointer)
+					label.Menu(func(m *ui.Menu) { p.groupMenu(m, folder, collapsed) })
+					label.Children(func() {
+						ui.Text(c, name).FontSize(11).FontWeight(500).TextColor(color.Text).SingleLine()
+					})
 				})
 				ui.Box(c).FillWidth().Height(groupLine).Background(color.Mark)
 			})
 		}
 		for _, t := range run {
+			if collapsed && t.ID != p.active {
+				continue
+			}
 			c.Key(t.ID)
 			p.tab(c, pal, t, color.Mark, folder != "")
 		}
@@ -95,6 +109,7 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab, mark ui.Colo
 		b.Background(pal.Hover)
 	}
 	b.OnClick(func() { p.Select(t.ID) })
+	b.ContextMenu(func(m *ui.Menu) { p.tabMenu(m, t) })
 	b.Children(func() {
 		ui.Column(c).Fill().MinWidth(0).Children(func() {
 			ui.Row(c).Grow(1).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(8).Padding(0, 6, 0, 12).Children(func() {
@@ -157,6 +172,11 @@ func (p *Plugin) newChat() {
 	if t, ok := p.Active(); ok {
 		folder = t.Folder
 	}
+	p.openDraft(folder)
+}
+
+// openDraft opens a new chat in the folder; following the chat gives it a tab.
+func (p *Plugin) openDraft(folder string) {
 	p.chat.NewChat(folder)
 	p.host.ShowPage(chat.PageID)
 }

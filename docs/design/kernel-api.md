@@ -122,7 +122,7 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 ## Naming
 
 - Keys, topics, pipelines and points: `<owning package>.<name>`, e.g. `agent.service`,
-  `agent.events`, `chat.outgoing`, `shell.sidebar`.
+  `agent.events`, `chat.outgoing`, `shell.strip`.
 - Entry IDs: `<plugin id>.<name>`; the kernel enforces the prefix.
 - Shortcuts are fixed: each command declares its accelerators, and there is no
   remapping. The shell gives a command's first key to the menu bar when it has a

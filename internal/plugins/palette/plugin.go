@@ -1,16 +1,21 @@
-// Package palette is the command palette (⌘K): one search box over every
-// registered command and over the conversations started in this app.
-// Commands come straight from kernel.Commands, so a command another plugin
-// contributes is in the palette without that plugin knowing about it.
+// Package palette is All chats (⌘K): one search box over the conversations
+// started in this app, the folders they belong to, and every registered
+// command. With nothing typed it lists the conversations open in tabs, the
+// latest others, the folders, then the commands. Commands come straight from
+// kernel.Commands, so a command another plugin contributes is in the palette
+// without that plugin knowing about it.
 package palette
 
 import (
 	"cmp"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/shell"
+	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/native"
@@ -22,17 +27,22 @@ import (
 )
 
 const (
-	openID      = shell.SearchCommand
-	groupChats  = "Conversations"
-	groupCmds   = "Commands"
-	sessionID   = "session:" // prefixes the item ID of a conversation
-	recentShown = 5          // conversations listed before anything is typed
+	openID       = shell.SearchCommand
+	openFolderID = "workspace.open-folder" // listed with the folders
+	groupOpen    = "Open in tabs"
+	groupEarlier = "Earlier"
+	groupFolders = "Projects"
+	groupCmds    = "Commands"
+	sessionID    = "session:" // prefixes the item ID of a conversation
+	folderID     = "folder:"  // prefixes the item ID of a folder
+	recentShown  = 5          // earlier conversations listed before anything is typed
 )
 
 // Plugin is the command palette. The zero value is ready to install.
 //
-// Commands need nothing else. Conversations come from the workspace record
-// when it is active, so the palette keeps working without it.
+// Commands need nothing else. Conversations and folders come from the
+// workspace record when it is active, so the palette keeps working without
+// it; the open tabs come from the tabs service when there is one.
 type Plugin struct {
 	ctx *kernel.Context
 
@@ -42,8 +52,8 @@ type Plugin struct {
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "palette", Title: "Command palette",
-		Description: "Search conversations and run any command with ⌘K.",
+		ID: "palette", Title: "All chats",
+		Description: "Find any conversation, folder or command with ⌘K.",
 	}
 }
 
@@ -53,7 +63,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Overlays, "palette.dialog", 10, shell.View{Render: p.view}),
 		kernel.Contribute(c, kernel.Commands, openID, 0, kernel.Command{
-			Title: "Command Palette…", Menu: "View", Keys: []string{"cmd+k"}, Run: p.toggle}),
+			Title: "All Chats…", Menu: "View", Keys: []string{"cmd+k"}, Run: p.toggle}),
 	} {
 		if err != nil {
 			return err
@@ -85,6 +95,12 @@ func (p *Plugin) activate(id string) {
 }
 
 func (p *Plugin) run(id string) {
+	if folder, ok := strings.CutPrefix(id, folderID); ok {
+		if ctl, ok := kernel.Use(p.ctx, chat.ControllerKey); ok {
+			ctl.NewChat(folder)
+		}
+		return
+	}
 	if sid, ok := strings.CutPrefix(id, sessionID); ok {
 		ctl, ok := kernel.Use(p.ctx, chat.ControllerKey)
 		ws, known := kernel.Use(p.ctx, workspace.ServiceKey)
@@ -119,21 +135,47 @@ func (p *Plugin) view(c *ui.Context) {
 	}
 	command.CommandDialog(c, &p.open, &p.state, items, command.Options{
 		Filter:      filter,
-		SearchLabel: "Search commands and conversations", Placeholder: "Search conversations or run a command",
-		ResultsLabel: "Results", EmptyText: "No matching commands or conversations",
+		SearchLabel: "Search commands and conversations", Placeholder: "Search chats, projects and commands",
+		ResultsLabel: "Results", EmptyText: "No matching chats, projects or commands",
 		OnActivate: p.activate,
-	}, components.DialogOptions{Label: "Command palette"})
+	}, components.DialogOptions{Label: "All chats"})
 }
 
-// items lists the conversations, then the commands.
+// items lists the conversations open in tabs, the other conversations, the
+// folders, then the commands.
 func (p *Plugin) items() []command.Item {
 	var items []command.Item
 	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
-		for _, conv := range ws.Conversations() {
-			items = append(items, command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
-				Description: native.Tilde(conv.Folder), Group: groupChats, Icon: lucide.MessageSquare()})
+		inTabs := map[agent.SessionID]bool{}
+		if t, ok := kernel.Use(p.ctx, tabs.ServiceKey); ok {
+			for _, tab := range t.Tabs() {
+				if tab.Kind == tabs.Conversation {
+					inTabs[tab.Session] = true
+				}
+			}
+		}
+		convs := ws.Conversations()
+		counts := map[string]int{}
+		var earlier []command.Item
+		for _, conv := range convs {
+			counts[conv.Folder]++
+			item := command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
+				Description: native.Tilde(conv.Folder), Group: groupEarlier, Icon: lucide.MessageSquare()}
+			if inTabs[conv.ID] {
+				item.Group = groupOpen
+				items = append(items, item)
+				continue
+			}
+			earlier = append(earlier, item)
+		}
+		items = append(items, earlier...)
+		for _, f := range ws.Folders() {
+			items = append(items, command.Item{ID: folderID + f.Path, Title: filepath.Base(f.Path),
+				Description: chatsLabel(counts[f.Path]) + " · " + native.Tilde(f.Path), Group: groupFolders,
+				Icon: lucide.Folder(), Keywords: []string{"New chat in"}})
 		}
 	}
+	var cmds []command.Item
 	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
 		if e.ID == openID || e.Value.Run == nil {
 			continue
@@ -149,27 +191,41 @@ func (p *Plugin) items() []command.Item {
 		if len(e.Value.Keys) > 0 {
 			item.Shortcut = shortcutLabel(e.Value.Keys[0])
 		}
-		items = append(items, item)
+		if e.ID == openFolderID {
+			item.Group, item.Icon = groupFolders, lucide.FolderPlus()
+			items = append(items, item)
+			continue
+		}
+		cmds = append(cmds, item)
 	}
-	return items
+	return append(items, cmds...)
+}
+
+func chatsLabel(n int) string {
+	if n == 1 {
+		return "1 chat"
+	}
+	return strconv.Itoa(n) + " chats"
 }
 
 // filter matches typed words against titles and menus. With nothing typed it
-// lists the latest few conversations before the commands.
+// lists only the latest few of the conversations not open in tabs.
 func filter(items []command.Item, query string) []command.Item {
 	if strings.TrimSpace(query) != "" {
 		return command.Filter(items, query)
 	}
-	var chats, commands []command.Item
+	out := make([]command.Item, 0, len(items))
+	earlier := 0
 	for _, it := range items {
-		switch {
-		case it.Group != groupChats:
-			commands = append(commands, it)
-		case len(chats) < recentShown:
-			chats = append(chats, it)
+		if it.Group == groupEarlier {
+			if earlier == recentShown {
+				continue
+			}
+			earlier++
 		}
+		out = append(out, it)
 	}
-	return append(chats, commands...)
+	return out
 }
 
 // shortcutLabel spells a command's accelerator the way macOS menus do:

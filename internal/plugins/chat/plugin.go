@@ -252,7 +252,7 @@ func (p *Plugin) send() {
 			p.sendAway(s.ID, d)
 			return
 		}
-		// The folder stays the one chosen, so a next chat and the sidebar
+		// The folder stays the one chosen, so a next chat and its tab group
 		// keep to it even when the backend names its default.
 		p.conv.Session, p.conv.Model, p.conv.Starting = s.ID, s.Model, false
 		kernel.Emit(p.ctx, chat.Changed, p.conv)

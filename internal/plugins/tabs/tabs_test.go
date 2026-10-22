@@ -1,6 +1,7 @@
 package tabs
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -324,5 +325,102 @@ func TestUnsentTextStaysWithItsTab(t *testing.T) {
 	f.p.Close(f.tab("First").ID)
 	if _, kept := f.p.unsent[conversationID("s1")]; kept {
 		t.Fatal("closed tab's text kept")
+	}
+}
+
+func TestTabMenuRenamesForgetsAndDeletes(t *testing.T) {
+	f := start(t, nil, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s4")
+	f.chat.NewChat("")
+	f.open("s2")
+	tt := ui.NewTester(f.p.strip, 1100, 50)
+	tt.Frame()
+	if err := tt.RightClick("First"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Menu(); !slices.Equal(got, []string{"Rename…", "Close Tab", "Remove from List", "-", "Delete…"}) {
+		t.Fatalf("menu %q", got)
+	}
+	if err := tt.ChooseMenuItem("Rename…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if f.p.renaming.Session != "s1" || !f.p.renameOn {
+		t.Fatalf("renaming %+v", f.p.renaming)
+	}
+	f.p.title = "  Better  "
+	f.p.saveRename()
+	f.h.Flush()
+	if c, _ := f.ws.Lookup("s1"); c.Title != "Better" || f.a.Called("rename s1 Better") != 1 {
+		t.Fatalf("rename: %q calls %q", c.Title, f.a.Calls())
+	}
+	f.want(t, "Better", "Fourth", "[Second]")
+
+	f.p.deleting, f.p.deleteOn = f.tab("Second"), true
+	f.p.confirmDelete()
+	f.h.Flush()
+	if _, ok := f.ws.Lookup("s2"); ok || f.a.Called("delete s2") != 1 {
+		t.Fatalf("delete: %+v calls %q", f.ws.Convs, f.a.Calls())
+	}
+	f.want(t, "Better", "[Fourth]")
+
+	f.a.Fail["Delete"] = errors.New("gone")
+	f.p.deleting, f.p.deleteOn = f.tab("Fourth"), true
+	f.p.confirmDelete()
+	f.h.Flush()
+	if len(f.host.Toasts) != 1 || f.tab("Fourth").ID == "" {
+		t.Fatalf("failed delete: toasts %q", f.host.Toasts)
+	}
+	f.p.forget(f.tab("Fourth")) // "Remove from List"
+	if _, ok := f.ws.Lookup("s4"); ok || f.a.Called("delete s4") != 1 {
+		t.Fatalf("remove from list: %+v calls %q", f.ws.Convs, f.a.Calls())
+	}
+	f.want(t, "[Better]")
+}
+
+func TestGroupLabelActsOnTheFolder(t *testing.T) {
+	f := start(t, nil, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s4")
+	f.chat.NewChat("")
+	f.open("s3")
+	tt := ui.NewTester(f.p.strip, 1100, 50)
+	tt.Frame()
+	if err := tt.Click("Project app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Collapse Group"); err != nil {
+		t.Fatalf("%v; menu %q", err, tt.Menu())
+	}
+	tt.Frame()
+	f.h.Flush()
+	tt.Frame()
+	if !f.ws.FolderSet[0].Collapsed || tt.HasText("First") || !tt.HasText("app · 2") || !tt.HasText("Third") {
+		t.Fatalf("collapsed: %+v strip %q", f.ws.FolderSet[0], tt.Texts())
+	}
+	if err := tt.Click("Project app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("New Chat"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	f.h.Flush()
+	if f.chat.Conv.Session != "" || f.chat.Conv.Directory != "/w/app" {
+		t.Fatalf("new chat %+v", f.chat.Conv)
+	}
+	f.p.removing, f.p.removeOn = "/w/app", true
+	dt := ui.NewTester(f.p.dialogs, 500, 400)
+	dt.Frame()
+	if !dt.HasText("Its 2 conversations stay with the agent but are no longer listed here. Its tabs close. Nothing on disk changes.") {
+		t.Fatalf("dialog %q", dt.Texts())
+	}
+	f.p.confirmRemove()
+	f.h.Flush()
+	if len(f.ws.FolderSet) != 1 || slices.ContainsFunc(f.p.Tabs(), func(t tabs.Tab) bool { return t.Folder == "/w/app" }) {
+		t.Fatalf("folders %+v tabs %q", f.ws.FolderSet, f.summary())
 	}
 }

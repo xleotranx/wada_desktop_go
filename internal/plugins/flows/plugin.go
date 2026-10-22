@@ -15,7 +15,7 @@ type Plugin struct{}
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "flows", Title: "Flows",
-		Description: "Ready-made workflows for the composer's mode picker and the command palette: plan, code, review.",
+		Description: "Ready-made workflows for the composer's mode picker and All chats: plan, code, review.",
 		Requires:    []kernel.Named{wf.ServiceKey},
 	}
 }

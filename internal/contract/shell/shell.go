@@ -13,31 +13,27 @@ import (
 // it builds elements and performs no external I/O or kernel mutation.
 type View struct {
 	Render func(c *ui.Context)
-	// Grow lets a sidebar section take the remaining height, as a list does,
-	// and a Strip view the remaining width.
+	// Grow lets a Strip view take the remaining width.
 	Grow bool
 }
 
 // Page fills the window's main area. The shell shows one page at a time.
 type Page struct {
-	Title  func() string // shown in the title bar and the window title; may be nil
+	// Title names the page in the window title, and in the title strip when
+	// no Strip view is contributed; may be nil.
+	Title  func() string
 	Render func(c *ui.Context)
-	// HideSidebar gives this page the full content area and omits the sidebar toggle.
-	// The user’s saved sidebar visibility and width are preserved.
-	HideSidebar bool
 }
 
 var (
-	// Sidebar sections, stacked top to bottom by Order.
-	Sidebar = kernel.NewPoint[View]("shell.sidebar")
 	// Pages for the main area. The page with the lowest Order is the default.
 	Pages = kernel.NewPoint[Page]("shell.pages")
 	// TitleBar items, laid out at the end of the title strip.
 	TitleBar = kernel.NewPoint[View]("shell.title-bar")
 	// Strip views take the title strip after the window controls, laid out in
 	// a row before the TitleBar items; one with Grow takes the remaining width.
-	// While one exists the window draws no sidebar and no page title: the
-	// page sits in a rounded panel below the strip.
+	// While one exists the strip shows no page title. The page sits in a
+	// rounded panel below the strip either way.
 	Strip = kernel.NewPoint[View]("shell.strip")
 	// Overlays are drawn above everything: dialogs, popovers.
 	Overlays = kernel.NewPoint[View]("shell.overlays")
@@ -54,7 +50,7 @@ var (
 )
 
 // SearchCommand is the ID of the kernel.Commands entry that opens the app's
-// search. The sidebar's search field runs it when a plugin contributes it.
+// search. The tab strip's search button runs it when a plugin contributes it.
 const SearchCommand = "palette.open"
 
 // Clipboard is what a paste can attach: local file paths, or an image.

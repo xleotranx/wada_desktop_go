@@ -18,15 +18,15 @@ import (
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/palette"
-	"wada-desktop-go/internal/plugins/sessions"
 	"wada-desktop-go/internal/plugins/settings"
+	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugintest"
 	"wada-desktop-go/internal/shell"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// The benchmarks draw the whole app — sidebar, page, composer and shell
+// The benchmarks draw the whole app — tab strip, page, composer and shell
 // chrome — on ui.Tester with the real plugins and a fake backend. Run with:
 //
 //	go test -run NONE -bench . -benchtime 5x ./...
@@ -96,7 +96,7 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	}
 	s, err := shell.New(shell.Options{Post: func(fn func()) { queue = append(queue, fn) },
 		Store: kerneltest.NewStore()}, f, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &attachments.Plugin{},
-		&mentions.Plugin{}, &sessions.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		&mentions.Plugin{}, &tabs.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 }
 
 // BenchmarkEmptyPageIdle draws a frame of the new-chat screen with an empty
-// sidebar list and no transcript: the engine floor the app adds to.
+// tab strip and no transcript: the engine floor the app adds to.
 func BenchmarkEmptyPageIdle(b *testing.B) {
 	_, tt, _ := benchApp(b, nil)
 	b.ReportAllocs()

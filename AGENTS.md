@@ -23,10 +23,10 @@ protocols to simplify a refactor.
 - `internal/plugins/*`: every feature. `opencode` and `pi` (backends), `chat` (conversation
   page), `models` (composer pickers), `usage` (cost and context in the composer), `attachments` (files sent with a message), `mentions`
   (`@file` in the composer), `workspace` (folders, the app's conversation record in
-  `workspace.db`, folder picker), `sessions` (sidebar list by folder), `tabs` (open chats and pages as tabs grouped by folder,
-  across the title strip), `workflow` (the engine
+  `workspace.db`, folder picker), `tabs` (open chats and pages as tabs grouped by folder
+  across the title strip, with their rename, delete and folder menus), `workflow` (the engine
   that runs flows through hidden conversations, and its run page), `flows` (the app's flows,
-  such as plan → code → review), `palette` (⌘K), `notifications`
+  such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`), host,
   chat controller, workspace and files for plugin tests.

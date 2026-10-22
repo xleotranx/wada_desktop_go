@@ -55,6 +55,27 @@ func (r *rig) until(what string, ok func() bool) {
 	}
 }
 
+// pageOf draws the run's page as the shell would.
+func (r *rig) pageOf(run *run) func(*ui.Context) {
+	return func(c *ui.Context) {
+		for _, e := range kernel.Items(r.h, shell.Pages) {
+			if e.ID == pageID(run) {
+				e.Value.Render(c)
+			}
+		}
+	}
+}
+
+// pageTitle is the title of the run's page; empty without one.
+func (r *rig) pageTitle(run *run) string {
+	for _, e := range kernel.Items(r.h, shell.Pages) {
+		if e.ID == pageID(run) {
+			return e.Value.Title()
+		}
+	}
+	return ""
+}
+
 // begin starts the flow in /w/app and returns its run.
 func (r *rig) begin(f wf.Flow) *run {
 	r.t.Helper()
@@ -95,15 +116,17 @@ func TestStepsRunInOrderAndTheFlowsResultIsTheRuns(t *testing.T) {
 		return "done: " + second.Text, err
 	}}
 	run := r.begin(flow)
-	if r.host.PageID != wf.PageID {
-		t.Fatalf("the page on show is %q", r.host.PageID)
+	if r.host.PageID != pageID(run) || r.pageTitle(run) != "add a flag" {
+		t.Fatalf("the page on show is %q, titled %q", r.host.PageID, r.pageTitle(run))
 	}
 	r.untilState(run, runDone)
 
 	if want := "done: answer to <two after answer to <one>>"; run.result != want {
 		t.Fatalf("result %q, want %q", run.result, want)
 	}
-	if got := r.a.Calls(); !slices.Equal(got, []string{
+	// What the steps changed is read on the side; leave those reads out.
+	got := slices.DeleteFunc(r.a.Calls(), func(c string) bool { return strings.HasPrefix(c, "changes ") })
+	if !slices.Equal(got, []string{
 		"create /w/app  plan", "send new-1 one", "send new-1 two after answer to <one>",
 	}) {
 		t.Fatalf("calls %q", got)
@@ -395,11 +418,8 @@ func TestFinishingWhileAwayToastsOrNotifies(t *testing.T) {
 	if !slices.Equal(r.host.Toasts, []string{"One step"}) || !run.unseen {
 		t.Fatalf("toasts %q, unseen %v", r.host.Toasts, run.unseen)
 	}
-	if got, kind := r.p.pill(); got != run || kind != pillFinished {
-		t.Fatalf("pill %v %d", got, kind)
-	}
 	r.p.show(run)
-	if run.unseen || r.host.PageID != wf.PageID {
+	if run.unseen || r.host.PageID != pageID(run) {
 		t.Fatalf("unseen %v, page %q", run.unseen, r.host.PageID)
 	}
 
@@ -413,8 +433,8 @@ func TestFinishingWhileAwayToastsOrNotifies(t *testing.T) {
 	// Clicking the notice brings the run up.
 	r.p.show(run)
 	kernel.Emit(r.h, shell.NoticeClicked, "workflow")
-	if r.p.shown != second || r.host.PageID != wf.PageID {
-		t.Fatalf("shown %v, page %q", r.p.shown == second, r.host.PageID)
+	if r.host.PageID != pageID(second) {
+		t.Fatalf("page %q", r.host.PageID)
 	}
 }
 
@@ -435,7 +455,7 @@ func TestOpeningAStepInTheChatRecordsItOnce(t *testing.T) {
 	r.a.OnSend = func(req agent.Send) { r.a.Respond(req.Session, "ok") }
 	run := r.begin(oneStep(wf.Step{Name: "Work", Prompt: "go"}))
 	r.untilState(run, runDone)
-	r.host.PageID = wf.PageID
+	r.host.PageID = pageID(run)
 
 	r.p.openStep(run, run.steps[0])
 	r.p.openStep(run, run.steps[0])
@@ -499,7 +519,7 @@ func TestACommandShowsTheRunThatNeedsTheUser(t *testing.T) {
 
 	show := commandRun(t, r.h, "workflow.show")
 	show()
-	if r.p.shown != waiting || r.host.PageID != wf.PageID {
+	if r.host.PageID != pageID(waiting) {
 		t.Fatalf("the command showed another run")
 	}
 }
@@ -550,12 +570,12 @@ func TestThePageShowsStepsApprovalsAndTheResult(t *testing.T) {
 		return "Final: " + b.Text, err
 	}}
 	run := r.begin(flow)
-	tt := ui.NewTester(r.p.page, 900, 800)
+	tt := ui.NewTester(r.pageOf(run), 900, 800)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	r.until("the request waiting", func() bool { return len(run.steps) == 1 && run.steps[0].needsYou() })
 	tt.Frame()
 	for _, want := range []string{"Two steps", "add a flag", "Working in /w/app", "Plan", "Needs you", "Stop",
-		"The agent wants to run a shell command", "go test ./...", "Allow once", "Allow for this run", "Deny", "Back to chat"} {
+		"The agent wants to run a shell command", "go test ./...", "Allow once", "Allow for this run", "Deny"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing: %q", want, tt.Texts())
 		}
@@ -581,12 +601,6 @@ func TestThePageShowsStepsApprovalsAndTheResult(t *testing.T) {
 	if r.host.Copied != run.result {
 		t.Fatalf("copied %q", r.host.Copied)
 	}
-	if err := tt.Click("Back to chat"); err != nil {
-		t.Fatal(err)
-	}
-	if r.host.PageID != chat.PageID {
-		t.Fatalf("page %q", r.host.PageID)
-	}
 }
 
 func TestAnAnswerOpensAndClosesOnItsStep(t *testing.T) {
@@ -597,7 +611,7 @@ func TestAnAnswerOpensAndClosesOnItsStep(t *testing.T) {
 		return "All done.", err
 	}})
 	r.untilState(run, runDone)
-	tt := ui.NewTester(r.p.page, 900, 800)
+	tt := ui.NewTester(r.pageOf(run), 900, 800)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	if tt.HasText("second point") {
@@ -622,7 +636,7 @@ func TestAFailedStepOffersTryAgainAndStop(t *testing.T) {
 	}
 	run := r.begin(oneStep(wf.Step{Name: "Work", Prompt: "go"}))
 	r.until("the failure waiting for a decision", func() bool { return len(run.steps) == 1 && run.steps[0].retry != nil })
-	tt := ui.NewTester(r.p.page, 900, 800)
+	tt := ui.NewTester(r.pageOf(run), 900, 800)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	for _, want := range []string{"Needs your decision", "rate limited", "Try again", "Stop run"} {
@@ -644,7 +658,7 @@ func TestAFailedRunShowsWhy(t *testing.T) {
 	r := start(t)
 	run := r.begin(wf.Flow{ID: "e", Title: "E", Run: func(context.Context, wf.Runner) (string, error) { return "", errors.New("the plan was empty") }})
 	r.untilState(run, runFailed)
-	tt := ui.NewTester(r.p.page, 900, 600)
+	tt := ui.NewTester(r.pageOf(run), 900, 600)
 	tt.Frame()
 	for _, want := range []string{"Failed", "The run failed", "the plan was empty"} {
 		if !tt.HasText(want) {
@@ -653,16 +667,7 @@ func TestAFailedRunShowsWhy(t *testing.T) {
 	}
 }
 
-func TestThePageWithoutARunSaysHowToStartOne(t *testing.T) {
-	r := start(t)
-	tt := ui.NewTester(r.p.page, 900, 600)
-	tt.Frame()
-	if !tt.HasText("No workflow has run yet") {
-		t.Fatalf("texts %q", tt.Texts())
-	}
-}
-
-func TestRunsCanBeSwitchedBetween(t *testing.T) {
+func TestEachRunHasItsOwnPageWhileItIsKept(t *testing.T) {
 	r := start(t)
 	r.a.OnSend = func(req agent.Send) { r.a.Respond(req.Session, "ok") }
 	svc, _ := kernel.Use(r.h, wf.ServiceKey)
@@ -670,52 +675,46 @@ func TestRunsCanBeSwitchedBetween(t *testing.T) {
 	first := r.p.runs[0]
 	r.untilState(first, runDone)
 	svc.Start(wf.Flow{ID: "b", Title: "Beta", Run: func(context.Context, wf.Runner) (string, error) { return "beta result", nil }}, wf.Input{Brief: "bake a beta"})
-	r.untilState(r.p.runs[0], runDone)
-	tt := ui.NewTester(r.p.page, 900, 600)
-	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	tt.Frame()
-	if !tt.HasText("beta result") || tt.HasText("alpha result") {
-		t.Fatalf("texts %q", tt.Texts())
+	second := r.p.runs[0]
+	r.untilState(second, runDone)
+	if r.pageTitle(first) != "tidy the alphabet" || r.pageTitle(second) != "bake a beta" || r.host.PageID != pageID(second) {
+		t.Fatalf("pages %q and %q, on show %q", r.pageTitle(first), r.pageTitle(second), r.host.PageID)
 	}
-	if err := tt.Click("tidy the alphabet"); err != nil {
-		t.Fatal(err)
-	}
+	tt := ui.NewTester(r.pageOf(first), 900, 600)
 	tt.Frame()
 	if !tt.HasText("alpha result") || tt.HasText("beta result") {
 		t.Fatalf("texts %q", tt.Texts())
 	}
+	for range maxRuns {
+		svc.Start(wf.Flow{ID: "c", Title: "C", Run: func(context.Context, wf.Runner) (string, error) { return "", nil }}, wf.Input{Brief: "more"})
+		r.untilState(r.p.runs[0], runDone)
+	}
+	if r.pageTitle(first) != "" || len(r.p.runs) != maxRuns {
+		t.Fatalf("the oldest run kept its page: %d runs", len(r.p.runs))
+	}
 }
 
-func TestTheTitleBarPointsAtTheRunThatNeedsTheUser(t *testing.T) {
+func TestRunDetailsShowChangesAndPermissions(t *testing.T) {
 	r := start(t)
-	tt := ui.NewTester(r.p.status, 400, 40)
+	r.a.OnSend = func(req agent.Send) { r.a.Respond(req.Session, "ok") }
+	r.a.Changed["new-2"] = []agent.FileChange{{Path: "cmd/main.go", Added: 7, Removed: 2}}
+	run := r.begin(wf.Flow{ID: "f", Title: "F", Run: func(ctx context.Context, rn wf.Runner) (string, error) {
+		if _, err := rn.Step(ctx, wf.Step{Name: "Plan", Prompt: "go", Policy: wf.Policy{Deny: []agent.ToolKind{agent.ToolEdit}}}); err != nil {
+			return "", err
+		}
+		_, err := rn.Step(ctx, wf.Step{Name: "Code", Prompt: "do", Policy: wf.Policy{Allow: []agent.ToolKind{agent.ToolEdit, agent.ToolRead}}})
+		return "done", err
+	}})
+	r.untilState(run, runDone)
+	r.until("the changes", func() bool { return len(run.steps) == 2 && len(run.steps[1].changes) == 1 })
+	run.allowed[allowKey{kind: agent.ToolShell}] = true
+	tt := ui.NewTester(r.pageOf(run), 1100, 800)
 	tt.Frame()
-	if tt.HasText("Workflow") {
-		t.Fatalf("a pill without runs: %q", tt.Texts())
-	}
-	r.a.OnSend = func(agent.Send) {}
-	run := r.begin(oneStep(wf.Step{Name: "Work", Prompt: "go"}))
-	r.host.PageID = ""
-	r.until("the prompt sent", func() bool { return r.a.Called("send") == 1 && len(run.steps) == 1 })
-	tt.Frame()
-	if !tt.HasText("Workflow running") {
-		t.Fatalf("texts %q", tt.Texts())
-	}
-	r.a.Emit(approval(run.steps[0].session, "shell", agent.ToolShell))
-	r.until("the request waiting", func() bool { return run.steps[0].needsYou() })
-	tt.Frame()
-	if !tt.HasText("Workflow needs you") {
-		t.Fatalf("texts %q", tt.Texts())
-	}
-	if err := tt.Click("Workflow needs you"); err != nil {
-		t.Fatal(err)
-	}
-	if r.host.PageID != wf.PageID || r.p.shown != run {
-		t.Fatalf("page %q", r.host.PageID)
-	}
-	tt.Frame()
-	if tt.HasText("Workflow") {
-		t.Fatalf("the pill stays over the run it points at: %q", tt.Texts())
+	for _, want := range []string{"Changes", "cmd/main.go", "+7", "−2", "Allowed without asking", "Edit files · Code",
+		"Read files · Code", "Run commands · this run", "Never allowed", "Edit files · Plan"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing: %q", want, tt.Texts())
+		}
 	}
 }
 

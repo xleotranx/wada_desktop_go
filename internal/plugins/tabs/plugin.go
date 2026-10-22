@@ -101,6 +101,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, shell.PageChanged, p.followPage)
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, workspace.Changed, func(struct{}) { p.recordChanged() })
+	kernel.On(c, kernel.PointChanged, func(point string) {
+		if point == shell.Pages.Name() {
+			p.pagesChanged()
+		}
+	})
 	// Restoring navigates, which is not Setup's job: do it once set up.
 	c.Post(p.restore)
 	for _, err := range []error{
@@ -394,6 +399,31 @@ func (p *Plugin) recordChanged() {
 		p.Close(id)
 	}
 	p.changed()
+}
+
+// pagesChanged closes the tabs of pages no plugin contributes any more, and
+// keeps the others' titles current.
+func (p *Plugin) pagesChanged() {
+	if !p.restored {
+		return
+	}
+	var gone []string
+	retitled := false
+	for i, t := range p.tabs {
+		switch {
+		case t.Kind != tabs.Page:
+		case !p.hasPage(t.Page):
+			gone = append(gone, t.ID)
+		case p.pageTitle(t.Page) != t.Title:
+			p.tabs[i].Title, retitled = p.pageTitle(t.Page), true
+		}
+	}
+	for _, id := range gone {
+		p.Close(id)
+	}
+	if retitled {
+		p.changed()
+	}
 }
 
 // ---- What conversations are doing

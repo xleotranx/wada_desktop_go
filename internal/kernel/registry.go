@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -261,6 +262,7 @@ func Contribute[T any](o Owner, p Point[T], id string, order int, v T) error {
 	pt.entries = append(pt.entries, e)
 	pt.ids[id] = true
 	pt.cache = nil
+	s.k.pointMoved(p.name)
 	s.onDispose(func() {
 		pt.entries = slices.DeleteFunc(pt.entries, func(x *entry) bool { return x == e })
 		delete(pt.ids, id)
@@ -268,8 +270,31 @@ func Contribute[T any](o Owner, p Point[T], id string, order int, v T) error {
 		if len(pt.entries) == 0 && s.k.points[p.name] == pt {
 			delete(s.k.points, p.name)
 		}
+		s.k.pointMoved(p.name)
 	})
 	return nil
+}
+
+// pointMoved posts PointChanged for the point, unless it is already due.
+func (k *Kernel) pointMoved(name string) {
+	if k.closed || k.moved[name] {
+		return
+	}
+	if len(k.moved) == 0 {
+		k.opts.Post(k.announcePoints)
+	}
+	k.moved[name] = true
+}
+
+func (k *Kernel) announcePoints() {
+	names := slices.Sorted(maps.Keys(k.moved))
+	clear(k.moved)
+	if k.closed {
+		return
+	}
+	for _, name := range names {
+		Emit(k, PointChanged, name)
+	}
 }
 
 // Items returns the entries ordered by Order, then host before plugins in

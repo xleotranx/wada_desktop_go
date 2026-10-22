@@ -245,6 +245,8 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   workspace record is read, without the conversations it no longer lists and pages no
   plugin contributes. A conversation the chat already shows by then becomes the active
   tab instead.
+- After `kernel.PointChanged` for `shell.Pages`, a page tab whose page is gone closes,
+  and the others take their page's current title.
 - The strip draws a tab's marker, title and a close button (shown on the active and
   hovered tab, and on focus), then a "+" that opens a new chat in the active tab's
   folder, then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
@@ -402,8 +404,9 @@ contract, so they run on every backend.
 `internal/plugins/workflow` provides `workflow.ServiceKey` and knows no flow. `Prompt(f)`
 opens a dialog for the brief, in the open chat's folder with a "Choose…" button when the
 workspace record is active; `Start(f, in)` runs the flow on a worker (`Spawn`) whose
-context ends when the user stops the run, and shows the run page. A panic in a flow fails
-its run, not the plugin. At most eight runs are kept; the oldest finished ones go first.
+context ends when the user stops the run, and shows the run's page. A panic in a flow
+fails its run, not the plugin. At most eight runs are kept; the oldest finished ones go
+first, and their pages with them.
 
 - **Steps.** `Step` opens the conversation with `agent.Service.Create` (in the run's
   folder, with the step's mode) unless the step continues one, registers it with the
@@ -427,16 +430,20 @@ its run, not the plugin. At most eight runs are kept; the oldest finished ones g
 - **Hidden conversations.** Step conversations are not recorded in the workspace, so the
   tabs, All chats and the notifications ignore them. "Open in chat" on a step emits
   `chat.Started` once, which records it, then opens it in the chat.
-- **The page** (`workflow.run`, order 50) shows the run chosen by a row of
-  chips when there is more than one: the brief and folder, a badge (Running, Needs you,
-  Done, Failed, Stopped), a card for each step with its state, the latest tool activity or
-  a preview of its answer, "Show answer" (the answer as markdown) and "Open in chat",
-  and at the end the result as markdown with Copy. A title-bar pill points at the run that
-  needs the user, else one that ended while another page was on show, else one still
-  running, and opens it. A run that ends while its page is not on show raises a toast, or
-  a desktop notice (ID `workflow`, whose click shows the run) when the window is not in
-  front; a stop the user asked for is not announced. "Show Workflow Run" (View menu)
-  opens the run that needs the user, else the newest.
+- **Pages.** Each run kept contributes its own `shell.Pages` entry (`workflow.run/<n>`,
+  order 50), titled by its brief's first line, from a child scope disposed with the
+  run; the tabs show it as a tab. It shows the brief and folder, a badge (Running,
+  Needs you, Done, Failed, Stopped), a card for each step with its state, the latest
+  tool activity or a preview of its answer, "Show answer" (the answer as markdown) and
+  "Open in chat", and at the end the result as markdown with Copy. Beside them, when
+  there is something to say, a column lists the files each step's conversation
+  changed (read through `agent.ChangesKey` when the step's turn succeeds), what the
+  steps may do without asking (each kind with the steps whose policy allows it, and
+  "this run" for what the user allowed for the run) and what they may never do. A run
+  that ends while its page is not on show raises a toast, or a desktop notice (ID
+  `workflow`, whose click shows the run) when the window is not in front; a stop the
+  user asked for is not announced. "Show Workflow Run" (View menu) opens the run that
+  needs the user, else the newest.
 
 `internal/plugins/flows` brings the app's flows. Each is a `chat.Targets` entry in the
 group "Workflows", so it is in the composer's mode picker beside Build and Plan: choosing

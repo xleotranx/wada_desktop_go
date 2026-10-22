@@ -424,3 +424,33 @@ func TestGroupLabelActsOnTheFolder(t *testing.T) {
 		t.Fatalf("folders %+v tabs %q", f.ws.FolderSet, f.summary())
 	}
 }
+
+// runPages contributes a page while its scope lives, as a workflow run does.
+type runPages struct{ ctx *kernel.Context }
+
+func (*runPages) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "runs"} }
+func (r *runPages) Setup(c *kernel.Context) error { r.ctx = c; return nil }
+
+func (r *runPages) add(id, title string) *kernel.Scope {
+	s := r.ctx.NewScope()
+	_ = kernel.Contribute(s, shell.Pages, id, 50, shell.Page{Title: func() string { return title }})
+	return s
+}
+
+func TestAPageThatGoesAwayLosesItsTab(t *testing.T) {
+	runs := &runPages{}
+	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: record(), chat: &plugintest.Chat{}, host: &plugintest.Host{}}
+	f.h = kerneltest.Start(t, kerneltest.Config{}, f.a, f.ws, f.chat, f.host, runs, f.p)
+	f.h.Flush()
+	f.open("s1")
+	run := runs.add("runs.run/1", "add a flag")
+	f.h.Flush()
+	f.host.ShowPage("runs.run/1")
+	f.want(t, "First", "[add a flag]")
+	run.Dispose()
+	f.h.Flush()
+	f.want(t, "[First]")
+	if f.host.PageID != chat.PageID {
+		t.Fatalf("page %q", f.host.PageID)
+	}
+}

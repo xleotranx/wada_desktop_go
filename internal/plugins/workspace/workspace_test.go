@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
@@ -33,8 +34,10 @@ func start(t *testing.T, dir string) fixture {
 	clock := int64(1000)
 	f.p = &Plugin{now: func() int64 { clock++; return clock }, choose: func() (string, error) { return "", nil }}
 	f.h = kerneltest.New(t, f.a, f.chat, f.host, f.p)
-	if dir != "" {
-		f.h.WaitPosts(1)
+	// The record is read on a worker, which posts it back.
+	for deadline := time.Now().Add(2 * time.Second); dir != "" && !f.p.Loaded() && time.Now().Before(deadline); {
+		f.h.RunPosts()
+		time.Sleep(time.Millisecond)
 	}
 	f.h.Flush()
 	if !f.p.Loaded() {

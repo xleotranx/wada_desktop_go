@@ -10,6 +10,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	wf "wada-desktop-go/internal/contract/workflow"
+	"wada-desktop-go/internal/kernel"
 )
 
 // A run is one execution of a flow. Everything below belongs to the UI thread:
@@ -25,11 +26,13 @@ const (
 )
 
 type run struct {
+	number   int           // names its page
+	scope    *kernel.Scope // holds its page while the run is kept
 	flow     wf.Flow
 	in       wf.Input // never changes, so the flow's goroutine reads it freely
 	state    runState
 	stopping bool // Stop was pressed; the flow is winding down
-	unseen   bool // it ended while the page was not showing it
+	unseen   bool // it ended while its page was not on show
 	cancel   context.CancelFunc
 	steps    []*step
 	result   string // the flow's markdown result, once done
@@ -72,7 +75,9 @@ type step struct {
 	retry    chan struct{} // set while the user chooses between Retry and Stop
 	watch    *watch
 	open     bool // the answer is shown in full
-	adopted  bool // recorded in the workspace, so the sidebar lists it
+	adopted  bool // recorded in the workspace, so All chats lists it
+	policy   wf.Policy
+	changes  []agent.FileChange // what its conversation changed, read when it ended
 }
 
 // needsYou reports that the step waits for the user.
@@ -106,7 +111,7 @@ func (r *runner) Input() wf.Input { return r.run.in }
 // Step runs one prompt. A failed attempt waits for the user's choice instead
 // of ending the step, and nothing here retries a mutation on its own.
 func (r *runner) Step(ctx context.Context, s wf.Step) (wf.Answer, error) {
-	st := &step{name: s.Name}
+	st := &step{name: s.Name, policy: s.Policy}
 	if err := r.p.onUI(ctx, func() { r.run.steps = append(r.run.steps, st) }); err != nil {
 		return wf.Answer{}, wf.ErrStopped
 	}

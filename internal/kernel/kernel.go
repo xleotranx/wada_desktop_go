@@ -88,6 +88,10 @@ var (
 	Started        = NewTopic[struct{}]("kernel.started")
 	PluginsChanged = NewTopic[[]Status]("kernel.plugins")
 	SaveFailed     = NewTopic[error]("kernel.save-failed")
+	// PointChanged carries the name of a point whose entries changed. It is
+	// posted after the change, once for the changes to a point that land
+	// before it runs.
+	PointChanged = NewTopic[string]("kernel.point-changed")
 )
 
 type Options struct {
@@ -146,6 +150,8 @@ type Kernel struct {
 	topics   map[string]*topic
 	pipes    map[string]*pipeline
 	points   map[string]*point
+	// moved holds the points changed since PointChanged was last posted.
+	moved map[string]bool
 
 	values  map[string]map[string][]byte
 	dirty   map[valueKey][]byte
@@ -166,7 +172,7 @@ func New(opts Options) *Kernel {
 	}
 	k := &Kernel{opts: opts, byID: map[string]*plugin{},
 		services: map[string]*service{}, topics: map[string]*topic{},
-		pipes: map[string]*pipeline{}, points: map[string]*point{},
+		pipes: map[string]*pipeline{}, points: map[string]*point{}, moved: map[string]bool{},
 		values: map[string]map[string][]byte{}, dirty: map[valueKey][]byte{}, deleted: map[valueKey]bool{}}
 	k.root = newScope(k, nil, nil)
 	return k

@@ -86,6 +86,9 @@ Install ──► Disabled ──Enable──► (requirements met?) ──no─
    batch is retried with newer changes taking precedence. A failed final save is
    returned to the caller; a timed-out save is never overlapped by another save.
 
+Adding or removing a contribution posts `PointChanged` with the point's name: once
+for the changes to a point that land before the post runs, never during a dispose.
+
 Disposing a scope marks it dead, cancels its `Lifetime`, disposes child scopes and
 runs its disposers, newest first. Afterwards its `Post` closures and task results are
 dropped, including failure reports from `Spawn` workers that panic after disposal.

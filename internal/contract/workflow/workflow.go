@@ -20,9 +20,6 @@ import (
 	"wada-desktop-go/internal/kernel"
 )
 
-// PageID is the page that shows runs.
-const PageID = "workflow.run"
-
 var ServiceKey = kernel.NewKey[Service]("workflow.service")
 
 // ErrStopped is what Step returns once the user has stopped the run. A flow

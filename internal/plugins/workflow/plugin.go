@@ -5,7 +5,8 @@
 // the agent's permission requests by the step's policy or by asking the user,
 // and shows the run, step by step, on its own page with the flow's result at
 // the end. It knows no flow; other plugins bring them and start them through
-// workflow.Service.
+// workflow.Service. Each run kept has its own page, which the tabs show as a
+// tab while it is open.
 package workflow
 
 import (
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -29,8 +31,9 @@ import (
 )
 
 const (
-	maxRuns  = 8 // runs kept; the oldest finished ones go first
-	noticeID = "workflow"
+	maxRuns    = 8 // runs kept; the oldest finished ones go first
+	noticeID   = "workflow"
+	pagePrefix = "workflow.run/" // then the run's number: its page's ID
 )
 
 // Plugin is the workflow engine. The zero value is ready to install.
@@ -44,7 +47,7 @@ type Plugin struct {
 	host  shell.Host
 
 	runs     []*run // newest first
-	shown    *run   // on the page
+	numbered int    // runs started, which numbers their pages
 	watching map[agent.SessionID]*watch
 
 	ask prompt
@@ -73,8 +76,15 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.runs, p.shown, p.watching, p.ask = nil, nil, map[agent.SessionID]*watch{}, prompt{}
+	p.runs, p.numbered, p.watching, p.ask = nil, 0, map[agent.SessionID]*watch{}, prompt{}
 	kernel.On(c, agent.Events, p.events)
+	kernel.On(c, shell.PageChanged, func(id string) {
+		for _, r := range p.runs {
+			if pageID(r) == id {
+				r.unseen = false
+			}
+		}
+	})
 	kernel.On(c, shell.NoticeClicked, func(id string) {
 		if id == noticeID {
 			p.showLatest()
@@ -82,9 +92,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	})
 	for _, err := range []error{
 		kernel.Provide[wf.Service](c, wf.ServiceKey, p),
-		kernel.Contribute(c, shell.Pages, wf.PageID, 50, shell.Page{Title: func() string { return "Workflow" }, Render: p.page}),
 		kernel.Contribute(c, shell.Overlays, "workflow.prompt", 20, shell.View{Render: p.promptView}),
-		kernel.Contribute(c, shell.TitleBar, "workflow.status", 0, shell.View{Render: p.status}),
 		kernel.Contribute(c, kernel.Commands, "workflow.show", 0, kernel.Command{
 			Title: "Show Workflow Run", Menu: "View",
 			Enabled: func() bool { return len(p.runs) > 0 }, Run: p.showLatest}),
@@ -128,7 +136,15 @@ func (p *Plugin) submit() {
 // Start runs the flow on a worker and shows its page.
 func (p *Plugin) Start(f wf.Flow, in wf.Input) {
 	ctx, cancel := context.WithCancel(p.ctx.Lifetime())
-	r := &run{flow: f, in: in, cancel: cancel, allowed: map[allowKey]bool{}}
+	p.numbered++
+	r := &run{number: p.numbered, flow: f, in: in, cancel: cancel, allowed: map[allowKey]bool{}, scope: p.ctx.NewScope()}
+	if err := kernel.Contribute(r.scope, shell.Pages, pageID(r), 50, shell.Page{
+		Title: func() string { return runTitle(r) }, Render: func(c *ui.Context) { p.page(c, r) }}); err != nil {
+		cancel()
+		r.scope.Dispose()
+		p.host.Toast(ui.Toast{Title: "The workflow did not start", Description: err.Error(), Type: components.ToastError})
+		return
+	}
 	p.runs = slices.Insert(p.runs, 0, r)
 	for len(p.runs) > maxRuns {
 		i := len(p.runs) - 1
@@ -138,6 +154,7 @@ func (p *Plugin) Start(f wf.Flow, in wf.Input) {
 		if i < 0 {
 			break
 		}
+		p.runs[i].scope.Dispose() // its page, and so its tab, goes
 		p.runs = slices.Delete(p.runs, i, i+1)
 	}
 	p.show(r)
@@ -204,7 +221,7 @@ func (p *Plugin) finish(r *run, result string, err error) {
 		}
 		st.watch = nil
 	}
-	if r.state == runStopped || (p.host.Page() == wf.PageID && p.shown == r) {
+	if r.state == runStopped || p.host.Page() == pageID(r) {
 		return
 	}
 	r.unseen = true
@@ -219,15 +236,19 @@ func (p *Plugin) finish(r *run, result string, err error) {
 	p.host.Notify(shell.Notice{ID: noticeID, Title: title, Body: body})
 }
 
-// show opens the page on a run.
+// show opens a run's page.
 func (p *Plugin) show(r *run) {
-	p.shown = r
 	r.unseen = false
-	p.host.ShowPage(wf.PageID)
+	p.host.ShowPage(pageID(r))
 }
 
-// showLatest opens the page on the run that most needs the user, else the
-// newest.
+func pageID(r *run) string { return pagePrefix + strconv.Itoa(r.number) }
+
+// runTitle names a run's page and tab: its brief's first line, shortened.
+func runTitle(r *run) string { return cmp.Or(clip(r.in.Brief, 40), r.flow.Title) }
+
+// showLatest opens the page of the run that most needs the user, else of
+// the newest.
 func (p *Plugin) showLatest() {
 	if len(p.runs) == 0 {
 		return
@@ -299,6 +320,23 @@ func (p *Plugin) end(w *watch, err error, over bool) {
 	}
 	w.step.pending = nil
 	close(w.done)
+	if err == nil {
+		p.readChanges(w.step, w.session)
+	}
+}
+
+// readChanges reads what a step's conversation changed, when the backend can
+// tell, for the run's page.
+func (p *Plugin) readChanges(st *step, session agent.SessionID) {
+	source, ok := kernel.Use(p.ctx, agent.ChangesKey)
+	if !ok {
+		return
+	}
+	p.ctx.Spawn(func(ctx context.Context) {
+		if changes, err := source.Changes(ctx, session); err == nil {
+			p.ctx.Post(func() { st.changes = changes })
+		}
+	})
 }
 
 // approval answers a permission request by the step's policy, then by what the

@@ -3,12 +3,13 @@ package workflow
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
-	wf "wada-desktop-go/internal/contract/workflow"
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/native"
@@ -21,30 +22,152 @@ import (
 
 // ---- The run page
 
-func (p *Plugin) page(c *ui.Context) {
+// page shows a run: its steps and result, and beside them what it changed
+// and what it may do without asking.
+func (p *Plugin) page(c *ui.Context, r *run) {
 	pal := native.PaletteFor(c)
 	theme := native.MarkdownTheme(pal)
 	md := markdown.Options{Theme: &theme, ShareSelection: true, OnLink: p.openLink}
-	r := p.shown
-	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).FillWidth().AlignItems(ui.Center).Children(func() {
-			ui.Column(c).FillWidth().MaxWidth(820).MinWidth(0).Gap(18).Padding(20, 40, 40, 40).Children(func() {
-				p.nav(c, pal)
-				if r == nil {
-					ui.Text(c, "No workflow has run yet. Start one from All chats (⌘K).").FontSize(13).TextColor(pal.Muted)
-					return
-				}
-				p.header(c, pal, r)
-				ui.Column(c).Key(r).FillWidth().Gap(10).Children(func() {
-					for i, st := range r.steps {
-						c.Key(i)
-						p.stepView(c, pal, &md, r, st)
+	ui.Row(c).Fill().MinHeight(0).Children(func() {
+		ui.Scroll(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
+			ui.Column(c).FillWidth().AlignItems(ui.Center).Children(func() {
+				ui.Column(c).FillWidth().MaxWidth(820).MinWidth(0).Gap(18).Padding(24, 40, 40, 40).Children(func() {
+					p.header(c, pal, r)
+					ui.Column(c).Key(r).FillWidth().Gap(10).Children(func() {
+						for i, st := range r.steps {
+							c.Key(i)
+							p.stepView(c, pal, &md, r, st)
+						}
+					})
+					p.outcome(c, pal, &md, r)
+				})
+			})
+		})
+		allowed, denied := permissions(r)
+		changed := slices.ContainsFunc(r.steps, func(st *step) bool { return len(st.changes) > 0 })
+		if len(allowed) == 0 && len(denied) == 0 && !changed {
+			return
+		}
+		ui.Column(c).Width(280).FillHeight().Shrink(0).Background(pal.DrawerBg).Label("Run details").Children(func() {
+			ui.Scroll(c).Fill().Children(func() {
+				ui.Column(c).FillWidth().Padding(18, 16).Gap(22).Children(func() {
+					if changed {
+						c.Key("changes")
+						side(c, pal, "Changes", func() { changesList(c, pal, r) })
+					}
+					if len(allowed) > 0 {
+						c.Key("allowed")
+						side(c, pal, "Allowed without asking", func() { wordList(c, pal, allowed) })
+					}
+					if len(denied) > 0 {
+						c.Key("denied")
+						side(c, pal, "Never allowed", func() { wordList(c, pal, denied) })
 					}
 				})
-				p.outcome(c, pal, &md, r)
 			})
 		})
 	})
+}
+
+func side(c *ui.Context, pal native.Palette, title string, body func()) {
+	ui.Column(c).FillWidth().Gap(10).Children(func() {
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(pal.Faint).SingleLine()
+		body()
+	})
+}
+
+// changesList is each step's changed files, with their line counts.
+func changesList(c *ui.Context, pal native.Palette, r *run) {
+	for i, st := range r.steps {
+		if len(st.changes) == 0 {
+			continue
+		}
+		c.Key(i)
+		ui.Column(c).FillWidth().Gap(4).Children(func() {
+			ui.Text(c, st.name).FontSize(12).FontWeight(500).TextColor(pal.Muted).SingleLine()
+			for _, ch := range st.changes {
+				c.Key(ch.Path)
+				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, ch.Path).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+					ui.Text(c, "+"+strconv.Itoa(ch.Added)).FontSize(11.5).TextColor(pal.DiffAdd).Shrink(0)
+					ui.Text(c, "−"+strconv.Itoa(ch.Removed)).FontSize(11.5).TextColor(pal.DiffDel).Shrink(0)
+				})
+			}
+		})
+	}
+}
+
+func wordList(c *ui.Context, pal native.Palette, words []string) {
+	for i, w := range words {
+		c.Key(i)
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(5, 5).Radius(3).Background(pal.Faint).Shrink(0)
+			ui.Text(c, w).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0)
+		})
+	}
+}
+
+// permissions words what the run's steps may do without asking, by their
+// policies and by what the user allowed for the run, and what they may never
+// do: each kind once, with the steps it applies to.
+func permissions(r *run) (allowed, denied []string) {
+	type entry struct {
+		words string
+		where []string
+	}
+	add := func(list []entry, words, where string) []entry {
+		i := slices.IndexFunc(list, func(e entry) bool { return e.words == words })
+		if i < 0 {
+			return append(list, entry{words, []string{where}})
+		}
+		if !slices.Contains(list[i].where, where) {
+			list[i].where = append(list[i].where, where)
+		}
+		return list
+	}
+	var yes, no []entry
+	for _, st := range r.steps {
+		for _, k := range st.policy.Deny {
+			no = add(no, kindWords(k, ""), st.name)
+		}
+		for _, k := range st.policy.Allow {
+			if !slices.Contains(st.policy.Deny, k) {
+				yes = add(yes, kindWords(k, ""), st.name)
+			}
+		}
+	}
+	keys := slices.SortedFunc(maps.Keys(r.allowed), func(a, b allowKey) int {
+		return cmp.Or(cmp.Compare(a.kind, b.kind), cmp.Compare(a.action, b.action))
+	})
+	for _, k := range keys {
+		yes = add(yes, kindWords(k.kind, k.action), "this run")
+	}
+	spell := func(list []entry) []string {
+		out := make([]string, len(list))
+		for i, e := range list {
+			out[i] = e.words + " · " + strings.Join(e.where, ", ")
+		}
+		return out
+	}
+	return spell(yes), spell(no)
+}
+
+// kindWords says what a kind of permission lets the agent do.
+func kindWords(k agent.ToolKind, action string) string {
+	switch k {
+	case agent.ToolShell:
+		return "Run commands"
+	case agent.ToolRead:
+		return "Read files"
+	case agent.ToolSearch:
+		return "Search files"
+	case agent.ToolEdit:
+		return "Edit files"
+	case agent.ToolFetch:
+		return "Fetch from the web"
+	case agent.ToolOther:
+	}
+	return cmp.Or(action, "Other tools")
 }
 
 func (p *Plugin) openLink(url string) {
@@ -52,21 +175,6 @@ func (p *Plugin) openLink(url string) {
 	if ui.SafeToOpen(url) {
 		p.host.OpenURL(url)
 	}
-}
-
-// nav is the row above a run: the way back, and the runs to choose between.
-func (p *Plugin) nav(c *ui.Context, pal native.Palette) {
-	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
-		c.Key("back")
-		quiet(c, pal, "Back to chat", "Back to chat", lucide.ArrowLeft(), func() { p.host.ShowPage(chat.PageID) })
-		if len(p.runs) < 2 {
-			return
-		}
-		for i, r := range p.runs {
-			c.Key(i)
-			native.Choice(c, clip(r.in.Brief, 32), r == p.shown, func() { p.show(r) })
-		}
-	})
 }
 
 func (p *Plugin) header(c *ui.Context, pal native.Palette, r *run) {
@@ -283,78 +391,6 @@ func (p *Plugin) copyResult(r *run) {
 		return
 	}
 	p.host.Toast(ui.Toast{Title: "Result copied", Type: components.ToastSuccess})
-}
-
-// ---- The title bar
-
-// pillKind is what the title-bar pill says.
-type pillKind uint8
-
-const (
-	pillNone pillKind = iota
-	pillNeeds
-	pillFinished
-	pillFailed
-	pillRunning
-)
-
-// pill picks the run the title bar points at: one that waits for the user,
-// else one that ended while they were elsewhere, else one still going.
-func (p *Plugin) pill() (*run, pillKind) {
-	var running, ended *run
-	for _, r := range p.runs {
-		switch {
-		case r.state == runRunning && slices.ContainsFunc(r.steps, (*step).needsYou):
-			return r, pillNeeds
-		case r.state == runRunning:
-			running = cmp.Or(running, r)
-		case r.unseen:
-			ended = cmp.Or(ended, r)
-		}
-	}
-	switch {
-	case ended != nil && ended.state == runFailed:
-		return ended, pillFailed
-	case ended != nil:
-		return ended, pillFinished
-	case running != nil:
-		return running, pillRunning
-	}
-	return nil, pillNone
-}
-
-// status is the pill at the end of the title strip. The run page has no need
-// of it for the run it shows.
-func (p *Plugin) status(c *ui.Context) {
-	pal := native.PaletteFor(c)
-	r, kind := p.pill()
-	if kind == pillNone || (p.host.Page() == wf.PageID && p.shown == r) {
-		return
-	}
-	label, tone := "Workflow running", pal.Muted
-	switch kind {
-	case pillNeeds:
-		label, tone = "Workflow needs you", pal.Orange
-	case pillFinished:
-		label, tone = "Workflow finished", pal.GreenBadge
-	case pillFailed:
-		label, tone = "Workflow failed", pal.Danger
-	case pillRunning, pillNone:
-	}
-	b := ui.ButtonBase(c).Label(label).Height(26).Radius(13).Padding(0, 10).Center().Gap(6).
-		Border(1, pal.Hairline).Cursor(ui.CursorPointer)
-	if b.Hovered() {
-		b.Background(pal.Hover)
-	}
-	b.OnClick(func() { p.show(r) })
-	b.Children(func() {
-		if kind == pillRunning {
-			components.Spinner(c, components.SpinnerSpokes).Size(12, 12).TextColor(tone)
-		} else {
-			ui.Icon(c, lucide.Workflow()).FontSize(12).TextColor(tone)
-		}
-		ui.Text(c, label).FontSize(12).TextColor(tone).SingleLine()
-	})
 }
 
 // ---- The brief dialog

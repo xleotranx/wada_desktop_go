@@ -10,6 +10,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	chatcontract "wada-desktop-go/internal/contract/chat"
+	tabcontract "wada-desktop-go/internal/contract/tabs"
 	wscontract "wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
@@ -144,6 +145,20 @@ func (a *app) command(id string) {
 		}
 	}
 	a.t.Fatalf("no command %q", id)
+}
+
+// selectTab shows the first tab with the title.
+func (a *app) selectTab(title string) {
+	a.t.Helper()
+	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+	for _, tab := range open.Tabs() {
+		if tab.Title == title {
+			open.Select(tab.ID)
+			a.settle()
+			return
+		}
+	}
+	a.t.Fatalf("no tab %q", title)
 }
 
 // newChatIn starts a chat from the menu of a folder's tab group.
@@ -301,7 +316,7 @@ func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
 	}
 	a.settle()
 	a.until("the coder's permission request", func() bool { return a.tt.HasText("The agent wants to run a shell command") })
-	for _, want := range []string{"add a --verbose flag", "Plan", "Code", "go test ./...", "Needs you", "Workflow"} {
+	for _, want := range []string{"add a --verbose flag", "Plan", "Code", "go test ./...", "Needs you", "Allowed without asking"} {
 		if !a.tt.HasText(want) {
 			t.Fatalf("%q is missing from the run: %q", want, a.tt.Texts())
 		}
@@ -387,8 +402,13 @@ func TestTheModePickerRunsTheNextMessageAsAWorkflow(t *testing.T) {
 	}
 
 	// The message left the composer, and the picker went back to the mode.
-	if err := a.tt.Click("Back to chat"); err != nil {
-		t.Fatal(err)
+	// The run's tab, named by the message, closes so only the composer could show it.
+	a.selectTab("New chat")
+	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+	for _, tab := range open.Tabs() {
+		if tab.Title == "outline the guide" {
+			open.Close(tab.ID)
+		}
 	}
 	a.settle()
 	if a.tt.HasText("outline the guide") || !a.tt.HasText("Build") {

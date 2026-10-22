@@ -668,3 +668,33 @@ func TestCloseReportsPersistentSaveFailure(t *testing.T) {
 		t.Fatalf("Close returned %v, want %v", err, failure)
 	}
 }
+
+func TestPointChangesAreAnnouncedOncePerRound(t *testing.T) {
+	var got []string
+	watcher := plug("watch", func(c *kernel.Context) error {
+		kernel.On(c, kernel.PointChanged, func(name string) { got = append(got, name) })
+		return nil
+	})
+	p := plug("p", nil)
+	h := kerneltest.New(t, watcher, p)
+	h.Flush()
+	got = nil
+	scope := p.ctx.NewScope()
+	for _, id := range []string{"p.a", "p.b"} {
+		if err := kernel.Contribute(scope, sidebar, id, 0, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 0 {
+		t.Fatal("the change was announced before the round ended")
+	}
+	h.Flush()
+	if !slices.Equal(got, []string{sidebar.Name()}) {
+		t.Fatalf("announced %q", got)
+	}
+	scope.Dispose()
+	h.Flush()
+	if !slices.Equal(got, []string{sidebar.Name(), sidebar.Name()}) || len(kernel.Items(h, sidebar)) != 0 {
+		t.Fatalf("after removal: announced %q", got)
+	}
+}

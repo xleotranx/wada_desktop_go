@@ -304,7 +304,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 tabs show the page as a tab. It lists `settings.Sections` entries in order in a navigation column and renders
 only the selected section in a separately scrolling detail pane. If that section
 disappears, it shows the first available section. It adds its own Appearance and
-Plugins sections; appearance offers System, Light and Dark, each drawn as a small
+Plugins sections; appearance offers System, Light and Dark (the default), each drawn as a small
 window in that theme (`native.PaletteOf`): the strip with a project's tabs over the
 panel, System half of each, and a Window background choice of Clear, Frosted or Solid. The plugin list uses switches to turn optional plugins on
 and off through `shell.Host`. The tabs, chat, OpenCode, Pi and notifications plugins

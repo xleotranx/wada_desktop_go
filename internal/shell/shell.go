@@ -312,7 +312,7 @@ func (*host) Manifest() kernel.Manifest {
 
 func (h *host) Setup(c *kernel.Context) error {
 	h.failed = map[string]bool{}
-	h.appearance = kernel.NewSetting(c, "appearance", "system")
+	h.appearance = kernel.NewSetting(c, "appearance", "dark")
 	h.applyTheme(h.Appearance())
 	h.backdrop = kernel.NewSetting(c, "backdrop", "clear")
 	h.applyBackdrop(h.Backdrop())

@@ -17,7 +17,7 @@ const maxReviews = 3
 var planCodeReview = wf.Flow{
 	ID:      "plan-code-review",
 	Title:   "Plan, code, review",
-	Summary: "One agent plans the work, a second makes the changes, a third reviews them. Problems the review finds go back to the coder, up to three rounds.",
+	Summary: "Plan, then code, then review. Problems the review finds go back to the coder, up to three rounds.",
 	Run:     runPlanCodeReview,
 }
 

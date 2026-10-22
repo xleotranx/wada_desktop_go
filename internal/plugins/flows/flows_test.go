@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/chat"
 	wf "wada-desktop-go/internal/contract/workflow"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
@@ -218,7 +219,10 @@ func TestJudgeTakesTheLastVerdictLine(t *testing.T) {
 
 // ---- The command
 
-type fakeService struct{ prompted []wf.Flow }
+type fakeService struct {
+	prompted []wf.Flow
+	started  []wf.Input
+}
 
 func (*fakeService) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-workflow", Provides: []kernel.Named{wf.ServiceKey}}
@@ -228,8 +232,9 @@ func (f *fakeService) Setup(c *kernel.Context) error {
 	return kernel.Provide[wf.Service](c, wf.ServiceKey, f)
 }
 
-func (f *fakeService) Prompt(flow wf.Flow)   { f.prompted = append(f.prompted, flow) }
-func (*fakeService) Start(wf.Flow, wf.Input) {}
+func (f *fakeService) Prompt(flow wf.Flow) { f.prompted = append(f.prompted, flow) }
+
+func (f *fakeService) Start(_ wf.Flow, in wf.Input) { f.started = append(f.started, in) }
 
 func TestTheCommandAsksForTheBriefOfItsFlow(t *testing.T) {
 	svc := &fakeService{}
@@ -248,4 +253,21 @@ func TestTheCommandAsksForTheBriefOfItsFlow(t *testing.T) {
 		return
 	}
 	t.Fatal("the flow has no command")
+}
+
+func TestTheFlowTakesTheFirstMessageOfANewChat(t *testing.T) {
+	svc := &fakeService{}
+	h := kerneltest.New(t, svc, &Plugin{})
+	targets := kernel.Items(h, chat.Targets)
+	if len(targets) != 1 {
+		t.Fatalf("targets %+v", targets)
+	}
+	target := targets[0].Value
+	if target.Group != "Workflows" || target.Title != "Plan, code, review" || target.Summary == "" {
+		t.Fatalf("target %+v", target)
+	}
+	target.Take(chat.Draft{Directory: "/w/app", Text: "add a flag"})
+	if len(svc.started) != 1 || svc.started[0] != (wf.Input{Brief: "add a flag", Directory: "/w/app"}) {
+		t.Fatalf("started %+v", svc.started)
+	}
 }

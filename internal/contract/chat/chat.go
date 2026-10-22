@@ -4,6 +4,8 @@
 package chat
 
 import (
+	"errors"
+
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
@@ -53,7 +55,28 @@ var (
 	// file after "@". The composer owns the draft, the caret and the keys;
 	// a contribution only says what to offer and what a choice becomes.
 	Completions = kernel.NewPoint[Completion]("chat.completions")
+	// Targets are other places a new chat's first message can go than a new
+	// conversation with the agent, such as a workflow. The composer's mode
+	// picker lists them after the backend's modes.
+	Targets = kernel.NewPoint[Target]("chat.targets")
 )
+
+// ErrTaken is what an Outgoing transform returns once it has taken the message
+// itself, as a Target does: nothing goes to the backend, no error is shown and
+// the composer empties.
+var ErrTaken = errors.New("the message was taken")
+
+// Target is somewhere else a message can go. Choosing it in the mode picker
+// applies to the next message only; the picker goes back to the chosen mode
+// once that message is sent.
+type Target struct {
+	Group   string // what the picker calls its section, such as "Workflows"
+	Title   string
+	Summary string // one line, shown under the title
+	// Take receives the message instead of the backend, on the UI thread, with
+	// the folder the user chose for the new chat.
+	Take func(Draft)
+}
 
 // Completion suggests words for the composer. While the caret is in a word
 // that starts with Trigger, at the start of the text or after whitespace,

@@ -149,6 +149,37 @@ func TestOutgoingPipelineRewritesAndRejects(t *testing.T) {
 	}
 }
 
+func TestATakenMessageGoesNoFurther(t *testing.T) {
+	var took []string
+	taker := &extension{setup: func(c *kernel.Context) error {
+		kernel.Transform(c, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, error) {
+			if strings.HasPrefix(d.Text, "take") {
+				took = append(took, d.Text)
+				return d, chat.ErrTaken
+			}
+			return d, nil
+		})
+		return nil
+	}}
+	h, p, f, host := start(t, taker)
+	p.NewChat("/work")
+	p.draft = "take this"
+	p.send()
+	h.Flush()
+	if p.draft != "" || len(f.Calls()) != 0 || len(host.Toasts) != 0 || len(p.t.rows) != 0 || p.sending || p.conv.Starting {
+		t.Fatalf("draft %q, calls %q, toasts %q, rows %d, sending %v", p.draft, f.Calls(), host.Toasts, len(p.t.rows), p.sending)
+	}
+	if !slices.Equal(took, []string{"take this"}) {
+		t.Fatalf("took %q", took)
+	}
+	p.draft = "send this"
+	p.send()
+	h.Flush()
+	if got := f.Calls(); !slices.Equal(got, []string{"create /work", "send new send this"}) {
+		t.Fatalf("calls %q", got)
+	}
+}
+
 type extension struct{ setup func(*kernel.Context) error }
 
 func (*extension) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "extension"} }

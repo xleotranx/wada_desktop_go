@@ -2,6 +2,7 @@ package models
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -18,7 +19,7 @@ var (
 	beta  = agent.ModelRef{Provider: "acme", ID: "beta"}
 )
 
-func start(t *testing.T, store *kerneltest.Store) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
+func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *plugintest.Host) {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Catalog = []agent.Model{
@@ -28,7 +29,7 @@ func start(t *testing.T, store *kerneltest.Store) (*kerneltest.Harness, *Plugin,
 	a.Default = alpha
 	a.ModeList = []agent.Mode{{ID: "build", Name: "Build"}, {ID: "plan", Name: "Plan"}}
 	c, host, p := &plugintest.Chat{}, &plugintest.Host{}, &Plugin{}
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, a, c, host, p)
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, append([]kernel.Plugin{a, c, host, p}, extra...)...)
 	h.Flush()
 	return h, p, a, c, host
 }
@@ -154,5 +155,135 @@ func TestNavigatingDropsEarlierModelSwitchFailure(t *testing.T) {
 	kernel.Emit(h, chat.Changed, c.Conv)
 	if !p.pending.IsZero() || p.current() != beta {
 		t.Fatalf("s2 confirmation: pending=%+v current=%+v", p.pending, p.current())
+	}
+}
+
+// targets contributes a chat target that keeps what it is given.
+type targets struct{ taken *[]chat.Draft }
+
+func (targets) Manifest() kernel.Manifest { return kernel.Manifest{ID: "test-targets"} }
+
+func (t targets) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, chat.Targets, "test-targets.flow", 0, chat.Target{
+		Group: "Workflows", Title: "Plan, code, review", Summary: "Three agents, one after the other.",
+		Take: func(d chat.Draft) { *t.taken = append(*t.taken, d) }})
+}
+
+func TestChoosingATargetSendsTheNextMessageThereOnly(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if err := tt.Click("Build"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, want := range []string{"Modes", "Plan", "Workflows", "Plan, code, review", "Three agents, one after the other."} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from the picker: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("Plan, code, review"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("Build") || !tt.HasText("Plan, code, review") {
+		t.Fatalf("the picker does not show the target: %q", tt.Texts())
+	}
+
+	_, err := kernel.Run(h, chat.Outgoing, chat.Draft{Directory: "/w", Text: "fix the parser"})
+	if !errors.Is(err, chat.ErrTaken) {
+		t.Fatalf("error %v", err)
+	}
+	if len(taken) != 1 || taken[0].Text != "fix the parser" || taken[0].Directory != "/w" || taken[0].Session != "" {
+		t.Fatalf("taken %+v", taken)
+	}
+	// It was for that message only.
+	d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "next"})
+	if err != nil || d.Text != "next" || len(taken) != 1 {
+		t.Fatalf("draft %+v, error %v, taken %d", d, err, len(taken))
+	}
+	tt.Frame()
+	if !tt.HasText("Build") {
+		t.Fatalf("the picker did not go back to the mode: %q", tt.Texts())
+	}
+}
+
+func TestChoosingAModeAfterATargetLeavesTheTarget(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	for _, click := range []string{"Build", "Plan, code, review", "Plan, code, review", "Plan"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatalf("click %q: %v in %q", click, err, tt.Texts())
+		}
+		tt.Frame()
+	}
+	d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"})
+	if err != nil || d.Mode != "plan" || len(taken) != 0 {
+		t.Fatalf("draft %+v, error %v, taken %d", d, err, len(taken))
+	}
+}
+
+func TestATargetIsDroppedWhenAnotherConversationOpens(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	for _, click := range []string{"Build", "Plan, code, review"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	c.Open(agent.Session{ID: "s1"})
+	if d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Session: "s1", Text: "hi"}); err != nil || d.Text != "hi" {
+		t.Fatalf("a stored conversation: %+v %v", d, err)
+	}
+	c.NewChat("/w")
+	if d, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"}); err != nil || d.Text != "hi" || len(taken) != 0 {
+		t.Fatalf("a later new chat went to the target: %+v %v, taken %d", d, err, len(taken))
+	}
+}
+
+func TestTheModePickerAppearsForATargetWithoutBackendModes(t *testing.T) {
+	var taken []chat.Draft
+	h, p, a, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	a.ModeList = nil
+	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
+	h.Flush()
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if !tt.HasText("Chat") {
+		t.Fatalf("the picker is missing: %q", tt.Texts())
+	}
+	for _, click := range []string{"Chat", "Plan, code, review"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatalf("click %q: %v in %q", click, err, tt.Texts())
+		}
+		tt.Frame()
+	}
+	if _, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"}); !errors.Is(err, chat.ErrTaken) {
+		t.Fatalf("error %v", err)
+	}
+	if !slices.Equal([]string{taken[0].Text}, []string{"hi"}) {
+		t.Fatalf("taken %+v", taken)
+	}
+}
+
+func TestWithoutTargetsOneModeShowsNoPicker(t *testing.T) {
+	h, p, a, _, _ := start(t, kerneltest.NewStore())
+	a.ModeList = a.ModeList[:1]
+	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
+	h.Flush()
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.Frame()
+	if tt.HasText("Build") {
+		t.Fatalf("a picker for one mode: %q", tt.Texts())
 	}
 }

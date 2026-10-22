@@ -1,11 +1,15 @@
 // Package models is the composer's model, effort and mode pickers. A new
 // conversation starts with the model and mode chosen here (remembered across
-// launches); choosing a model in an open conversation switches it there.
+// launches); choosing a model in an open conversation switches it there. The
+// mode picker also lists the chat.Targets other plugins contribute, such as a
+// workflow: choosing one sends the next message there instead of to the agent.
 package models
 
 import (
+	"cmp"
 	"context"
 	"slices"
+	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
@@ -40,6 +44,10 @@ type Plugin struct {
 
 	newModel *kernel.Setting[agent.ModelRef]
 	newMode  *kernel.Setting[string]
+	// target is the chat.Targets entry the next message goes to, instead of the
+	// agent. It is not remembered: the picker returns to the chosen mode once
+	// the message is sent, and when another conversation opens.
+	target string
 
 	modelPicker, effortPicker, modePicker onechat.PickerState
 }
@@ -83,6 +91,7 @@ func (p *Plugin) conversationChanged(conv chat.Conversation) {
 		p.scope = p.ctx.NewScope()
 		p.session = conv.Session
 		p.pending = agent.ModelRef{}
+		p.target = ""
 	}
 	if conv.Session == "" || conv.Model == p.pending {
 		p.pending = agent.ModelRef{}
@@ -121,10 +130,20 @@ func (p *Plugin) reload() {
 }
 
 // outgoing gives a new conversation the chosen model and mode, unless another
-// transform chose already, or the backend no longer offers them.
+// transform chose already, or the backend no longer offers them. A message for
+// a target is handed to it and goes no further.
 func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, error) {
 	if d.Session != "" {
 		return d, nil
+	}
+	if id := p.target; id != "" {
+		p.target = ""
+		for _, e := range kernel.Items(p.ctx, chat.Targets) {
+			if e.ID == id {
+				kernel.Invoke(p.ctx, e, func(t chat.Target) { t.Take(d) })
+				return d, chat.ErrTaken
+			}
+		}
 	}
 	if m := p.newModel.Get(); d.Model.IsZero() && !m.IsZero() && (!p.loaded || p.find(m) != nil) {
 		d.Model = m
@@ -251,8 +270,11 @@ func (p *Plugin) view(c *ui.Context) {
 				p.choose(next)
 			}
 		}
-		if p.chat.Current().Session == "" && len(p.modes) > 1 {
-			p.modeView(c)
+		targets := kernel.Items(p.ctx, chat.Targets)
+		// A backend without modes still has its own way of chatting, to choose
+		// against the targets.
+		if p.chat.Current().Session == "" && max(len(p.modes), 1)+len(targets) > 1 {
+			p.modeView(c, targets)
 		}
 	})
 }
@@ -261,18 +283,38 @@ func (p *Plugin) view(c *ui.Context) {
 // IDs can't be empty.
 const defaultEffort = "(default)"
 
-func (p *Plugin) modeView(c *ui.Context) {
-	options := make([]onechat.Option, 0, len(p.modes))
+const (
+	targetPrefix = "target:" // tells a target's picker ID from a mode's
+	defaultMode  = "(default)"
+)
+
+// modeView picks the mode of a new chat, or one of the targets for its first
+// message.
+func (p *Plugin) modeView(c *ui.Context, targets []kernel.Entry[chat.Target]) {
+	var options []onechat.Option
 	for _, m := range p.modes {
-		label := m.Name
-		if label == "" {
-			label = m.ID
+		options = append(options, onechat.Option{ID: m.ID, Label: cmp.Or(m.Name, m.ID), Description: m.Description})
+	}
+	if len(p.modes) == 0 { // a backend without modes still has its own way of chatting
+		options = append(options, onechat.Option{ID: defaultMode, Label: "Chat"})
+	}
+	if len(targets) > 0 {
+		for i := range options {
+			options[i].Group = "Modes"
 		}
-		options = append(options, onechat.Option{ID: m.ID, Label: label, Description: m.Description})
+		for _, e := range targets {
+			options = append(options, onechat.Option{ID: targetPrefix + e.ID, Label: e.Value.Title,
+				Description: e.Value.Summary, Group: cmp.Or(e.Value.Group, "More")})
+		}
 	}
 	selected := p.newMode.Get()
-	if selected == "" {
+	switch {
+	case p.target != "":
+		selected = targetPrefix + p.target
+	case selected == "" && len(p.modes) > 0:
 		selected = p.modes[0].ID
+	case selected == "":
+		selected = defaultMode
 	}
 	label := selected
 	for _, o := range options {
@@ -281,9 +323,16 @@ func (p *Plugin) modeView(c *ui.Context) {
 		}
 	}
 	picked := onechat.Picker(c, &p.modePicker, onechat.PickerOptions{
-		Label: label, Options: options, Selected: selected, Width: 260,
+		Label: label, Options: options, Selected: selected, Width: 280,
 	})
-	if picked.Chosen != "" {
-		p.newMode.Set(picked.Chosen)
+	switch id, isTarget := strings.CutPrefix(picked.Chosen, targetPrefix); {
+	case picked.Chosen == "":
+	case isTarget:
+		p.target = id
+	default:
+		p.target = ""
+		if picked.Chosen != defaultMode {
+			p.newMode.Set(picked.Chosen)
+		}
 	}
 }

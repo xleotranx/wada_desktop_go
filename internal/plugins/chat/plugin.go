@@ -189,6 +189,10 @@ func (p *Plugin) send() {
 		return
 	}
 	d, err := kernel.Run(p.ctx, chat.Outgoing, chat.Draft{Session: p.conv.Session, Directory: p.conv.Directory, Text: text})
+	if errors.Is(err, chat.ErrTaken) {
+		p.draft = ""
+		return
+	}
 	if err != nil {
 		p.host.Toast(ui.Toast{Title: "The message was not sent", Description: err.Error()})
 		return

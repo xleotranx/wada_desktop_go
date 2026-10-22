@@ -46,6 +46,7 @@ type app struct {
 func startApp(t *testing.T) *app {
 	t.Helper()
 	a := plugintest.NewAgent()
+	a.ModeList = []agent.Mode{{ID: "build", Name: "Build"}, {ID: "plan", Name: "Plan"}}
 	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{
 		{ID: "s1", Title: "Fix the parser", Directory: "/work/app", Updated: 30},
 		{ID: "s2", Title: "Write the docs", Directory: "/work/docs", Updated: 20},
@@ -324,5 +325,61 @@ func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
 	}
 	if _, ok := ws.Lookup("new-1"); ok {
 		t.Fatal("a step nobody opened was recorded")
+	}
+}
+
+func TestTheModePickerRunsTheNextMessageAsAWorkflow(t *testing.T) {
+	a := startApp(t)
+	a.agent.Numbered = true
+	a.agent.OnSend = func(req agent.Send) {
+		if strings.Contains(req.Text, "review step") {
+			a.agent.Respond(req.Session, "Fine.\n\nVERDICT: PASS")
+			return
+		}
+		a.agent.Respond(req.Session, "Did it.")
+	}
+	if err := a.tt.Click("New chat in docs"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if err := a.tt.Click("Compose"); err != nil {
+		t.Fatal(err)
+	}
+	a.tt.Type("outline the guide")
+	a.settle()
+	if err := a.tt.Click("Build"); err != nil {
+		t.Fatalf("%v in %q", err, a.tt.Texts())
+	}
+	a.settle()
+	for _, want := range []string{"Modes", "Plan", "Workflows", "Plan, code, review"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q is missing from the picker: %q", want, a.tt.Texts())
+		}
+	}
+	if err := a.tt.Click("Plan, code, review"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if err := a.tt.Click("Send"); err != nil {
+		t.Fatal(err)
+	}
+	a.until("the result", func() bool { return a.tt.HasText("Review passed") })
+	for _, want := range []string{"outline the guide", "Working in /work/docs", "Done"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q is missing from the run: %q", want, a.tt.Texts())
+		}
+	}
+	calls := a.agent.Calls()
+	if !slices.Contains(calls, "create /work/docs") || a.agent.Called("create /work/docs  ") != 0 {
+		t.Fatalf("calls %q", calls)
+	}
+
+	// The message left the composer, and the picker went back to the mode.
+	if err := a.tt.Click("Back to chat"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if a.tt.HasText("outline the guide") || !a.tt.HasText("Build") {
+		t.Fatalf("the composer after the workflow: %q", a.tt.Texts())
 	}
 }

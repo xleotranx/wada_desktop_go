@@ -454,3 +454,33 @@ func TestAPageThatGoesAwayLosesItsTab(t *testing.T) {
 		t.Fatalf("page %q", f.host.PageID)
 	}
 }
+
+func TestTabsSettings(t *testing.T) {
+	store := kerneltest.NewStore()
+	f := start(t, store, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s3")
+	tt := ui.NewTester(f.p.section, 700, 600)
+	tt.Frame()
+	for _, want := range []string{"Reopen tabs when Wada starts", "New chats join the current tab’s project", "Project colors", "app", "web"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("Color 4 for web"); err != nil {
+		t.Fatal(err)
+	}
+	if f.p.colorIndex("/w/web") != 3 {
+		t.Fatalf("web has color %d", f.p.colorIndex("/w/web"))
+	}
+	f.p.join.Set(false) // as its switch does
+	f.p.newChat()
+	if f.chat.Conv.Directory != "" {
+		t.Fatalf("a new chat joined %q", f.chat.Conv.Directory)
+	}
+	f.p.reopen.Set(false)
+	f.h.Close()
+	again := start(t, store, record())
+	again.want(t, "[New chat]")
+}

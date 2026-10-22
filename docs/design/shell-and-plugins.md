@@ -46,7 +46,8 @@ under `go run` nothing is shown.
 
 `internal/plugins/chat` (locked) requires `agent.ServiceKey` and `shell.HostKey`,
 provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
-"New Chat" (⌘N), "Toggle Work Panel" (⌘B, View) and "Stop the Agent" (⌘.) commands.
+"Toggle Work Panel" (⌘B, View) and "Stop the Agent" (⌘.) commands, and a
+Conversation settings section with the work panel's switch.
 
 - A chat with nothing in it yet centers the composer between a greeting (with the
   chosen folder) and, for a new chat, starter suggestions that fill the draft. Once
@@ -248,8 +249,8 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 - After `kernel.PointChanged` for `shell.Pages`, a page tab whose page is gone closes,
   and the others take their page's current title.
 - The strip draws a tab's marker, title and a close button (shown on the active and
-  hovered tab, and on focus), then a "+" that opens a new chat in the active tab's
-  folder, then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
+  hovered tab, and on focus), then a "+" that opens a new chat (in the active tab's
+  folder while new chats join the current project), then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
   (shows `settings.PageID` when contributed).
 - A group's label is a menu: New Chat in the folder, Collapse Group (remembered in the
   record as `Folder.Collapsed`; a collapsed group shows its label with a count and
@@ -259,17 +260,24 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   and Delete…. Rename and delete go to the backend, then the record; Remove from List
   only forgets the record. Either closes the tab. A failed rename or delete is
   reported and changes nothing. Menu choices act after the frame.
-- Commands: Close Tab (⌘W, File), Show Next Tab (⌃Tab) and Show Previous Tab (⌃⇧Tab,
-  View).
+- Commands: New Chat (⌘N, File; the same as "+"), Close Tab (⌘W, File), Show Next Tab
+  (⌃Tab) and Show Previous Tab (⌃⇧Tab, View).
+- A Tabs settings section: Reopen tabs when Wada starts (`reopen`; off, the saved tabs
+  are ignored at launch), New chats join the current tab's project (`join-project`;
+  off, "+" and ⌘N start in the agent's default folder), and a row of the five project
+  colors for each folder, which sets `colors`.
 
 ## Settings
 
-`internal/plugins/settings` contributes the settings page and "Settings…" (⌘,). The
-page offers “Back to chat” above its own navigation. It lists `settings.Sections` entries in order in a navigation column and renders
+`internal/plugins/settings` contributes the settings page and "Settings…" (⌘,); the
+tabs show the page as a tab. It lists `settings.Sections` entries in order in a navigation column and renders
 only the selected section in a separately scrolling detail pane. If that section
 disappears, it shows the first available section. It adds its own Appearance and
-Plugins sections; appearance offers System, Light and Dark choices, and the plugin
-list uses switches to turn optional plugins on and off through `shell.Host`. The OpenCode, Pi and notifications plugins contribute their own sections.
+Plugins sections; appearance offers System, Light and Dark, each drawn as a small
+window in that theme (`native.PaletteOf`): the strip with a project's tabs over the
+panel, System half of each. The plugin list uses switches to turn optional plugins on
+and off through `shell.Host`. The tabs, chat, OpenCode, Pi and notifications plugins
+contribute their own sections.
 
 ## Plugin diagnostics
 

@@ -198,8 +198,11 @@ func TestPaletteRunsCommandsOtherPluginsContributed(t *testing.T) {
 	}
 	a.tt.Key(0, ui.KeyEnter)
 	a.settle()
-	if !a.tt.HasText("Back to chat") {
+	if !a.tt.HasText("Color theme") {
 		t.Fatalf("the Settings command did not run: %q", a.tt.Texts())
+	}
+	if _, ok := a.tt.Find("Close Settings"); !ok {
+		t.Fatalf("Settings has no tab: %q", a.tt.Texts())
 	}
 }
 

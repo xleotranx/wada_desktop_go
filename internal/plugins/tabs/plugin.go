@@ -11,6 +11,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/settings"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
@@ -30,6 +31,8 @@ type Plugin struct {
 	savedActive *kernel.Setting[int]
 	// colors holds each folder's index into the palette's project colors.
 	colors *kernel.Setting[map[string]int]
+	reopen *kernel.Setting[bool] // the tabs of the last run come back
+	join   *kernel.Setting[bool] // a new chat starts in the active tab's folder
 
 	tabs   []tabs.Tab // without State; states holds it
 	active string
@@ -88,6 +91,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.saved = kernel.NewSetting[[]saved](c, "open", nil)
 	p.savedActive = kernel.NewSetting(c, "active", 0)
 	p.colors = kernel.NewSetting(c, "colors", map[string]int{})
+	p.reopen = kernel.NewSetting(c, "reopen", true)
+	p.join = kernel.NewSetting(c, "join-project", true)
 	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
 	p.unsent, p.chatTab = map[string]string{}, ""
@@ -111,6 +116,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	for _, err := range []error{
 		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true}),
 		kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs}),
+		kernel.Contribute(c, settings.Sections, "tabs.settings", 10, settings.Section{
+			Title: "Tabs", Description: "How tabs open and how projects look.", Render: p.section}),
+		kernel.Contribute(c, kernel.Commands, "tabs.new", 0, kernel.Command{
+			Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"}, Run: p.newChat}),
 		kernel.Contribute(c, kernel.Commands, "tabs.close", 0, kernel.Command{
 			Title: "Close Tab", Menu: "File", Keys: []string{"cmd+w"},
 			Enabled: func() bool { return p.active != "" }, Run: func() { p.Close(p.active) }}),
@@ -333,6 +342,9 @@ func (p *Plugin) restore() {
 	}
 	p.restored = true
 	saved, active := p.saved.Get(), p.savedActive.Get()
+	if !p.reopen.Get() {
+		saved = nil
+	}
 	activeID := ""
 	for i, s := range saved {
 		var t tabs.Tab

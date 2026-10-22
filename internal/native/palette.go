@@ -42,12 +42,15 @@ var (
 	projectsDark  = [5]ui.Color{ui.Hex("#8aabf5"), ui.Hex("#b99af2"), ui.Hex("#6fcfbf"), ui.Hex("#ee91ae"), ui.Hex("#bdb6aa")}
 )
 
-// paletteFor maps the app's semantic colors onto Onevra's warm palettes.
+// PaletteFor maps the app's semantic colors onto Onevra's warm palettes.
 // The tabs sit on the strip, the page in a panel on the surface, and
 // selection, hairlines and accents are the theme's own, so a switch between
 // light and dark moves every pane at once.
-func PaletteFor(c *ui.Context) Palette {
-	t := c.Theme()
+func PaletteFor(c *ui.Context) Palette { return PaletteOf(c.Theme()) }
+
+// PaletteOf is the palette of a theme, such as one drawn as a preview while
+// another is in use.
+func PaletteOf(t *ui.Theme) Palette {
 	// Danger is light in the dark theme, so its label follows the background
 	// there and the accent's Text color in the light one.
 	DangerText := t.AccentText

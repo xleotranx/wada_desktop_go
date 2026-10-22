@@ -166,10 +166,11 @@ func (p *Plugin) endButton(c *ui.Context, pal native.Palette, label, tip string,
 	b.Children(func() { ui.Icon(c, icon).FontSize(15).TextColor(pal.Muted) })
 }
 
-// newChat opens a new chat in the active tab's folder, as ⌘N does.
+// newChat opens a new chat (⌘N, and "+"), in the active tab's folder while
+// new chats join the current project.
 func (p *Plugin) newChat() {
 	folder := ""
-	if t, ok := p.Active(); ok {
+	if t, ok := p.Active(); ok && p.join.Get() {
 		folder = t.Folder
 	}
 	p.openDraft(folder)

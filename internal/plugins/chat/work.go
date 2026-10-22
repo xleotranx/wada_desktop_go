@@ -6,6 +6,7 @@ import (
 	"wada-desktop-go/internal/native"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 )
 
 const workWidth = 300
@@ -45,5 +46,23 @@ func (p *Plugin) work(c *ui.Context, pal native.Palette, sections []kernel.Entry
 				}
 			})
 		})
+	})
+}
+
+// settingsSection is the Conversation settings: whether the work panel shows.
+func (p *Plugin) settingsSection(c *ui.Context) {
+	pal := native.PaletteFor(c)
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+			ui.Text(c, "Show the work panel").FontSize(13.5).FontWeight(500).TextColor(pal.Text)
+			ui.Text(c, "Beside a conversation: what it changed, its last command, its context and cost. ⌘B turns it on and off.").
+				FontSize(12).TextColor(pal.Muted)
+		})
+		on := p.workOn.Get()
+		value := on
+		components.Switch(c, &value, "Show the work panel", components.SwitchOptions{HideLabel: true})
+		if value != on {
+			p.workOn.Set(value)
+		}
 	})
 }

@@ -63,11 +63,8 @@ func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 	if host.Mode != "dark" || !slices.Equal(host.Toggled, []string{"-extra"}) {
 		t.Fatalf("mode %q toggled %q", host.Mode, host.Toggled)
 	}
-	if err := tt.Click("Back to chat"); err != nil {
-		t.Fatal(err)
-	}
-	if host.PageID != "" {
-		t.Fatalf("page %q after Back to chat", host.PageID)
+	if tt.HasText("Back to chat") {
+		t.Fatal("the page leads back to the chat; its tab does that")
 	}
 }
 

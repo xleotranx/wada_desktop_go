@@ -13,6 +13,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/settings"
 	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 
@@ -80,9 +81,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	for _, err := range []error{
 		kernel.Provide[chat.Controller](c, chat.ControllerKey, p),
 		kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view}),
-		kernel.Contribute(c, kernel.Commands, "chat.new", 0, kernel.Command{
-			Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"},
-			Run: func() { p.NewChat(p.conv.Directory) }}),
+		kernel.Contribute(c, settings.Sections, "chat.settings", 20, settings.Section{
+			Title: "Conversation", Description: "What shows beside a conversation.", Render: p.settingsSection}),
 		kernel.Contribute(c, kernel.Commands, "chat.work", 5, kernel.Command{
 			Title: "Toggle Work Panel", Menu: "View", Keys: []string{"cmd+b"},
 			Run: func() { p.workOn.Set(!p.workOn.Get()) }}),

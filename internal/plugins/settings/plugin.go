@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/oneo-me/onevra/source/theme"
 )
 
 // Plugin is the settings page. The zero value is ready to install.
@@ -62,17 +63,7 @@ func (p *Plugin) view(c *ui.Context) {
 		selected = sections[0].ID
 	}
 	ui.Row(c).Fill().MinHeight(0).Children(func() {
-		ui.Column(c).Width(220).FillHeight().Shrink(0).Padding(20, 12).Gap(28).Children(func() {
-			back := ui.ButtonBase(c).Label("Back to chat").FillWidth().Height(36).Radius(8).
-				Padding(0, 12).Gap(8).AlignItems(ui.Center).Justify(ui.Start).Cursor(ui.CursorPointer)
-			if back.Hovered() {
-				back.Background(pal.Hover)
-			}
-			back.OnClick(func() { p.host.ShowPage("") })
-			back.Children(func() {
-				ui.Icon(c, lucide.ArrowLeft()).FontSize(15).TextColor(pal.Muted)
-				ui.Text(c, "Back to chat").FontSize(13).TextColor(pal.Text)
-			})
+		ui.Column(c).Width(220).FillHeight().Shrink(0).Padding(20, 12).Children(func() {
 			ui.Scroll(c).Fill().Children(func() {
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
 					for _, e := range sections {
@@ -116,39 +107,74 @@ func (p *Plugin) view(c *ui.Context) {
 	})
 }
 
+// appearance offers System, Light and Dark, each drawn as a small window in
+// that theme: the strip with its tabs over the panel.
 func (p *Plugin) appearance(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	current := p.host.Appearance()
+	light, dark := native.PaletteOf(theme.Palette(false)), native.PaletteOf(theme.Palette(true))
 	ui.Text(c, "Color theme").FontSize(14).FontWeight(500).TextColor(pal.Text)
-	ui.Row(c).FillWidth().Gap(8).Children(func() {
+	ui.Row(c).FillWidth().Gap(12).Children(func() {
 		for _, mode := range []struct {
 			id, label string
 			icon      *ui.SVG
 		}{{"system", "System", lucide.Monitor()}, {"light", "Light", lucide.Sun()}, {"dark", "Dark", lucide.Moon()}} {
 			c.Key(mode.id)
 			chosen := current == mode.id
-			button := ui.ButtonBase(c).Label(mode.label).Width(0).Grow(1).Height(48).Radius(8).
-				Border(1, pal.Hairline).Background(pal.Bg).Cursor(ui.CursorPointer)
+			button := ui.ButtonBase(c).Label(mode.label).Width(0).Grow(1).Radius(10).Padding(6).Gap(8).
+				Border(1, pal.Hairline).Cursor(ui.CursorPointer)
 			if chosen {
-				button.BorderColor(pal.Orange).Background(pal.Orange.Alpha(.06))
+				button.Border(2, pal.Orange).Padding(5)
 			} else if button.Hovered() {
 				button.Background(pal.Hover)
 			}
 			button.OnClick(func() { p.host.SetAppearance(mode.id) })
 			button.Children(func() {
-				ui.Row(c).Fill().Center().Gap(8).Children(func() {
-					ui.Icon(c, mode.icon).FontSize(18).TextColor(pal.Text)
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, mode.label).FontSize(13).FontWeight(500).TextColor(pal.Text)
-						if chosen {
-							ui.Icon(c, lucide.Check()).FontSize(13).TextColor(pal.Orange)
-						}
-					})
+				ui.Row(c).FillWidth().Height(92).Radius(6).Clip().Children(func() {
+					switch mode.id {
+					case "light":
+						windowPreview(c, light)
+					case "dark":
+						windowPreview(c, dark)
+					default: // half of each
+						windowPreview(c, light)
+						windowPreview(c, dark)
+					}
+				})
+				ui.Row(c).FillWidth().Center().Gap(6).Padding(0, 0, 2, 0).Children(func() {
+					ui.Icon(c, mode.icon).FontSize(13).TextColor(pal.Muted)
+					ui.Text(c, mode.label).FontSize(13).FontWeight(500).TextColor(pal.Text)
+					if chosen {
+						ui.Icon(c, lucide.Check()).FontSize(13).TextColor(pal.Orange)
+					}
 				})
 			})
 		}
 	})
 	ui.Text(c, "System follows your Mac’s appearance automatically.").FontSize(12).TextColor(pal.Muted)
+}
+
+// windowPreview is a window in miniature: the strip with a project's tabs,
+// then the panel with a few lines of a conversation.
+func windowPreview(c *ui.Context, pal native.Palette) {
+	project := pal.Projects[0]
+	ui.Column(c).Width(0).Grow(1).FillHeight().Background(pal.StripBg).Padding(0, 5, 5, 5).Children(func() {
+		ui.Row(c).FillWidth().Height(20).AlignItems(ui.End).Gap(3).Children(func() {
+			for range 3 {
+				ui.Box(c).Size(4, 4).Radius(2).Background(pal.Faint).Margin(0, 0, 8, 0)
+			}
+			ui.Box(c).Size(14, 6).Radius(2).Background(project.Tint).Margin(0, 0, 7, 3)
+			ui.Box(c).Size(26, 12).Radius(3, 3, 0, 0).Background(pal.PanelBg)
+			ui.Box(c).Size(22, 12).Radius(3, 3, 0, 0).Children(func() {
+				ui.Box(c).FillWidth().Height(1).Background(project.Mark).Absolute().Bottom(0)
+			})
+		})
+		ui.Column(c).FillWidth().Grow(1).Background(pal.PanelBg).Radius(4).Padding(8).Gap(5).Children(func() {
+			ui.Box(c).Width(34).Height(5).Radius(3).Background(pal.Raised).AlignSelf(ui.End)
+			ui.Box(c).Width(48).Height(3).Radius(2).Background(pal.Faint)
+			ui.Box(c).Width(40).Height(3).Radius(2).Background(pal.Faint)
+		})
+	})
 }
 
 func (p *Plugin) plugins(c *ui.Context) {

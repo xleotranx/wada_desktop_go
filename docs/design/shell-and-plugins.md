@@ -17,6 +17,7 @@ contains no feature. Its own plugin (`shell`, locked) provides `shell.HostKey`,
 | `shell.Sidebar` | sections stacked in the resizable sidebar; no entries, no sidebar |
 | `shell.Pages` | the main area, one page at a time; the lowest Order is the default |
 | `shell.TitleBar` | items at the end of the title strip |
+| `shell.Strip` | views across the title strip, before the title-bar items; with one, the strip layout below |
 | `shell.Overlays` | above everything (dialogs) |
 
 The window is flat: the sidebar and the page share the window background, split by
@@ -28,6 +29,16 @@ header before the title.
 
 A `shell.Page` can set `HideSidebar` to use the whole window and omit the sidebar
 toggle. This leaves the saved sidebar visibility and width unchanged.
+
+While a `shell.Strip` entry exists the window is laid out differently. The title
+strip, on `StripBg`, holds the strip views in a row after the window controls (one
+with `Grow` takes the remaining width), then the title-bar items. It drags the window
+where nothing in it takes the mouse. Below it the page fills a panel on `PanelBg`,
+inset 8 px with a 12 px radius. There is no sidebar and no page title; the window
+title still follows the page's `Title`.
+
+`shell.Host.ShowPage` emits `shell.PageChanged` with the ID it chose whenever that
+differs from the last one.
 
 Every render, command and title callback runs through `kernel.Invoke`, so a panic
 disables only that plugin; the shell shows a toast naming it.

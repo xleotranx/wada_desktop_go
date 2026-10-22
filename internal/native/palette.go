@@ -14,7 +14,35 @@ type Palette struct {
 	DiffAdd, DiffDel                                   ui.Color
 	Link                                               ui.Color
 	GreenBadge                                         ui.Color
+
+	// StripBg is behind the window's title strip; PanelBg is the rounded
+	// panel the page sits in, and DrawerBg a column beside the page in it.
+	StripBg, PanelBg, DrawerBg ui.Color
+	// PanelEdge outlines the panel, quieter than a hairline.
+	PanelEdge ui.Color
+	// Raised lifts a bubble, chip or control off the panel.
+	Raised ui.Color
+	// Waiting marks what waits for the user, such as an approval.
+	Waiting ui.Color
+	// DiffAddBg and DiffDelBg are the backgrounds of added and removed lines.
+	DiffAddBg, DiffDelBg ui.Color
+	// Projects are the colors a project can take, in the order new projects
+	// take them.
+	Projects [5]ProjectColor
 }
+
+// ProjectColor is one project's color: Mark for dots and lines, Tint behind
+// its label, and Text for the label on that tint.
+type ProjectColor struct {
+	Mark, Tint, Text ui.Color
+}
+
+// Project colors: blue, violet, teal, rose and gray, each in a shade for the
+// light theme and one for the dark.
+var (
+	projectsLight = [5]ui.Color{ui.Hex("#2f5fd0"), ui.Hex("#7445c8"), ui.Hex("#0b7f70"), ui.Hex("#c2416b"), ui.Hex("#72726a")}
+	projectsDark  = [5]ui.Color{ui.Hex("#8aabf5"), ui.Hex("#b99af2"), ui.Hex("#6fcfbf"), ui.Hex("#ee91ae"), ui.Hex("#bdb6aa")}
+)
 
 // paletteFor maps the app's semantic colors onto Onevra's warm palettes.
 // The content sits on the theme background, the sidebar on its surface, and
@@ -27,6 +55,19 @@ func PaletteFor(c *ui.Context) Palette {
 	DangerText := t.AccentText
 	if t.Dark {
 		DangerText = t.Background
+	}
+	// The strip sits a step darker than the panel in both themes: below the
+	// background in the light one, at the background in the dark one, where
+	// the surface is already the lighter step.
+	strip := t.Background
+	marks, labels, tint := projectsDark, ui.RGB(255, 255, 255), float32(0.18)
+	if !t.Dark {
+		strip = t.Background.Mix(t.SurfaceHover, 0.7)
+		marks, labels, tint = projectsLight, ui.RGB(0, 0, 0), 0.11
+	}
+	var projects [5]ProjectColor
+	for i, m := range marks {
+		projects[i] = ProjectColor{Mark: m, Tint: m.Alpha(tint), Text: m.Mix(labels, 0.12)}
 	}
 	return Palette{
 		Bg:         t.Background,
@@ -47,5 +88,15 @@ func PaletteFor(c *ui.Context) Palette {
 		DiffDel:    t.Danger,
 		Link:       t.Accent,
 		GreenBadge: t.Success,
+
+		StripBg:   strip,
+		PanelBg:   t.Surface,
+		DrawerBg:  t.Surface.Mix(strip, 0.4),
+		PanelEdge: t.Border.Mix(t.Surface, 0.35),
+		Raised:    t.Surface.Mix(t.SurfaceHover, 0.75),
+		Waiting:   t.Warning,
+		DiffAddBg: t.Success.Alpha(0.12),
+		DiffDelBg: t.Danger.Alpha(0.12),
+		Projects:  projects,
 	}
 }

@@ -1,0 +1,51 @@
+package native
+
+import (
+	"math"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/theme"
+)
+
+// TestProjectLabelsAreReadable keeps every project's label legible on its
+// tint wherever a label sits: on the strip and on the panel, in both themes.
+func TestProjectLabelsAreReadable(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		var p Palette
+		ui.NewTester(func(c *ui.Context) {
+			c.SetTheme(theme.Palette(dark))
+			p = PaletteFor(c)
+		}, 100, 100).Frame()
+		want := projectsLight
+		if dark {
+			want = projectsDark
+		}
+		if p.Projects[0].Mark != want[0] {
+			t.Fatalf("dark=%v: the palette did not follow the theme", dark)
+		}
+		for i, pc := range p.Projects {
+			for name, ground := range map[string]ui.Color{"strip": p.StripBg, "panel": p.PanelBg} {
+				if r := contrast(pc.Text, pc.Tint.Over(ground)); r < 4.5 {
+					t.Errorf("dark=%v project %d label on the %s: contrast %.2f, want 4.5", dark, i, name, r)
+				}
+			}
+		}
+	}
+}
+
+func contrast(a, b ui.Color) float64 {
+	la, lb := luminance(a), luminance(b)
+	return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+}
+
+func luminance(c ui.Color) float64 {
+	lin := func(v uint8) float64 {
+		s := float64(v) / 255
+		if s <= 0.04045 {
+			return s / 12.92
+		}
+		return math.Pow((s+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(c.R) + 0.7152*lin(c.G) + 0.0722*lin(c.B)
+}

@@ -13,7 +13,8 @@ import (
 // it builds elements and performs no external I/O or kernel mutation.
 type View struct {
 	Render func(c *ui.Context)
-	// Grow lets a sidebar section take the remaining height, as a list does.
+	// Grow lets a sidebar section take the remaining height, as a list does,
+	// and a Strip view the remaining width.
 	Grow bool
 }
 
@@ -33,6 +34,11 @@ var (
 	Pages = kernel.NewPoint[Page]("shell.pages")
 	// TitleBar items, laid out at the end of the title strip.
 	TitleBar = kernel.NewPoint[View]("shell.title-bar")
+	// Strip views take the title strip after the window controls, laid out in
+	// a row before the TitleBar items; one with Grow takes the remaining width.
+	// While one exists the window draws no sidebar and no page title: the
+	// page sits in a rounded panel below the strip.
+	Strip = kernel.NewPoint[View]("shell.strip")
 	// Overlays are drawn above everything: dialogs, popovers.
 	Overlays = kernel.NewPoint[View]("shell.overlays")
 
@@ -41,6 +47,10 @@ var (
 	// NoticeClicked carries the ID of a desktop notification the user clicked,
 	// after the shell has brought the window to the front.
 	NoticeClicked = kernel.NewTopic[string]("shell.notice-clicked")
+
+	// PageChanged carries the ID that Host.ShowPage chose, each time it
+	// chooses a different page than the last one.
+	PageChanged = kernel.NewTopic[string]("shell.page-changed")
 )
 
 // SearchCommand is the ID of the kernel.Commands entry that opens the app's

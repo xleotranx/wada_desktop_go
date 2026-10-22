@@ -156,6 +156,12 @@ func (s *Shell) View(c *ui.Context) {
 			})
 		})
 	}
+	if strip := kernel.Items(s.Kernel, shell.Strip); len(strip) > 0 {
+		s.panelled(c, p, strip, page, hasPage, bar.Left, headerH)
+		s.render(c, kernel.Items(s.Kernel, shell.Overlays))
+		components.Toasts(c, components.ToastOptions{Placement: components.ToastTopEnd, Inset: headerH})
+		return
+	}
 	ui.Column(c).Fill().Background(p.CanvasBg).Children(func() {
 		if !showSidebar {
 			var lead func()
@@ -184,6 +190,39 @@ func (s *Shell) View(c *ui.Context) {
 	})
 	s.render(c, kernel.Items(s.Kernel, shell.Overlays))
 	components.Toasts(c, components.ToastOptions{Placement: components.ToastTopEnd, Inset: headerH})
+}
+
+// panelled draws the window a Strip asks for: the strip views across the
+// title strip, past the window controls, with the TitleBar items at its end,
+// and the page in a rounded panel below it. There is no sidebar.
+func (s *Shell) panelled(c *ui.Context, p native.Palette, strip []kernel.Entry[shell.View],
+	page kernel.Entry[shell.Page], hasPage bool, left, headerH float32) {
+	ui.Column(c).Fill().Background(p.StripBg).Children(func() {
+		ui.Row(c).FillWidth().Height(headerH).Shrink(0).DragWindow().Padding(0, 12, 0, left+12).Gap(8).
+			Children(func() {
+				for _, e := range strip {
+					c.Key(e.ID)
+					box := ui.Box(c).FillHeight()
+					if e.Value.Grow {
+						box.Grow(1).MinWidth(0)
+					}
+					box.Children(func() {
+						kernel.Invoke(s.Kernel, e, func(v shell.View) { v.Render(c) })
+					})
+				}
+				ui.Row(c).Shrink(0).AlignItems(ui.Center).Children(func() {
+					s.render(c, kernel.Items(s.Kernel, shell.TitleBar))
+				})
+			})
+		ui.Column(c).Fill().MinWidth(0).MinHeight(0).Padding(0, 8, 8, 8).Children(func() {
+			ui.Column(c).Fill().MinWidth(0).MinHeight(0).Background(p.PanelBg).Radius(12).
+				Border(1, p.PanelEdge).Clip().Children(func() {
+				if hasPage {
+					kernel.Invoke(s.Kernel, page, func(pg shell.Page) { pg.Render(c) })
+				}
+			})
+		})
+	})
 }
 
 func (s *Shell) render(c *ui.Context, items []kernel.Entry[shell.View]) {
@@ -366,8 +405,15 @@ func (h *host) sidebarWidth() float32 {
 
 func (h *host) toggleSidebar() { h.sidebarHidden.Set(!h.sidebarHidden.Get()) }
 
-func (h *host) ShowPage(id string) { h.page = id }
-func (h *host) Page() string       { return h.page }
+func (h *host) ShowPage(id string) {
+	if id == h.page {
+		return
+	}
+	h.page = id
+	kernel.Emit(h.k, shell.PageChanged, id)
+}
+
+func (h *host) Page() string { return h.page }
 
 func (h *host) Toast(t ui.Toast) {
 	h.toasts = append(h.toasts, t)

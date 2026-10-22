@@ -122,6 +122,56 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 	}
 }
 
+func TestStripReplacesSidebarAndPageHeader(t *testing.T) {
+	p := &plugin{id: "tabs", setup: func(c *kernel.Context) error {
+		kernel.Contribute(c, shell.Sidebar, "tabs.list", 0, text("Sidebar section"))
+		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Grow: true, Render: func(c *ui.Context) {
+			ui.Row(c).Fill().Children(func() { ui.Text(c, "First tab") })
+		}})
+		kernel.Contribute(c, shell.TitleBar, "tabs.badge", 0, text("Badge"))
+		return kernel.Contribute(c, shell.Pages, "tabs.main", 0, shell.Page{Title: func() string { return "Main page" },
+			Render: func(c *ui.Context) { ui.Text(c, "Main body") }})
+	}}
+	s, _ := newShell(t, p)
+	var title string
+	s.opts.SetTitle = func(t string) { title = t }
+	tt := ui.NewTester(s.View, 1200, 800)
+	tt.Frame()
+	if tt.HasText("Sidebar section") || tt.HasText("Main page") {
+		t.Fatalf("strip layout drew the sidebar or the page title: %q", tt.Texts())
+	}
+	if title != "Main page — Wada" {
+		t.Fatalf("window title %q", title)
+	}
+	tab, ok := tt.Find("First tab")
+	if !ok || tab.Y > float32(headerStrip) {
+		t.Fatalf("strip view not in the title strip: %+v", tab)
+	}
+	if badge, ok := tt.Find("Badge"); !ok || badge.X+badge.W < 1200-16 || badge.Y > float32(headerStrip) {
+		t.Fatalf("title-bar item is not at the end of the strip: %+v", badge)
+	}
+	// The page sits in the panel: below the strip and inset from the edges.
+	if body, ok := tt.Find("Main body"); !ok || body.Y < float32(headerStrip) || body.X < 8 {
+		t.Fatalf("page not in the panel: %+v", body)
+	}
+}
+
+func TestShowPageAnnouncesEachChange(t *testing.T) {
+	var got []string
+	p := &plugin{id: "watch", setup: func(c *kernel.Context) error {
+		kernel.On(c, shell.PageChanged, func(id string) { got = append(got, id) })
+		return nil
+	}}
+	s, _ := newShell(t, p)
+	host, _ := kernel.Use(s.Kernel, shell.HostKey)
+	for _, id := range []string{"a", "a", "b", "a"} {
+		host.ShowPage(id)
+	}
+	if !slices.Equal(got, []string{"a", "b", "a"}) {
+		t.Fatalf("PageChanged %q", got)
+	}
+}
+
 func TestPanickingViewFailsOnlyItsPlugin(t *testing.T) {
 	bad := &plugin{id: "bad", setup: func(c *kernel.Context) error {
 		return kernel.Contribute(c, shell.Sidebar, "bad.view", 0, shell.View{Render: func(*ui.Context) { panic("broken view") }})

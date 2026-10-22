@@ -325,7 +325,7 @@ func TestStoredConversationLoads(t *testing.T) {
 			{Kind: agent.PartTool, Tool: &agent.Tool{Name: "fs_read_v2", Kind: agent.ToolRead, Output: []string{"1\n2\n3\n4\n5\n6\n7\n"}, Truncated: true}},
 		}},
 		{Role: agent.RoleOther, Text: "idle"},
-	})
+	}, 0)
 	if len(tr.rows) != 3 || tr.rows[0].text != "question" || tr.rows[1].text != "answer" {
 		t.Fatalf("rows %+v", tr.rows)
 	}
@@ -674,5 +674,91 @@ func TestLeavingAConversationHandsOverItsUnsentText(t *testing.T) {
 	p.NewChat("")
 	if got := left[len(left)-1]; got.Text != "" || got.Conversation.Session != "s1" {
 		t.Fatalf("left while editing %+v", got)
+	}
+}
+
+func reads(f *plugintest.Agent, id agent.SessionID) int {
+	n := 0
+	for _, c := range f.Calls() {
+		if c == "messages "+string(id) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAConversationComesBackAtOnceAsItWasLeft(t *testing.T) {
+	h, p, f, _ := start(t)
+	f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "from one"}}
+	f.Stored["s2"] = []agent.Message{{Role: agent.RoleUser, Text: "from two"}}
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	first := p.t.rows[0]
+	p.list.FollowEnd = false // scrolled up, away from the end
+	p.expanded[first.id] = true
+	p.Open(agent.Session{ID: "s2"})
+	h.Flush()
+
+	p.Open(agent.Session{ID: "s1"})
+	if len(p.t.rows) != 1 || p.t.rows[0] != first || p.list.FollowEnd || !p.expanded[first.id] {
+		t.Fatalf("not shown at once as left: rows %+v follow=%v expanded=%v", p.t.rows, p.list.FollowEnd, p.expanded)
+	}
+	h.Flush()
+	if reads(f, "s1") != 2 || p.t.rows[0] != first {
+		t.Fatalf("an unchanged read rebuilt the rows: reads %d rows %+v", reads(f, "s1"), p.t.rows)
+	}
+
+	f.Stored["s1"] = append(f.Stored["s1"], agent.Message{Role: agent.RoleUser, Text: "added elsewhere"})
+	p.Open(agent.Session{ID: "s2"})
+	h.Flush()
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	if len(p.t.rows) != 2 || p.t.rows[1].text != "added elsewhere" {
+		t.Fatalf("a changed conversation was not read again: rows %+v", p.t.rows)
+	}
+}
+
+func TestAKeptConversationFollowsItsTurnWhileAway(t *testing.T) {
+	h, p, f, _ := start(t)
+	f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "go"}}
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	p.Open(agent.Session{ID: "s2"})
+	h.Flush()
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}, textEvent(agent.TextDelta, "s1", "on it", "")})
+
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	if !p.t.busy || p.t.rows[len(p.t.rows)-1].text != "on it" || reads(f, "s1") != 1 {
+		t.Fatalf("busy=%v rows=%+v reads=%d", p.t.busy, p.t.rows, reads(f, "s1"))
+	}
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "s1"}})
+	h.Flush()
+	if reads(f, "s1") != 2 {
+		t.Fatalf("the finished turn was not read: reads %d", reads(f, "s1"))
+	}
+}
+
+func TestADroppedConnectionForgetsKeptTurns(t *testing.T) {
+	h, p, _, _ := start(t)
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	p.Open(agent.Session{ID: "s2"})
+	h.Flush()
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}})
+	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Down, Attempt: 1})
+	if p.kept.find("s1") != nil {
+		t.Fatal("a turn the drop cut off is still kept")
+	}
+}
+
+func TestOnlyTheRecentConversationsAreKept(t *testing.T) {
+	h, p, _, _ := start(t)
+	for i := range keptLimit + 2 {
+		p.Open(agent.Session{ID: agent.SessionID(fmt.Sprintf("s%d", i))})
+		h.Flush()
+	}
+	if len(p.kept) != keptLimit || p.kept.find("s0") != nil || p.kept[0].id != agent.SessionID(fmt.Sprintf("s%d", keptLimit)) {
+		t.Fatalf("kept %d, newest %s", len(p.kept), p.kept[0].id)
 	}
 }

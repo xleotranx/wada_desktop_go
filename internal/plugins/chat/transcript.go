@@ -63,6 +63,10 @@ type transcript struct {
 	tools   map[string]*row
 	started map[string]agent.Tool // what ToolStarted said of a call, by ID
 	busy    bool
+	// read is the readSum of the read the rows were built from, until
+	// anything changes them; loaded tells that a read built them once.
+	read   uint64
+	loaded bool
 }
 
 func (t *transcript) reset() {
@@ -70,6 +74,7 @@ func (t *transcript) reset() {
 }
 
 func (t *transcript) add(r *row) *row {
+	t.read = 0
 	t.nextID++
 	r.id = t.nextID
 	t.rows = append(t.rows, r)
@@ -95,13 +100,14 @@ func (t *transcript) lastUser() int {
 // dropLastTurn removes the last user row and everything after it.
 func (t *transcript) dropLastTurn() {
 	if i := t.lastUser(); i >= 0 {
-		t.rows = t.rows[:i]
+		t.rows, t.read = t.rows[:i], 0
 	}
 }
 
-// load replaces the rows with a stored conversation.
-func (t *transcript) load(messages []agent.Message) {
+// load replaces the rows with a stored conversation, which sum identifies.
+func (t *transcript) load(messages []agent.Message, sum uint64) {
 	t.reset()
+	defer func() { t.read, t.loaded = sum, true }()
 	for _, m := range messages {
 		switch m.Role {
 		case agent.RoleUser:
@@ -129,6 +135,7 @@ func (t *transcript) load(messages []agent.Message) {
 
 // apply folds one event of this conversation into the rows.
 func (t *transcript) apply(ev agent.Event) {
+	t.read = 0
 	switch ev.Kind {
 	case agent.TextStarted:
 		t.liveText(ev.Text.Message, ev.Text.Ordinal)
@@ -201,6 +208,7 @@ func (t *transcript) toolCall(tool agent.Tool) *row {
 // settle ends the turn: answers still streaming stand as they are, and
 // approvals it was waiting on no longer apply.
 func (t *transcript) settle() {
+	t.read = 0
 	for _, r := range t.live {
 		r.kind, r.stream = rowText, nil
 		if strings.TrimSpace(r.text) == "" {
@@ -215,6 +223,7 @@ func (t *transcript) settle() {
 }
 
 func (t *transcript) removeApproval(id agent.ApprovalID) {
+	t.read = 0
 	t.rows = slices.DeleteFunc(t.rows, func(r *row) bool { return r.approval != nil && r.approval.ID == id })
 }
 

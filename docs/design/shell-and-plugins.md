@@ -103,6 +103,13 @@ Conversation settings section with the work panel's switch.
 - Sending waits for history to load. If live events overtake a history request,
   the live transcript stays on screen and history is read again after the turn
   settles. App notes survive the reload.
+- The eight conversations left most recently keep their transcript, scroll place,
+  and opened tool calls and folds in memory, and their live events still apply to
+  it. Opening one shows it at once as it was left, then reads it again in the
+  background; a read that returns what the transcript was built from, untouched
+  since, leaves it as it is, and any other replaces it. One whose turn is still
+  running is read when the turn ends instead. A dropped connection forgets the
+  kept conversations whose turns it cut off.
 - `chat.ComposerAccessory` entries are drawn in the composer's leading row; a model
   or mode picker plugin goes there and sets `Draft.Model`/`Draft.Mode` through
   `chat.Outgoing`. `chat.ComposerTrailing` entries are drawn just before Send or

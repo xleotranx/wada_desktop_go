@@ -21,7 +21,7 @@ go test -run NONE -bench . -benchtime 30x .
 | `TranscriptIdle` | One frame of a settled 120-row conversation |
 | `StreamDelta` | One frame per streamed text delta, the hot path of a live turn |
 | `TranscriptScroll` | One frame per wheel notch over the conversation |
-| `SwitchTab` | Showing another open conversation of 120 messages: the read from the backend, the loading frame and the drawn transcript |
+| `SwitchTab` | Showing another open conversation of 120 messages, kept in memory: the frame that shows it, and the read again in the background |
 
 Current numbers on an M4 (30 iterations each; Tester excludes GPU paint and
 present, which `MYGO_FRAME_STATS` measures below):
@@ -32,15 +32,19 @@ present, which `MYGO_FRAME_STATS` measures below):
 | TranscriptIdle | 232 µs | 15,376 | 182 |
 | StreamDelta | 207 µs | 12,291 | 158 |
 | TranscriptScroll | 1.7 ms | 46,505 | 516 |
-| SwitchTab | 3.4 ms | 816,053 | 1,995 |
+| SwitchTab | 361 µs | 247,373 | 625 |
 
 Most of the time of `TranscriptScroll` and `SwitchTab` is the Tester's
 software rasterizer repainting the window, which the GPU does in the real
-window; building and laying out the view is about 0.1 ms of a switch. A
-switch reads the whole conversation again: Pi parses a 200-turn, 164 KB
-session file in 1.5 ms (1.7 MB allocated), growing with the file, and
-OpenCode fetches it over HTTP. 3,000 switches across twelve tabs leave the
-heap within 0.5 MB of where it started.
+window; building and laying out the view is about 0.1 ms of a switch. The
+chat keeps the eight conversations left most recently, so switching among
+them draws one frame with no loading screen and keeps the scroll place;
+the background read that follows rebuilds the transcript only when the
+conversation changed. A conversation that is not kept is read first, as
+before: Pi parses a 200-turn, 164 KB session file in 1.5 ms (1.7 MB
+allocated), growing with the file, and OpenCode fetches it over HTTP.
+The kept conversations hold about 3 MB of heap for eight of 120 messages;
+past that, 3,000 switches across twelve tabs leave it within 0.7 MB.
 
 Most of the per-frame allocation floor is MyGo's element machinery, a pinned
 dependency. The app parses command shortcuts once rather than every frame;

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -39,6 +40,7 @@ type Plugin struct {
 	sending         bool   // a message is on its way and its turn hasn't started
 	sendSeq         uint64 // distinguishes acknowledgements from consecutive sends
 	attempt         uint64 // the backend connection the transcript was read from
+	kept            keptSet
 	// replacing is set while the composer edits the last message: sending
 	// takes that turn back and sends the draft in its place.
 	replacing      bool
@@ -71,8 +73,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.workOn = kernel.NewSetting(c, "work-panel", true)
-	p.expanded = map[uint64]bool{}
-	p.worked = map[uint64]bool{}
 	p.comp = newCompletion()
 	p.attempt = p.agent.Status().Attempt
 	p.switchTo(chat.Conversation{})
@@ -113,6 +113,17 @@ func (p *Plugin) Open(s agent.Session) {
 		return
 	}
 	p.switchTo(chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Model: s.Model})
+	if k := p.kept.take(s.ID); k != nil {
+		next := p.t.nextID
+		p.t, p.list, p.expanded, p.worked = k.t, k.list, k.expanded, k.worked
+		p.t.nextID = max(p.t.nextID, next)
+		if p.t.busy {
+			// Its events kept it current while it was away; read it again
+			// once the turn is over.
+			p.reloadAfterTurn = true
+			return
+		}
+	}
 	p.load()
 }
 
@@ -148,18 +159,29 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 	if p.scope != nil {
 		p.scope.Dispose()
 	}
+	if p.conv.Session != "" && p.t.loaded {
+		p.kept.put(&kept{id: p.conv.Session, t: p.t, list: p.list, expanded: p.expanded, worked: p.worked})
+	}
 	p.scope = p.ctx.NewScope()
 	p.conv, p.sending, p.draft = conv, false, ""
 	p.replacing, p.replacingFiles = false, false
 	p.comp = newCompletion()
 	p.t.reset()
-	clear(p.expanded)
-	clear(p.worked)
+	p.expanded, p.worked = map[uint64]bool{}, map[uint64]bool{}
 	p.list = ui.ListState{FollowEnd: true}
 	p.host.ShowPage(chat.PageID)
 	kernel.Emit(p.ctx, chat.Changed, conv)
 }
 
+// read is one read of a conversation and its readSum.
+type read struct {
+	messages []agent.Message
+	sum      uint64
+}
+
+// load reads the open conversation and builds the transcript from it. A read
+// that returns what the transcript was built from, untouched since, as when
+// a kept conversation comes back unchanged, leaves it as it is.
 func (p *Plugin) load() {
 	if p.running() {
 		p.reloadAfterTurn = true
@@ -168,9 +190,10 @@ func (p *Plugin) load() {
 	p.reloadAfterTurn = false
 	id := p.conv.Session
 	version, backend := p.version, p.agent
-	kernel.Go(p.scope, &p.loading, func(ctx context.Context) ([]agent.Message, error) {
-		return backend.Messages(ctx, id)
-	}, func(messages []agent.Message, err error) {
+	kernel.Go(p.scope, &p.loading, func(ctx context.Context) (read, error) {
+		messages, err := backend.Messages(ctx, id)
+		return read{messages, readSum(messages)}, err
+	}, func(r read, err error) {
 		if err != nil {
 			p.t.add(&row{kind: rowNote, text: "The conversation did not load: " + err.Error(), loadFailed: true})
 			return
@@ -181,6 +204,10 @@ func (p *Plugin) load() {
 			p.load()
 			return
 		}
+		p.attempt = p.agent.Status().Attempt
+		if r.sum != 0 && r.sum == p.t.read {
+			return
+		}
 		// App notes survive the reload, but not one saying an earlier read
 		// failed: this one worked.
 		var notes []*row
@@ -189,9 +216,8 @@ func (p *Plugin) load() {
 				notes = append(notes, r)
 			}
 		}
-		p.t.load(messages)
+		p.t.load(r.messages, r.sum)
 		p.t.rows = append(p.t.rows, notes...)
-		p.attempt = p.agent.Status().Attempt
 	})
 }
 
@@ -439,6 +465,9 @@ func (p *Plugin) reply(a agent.Approval, d agent.Decision) {
 func (p *Plugin) events(batch []agent.Event) {
 	for _, ev := range batch {
 		if ev.Session != p.conv.Session || ev.Session == "" {
+			if k := p.kept.find(ev.Session); k != nil && ev.Session != "" {
+				k.t.apply(ev) // so it comes back as it is now
+			}
 			continue
 		}
 		p.version++
@@ -471,6 +500,9 @@ func (p *Plugin) statusChanged(st agent.Status) {
 			p.t.settle()
 			p.t.note("The connection dropped while the agent was working. Check the conversation before sending again.")
 		}
+		// A kept conversation whose turn the drop cut off is read afresh
+		// when it comes back.
+		p.kept = slices.DeleteFunc(p.kept, func(k *kept) bool { return k.t.busy })
 	case agent.Ready:
 		if st.Attempt != p.attempt && p.conv.Session != "" {
 			p.load()

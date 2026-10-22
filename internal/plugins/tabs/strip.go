@@ -19,11 +19,14 @@ import (
 )
 
 const (
-	tabHeight   = 36 // to the strip's foot, so the active tab meets the panel
+	tabHeight   = 32 // to the strip's foot, so the active tab meets the panel
 	tabMaxWidth = 200
 	tabMinWidth = 80
 	tabGap      = 0 // a divider stands between inactive tabs instead
 	closeSize   = 18
+	// controlSize is the strip's buttons, centered on the tabs.
+	controlSize = 28
+	controlLift = (tabHeight - controlSize) / 2
 )
 
 // strip draws the space switcher, then the space's tabs and the pages, the
@@ -58,15 +61,15 @@ func (p *Plugin) strip(c *ui.Context) {
 				p.overflow(c, pal, hidden)
 			}
 			c.Key("new")
-			add := ui.ButtonBase(c).Label("New chat").Tooltip("New chat  ⌘N").Size(30, 30).Radius(8).Center().
-				Shrink(0).Margin(0, 0, 5, 6).Cursor(ui.CursorPointer)
+			add := ui.ButtonBase(c).Label("New chat").Tooltip("New chat  ⌘N").Size(controlSize, controlSize).Radius(7).
+				Center().Shrink(0).Margin(0, 0, controlLift, 6).Cursor(ui.CursorPointer)
 			if add.Hovered() {
 				add.Background(pal.Hover)
 			}
 			add.OnClick(p.newChat)
 			add.Children(func() { ui.Icon(c, lucide.Plus()).FontSize(15).TextColor(pal.Muted) })
 		})
-		ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(2).Margin(0, 0, 10, 0).Children(func() {
+		ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(2).Margin(0, 0, controlLift, 0).Children(func() {
 			if search, ok := p.command(shell.SearchCommand); ok {
 				c.Key("search")
 				p.endButton(c, pal, "All chats", "All chats  ⌘K", lucide.Search(), func() {
@@ -94,8 +97,8 @@ func spaceName(folder string) string {
 // spaces.
 func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	name := spaceName(p.space)
-	b := ui.ButtonBase(c).Label("Space "+name).Height(30).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
-		Margin(0, 0, 5, 0).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label("Space "+name).Height(controlSize).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
+		Margin(0, 0, controlLift, 0).Cursor(ui.CursorPointer)
 	if !p.switching { // the tooltip would cover the list
 		b.Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder")))
 	}
@@ -261,11 +264,11 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 	b.OnClick(func() { p.Select(t.ID) })
 	b.ContextMenu(func(m *ui.Menu) { p.tabMenu(m, t) })
 	b.Children(func() {
-		end := float32(12)
+		end := float32(10)
 		if active {
-			end = 8 + closeSize + 4
+			end = 4 + closeSize + 4
 		}
-		ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Gap(6).Padding(0, end, 0, 12).Children(func() {
+		ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Gap(5).Padding(0, end, 0, 10).Children(func() {
 			p.marker(c, pal, t)
 			text := pal.Muted
 			if active {
@@ -275,7 +278,7 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 		})
 		c.Key("close")
 		x := ui.ButtonBase(c).Label("Close "+t.Title).Size(closeSize, closeSize).Radius(5).Center().
-			Absolute().Right(6).Top((tabHeight - closeSize) / 2).Background(fill).Cursor(ui.CursorPointer)
+			Absolute().Right(4).Top((tabHeight - closeSize) / 2).Background(fill).Cursor(ui.CursorPointer)
 		if x.Hovered() {
 			x.Background(pal.Selected)
 		}
@@ -311,7 +314,8 @@ func stateMark(c *ui.Context, pal native.Palette, state tabs.State) {
 }
 
 func (p *Plugin) endButton(c *ui.Context, pal native.Palette, label, tip string, icon *ui.SVG, on func()) {
-	b := ui.ButtonBase(c).Label(label).Tooltip(tip).Size(30, 30).Radius(8).Center().Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label(label).Tooltip(tip).Size(controlSize, controlSize).Radius(7).Center().
+		Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
@@ -320,7 +324,7 @@ func (p *Plugin) endButton(c *ui.Context, pal native.Palette, label, tip string,
 }
 
 // newButtonWidth is the new-chat button and the gap before it.
-const newButtonWidth = 30 + 6 + tabGap
+const newButtonWidth = controlSize + 6 + tabGap
 
 // newChat opens a new chat in the space on show (⌘N, and "+").
 func (p *Plugin) newChat() { p.openDraft(p.space) }
@@ -347,8 +351,9 @@ func (p *Plugin) command(id string) (kernel.Entry[kernel.Command], bool) {
 
 // overflow is the button whose menu reaches the tabs that do not fit.
 func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) {
-	b := ui.ButtonBase(c).Label("More tabs").Tooltip(strconv.Itoa(len(hidden))+" more tabs").Height(30).
-		Padding(0, 8).Radius(8).Gap(4).AlignItems(ui.Center).Shrink(0).Margin(0, 0, 5, 6).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label("More tabs").Tooltip(strconv.Itoa(len(hidden))+" more tabs").
+		Height(controlSize).Padding(0, 8).Radius(7).Gap(4).AlignItems(ui.Center).Shrink(0).
+		Margin(0, 0, controlLift, 6).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}

@@ -90,7 +90,7 @@ func (s *Shell) pluginsChanged(all []kernel.Status) {
 
 const (
 	trafficLightButton = 14
-	trafficLightY      = 18
+	trafficLightY      = 13
 	headerStrip        = trafficLightButton + 2*trafficLightY
 )
 

@@ -1,8 +1,8 @@
 # Shell and the built-in plugins
 
 Declared in `internal/contract/shell`, `internal/contract/chat`,
-`internal/contract/settings`, `internal/contract/workspace` and
-`internal/contract/workflow`; implemented by `internal/shell` and the plugins named below.
+`internal/contract/settings`, `internal/contract/tabs`, `internal/contract/workspace`
+and `internal/contract/workflow`; implemented by `internal/shell` and the plugins named below.
 
 ## Shell
 

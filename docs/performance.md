@@ -6,9 +6,10 @@ present run in the engine.
 
 ## Benchmarks
 
-`bench_test.go` at the root draws the whole app — shell chrome, sidebar,
-transcript and composer — on `ui.Tester` with the real plugins and the fake
-backend from `plugintest`, at the window's default size:
+`bench_test.go` at the root draws the whole app — shell chrome, a tab strip of
+twelve conversations in three folders plus the one on show, the page and
+composer — on `ui.Tester` with the real plugins and the fake backend and
+workspace record from `plugintest`, at the window's default size:
 
 ```
 go test -run NONE -bench . -benchtime 30x .
@@ -16,7 +17,7 @@ go test -run NONE -bench . -benchtime 30x .
 
 | Benchmark | Measures |
 |---|---|
-| `EmptyPageIdle` | One frame of the new-chat screen: the floor every invalidation pays |
+| `EmptyPageIdle` | One frame of the new-chat screen beside the tabs: the floor every invalidation pays |
 | `TranscriptIdle` | One frame of a settled 120-row conversation |
 | `StreamDelta` | One frame per streamed text delta, the hot path of a live turn |
 | `TranscriptScroll` | One frame per wheel notch over the conversation |
@@ -26,16 +27,14 @@ present, which `MYGO_FRAME_STATS` measures below):
 
 | Benchmark | Frame | Bytes | Allocs |
 |---|---|---:|---:|
-| EmptyPageIdle | 236 µs | 11,166 | 168 |
-| TranscriptIdle | 862 µs | 90,039 | 527 |
-| StreamDelta | 513 µs | 4.3 MB heap | — |
-| TranscriptScroll | 2.2 ms | 98,090 | 632 |
+| EmptyPageIdle | 144 µs | 9,419 | 134 |
+| TranscriptIdle | 398 µs | 16,766 | 217 |
+| StreamDelta | 437 µs | 4.0 MB heap | — |
+| TranscriptScroll | 1.8 ms | 52,276 | 669 |
 
-Most of the per-frame allocation floor is MyGo's element machinery and
-Onevra's localization (`components.split` → `localized`), both pinned
-dependencies. Re-rendering the sidebar rows or re-parsing shortcuts added
-per-frame churn; the shortcuts are now parsed once and the rows were left as
-they are, because the app-side share of their churn was a few percent.
+Most of the per-frame allocation floor is MyGo's element machinery, a pinned
+dependency. The app parses command shortcuts once rather than every frame;
+the tab strip draws from state the tabs plugin keeps, without I/O.
 
 ## The real window
 

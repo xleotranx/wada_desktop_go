@@ -6,14 +6,14 @@ import "github.com/egoist/mygo/ui"
 // so hand-drawn panes and Onevra's controls share one material. Widgets that
 // need nothing special keep the theme's own colors.
 type Palette struct {
-	Bg, CanvasBg, Hover, Selected, Hairline ui.Color
-	Text, Muted, Faint                      ui.Color
-	Orange                                  ui.Color
-	DetailBg                                ui.Color
-	Danger, DangerText, Warning             ui.Color
-	DiffAdd, DiffDel                        ui.Color
-	Link                                    ui.Color
-	GreenBadge                              ui.Color
+	Bg, Hover, Selected, Hairline ui.Color
+	Text, Muted, Faint            ui.Color
+	Orange                        ui.Color
+	DetailBg                      ui.Color
+	Danger, DangerText, Warning   ui.Color
+	DiffAdd, DiffDel              ui.Color
+	Link                          ui.Color
+	GreenBadge                    ui.Color
 
 	// StripBg is behind the window's title strip; PanelBg is the rounded
 	// panel the page sits in, and DrawerBg a column beside the page in it.
@@ -66,13 +66,15 @@ func PaletteOf(t *ui.Theme) Palette {
 		strip = t.Background.Mix(t.SurfaceHover, 0.7)
 		marks, labels, tint = projectsLight, ui.RGB(0, 0, 0), 0.11
 	}
+	// The panel sits between the background and the surface, as the page
+	// always has; the active tab is the same color, so the two read as one.
+	panel := t.Background.Mix(t.Surface, 0.75)
 	var projects [5]ProjectColor
 	for i, m := range marks {
 		projects[i] = ProjectColor{Mark: m, Tint: m.Alpha(tint), Text: m.Mix(labels, 0.12)}
 	}
 	return Palette{
 		Bg:         t.Background,
-		CanvasBg:   t.Background.Mix(t.Surface, 0.75),
 		Hover:      t.SurfaceHover,
 		Selected:   t.Text.Alpha(0.10),
 		Hairline:   t.Border,
@@ -90,8 +92,8 @@ func PaletteOf(t *ui.Theme) Palette {
 		GreenBadge: t.Success,
 
 		StripBg:   strip,
-		PanelBg:   t.Surface,
-		DrawerBg:  t.Surface.Mix(strip, 0.4),
+		PanelBg:   panel,
+		DrawerBg:  panel.Mix(strip, 0.4),
 		Raised:    t.Surface.Mix(t.SurfaceHover, 0.75),
 		Waiting:   t.Warning,
 		DiffAddBg: t.Success.Alpha(0.12),

@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"path"
 	"runtime"
 	"testing"
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	chatcontract "wada-desktop-go/internal/contract/chat"
+	tabcontract "wada-desktop-go/internal/contract/tabs"
+	wscontract "wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/kernel"
 	"wada-desktop-go/internal/kernel/kerneltest"
 	"wada-desktop-go/internal/plugins/activity"
@@ -27,7 +30,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The benchmarks draw the whole app — tab strip, page, composer and shell
+// The benchmarks draw the whole app — a strip of thirteen tabs (twelve in
+// three folders, and the page's own), the page, composer and shell
 // chrome — on ui.Tester with the real plugins and a fake backend. Run with:
 //
 //	go test -run NONE -bench . -benchtime 5x ./...
@@ -87,6 +91,18 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	f.Catalog = []agent.Model{{Ref: agent.ModelRef{Provider: "p", ID: "bench-1"}, Name: "Bench 1"},
 		{Ref: agent.ModelRef{Provider: "p", ID: "bench-2"}, Name: "Bench 2"}}
 
+	// The record holds twelve conversations in three folders, all open as
+	// tabs, and the benchmark's own.
+	ws := &plugintest.Workspace{}
+	for i, folder := range []string{"/work/app", "/work/web", "/work/docs"} {
+		ws.FolderSet = append(ws.FolderSet, wscontract.Folder{Path: folder})
+		for j := range 4 {
+			ws.Convs = append(ws.Convs, wscontract.Conversation{ID: agent.SessionID(fmt.Sprintf("t%d", i*4+j)),
+				Title: fmt.Sprintf("Tab %d of %s", j+1, path.Base(folder)), Folder: folder})
+		}
+	}
+	ws.Convs = append(ws.Convs, wscontract.Conversation{ID: benchSession, Title: "Benchmark", Folder: "/work/app"})
+
 	var queue []func()
 	run := func() {
 		for len(queue) > 0 {
@@ -96,7 +112,7 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 		}
 	}
 	s, err := shell.New(shell.Options{Post: func(fn func()) { queue = append(queue, fn) },
-		Store: kerneltest.NewStore()}, f, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{},
+		Store: kerneltest.NewStore()}, f, ws, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{},
 		&mentions.Plugin{}, &tabs.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
 	if err != nil {
 		b.Fatal(err)
@@ -124,20 +140,30 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	tt := ui.NewTester(s.View, 1400, 900)
 	tt.Frame()
 
+	controller, ok := kernel.Use[chatcontract.Controller](s.Kernel, chatcontract.ControllerKey)
+	if !ok {
+		b.Fatal("the chat controller did not install")
+	}
+	for _, conv := range ws.Convs[:12] {
+		controller.Open(conv.Session())
+		flush(2)
+	}
 	if len(messages) > 0 {
-		controller, ok := kernel.Use[chatcontract.Controller](s.Kernel, chatcontract.ControllerKey)
-		if !ok {
-			b.Fatal("the chat controller did not install")
-		}
-		controller.Open(agent.Session{ID: benchSession, Title: "Benchmark", Directory: "/work"})
-		flush(50)
-		run()
+		controller.Open(agent.Session{ID: benchSession, Title: "Benchmark", Directory: "/work/app"})
+	} else {
+		controller.NewChat("/work/app")
+	}
+	flush(50)
+	run()
+	tt.Frame()
+	if open, ok := kernel.Use[tabcontract.Service](s.Kernel, tabcontract.ServiceKey); !ok || len(open.Tabs()) != 13 {
+		b.Fatal("the twelve tabs and the benchmark's did not open")
 	}
 	return s, tt, run
 }
 
-// BenchmarkEmptyPageIdle draws a frame of the new-chat screen with an empty
-// tab strip and no transcript: the engine floor the app adds to.
+// BenchmarkEmptyPageIdle draws a frame of the new-chat screen beside twelve
+// tabs, with no transcript: the floor every invalidation pays.
 func BenchmarkEmptyPageIdle(b *testing.B) {
 	_, tt, _ := benchApp(b, nil)
 	b.ReportAllocs()

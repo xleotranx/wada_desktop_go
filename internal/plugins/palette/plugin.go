@@ -38,7 +38,7 @@ const (
 	recentShown  = 5          // earlier conversations listed before anything is typed
 )
 
-// Plugin is the command palette. The zero value is ready to install.
+// Plugin is All chats. The zero value is ready to install.
 //
 // Commands need nothing else. Conversations and folders come from the
 // workspace record when it is active, so the palette keeps working without

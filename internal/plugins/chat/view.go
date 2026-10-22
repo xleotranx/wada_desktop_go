@@ -38,7 +38,7 @@ func (p *Plugin) view(c *ui.Context) {
 
 // page is the conversation itself, beside the work panel.
 func (p *Plugin) page(c *ui.Context, pal native.Palette, blank bool) {
-	ui.Column(c).Grow(1).MinWidth(0).FillHeight().Background(pal.CanvasBg).Children(func() {
+	ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 		top := ui.Column(c).FillWidth().Grow(1).MinHeight(0)
 		if blank {
 			top.Justify(ui.End)

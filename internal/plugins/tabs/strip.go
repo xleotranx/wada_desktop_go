@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	tabHeight   = 40 // to the strip's foot, so the active tab meets the panel
-	tabWidth    = 220
-	tabMinWidth = 96
-	tabGap      = 2
+	tabHeight   = 36 // to the strip's foot, so the active tab meets the panel
+	tabMaxWidth = 200
+	tabMinWidth = 80
+	tabGap      = 0 // a divider stands between inactive tabs instead
+	closeSize   = 18
 )
 
 // strip draws the space switcher, then the space's tabs and the pages, the
@@ -43,7 +44,12 @@ func (p *Plugin) strip(c *ui.Context) {
 		}
 		shown, hidden := fit(p.visible(), p.active, width-newButtonWidth)
 		row.Children(func() {
-			for _, t := range shown {
+			for i, t := range shown {
+				if i > 0 && t.ID != p.active && shown[i-1].ID != p.active {
+					c.Key("divider:" + t.ID)
+					ui.Box(c).Width(1).Height(14).Shrink(0).Background(pal.Hairline).
+						Margin(0, 0, (tabHeight-14)/2, 0)
+				}
 				c.Key(t.ID)
 				p.tab(c, pal, t)
 			}
@@ -235,38 +241,50 @@ func (p *Plugin) spaceDot(c *ui.Context, pal native.Palette, folder string) {
 	ui.Box(c).Size(8, 8).Radius(4).Background(color).Shrink(0)
 }
 
+// tab is as wide as its title, up to tabMaxWidth. The close button sits over
+// its end and shows on the active tab, on hover and on focus; only the active
+// tab keeps room for it.
 func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 	active := t.ID == p.active
-	b := ui.ButtonBase(c).Label(t.Title).Width(tabWidth).Shrink(1).MinWidth(tabMinWidth).Height(tabHeight).
-		Radius(10, 10, 0, 0).Cursor(ui.CursorPointer)
-	if active {
-		b.Background(pal.PanelBg)
-	} else if b.Hovered() {
-		b.Background(pal.Hover)
+	b := ui.ButtonBase(c).Label(t.Title).MaxWidth(tabMaxWidth).MinWidth(tabMinWidth).Shrink(1).Height(tabHeight).
+		Radius(9, 9, 0, 0).Cursor(ui.CursorPointer)
+	fill := pal.StripBg
+	switch {
+	case active:
+		fill = pal.PanelBg
+	case b.Hovered():
+		fill = pal.Hover
+	}
+	if fill != pal.StripBg {
+		b.Background(fill)
 	}
 	b.OnClick(func() { p.Select(t.ID) })
 	b.ContextMenu(func(m *ui.Menu) { p.tabMenu(m, t) })
 	b.Children(func() {
-		ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Gap(8).Padding(0, 6, 0, 12).Children(func() {
+		end := float32(12)
+		if active {
+			end = 8 + closeSize + 4
+		}
+		ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Gap(6).Padding(0, end, 0, 12).Children(func() {
 			p.marker(c, pal, t)
 			text := pal.Muted
 			if active {
 				text = pal.Text
 			}
-			ui.Text(c, t.Title).FontSize(13).TextColor(text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
-			c.Key("close")
-			x := ui.ButtonBase(c).Label("Close "+t.Title).Size(22, 22).Radius(6).Center().Shrink(0).
-				Cursor(ui.CursorPointer)
-			if x.Hovered() {
-				x.Background(pal.Selected)
-			}
-			// Keep the button mounted so Tab reaches it on any tab.
-			if !active && !b.Hovered() && !x.Focused() {
-				x.Opacity(0)
-			}
-			x.OnClick(func() { p.Close(t.ID) })
-			x.Children(func() { ui.Icon(c, lucide.X()).FontSize(12).TextColor(pal.Muted) })
+			ui.Text(c, t.Title).FontSize(13).TextColor(text).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 		})
+		c.Key("close")
+		x := ui.ButtonBase(c).Label("Close "+t.Title).Size(closeSize, closeSize).Radius(5).Center().
+			Absolute().Right(6).Top((tabHeight - closeSize) / 2).Background(fill).Cursor(ui.CursorPointer)
+		if x.Hovered() {
+			x.Background(pal.Selected)
+		}
+		// Keep the button mounted so Tab reaches it on any tab.
+		if !active && !b.Hovered() && !x.Focused() {
+			x.Opacity(0)
+		}
+		x.OnClick(func() { p.Close(t.ID) })
+		x.Children(func() { ui.Icon(c, lucide.X()).FontSize(11).TextColor(pal.Muted) })
 	})
 }
 

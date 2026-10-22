@@ -263,12 +263,14 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   tab instead.
 - After `kernel.PointChanged` for `shell.Pages`, a page tab whose page is gone closes,
   and the others take their page's current title.
-- The strip draws a tab's marker, title and a close button (shown on the active and
-  hovered tab, and on focus), then a "+" that opens a new chat in the space, then "All
+- The strip draws each tab as wide as its marker and title, up to 200 px, with a
+  divider between two inactive tabs. The close button sits over a tab's end and shows
+  on the active tab, on hover and on focus; only the active tab keeps room for it.
+  Then a "+" that opens a new chat in the space, then "All
   chats" (runs `shell.SearchCommand` when contributed) and Settings (shows
   `settings.PageID` when contributed).
 - The strip fits its tabs to the width their row had in the previous frame (the first
-  frame draws everything and asks for another). Tabs shrink to 96 px; past that, tabs
+  frame draws everything and asks for another). Tabs shrink to 80 px; past that, tabs
   move, from the end, into a "More tabs" menu, never the active one.
 - A tab's context menu has Close Tab, and for a conversation Rename…, Remove from List
   and Delete…. Rename and delete go to the backend, then the record; Remove from List

@@ -1,5 +1,6 @@
-// Package opencode is the OpenCode backend plugin. It runs `opencode serve`
-// itself or connects to a server the user names, keeps that connection up,
+// Package opencode is the OpenCode backend plugin. It downloads a pinned
+// OpenCode build and runs `opencode serve` itself, or connects to a server
+// the user names, keeps that connection up,
 // and provides the agent contract over its HTTP API and event stream.
 package opencode
 
@@ -7,11 +8,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/shell"
 	"wada-desktop-go/internal/kernel"
 )
 
@@ -26,17 +29,20 @@ type Connection struct {
 // Plugin is the OpenCode backend. The zero value is ready to install.
 type Plugin struct {
 	ctx    *kernel.Context
+	host   shell.Host
 	conn   *kernel.Setting[Connection]
 	run    *kernel.Scope // the current supervisor; replaced to reconnect
 	status agent.Status  // UI thread
 	form   form
+	fetch  *progress // the OpenCode download under way, or nil; UI thread
 
 	mu       sync.Mutex
 	client   *client // the ready connection, or nil
 	attempts atomic.Uint64
 
-	// Test seams.
+	// Test seams. exe, when set, runs in place of the downloaded build.
 	exe   string
+	rel   release
 	dir   string
 	after func(time.Duration) <-chan time.Time
 }
@@ -54,15 +60,14 @@ func (*Plugin) Manifest() kernel.Manifest {
 		Title:       "OpenCode",
 		Description: "Chat with OpenCode, run by the app or on a server you choose.",
 		Provides:    []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.FilesKey, agent.RewindKey},
+		Requires:    []kernel.Named{shell.HostKey},
 	}
 }
 
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
+	p.host = kernel.Require(c, shell.HostKey)
 	p.conn = kernel.NewSetting(c, "connection", Connection{})
-	if p.exe == "" {
-		p.exe = "opencode"
-	}
 	if p.dir == "" {
 		p.dir, _ = os.UserHomeDir()
 	}
@@ -178,7 +183,7 @@ func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, conn Connecti
 		}
 		attempt := p.attempts.Add(1)
 		post(agent.Status{State: agent.Connecting, Attempt: attempt, Endpoint: conn.URL})
-		c, err := p.open(ctx, conn)
+		c, err := p.open(ctx, run, conn)
 		if err != nil {
 			if ctx.Err() == nil {
 				post(agent.Status{State: agent.Down, Attempt: attempt, Endpoint: conn.URL, Err: err})
@@ -205,11 +210,38 @@ func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, conn Connecti
 	}
 }
 
-func (p *Plugin) open(ctx context.Context, conn Connection) (*client, error) {
+func (p *Plugin) open(ctx context.Context, run *kernel.Scope, conn Connection) (*client, error) {
 	if conn.Remote {
 		return dial(ctx, conn)
 	}
-	return spawn(ctx, p.exe, p.dir)
+	exe, err := p.executable(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	return spawn(ctx, exe, p.dir)
+}
+
+// executable returns the OpenCode build to run, downloading it into the app's
+// data folder the first time.
+func (p *Plugin) executable(ctx context.Context, run *kernel.Scope) (string, error) {
+	if p.exe != "" {
+		return p.exe, nil
+	}
+	rel := p.rel
+	if rel.URL == "" {
+		var err error
+		if rel, err = platformRelease(); err != nil {
+			return "", err
+		}
+	}
+	data := p.host.DataDir()
+	if data == "" {
+		return "", errors.New("the app has no data folder to install OpenCode in")
+	}
+	defer run.Post(func() { p.fetch = nil })
+	return install(ctx, filepath.Join(data, "opencode", "bin"), rel, func(pr progress) {
+		run.Post(func() { p.fetch = &pr })
+	})
 }
 
 const (

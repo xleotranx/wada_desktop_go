@@ -88,10 +88,18 @@ replaces the default.
 
 ## OpenCode plugin
 
-`internal/plugins/opencode` saves one setting, `connection`:
+`internal/plugins/opencode` requires `shell.HostKey` and saves one setting,
+`connection`:
 
 - zero value: run `opencode serve` on a free local port, in the home directory,
-  with a fresh password per run; the process ends with the plugin;
+  with a fresh password per run; the process ends with the plugin. The server is
+  the app's own OpenCode build, never one on `PATH`: the plugin pins a version and,
+  per platform, the npm tarball (`@opencode/cli-darwin-arm64`,
+  `@opencode/cli-darwin-x64-baseline`) and its published sha512 integrity. On first
+  use it downloads the tarball, refuses it unless the checksum matches, and unpacks
+  `package/bin/opencode` to `<DataDir>/opencode/bin/<version>/opencode`, then
+  removes other versions there. While it downloads, the settings section shows the
+  progress;
 - `{"remote": true, "url": …, "password": …}`: connect to that server.
 
 Files go in the prompt's `files` as `data:` URIs, which a remote server reads as well

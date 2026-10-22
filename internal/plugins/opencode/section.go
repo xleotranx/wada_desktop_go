@@ -1,6 +1,8 @@
 package opencode
 
 import (
+	"fmt"
+
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/settings"
 	"wada-desktop-go/internal/kernel"
@@ -37,7 +39,7 @@ func (p *Plugin) section(c *ui.Context) {
 			tint = pal.GreenBadge
 		}
 		ui.Box(c).Size(7, 7).Radius(4).Background(tint)
-		ui.Text(c, statusText(p.status)).FontSize(12.5).TextColor(pal.Muted).Grow(1).MinWidth(0)
+		ui.Text(c, statusText(p.status, p.fetch)).FontSize(12.5).TextColor(pal.Muted).Grow(1).MinWidth(0)
 	})
 	ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
 	ui.Text(c, "Connection mode").FontSize(14).FontWeight(500).TextColor(pal.Text)
@@ -53,7 +55,7 @@ func (p *Plugin) section(c *ui.Context) {
 			Label("Password").Placeholder("Password").FontSize(13).Password()
 		pw.OnChange(edit)
 	} else {
-		ui.Text(c, "Wada starts OpenCode on this Mac and stops it when you quit.").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "Wada downloads OpenCode "+version+" once, starts it on this Mac and stops it when you quit.").FontSize(12).TextColor(pal.Muted)
 	}
 	if p.form.err != "" {
 		ui.Text(c, p.form.err).FontSize(12).TextColor(pal.Danger)
@@ -74,7 +76,14 @@ func (p *Plugin) section(c *ui.Context) {
 	})
 }
 
-func statusText(st agent.Status) string {
+func statusText(st agent.Status, fetch *progress) string {
+	if fetch != nil && st.State == agent.Connecting {
+		line := "Downloading OpenCode " + fetch.Version + "…"
+		if fetch.Total > 0 {
+			line += fmt.Sprintf(" %d of %d MB", fetch.Done>>20, fetch.Total>>20)
+		}
+		return line
+	}
 	switch st.State {
 	case agent.Ready:
 		line := "Connected to " + st.Endpoint

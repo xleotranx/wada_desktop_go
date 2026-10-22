@@ -166,7 +166,7 @@ func start(t *testing.T, f *fakeServer) (*kerneltest.Harness, *Plugin) {
 		ch <- time.Now()
 		return ch
 	}}
-	return kerneltest.Start(t, kerneltest.Config{Store: store}, p), p
+	return kerneltest.Start(t, kerneltest.Config{Store: store}, &plugintest.Host{}, p), p
 }
 
 // waitFor runs posted work until cond holds.

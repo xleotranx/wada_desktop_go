@@ -28,6 +28,10 @@ var (
 	// meanwhile. Directory is the folder the user chose for it, empty for the
 	// backend's default, whatever the backend reports.
 	Started = kernel.NewTopic[Conversation]("chat.started")
+	// Leaving is emitted just before the chat replaces the open conversation
+	// with another, with what the user had typed and not sent, so a plugin
+	// can keep it and give it back with Controller.SetDraft.
+	Leaving = kernel.NewTopic[Unsent]("chat.leaving")
 
 	// Outgoing runs on the UI thread when the user sends a message, before
 	// anything reaches the backend. A transform may rewrite the draft (expand
@@ -119,6 +123,14 @@ type Conversation struct {
 	Starting bool
 }
 
+// Unsent is the text left in the composer of a conversation the chat is
+// leaving. Text is empty when nothing was typed, and while an earlier
+// message was being edited, since that text is not a new message.
+type Unsent struct {
+	Conversation Conversation
+	Text         string
+}
+
 // Draft is one message on its way out.
 type Draft struct {
 	Session   agent.SessionID // empty starts a new conversation
@@ -140,4 +152,7 @@ type Controller interface {
 	// keeping the draft. It does nothing while a stored conversation is open
 	// or the first message is Starting one.
 	SetDirectory(directory string)
+	// SetDraft puts text in the composer of the open conversation, replacing
+	// what is there, and focuses it.
+	SetDraft(text string)
 }

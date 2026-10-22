@@ -41,6 +41,12 @@ type Plugin struct {
 	// is not followed as if someone else had caused it.
 	selecting bool
 	drafts    int // numbers the draft tabs' IDs
+	// unsent holds the text typed and not sent in tabs not on show, by tab ID,
+	// for this run only.
+	unsent map[string]string
+	// chatTab is the tab the chat shows or showed last, which names the new
+	// chat whose text the chat leaves behind.
+	chatTab string
 }
 
 // saved is a tab as it is kept between runs.
@@ -73,11 +79,13 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.colors = kernel.NewSetting(c, "colors", map[string]int{})
 	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
+	p.unsent, p.chatTab = map[string]string{}, ""
 	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
 		return err
 	}
 	kernel.On(c, chat.Changed, p.followChat)
 	kernel.On(c, chat.Started, p.started)
+	kernel.On(c, chat.Leaving, p.leaving)
 	kernel.On(c, shell.PageChanged, p.followPage)
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, workspace.Changed, func(struct{}) { p.recordChanged() })
@@ -155,6 +163,7 @@ func (p *Plugin) Close(id string) {
 	}
 	closed := p.tabs[i]
 	p.tabs = slices.Delete(p.tabs, i, i+1)
+	delete(p.unsent, id)
 	if id != p.active {
 		p.changed()
 		return
@@ -239,7 +248,8 @@ func (p *Plugin) followPage(id string) {
 // showConversation makes the conversation the chat shows the active tab.
 // A new chat takes over the active draft tab, as does the first stored
 // conversation shown from one: sending a draft turns its tab into the
-// conversation, and so does opening one from an empty tab.
+// conversation, and so does opening one from an empty tab. A draft with
+// unsent text keeps its tab, and the conversation opens in a new one.
 func (p *Plugin) showConversation(conv chat.Conversation) {
 	draft := p.find(p.active)
 	if draft >= 0 && p.tabs[draft].Kind != tabs.Draft {
@@ -269,11 +279,13 @@ func (p *Plugin) showConversation(conv chat.Conversation) {
 		return
 	}
 	t := tabs.Tab{ID: id, Kind: tabs.Conversation, Session: conv.Session, Folder: conv.Directory, Title: p.titleOf(conv)}
-	if draft < 0 {
+	// A draft the user left text in keeps its tab.
+	if draft < 0 || p.unsent[p.tabs[draft].ID] != "" {
 		p.insert(t)
 		return
 	}
 	p.ensureColor(t.Folder)
+	delete(p.unsent, p.tabs[draft].ID)
 	p.tabs[draft] = t
 	p.regroup(draft)
 	p.activate(id)
@@ -434,13 +446,39 @@ func (p *Plugin) find(id string) int {
 }
 
 // activate makes the tab the active one; a finished turn is seen once its
-// tab is.
+// tab is, and the text left in its composer comes back.
 func (p *Plugin) activate(id string) {
 	p.active = id
-	if i := p.find(id); i >= 0 && p.states[p.tabs[i].Session] == tabs.Unread {
-		p.states[p.tabs[i].Session] = tabs.Idle
+	if i := p.find(id); i >= 0 {
+		t := p.tabs[i]
+		if p.states[t.Session] == tabs.Unread {
+			p.states[t.Session] = tabs.Idle
+		}
+		if t.Kind != tabs.Page {
+			p.chatTab = t.ID
+			if text, ok := p.unsent[t.ID]; ok {
+				delete(p.unsent, t.ID)
+				p.chat.SetDraft(text)
+			}
+		}
 	}
 	p.changed()
+}
+
+// leaving keeps the text the chat leaves in a tab's composer.
+func (p *Plugin) leaving(u chat.Unsent) {
+	id := p.chatTab
+	if u.Conversation.Session != "" {
+		id = conversationID(u.Conversation.Session)
+	}
+	if p.find(id) < 0 {
+		return
+	}
+	if u.Text == "" {
+		delete(p.unsent, id)
+		return
+	}
+	p.unsent[id] = u.Text
 }
 
 // insert adds t and makes it active: beside the active tab when that is in

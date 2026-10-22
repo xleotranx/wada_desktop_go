@@ -283,10 +283,13 @@ func (h *Host) Notify(n shell.Notice)      { h.Notices = append(h.Notices, n) }
 func (h *Host) Foreground() bool           { return !h.Background }
 func (h *Host) DataDir() string            { return h.Data }
 
-// Chat provides chat.ControllerKey without a page.
+// Chat provides chat.ControllerKey without a page. Draft is the composer's
+// text: it goes out on chat.Leaving and empties when another conversation
+// opens, as in the chat.
 type Chat struct {
-	ctx  *kernel.Context
-	Conv chat.Conversation
+	ctx   *kernel.Context
+	Conv  chat.Conversation
+	Draft string
 }
 
 func (*Chat) Manifest() kernel.Manifest {
@@ -301,14 +304,26 @@ func (f *Chat) Setup(c *kernel.Context) error {
 func (f *Chat) Current() chat.Conversation { return f.Conv }
 
 func (f *Chat) Open(s agent.Session) {
+	if s.ID != "" && s.ID == f.Conv.Session {
+		return
+	}
+	f.leave()
 	f.Conv = chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Model: s.Model}
 	kernel.Emit(f.ctx, chat.Changed, f.Conv)
 }
 
 func (f *Chat) NewChat(dir string) {
+	f.leave()
 	f.Conv = chat.Conversation{Directory: dir}
 	kernel.Emit(f.ctx, chat.Changed, f.Conv)
 }
+
+func (f *Chat) leave() {
+	kernel.Emit(f.ctx, chat.Leaving, chat.Unsent{Conversation: f.Conv, Text: f.Draft})
+	f.Draft = ""
+}
+
+func (f *Chat) SetDraft(text string) { f.Draft = text }
 
 func (f *Chat) SetDirectory(dir string) {
 	if f.Conv.Session == "" && !f.Conv.Starting {

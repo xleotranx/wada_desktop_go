@@ -287,3 +287,42 @@ func TestStripDrawsGroupsAndSelects(t *testing.T) {
 		t.Fatalf("new chat in %q", f.tab("New chat").Folder)
 	}
 }
+
+func TestUnsentTextStaysWithItsTab(t *testing.T) {
+	f := start(t, nil, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s2")
+	f.chat.Draft = "for Second"
+	f.p.Select(f.tab("First").ID)
+	if f.chat.Draft != "" {
+		t.Fatalf("Second's text shows in First: %q", f.chat.Draft)
+	}
+	f.chat.Draft = "for First"
+	f.p.Select(f.tab("Second").ID)
+	if f.chat.Draft != "for Second" {
+		t.Fatalf("Second's text %q", f.chat.Draft)
+	}
+
+	// A new chat's text survives a conversation opened from elsewhere and a
+	// page on the way back.
+	f.chat.NewChat("/w/web")
+	f.chat.Draft = "a new idea"
+	f.open("s3")
+	f.host.ShowPage("pages.settings")
+	f.p.Select(f.tab("New chat").ID)
+	if f.chat.Draft != "a new idea" {
+		t.Fatalf("new chat's text %q", f.chat.Draft)
+	}
+
+	// A closed tab's text goes with it.
+	f.p.Select(f.tab("First").ID)
+	if f.chat.Draft != "for First" {
+		t.Fatalf("First's text %q", f.chat.Draft)
+	}
+	f.p.Select(f.tab("Third").ID)
+	f.p.Close(f.tab("First").ID)
+	if _, kept := f.p.unsent[conversationID("s1")]; kept {
+		t.Fatal("closed tab's text kept")
+	}
+}

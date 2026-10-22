@@ -123,9 +123,20 @@ func (p *Plugin) SetDirectory(directory string) {
 	kernel.Emit(p.ctx, chat.Changed, p.conv)
 }
 
+func (p *Plugin) SetDraft(text string) {
+	p.draft, p.replacing, p.replacingFiles, p.focus = text, false, false, true
+}
+
 // switchTo replaces the open conversation. Its work is cancelled with its
 // scope, so nothing it started can land in the next one.
 func (p *Plugin) switchTo(conv chat.Conversation) {
+	if p.scope != nil {
+		left := chat.Unsent{Conversation: p.conv}
+		if !p.replacing {
+			left.Text = p.draft
+		}
+		kernel.Emit(p.ctx, chat.Leaving, left)
+	}
 	p.loading.Cancel()
 	p.reloadAfterTurn = false
 	if p.scope != nil {

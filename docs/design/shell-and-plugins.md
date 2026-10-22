@@ -76,6 +76,9 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
   Creating belongs to the plugin, not the conversation's scope: when the user has
   opened another conversation meanwhile, the new one is still announced and its
   message sent, and a failure is a toast.
+- Just before the chat replaces the open conversation it emits `chat.Leaving` with the
+  composer's unsent text, empty while an earlier message was being edited.
+  `chat.Controller.SetDraft` puts text in the composer, ends an edit and focuses it.
 - `chat.Controller.SetDirectory` changes the folder of a new chat without touching
   the draft; it does nothing for a stored conversation or one that is Starting. A
   failed send is reported and never retried, since it may have reached the agent.
@@ -221,7 +224,8 @@ view, so with it installed the window has the strip layout and no sidebar.
   page is on show, and after `shell.PageChanged`, what is shown becomes the active
   tab: an open tab is selected, otherwise one opens. A new chat takes over the active
   draft tab, and so does a stored conversation shown from one: sending a draft turns
-  its tab into the conversation. A conversation announced on `chat.Started` after the
+  its tab into the conversation. A draft with unsent text keeps its tab, and the
+  conversation opens in a new one. A conversation announced on `chat.Started` after the
   user moved on opens in a background tab.
 - Tabs are grouped by folder: a group's tabs are adjacent, after a label with the
   folder's name in its project color and over a line in that color; tabs without a
@@ -234,6 +238,10 @@ view, so with it installed the window has the strip layout and no sidebar.
   unread when a turn ends while the tab is not on show (an interrupted turn is not),
   idle otherwise. Showing the tab clears unread. `SessionRenamed` and the workspace
   record keep titles current.
+- Each tab keeps the text typed and not sent in it. On `chat.Leaving` the text is
+  kept under the tab the chat leaves (a new chat's is the last draft tab shown), and
+  `chat.Controller.SetDraft` gives it back when that tab is shown again. It is kept
+  for the run only; files attached and mentions are dropped, as on any switch.
 - Closing a tab deletes nothing. Closing the active tab shows its right neighbour,
   else its left one; closing the last one opens a new chat in its folder. A tab whose
   conversation the record stops listing closes.

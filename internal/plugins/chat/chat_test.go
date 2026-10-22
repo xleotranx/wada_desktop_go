@@ -650,3 +650,29 @@ func TestFinishedTurnFoldsItsWorkAboveTheAnswer(t *testing.T) {
 		t.Fatalf("label %q", label)
 	}
 }
+
+func TestLeavingAConversationHandsOverItsUnsentText(t *testing.T) {
+	h, p, _, _ := start(t)
+	var left []chat.Unsent
+	kernel.On(h, chat.Leaving, func(u chat.Unsent) { left = append(left, u) })
+	p.NewChat("/work")
+	p.draft = "half a thought"
+	p.Open(agent.Session{ID: "s1"})
+	if p.draft != "" {
+		t.Fatalf("the draft stayed: %q", p.draft)
+	}
+	// The last one: what the first NewChat left is the empty start.
+	if got := left[len(left)-1]; got != (chat.Unsent{Conversation: chat.Conversation{Directory: "/work"}, Text: "half a thought"}) {
+		t.Fatalf("left %+v", got)
+	}
+	p.SetDraft("back again")
+	if p.draft != "back again" || !p.focus {
+		t.Fatalf("draft %q focus %v", p.draft, p.focus)
+	}
+	// An edit of an earlier message is not left behind as a new message.
+	p.replacing, p.draft = true, "edited"
+	p.NewChat("")
+	if got := left[len(left)-1]; got.Text != "" || got.Conversation.Session != "s1" {
+		t.Fatalf("left while editing %+v", got)
+	}
+}

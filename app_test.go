@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -161,16 +162,21 @@ func (a *app) selectTab(title string) {
 	a.t.Fatalf("no tab %q", title)
 }
 
-// newChatIn starts a chat from the menu of a folder's tab group.
+// newChatIn switches to the folder's space with the switcher, then starts a
+// chat there with "+".
 func (a *app) newChatIn(folder string) {
 	a.t.Helper()
-	if err := a.tt.Click("Project " + folder); err != nil {
-		a.t.Fatal(err)
+	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+	current := "No folder"
+	if space := open.Space(); space != "" {
+		current = path.Base(space)
 	}
-	if err := a.tt.ChooseMenuItem("New Chat"); err != nil {
-		a.t.Fatal(err)
+	for _, step := range []string{"Space " + current, "Switch to " + folder, "New chat"} {
+		if err := a.tt.Click(step); err != nil {
+			a.t.Fatalf("%s: %v", step, err)
+		}
+		a.settle()
 	}
-	a.settle()
 }
 
 func (a *app) openConversation(s agent.Session) {
@@ -228,14 +234,12 @@ func TestAllChatsOpensAConversationInATab(t *testing.T) {
 	}
 }
 
-func TestTabsGroupTheAppsOwnConversationsByFolder(t *testing.T) {
+func TestEachFolderIsASpaceOfItsOwn(t *testing.T) {
 	a := startApp(t)
 	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
 	a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
-	for _, want := range []string{"app", "docs", "Fix the parser", "Write the docs"} {
-		if !a.tt.HasText(want) {
-			t.Fatalf("%q is missing from the tabs: %q", want, a.tt.Texts())
-		}
+	if !a.tt.HasText("docs") || !a.tt.HasText("Write the docs") || a.tt.HasText("Fix the parser") {
+		t.Fatalf("the docs space: %q", a.tt.Texts())
 	}
 	a.newChatIn("docs")
 	if err := a.tt.Click("Compose"); err != nil {

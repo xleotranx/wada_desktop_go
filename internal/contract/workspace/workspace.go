@@ -20,9 +20,8 @@ var (
 
 // Folder is a folder the user works in.
 type Folder struct {
-	Path      string // absolute and clean; what a conversation's Folder names
-	Collapsed bool   // its tab group shows only its label
-	Added     int64  // Unix milliseconds
+	Path  string // absolute and clean; what a conversation's Folder names
+	Added int64  // Unix milliseconds
 }
 
 // Conversation is the app's record of a conversation it started.
@@ -59,7 +58,6 @@ type Service interface {
 	// RemoveFolder forgets a folder and the app's record of its
 	// conversations, under every origin. The backend keeps them.
 	RemoveFolder(path string)
-	SetCollapsed(path string, collapsed bool)
 	// ChooseFolder asks the user for a folder with the system dialog. A
 	// chosen folder is added, then done runs with it on the UI thread.
 	ChooseFolder(done func(path string))

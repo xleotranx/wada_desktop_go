@@ -210,6 +210,7 @@ func (o *openTabs) Active() (tabs.Tab, bool) { return tabs.Tab{}, false }
 func (o *openTabs) Select(string)            {}
 func (o *openTabs) Close(string)             {}
 func (o *openTabs) Move(string, int)         {}
+func (o *openTabs) Space() string            { return "" }
 
 func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 	ws := &plugintest.Workspace{

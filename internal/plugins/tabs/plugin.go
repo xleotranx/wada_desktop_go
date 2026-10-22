@@ -1,8 +1,10 @@
 // Package tabs keeps the window's tabs: the conversations, new chats and
-// pages the user has open, grouped by folder across the title strip. Tabs
-// follow navigation: whatever the chat or the shell shows becomes the active
-// tab, so nothing has to open things through them. A background tab shows
-// what its conversation is doing, read from the agent's events.
+// pages the user has open. The title strip shows one folder at a time, its
+// space: that folder's tabs, then the pages, with a switcher for the other
+// folders. Tabs follow navigation: whatever the chat or the shell shows
+// becomes the active tab, and its folder the space on show, so nothing has
+// to open things through them. A background tab shows what its conversation
+// is doing, read from the agent's events.
 package tabs
 
 import (
@@ -32,7 +34,6 @@ type Plugin struct {
 	// colors holds each folder's index into the palette's project colors.
 	colors *kernel.Setting[map[string]int]
 	reopen *kernel.Setting[bool] // the tabs of the last run come back
-	join   *kernel.Setting[bool] // a new chat starts in the active tab's folder
 
 	tabs   []tabs.Tab // without State; states holds it
 	active string
@@ -51,6 +52,11 @@ type Plugin struct {
 	// chatTab is the tab the chat shows or showed last, which names the new
 	// chat whose text the chat leaves behind.
 	chatTab string
+	// space is the folder whose tabs the strip shows; lastIn holds each
+	// folder's tab shown last, to come back to.
+	space     string
+	lastIn    map[string]string
+	switching bool // the space switcher is open
 
 	// The dialogs the menus open.
 	renaming tabs.Tab
@@ -92,10 +98,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.savedActive = kernel.NewSetting(c, "active", 0)
 	p.colors = kernel.NewSetting(c, "colors", map[string]int{})
 	p.reopen = kernel.NewSetting(c, "reopen", true)
-	p.join = kernel.NewSetting(c, "join-project", true)
 	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
 	p.unsent, p.chatTab = map[string]string{}, ""
+	p.space, p.lastIn, p.switching = "", map[string]string{}, false
 	p.renaming, p.renameOn, p.deleting, p.deleteOn, p.removing, p.removeOn = tabs.Tab{}, false, tabs.Tab{}, false, "", false
 	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
 		return err
@@ -189,24 +195,34 @@ func (p *Plugin) Close(id string) {
 		return
 	}
 	closed := p.tabs[i]
+	shown := p.visible()
+	at := slices.IndexFunc(shown, func(t tabs.Tab) bool { return t.ID == id })
 	p.tabs = slices.Delete(p.tabs, i, i+1)
 	delete(p.unsent, id)
+	if p.lastIn[closed.Folder] == id {
+		delete(p.lastIn, closed.Folder)
+	}
 	if id != p.active {
 		p.changed()
 		return
 	}
 	p.active = ""
-	if len(p.tabs) == 0 {
-		// The last tab gives way to a new chat in its folder; following the
-		// chat makes that the new tab.
-		p.chat.NewChat(closed.Folder)
+	shown = slices.Delete(shown, at, at+1)
+	if len(shown) == 0 || (closed.Kind != tabs.Page && !slices.ContainsFunc(shown, func(t tabs.Tab) bool { return t.Kind != tabs.Page })) {
+		// The space's last tab gives way to a new chat in its folder;
+		// following the chat makes that the new tab.
+		folder := closed.Folder
+		if closed.Kind == tabs.Page {
+			folder = p.space
+		}
+		p.chat.NewChat(folder)
 		p.host.ShowPage(chat.PageID)
 		if p.active == "" {
 			p.showConversation(p.chat.Current())
 		}
 		return
 	}
-	p.Select(p.tabs[min(i, len(p.tabs)-1)].ID)
+	p.Select(shown[min(at, len(shown)-1)].ID)
 }
 
 func (p *Plugin) Move(id string, index int) {
@@ -235,13 +251,47 @@ func (p *Plugin) Move(id string, index int) {
 	p.changed()
 }
 
-// step selects the tab by off from the active one, wrapping around.
+func (p *Plugin) Space() string { return p.space }
+
+// step selects the tab of the space by off from the active one, wrapping
+// around.
 func (p *Plugin) step(off int) {
-	if len(p.tabs) == 0 {
+	shown := p.visible()
+	if len(shown) == 0 {
 		return
 	}
-	i := max(p.find(p.active), 0)
-	p.Select(p.tabs[(i+off+len(p.tabs))%len(p.tabs)].ID)
+	i := max(slices.IndexFunc(shown, func(t tabs.Tab) bool { return t.ID == p.active }), 0)
+	p.Select(shown[(i+off+len(shown))%len(shown)].ID)
+}
+
+// visible is what the strip shows: the space's tabs, then the pages.
+func (p *Plugin) visible() []tabs.Tab {
+	var mine, pages []tabs.Tab
+	for _, t := range p.tabs {
+		switch {
+		case t.Kind == tabs.Page:
+			pages = append(pages, t)
+		case t.Folder == p.space:
+			mine = append(mine, t)
+		}
+	}
+	return append(mine, pages...)
+}
+
+// showSpace shows a folder's tabs: the one shown there last, else its first,
+// else a new chat in it.
+func (p *Plugin) showSpace(folder string) {
+	if id := p.lastIn[folder]; p.find(id) >= 0 {
+		p.Select(id)
+		return
+	}
+	for _, t := range p.tabs {
+		if t.Kind != tabs.Page && t.Folder == folder {
+			p.Select(t.ID)
+			return
+		}
+	}
+	p.openDraft(folder)
 }
 
 // ---- Following navigation
@@ -290,6 +340,8 @@ func (p *Plugin) showConversation(conv chat.Conversation) {
 		if p.tabs[draft].Folder != conv.Directory {
 			p.tabs[draft].Folder = conv.Directory
 			p.regroup(draft)
+			p.activate(p.active) // the space follows the draft's folder
+			return
 		}
 		p.changed()
 		return
@@ -510,6 +562,7 @@ func (p *Plugin) activate(id string) {
 			p.states[t.Session] = tabs.Idle
 		}
 		if t.Kind != tabs.Page {
+			p.space, p.lastIn[t.Folder] = t.Folder, t.ID
 			p.chatTab = t.ID
 			if text, ok := p.unsent[t.ID]; ok {
 				delete(p.unsent, t.ID)

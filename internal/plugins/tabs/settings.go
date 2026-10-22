@@ -10,16 +10,12 @@ import (
 	"github.com/oneo-me/onevra/source/components"
 )
 
-// section is the Tabs settings: reopening, where new chats go, and each
-// folder's color.
+// section is the Tabs settings: reopening, and each folder's color.
 func (p *Plugin) section(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	toggle(c, pal, p.reopen.Get(), "Reopen tabs when Wada starts",
 		"The tabs open when Wada quit come back, without conversations no longer listed.",
 		func(on bool) { p.reopen.Set(on) })
-	toggle(c, pal, p.join.Get(), "New chats join the current tab’s project",
-		"A new chat starts in the folder of the tab on show. Otherwise it starts in the agent’s default folder.",
-		func(on bool) { p.join.Set(on) })
 	folders := p.ws.Folders()
 	if len(folders) == 0 {
 		return
@@ -27,7 +23,7 @@ func (p *Plugin) section(c *ui.Context) {
 	ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		ui.Text(c, "Project colors").FontSize(14).FontWeight(500).TextColor(pal.Text)
-		ui.Text(c, "Each folder’s tabs sit behind a label and a line in its color.").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "Each folder’s space is marked in its color in the switcher.").FontSize(12).TextColor(pal.Muted)
 	})
 	ui.Column(c).FillWidth().Gap(10).Children(func() {
 		for _, f := range folders {

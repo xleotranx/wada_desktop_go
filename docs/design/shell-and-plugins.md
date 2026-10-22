@@ -197,7 +197,7 @@ says so. Without a data folder (tests) it always lives in memory.
 -- PRAGMA user_version = 1
 CREATE TABLE folders (
   path      TEXT PRIMARY KEY,   -- absolute and clean
-  collapsed INTEGER NOT NULL,   -- its tab group shows only its label
+  collapsed INTEGER NOT NULL,   -- unused; always 0
   added     INTEGER NOT NULL);  -- Unix ms
 CREATE TABLE conversations (
   origin         TEXT NOT NULL, -- agent.Status.Origin
@@ -226,12 +226,24 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   its tab into the conversation. A draft with unsent text keeps its tab, and the
   conversation opens in a new one. A conversation announced on `chat.Started` after the
   user moved on opens in a background tab.
-- Tabs are grouped by folder: a group's tabs are adjacent, after a label with the
-  folder's name in its project color and over a line in that color; tabs without a
-  folder have neither. A new tab opens beside the active one when that is in its group,
-  else after its group, else at the end; a draft whose folder changes moves to its new
-  group. Each folder keeps the first of the palette's project colors no other folder
-  has, saved under `colors`.
+- The strip shows one space at a time: the tabs of one folder (or of the agent's
+  default folder), then the page tabs, which every space shows. Showing a conversation
+  or a draft makes its folder the space; showing a page leaves the space as it is.
+  Each space remembers the tab shown there last. A folder's tabs stay adjacent: a new
+  tab opens beside the active one when that is in its folder, else after its folder's
+  tabs, else at the end; a draft whose folder changes moves with it, and the space
+  follows. `tabs.Service.Space` names the space on show.
+- The switcher leads the strip: the space's name after a dot in its project color,
+  and an orange mark while a conversation in another space waits for the user or has
+  an unread end. It opens a popover listing every space (the workspace's folders, then
+  the folders of open tabs it does not list, "No folder" among them), each with its
+  color, the most urgent state of its conversations, its count of tabs and a check on
+  the one on show. Choosing one shows its last tab, else its first, else a new chat in
+  it. Below the list: New Chat in the space, Open Folder… (which starts a chat in the
+  chosen folder), Remove “name”… for a folder, which asks first, counting the
+  conversations that leave the record, then closes its tabs; and Tab Settings….
+  Each folder keeps the first of the palette's project colors no other folder has,
+  saved under `colors`.
 - A conversation tab shows what the conversation is doing, from `agent.Events`:
   working once a turn starts or produces output, waiting for an approval or an answer,
   unread when a turn ends while the tab is not on show (an interrupted turn is not),
@@ -241,9 +253,10 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   kept under the tab the chat leaves (a new chat's is the last draft tab shown), and
   `chat.Controller.SetDraft` gives it back when that tab is shown again. It is kept
   for the run only; files attached and mentions are dropped, as on any switch.
-- Closing a tab deletes nothing. Closing the active tab shows its right neighbour,
-  else its left one; closing the last one opens a new chat in its folder. A tab whose
-  conversation the record stops listing closes.
+- Closing a tab deletes nothing. Closing the active tab shows its right neighbour on
+  the strip, else its left one; closing the space's last conversation or draft opens a
+  new chat in its folder, so the space stays. A tab whose conversation the record stops
+  listing closes. Show Next Tab and Show Previous Tab move within the space.
 - The open tabs and the active one are saved (`open`, `active`) and reopened once the
   workspace record is read, without the conversations it no longer lists and pages no
   plugin contributes. A conversation the chat already shows by then becomes the active
@@ -251,21 +264,12 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 - After `kernel.PointChanged` for `shell.Pages`, a page tab whose page is gone closes,
   and the others take their page's current title.
 - The strip draws a tab's marker, title and a close button (shown on the active and
-  hovered tab, and on focus), then a "+" that opens a new chat (in the active tab's
-  folder while new chats join the current project), then "All chats" (runs `shell.SearchCommand` when contributed) and Settings
-  (shows `settings.PageID` when contributed).
-- The strip fits its tabs to the width it had in the previous frame (the first frame
-  draws everything and asks for another). Tabs shrink to 96 px; past that, the groups
-  the active tab is not in collapse to their labels, farthest from it first, with the
-  count of their tabs; then tabs move, from the end, into a "More tabs" menu after the
-  groups, never the active one; last, other groups' labels follow, from the end. The
-  menu lists tabs without a folder, then a submenu per folder. A label alone keeps its
-  width. Collapsing to fit changes nothing saved.
-- A group's label is a menu: first the group's tabs the strip does not draw, then New
-  Chat in the folder, Collapse Group (remembered in the record as `Folder.Collapsed`;
-  a collapsed group shows its label with a count and only its active tab) or Expand
-  Group, and Remove Folder…, which asks first, counting
-  the conversations that leave the record, then closes the group's tabs.
+  hovered tab, and on focus), then a "+" that opens a new chat in the space, then "All
+  chats" (runs `shell.SearchCommand` when contributed) and Settings (shows
+  `settings.PageID` when contributed).
+- The strip fits its tabs to the width their row had in the previous frame (the first
+  frame draws everything and asks for another). Tabs shrink to 96 px; past that, tabs
+  move, from the end, into a "More tabs" menu, never the active one.
 - A tab's context menu has Close Tab, and for a conversation Rename…, Remove from List
   and Delete…. Rename and delete go to the backend, then the record; Remove from List
   only forgets the record. Either closes the tab. A failed rename or delete is
@@ -273,9 +277,8 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 - Commands: New Chat (⌘N, File; the same as "+"), Close Tab (⌘W, File), Show Next Tab
   (⌃Tab) and Show Previous Tab (⌃⇧Tab, View).
 - A Tabs settings section: Reopen tabs when Wada starts (`reopen`; off, the saved tabs
-  are ignored at launch), New chats join the current tab's project (`join-project`;
-  off, "+" and ⌘N start in the agent's default folder), and a row of the five project
-  colors for each folder, which sets `colors`.
+  are ignored at launch), and a row of the five project colors for each folder, which
+  sets `colors`.
 
 ## Settings
 

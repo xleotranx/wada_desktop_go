@@ -13,135 +13,62 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// many is n tabs in each of the folders, in order.
-func many(n int, folders ...string) []tabs.Tab {
-	var out []tabs.Tab
-	for _, f := range folders {
-		for i := range n {
-			out = append(out, tabs.Tab{ID: fmt.Sprintf("%s#%d", f, i), Kind: tabs.Conversation, Folder: f, Title: fmt.Sprintf("%s %d", f, i)})
-		}
+func many(n int) []tabs.Tab {
+	out := make([]tabs.Tab, n)
+	for i := range out {
+		out[i] = tabs.Tab{ID: fmt.Sprintf("#%d", i), Kind: tabs.Conversation, Title: fmt.Sprintf("Chat %d", i)}
 	}
 	return out
 }
 
-// drawn sums up a plan: each group as "folder:shown/all", collapsed ones
-// marked with a star, then the hidden tabs' count.
-func drawn(s stripPlan) []string {
-	var out []string
-	for _, g := range s.groups {
-		mark := ""
-		if g.collapsed {
-			mark = "*"
+func TestFitKeepsEveryTabWhileThereIsRoom(t *testing.T) {
+	for _, width := range []float32{0, 12 * tabMinWidth} {
+		if shown, hidden := fit(many(12), "#0", width); len(shown) != 12 || hidden != nil {
+			t.Fatalf("width %v: %d shown, %d hidden", width, len(shown), len(hidden))
 		}
-		out = append(out, fmt.Sprintf("%s%s:%d/%d", g.folder, mark, len(g.shown), len(g.tabs)))
-	}
-	return append(out, fmt.Sprintf("hidden %d", len(s.hidden)))
-}
-
-func TestFitKeepsEverythingWhileThereIsRoom(t *testing.T) {
-	list := many(3, "/w/a", "/w/b")
-	for _, width := range []float32{0, 2000} {
-		if got := drawn(fit(list, "/w/a#0", nil, width)); !slices.Equal(got, []string{"/w/a:3/3", "/w/b:3/3", "hidden 0"}) {
-			t.Fatalf("width %v: %q", width, got)
-		}
-	}
-	// The user's own collapse holds at any width.
-	if got := drawn(fit(list, "/w/a#0", map[string]bool{"/w/b": true}, 0)); !slices.Equal(got, []string{"/w/a:3/3", "/w/b*:0/3", "hidden 0"}) {
-		t.Fatalf("collapsed by the user: %q", got)
-	}
-}
-
-func TestFitCollapsesTheFarthestGroupsFirst(t *testing.T) {
-	list := many(4, "/w/a", "/w/b", "/w/c", "/w/d")
-	// Room for the active group's four tabs, one more group and three labels.
-	plan := fit(list, "/w/a#1", nil, 4*tabMinWidth+4*tabMinWidth+3*groupGap+3*60)
-	if got := drawn(plan); !slices.Equal(got, []string{"/w/a:4/4", "/w/b:4/4", "/w/c*:0/4", "/w/d*:0/4", "hidden 0"}) {
-		t.Fatalf("plan %q (need %v)", got, plan.need())
 	}
 }
 
 func TestFitMovesTabsIntoTheOverflowButNeverTheActiveOne(t *testing.T) {
-	list := many(12, "")
-	plan := fit(list, "#11", nil, 4*tabMinWidth+overflowWidth)
-	if got := drawn(plan); !slices.Equal(got, []string{":4/12", "hidden 8"}) {
-		t.Fatalf("plan %q", got)
+	width := float32(4*tabMinWidth + overflowWidth)
+	shown, hidden := fit(many(12), "#11", width)
+	if len(shown) != 4 || len(hidden) != 8 || shown[3].ID != "#11" || hidden[0].ID != "#3" {
+		t.Fatalf("shown %v hidden %v", shown, hidden)
 	}
-	if !slices.ContainsFunc(plan.groups[0].shown, func(t tabs.Tab) bool { return t.ID == "#11" }) {
-		t.Fatal("the active tab went into the overflow")
-	}
-	if plan.need() > 4*tabMinWidth+overflowWidth {
-		t.Fatalf("the plan needs %v", plan.need())
-	}
-}
-
-func TestANarrowStripStillReachesEveryTab(t *testing.T) {
-	ws := &plugintest.Workspace{}
-	for i, folder := range []string{"/w/app", "/w/web", "/w/docs"} {
-		ws.FolderSet = append(ws.FolderSet, workspace.Folder{Path: folder})
-		for j := range 4 {
-			ws.Convs = append(ws.Convs, workspace.Conversation{ID: agentID(i*4 + j), Title: fmt.Sprintf("Chat %d", i*4+j), Folder: folder})
-		}
-	}
-	f := start(t, nil, ws)
-	for i := range 12 {
-		f.open(agentID(i))
-		if i < 11 {
-			f.chat.NewChat("")
-		}
-	}
-	tt := ui.NewTester(f.p.strip, 700, 50)
-	tt.Frame()
-	tt.Frame() // fitted to the width the first frame measured
-	if tt.HasText("Chat 0") || !tt.HasText("Chat 11") || !tt.HasText("app · 4") {
-		t.Fatalf("strip %q", tt.Texts())
-	}
-	if err := tt.Click("Project app"); err != nil {
-		t.Fatal(err)
-	}
-	if got := tt.Menu(); len(got) < 4 || got[0] != "Chat 0" {
-		t.Fatalf("the label's menu %q", got)
-	}
-	if err := tt.ChooseMenuItem("Chat 2"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	f.h.Flush()
-	if a, _ := f.p.Active(); a.Title != "Chat 2" {
-		t.Fatalf("active %q", a.Title)
+	if !slices.IsSortedFunc(append(slices.Clone(shown[:3]), hidden...), func(a, b tabs.Tab) int { return len(a.ID) - len(b.ID) }) {
+		t.Fatal("the order changed")
 	}
 }
 
 func agentID(i int) agent.SessionID { return agent.SessionID(fmt.Sprintf("c%d", i)) }
 
-func TestFitMovesWholeGroupsIntoTheOverflowLast(t *testing.T) {
-	list := many(3, "/w/a", "/w/b", "/w/c", "/w/d", "/w/e", "/w/f")
-	width := float32(tabMinWidth + 3*60 + overflowWidth)
-	plan := fit(list, "/w/a#0", nil, width)
-	if plan.need() > width {
-		t.Fatalf("the plan needs %v of %v: %q", plan.need(), width, drawn(plan))
+func TestANarrowStripStillReachesEveryTab(t *testing.T) {
+	ws := &plugintest.Workspace{FolderSet: []workspace.Folder{{Path: "/w/app"}}}
+	for i := range 12 {
+		ws.Convs = append(ws.Convs, workspace.Conversation{ID: agentID(i), Title: fmt.Sprintf("Chat %d", i), Folder: "/w/app"})
 	}
-	if !plan.groups[len(plan.groups)-1].dropped || plan.groups[0].dropped || len(plan.groups[0].shown) == 0 {
-		t.Fatalf("plan %q", drawn(plan))
-	}
-	// Every tab is reachable once: drawn or in its label's menu while its
-	// group is drawn, else in the overflow menu.
-	seen := map[string]int{}
-	for _, g := range plan.groups {
-		if g.dropped {
-			continue
-		}
-		for _, tab := range g.tabs {
-			if !slices.ContainsFunc(plan.hidden, func(h tabs.Tab) bool { return h.ID == tab.ID }) {
-				seen[tab.ID]++
-			}
+	f := start(t, nil, ws)
+	for i := range 12 {
+		f.open(agentID(i))
+		if i < 11 {
+			f.chat.NewChat("/w/app")
 		}
 	}
-	for _, tab := range plan.hidden {
-		seen[tab.ID]++
+	tt := ui.NewTester(f.p.strip, 700, 50)
+	tt.Frame()
+	tt.Frame() // fitted to the width the first frame measured
+	if tt.HasText("Chat 11") == false || tt.HasText("Chat 10") {
+		t.Fatalf("strip %q", tt.Texts())
 	}
-	for _, tab := range list {
-		if seen[tab.ID] != 1 {
-			t.Fatalf("%s is reachable %d times", tab.ID, seen[tab.ID])
-		}
+	if err := tt.Click("More tabs"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Chat 10"); err != nil {
+		t.Fatalf("%v; menu %q", err, tt.Menu())
+	}
+	tt.Frame()
+	f.h.Flush()
+	if a, _ := f.p.Active(); a.Title != "Chat 10" {
+		t.Fatalf("active %q", a.Title)
 	}
 }

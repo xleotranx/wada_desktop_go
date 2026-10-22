@@ -19,8 +19,8 @@ go tool mygo build       # production app/DMG in build/
 ## Features
 
 Chat with streaming markdown, tool calls, approvals and stop; open chats, workflow
-runs and Settings as tabs across the title strip, grouped by folder in project colors,
-each showing whether its conversation is working, waiting for you or unread; All
+runs and Settings as tabs across the title strip, one folder's space at a time with a
+switcher for the others, each tab showing whether its conversation is working, waiting for you or unread; All
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
 conversation with the files it changed, its last command, its context and cost;
@@ -45,7 +45,7 @@ on and off.
 | `internal/plugins/activity` | Changed files and the last command, in the work panel |
 | `internal/plugins/attachments` | Files and images sent with a message |
 | `internal/plugins/workspace` | Folders and the conversations started here, in `workspace.db`; folder picker |
-| `internal/plugins/tabs` | Tabs across the title strip, grouped by folder; their menus |
+| `internal/plugins/tabs` | Tabs across the title strip, one folder's space at a time; the switcher and menus |
 | `internal/plugins/palette` | All chats (⌘K): conversations, folders and commands |
 | `internal/plugins/workflow` | Runs flows through hidden conversations; a tab per run |
 | `internal/plugins/flows` | The app's flows, such as plan, code, review |

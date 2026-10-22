@@ -24,8 +24,8 @@ protocols to simplify a refactor.
   page), `models` (composer pickers), `usage` (cost and context in the work panel or the composer), `activity`
   (changed files and the last command in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` in the composer), `workspace` (folders, the app's conversation record in
-  `workspace.db`, folder picker), `tabs` (open chats and pages as tabs grouped by folder
-  across the title strip, with their rename, delete and folder menus), `workflow` (the engine
+  `workspace.db`, folder picker), `tabs` (open chats and pages as tabs across the title
+  strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
   that runs flows through hidden conversations, and its run page), `flows` (the app's flows,
   such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `settings` (settings page).

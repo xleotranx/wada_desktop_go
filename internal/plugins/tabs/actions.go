@@ -3,7 +3,6 @@ package tabs
 import (
 	"context"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -15,8 +14,8 @@ import (
 	"github.com/oneo-me/onevra/source/components"
 )
 
-// What a tab's and a group label's menus do: rename, forget and delete a
-// conversation; start a chat in a folder, collapse its group, remove it.
+// What a tab's menu and the space switcher do: rename, forget and delete a
+// conversation; remove a folder.
 
 // tabMenu fills a tab's context menu. A menu is built while rendering, so
 // anything that navigates or changes the record waits for the frame to end.
@@ -38,36 +37,6 @@ func (p *Plugin) tabMenu(m *ui.Menu, t tabs.Tab) {
 	m.Separator()
 	if m.Item("Delete…").Chosen() {
 		p.deleting, p.deleteOn = t, true
-	}
-}
-
-// groupMenu fills the menu of a folder's label: first the group's tabs the
-// strip does not draw, then what acts on the folder.
-func (p *Plugin) groupMenu(m *ui.Menu, g stripGroup) {
-	var hidden []tabs.Tab
-	for _, t := range g.tabs {
-		if !slices.ContainsFunc(g.shown, func(s tabs.Tab) bool { return s.ID == t.ID }) {
-			hidden = append(hidden, t)
-		}
-	}
-	if len(hidden) > 0 {
-		p.tabItems(m, hidden)
-		m.Separator()
-	}
-	folder := g.folder
-	if m.Item("New Chat").Chosen() {
-		p.ctx.Post(func() { p.openDraft(folder) })
-	}
-	toggle := "Collapse Group"
-	if g.manual {
-		toggle = "Expand Group"
-	}
-	if m.Item(toggle).Chosen() {
-		p.ctx.Post(func() { p.ws.SetCollapsed(folder, !g.manual) })
-	}
-	m.Separator()
-	if m.Item("Remove Folder…").Chosen() {
-		p.removing, p.removeOn = folder, true
 	}
 }
 
@@ -199,15 +168,4 @@ func (p *Plugin) removeDetail() string {
 		detail = "Its " + strconv.Itoa(count) + " conversations stay with the agent but are no longer listed here. " + detail
 	}
 	return detail
-}
-
-// collapsed reports the folders whose groups show only their label.
-func (p *Plugin) collapsed() map[string]bool {
-	out := map[string]bool{}
-	for _, f := range p.ws.Folders() {
-		if f.Collapsed {
-			out[f.Path] = true
-		}
-	}
-	return out
 }

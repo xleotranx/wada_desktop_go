@@ -466,15 +466,6 @@ func (w *Workspace) RemoveFolder(path string) {
 	w.changed()
 }
 
-func (w *Workspace) SetCollapsed(path string, collapsed bool) {
-	for i := range w.FolderSet {
-		if w.FolderSet[i].Path == path {
-			w.FolderSet[i].Collapsed = collapsed
-		}
-	}
-	w.changed()
-}
-
 func (w *Workspace) ChooseFolder(done func(path string)) {
 	if w.Chosen != "" {
 		_ = w.AddFolder(w.Chosen)

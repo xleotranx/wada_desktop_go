@@ -74,7 +74,6 @@ func TestStartedConversationsAreRecordedAndKept(t *testing.T) {
 	if err := f.p.AddFolder("nope"); err == nil {
 		t.Fatal("a relative folder was added")
 	}
-	f.p.SetCollapsed("/w/Bin", true)
 	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.SessionRenamed, Session: "s1", Title: "Parser"}})
 	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"s3", "s2", "s1"}) {
 		t.Fatalf("conversations %v", got) // newest first; a rename is not activity
@@ -84,9 +83,6 @@ func TestStartedConversationsAreRecordedAndKept(t *testing.T) {
 	g := start(t, dir)
 	if got := paths(g.p.Folders()); !slices.Equal(got, []string{"/w/app", "/w/Bin"}) {
 		t.Fatalf("folders %v", got)
-	}
-	if !g.p.Folders()[1].Collapsed {
-		t.Fatal("the collapsed folder opened again")
 	}
 	c, ok := g.p.Lookup("s1")
 	if !ok || c.Folder != "/w/app" || c.Title != "Parser" || c.Model.ID != "m" || c.Created == 0 {

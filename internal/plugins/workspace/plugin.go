@@ -231,18 +231,6 @@ func (p *Plugin) RemoveFolder(path string) {
 	p.changed()
 }
 
-func (p *Plugin) SetCollapsed(path string, collapsed bool) {
-	i := slices.IndexFunc(p.folders, func(f workspace.Folder) bool { return f.Path == path })
-	if i < 0 || p.folders[i].Collapsed == collapsed {
-		return
-	}
-	p.folders[i].Collapsed = collapsed
-	if p.store != nil {
-		p.store.enqueue(putFolder(p.folders[i]))
-	}
-	p.changed()
-}
-
 func (p *Plugin) ChooseFolder(done func(path string)) {
 	if p.picking.Running() {
 		return

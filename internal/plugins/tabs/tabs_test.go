@@ -166,31 +166,29 @@ func TestClosingTabs(t *testing.T) {
 	f.open("s1")
 	f.chat.NewChat("/w/app")
 	f.open("s4")
-	f.open("s2")
-	f.want(t, "First", "Fourth", "[Second]")
+	f.p.showSpace("/w/app")
+	f.want(t, "First", "[Fourth]")
 
 	// Closing a background tab keeps the active one.
 	f.p.Close(f.tab("First").ID)
-	f.want(t, "Fourth", "[Second]")
-	// Closing the active tab shows its left neighbor when it has no right one.
-	f.p.Close(f.tab("Second").ID)
 	f.want(t, "[Fourth]")
-	if f.chat.Conv.Session != "s4" {
-		t.Fatalf("chat shows %q", f.chat.Conv.Session)
-	}
-	// Closing the last tab leaves a new chat in its folder.
+	// Closing a space's last tab leaves a new chat in its folder.
 	f.p.Close(f.tab("Fourth").ID)
 	f.want(t, "[New chat]")
 	if f.chat.Conv != (chat.Conversation{Directory: "/w/app"}) {
 		t.Fatalf("chat shows %+v", f.chat.Conv)
 	}
-	// Close Tab runs on the active tab.
+	// Closing the active tab shows its left neighbor when it has no right one.
 	f.open("s3")
-	f.chat.NewChat("")
+	f.chat.NewChat("/w/web")
 	f.want(t, "Third", "[New chat]")
+	// Close Tab runs on the active tab.
 	i := slices.IndexFunc(kernel.Items(f.h, kernel.Commands), func(e kernel.Entry[kernel.Command]) bool { return e.ID == "tabs.close" })
 	kernel.Invoke(f.h, kernel.Items(f.h, kernel.Commands)[i], func(cmd kernel.Command) { cmd.Run() })
 	f.want(t, "[Third]")
+	if f.chat.Conv.Session != "s3" {
+		t.Fatalf("chat shows %q", f.chat.Conv.Session)
+	}
 }
 
 func TestMovingATabKeepsItInItsGroup(t *testing.T) {
@@ -239,9 +237,9 @@ func TestTabsComeBackAfterARestart(t *testing.T) {
 func TestForgottenConversationLosesItsTab(t *testing.T) {
 	f := start(t, nil, record())
 	f.open("s1")
-	f.chat.NewChat("")
-	f.open("s2")
-	f.ws.Forget("s2")
+	f.chat.NewChat("/w/app")
+	f.open("s4")
+	f.ws.Forget("s4")
 	f.want(t, "[First]")
 	if f.chat.Conv.Session != "s1" {
 		t.Fatalf("chat shows %q", f.chat.Conv.Session)
@@ -255,36 +253,34 @@ func TestConversationStartedElsewhereOpensInTheBackground(t *testing.T) {
 	f.want(t, "[First]", "Fourth")
 }
 
-func TestStripDrawsGroupsAndSelects(t *testing.T) {
+func TestStripDrawsTheSpaceAndSelects(t *testing.T) {
 	f := start(t, nil, record())
 	f.open("s1")
-	f.chat.NewChat("")
-	f.open("s3")
-	f.chat.NewChat("")
-	f.open("s2")
+	f.chat.NewChat("/w/app")
+	f.open("s4")
 	tt := ui.NewTester(f.p.strip, 1100, 50)
 	tt.Frame()
-	for _, want := range []string{"app", "web", "First", "Third", "Second"} {
+	for _, want := range []string{"app", "First", "Fourth"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q in %q", want, tt.Texts())
 		}
 	}
-	if err := tt.Click("Third"); err != nil {
+	if err := tt.Click("First"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	f.want(t, "First", "[Third]", "Second")
-	if err := tt.Click("Close First"); err != nil {
+	f.want(t, "[First]", "Fourth")
+	if err := tt.Click("Close Fourth"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	f.want(t, "[Third]", "Second")
+	f.want(t, "[First]")
 	if err := tt.Click("New chat"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	f.want(t, "Third", "[New chat]", "Second")
-	if f.tab("New chat").Folder != "/w/web" {
+	f.want(t, "First", "[New chat]")
+	if f.tab("New chat").Folder != "/w/app" {
 		t.Fatalf("new chat in %q", f.tab("New chat").Folder)
 	}
 }
@@ -331,10 +327,8 @@ func TestUnsentTextStaysWithItsTab(t *testing.T) {
 func TestTabMenuRenamesForgetsAndDeletes(t *testing.T) {
 	f := start(t, nil, record())
 	f.open("s1")
-	f.chat.NewChat("")
+	f.chat.NewChat("/w/app")
 	f.open("s4")
-	f.chat.NewChat("")
-	f.open("s2")
 	tt := ui.NewTester(f.p.strip, 1100, 50)
 	tt.Frame()
 	if err := tt.RightClick("First"); err != nil {
@@ -356,62 +350,97 @@ func TestTabMenuRenamesForgetsAndDeletes(t *testing.T) {
 	if c, _ := f.ws.Lookup("s1"); c.Title != "Better" || f.a.Called("rename s1 Better") != 1 {
 		t.Fatalf("rename: %q calls %q", c.Title, f.a.Calls())
 	}
-	f.want(t, "Better", "Fourth", "[Second]")
-
-	f.p.deleting, f.p.deleteOn = f.tab("Second"), true
-	f.p.confirmDelete()
-	f.h.Flush()
-	if _, ok := f.ws.Lookup("s2"); ok || f.a.Called("delete s2") != 1 {
-		t.Fatalf("delete: %+v calls %q", f.ws.Convs, f.a.Calls())
-	}
 	f.want(t, "Better", "[Fourth]")
 
-	f.a.Fail["Delete"] = errors.New("gone")
 	f.p.deleting, f.p.deleteOn = f.tab("Fourth"), true
 	f.p.confirmDelete()
 	f.h.Flush()
-	if len(f.host.Toasts) != 1 || f.tab("Fourth").ID == "" {
-		t.Fatalf("failed delete: toasts %q", f.host.Toasts)
-	}
-	f.p.forget(f.tab("Fourth")) // "Remove from List"
 	if _, ok := f.ws.Lookup("s4"); ok || f.a.Called("delete s4") != 1 {
-		t.Fatalf("remove from list: %+v calls %q", f.ws.Convs, f.a.Calls())
+		t.Fatalf("delete: %+v calls %q", f.ws.Convs, f.a.Calls())
 	}
 	f.want(t, "[Better]")
+
+	f.a.Fail["Delete"] = errors.New("gone")
+	f.p.deleting, f.p.deleteOn = f.tab("Better"), true
+	f.p.confirmDelete()
+	f.h.Flush()
+	if len(f.host.Toasts) != 1 || f.tab("Better").ID == "" {
+		t.Fatalf("failed delete: toasts %q", f.host.Toasts)
+	}
+	f.p.forget(f.tab("Better")) // "Remove from List"
+	if _, ok := f.ws.Lookup("s1"); ok || f.a.Called("delete s1") != 1 {
+		t.Fatalf("remove from list: %+v calls %q", f.ws.Convs, f.a.Calls())
+	}
+	f.want(t, "[New chat]")
 }
 
-func TestGroupLabelActsOnTheFolder(t *testing.T) {
+func TestTheStripShowsOneSpaceAtATime(t *testing.T) {
 	f := start(t, nil, record())
 	f.open("s1")
 	f.chat.NewChat("")
-	f.open("s4")
-	f.chat.NewChat("")
 	f.open("s3")
-	tt := ui.NewTester(f.p.strip, 1100, 50)
+	f.chat.NewChat("")
+	f.open("s4")
+	tt := ui.NewTester(f.p.strip, 1100, 400)
 	tt.Frame()
-	if err := tt.Click("Project app"); err != nil {
-		t.Fatal(err)
+	if !tt.HasText("First") || !tt.HasText("Fourth") || tt.HasText("Third") {
+		t.Fatalf("the app space: %q", tt.Texts())
 	}
-	if err := tt.ChooseMenuItem("Collapse Group"); err != nil {
-		t.Fatalf("%v; menu %q", err, tt.Menu())
-	}
-	tt.Frame()
+	// A turn ending in another space marks the switcher.
+	f.a.Emit(agent.Event{Kind: agent.TurnSucceeded, Session: "s3"})
 	f.h.Flush()
 	tt.Frame()
-	if !f.ws.FolderSet[0].Collapsed || tt.HasText("First") || !tt.HasText("app · 2") || !tt.HasText("Third") {
-		t.Fatalf("collapsed: %+v strip %q", f.ws.FolderSet[0], tt.Texts())
+	if _, ok := tt.Find("Activity in another space"); !ok {
+		t.Fatalf("no mark for the other space: %q", tt.Texts())
 	}
-	if err := tt.Click("Project app"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.ChooseMenuItem("New Chat"); err != nil {
+	if err := tt.Click("Space app"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	f.h.Flush()
+	for _, want := range []string{"Spaces", "web", "New Chat in app", "Open Folder…", "Remove “app”…"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from the switcher: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("Switch to web"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a, _ := f.p.Active(); a.Title != "Third" || f.p.space != "/w/web" || !tt.HasText("Third") || tt.HasText("First") {
+		t.Fatalf("after switching: active %q, strip %q", a.Title, tt.Texts())
+	}
+	// Coming back shows the tab shown there last.
+	f.p.showSpace("/w/app")
+	if a, _ := f.p.Active(); a.Title != "Fourth" {
+		t.Fatalf("back in app: %q", a.Title)
+	}
+	// A new chat starts in the space on show; a space without tabs opens one.
+	f.p.newChat()
 	if f.chat.Conv.Session != "" || f.chat.Conv.Directory != "/w/app" {
 		t.Fatalf("new chat %+v", f.chat.Conv)
 	}
+	f.p.showSpace("")
+	if a, _ := f.p.Active(); a.Title != "Second" && a.Kind != tabs.Draft {
+		t.Fatalf("the default folder's space: %+v", a)
+	}
+}
+
+func TestClosingTheLastTabOfASpaceStaysInIt(t *testing.T) {
+	f := start(t, nil, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s3")
+	f.p.Close(f.tab("Third").ID)
+	if a, _ := f.p.Active(); a.Kind != tabs.Draft || a.Folder != "/w/web" || f.p.space != "/w/web" {
+		t.Fatalf("after closing web's last tab: %+v in %q", a, f.p.space)
+	}
+}
+
+func TestRemovingAFolderClosesItsTabs(t *testing.T) {
+	f := start(t, nil, record())
+	f.open("s1")
+	f.chat.NewChat("")
+	f.open("s3")
 	f.p.removing, f.p.removeOn = "/w/app", true
 	dt := ui.NewTester(f.p.dialogs, 500, 400)
 	dt.Frame()
@@ -463,7 +492,7 @@ func TestTabsSettings(t *testing.T) {
 	f.open("s3")
 	tt := ui.NewTester(f.p.section, 700, 600)
 	tt.Frame()
-	for _, want := range []string{"Reopen tabs when Wada starts", "New chats join the current tab’s project", "Project colors", "app", "web"} {
+	for _, want := range []string{"Reopen tabs when Wada starts", "Project colors", "app", "web"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing: %q", want, tt.Texts())
 		}
@@ -473,11 +502,6 @@ func TestTabsSettings(t *testing.T) {
 	}
 	if f.p.colorIndex("/w/web") != 3 {
 		t.Fatalf("web has color %d", f.p.colorIndex("/w/web"))
-	}
-	f.p.join.Set(false) // as its switch does
-	f.p.newChat()
-	if f.chat.Conv.Directory != "" {
-		t.Fatalf("a new chat joined %q", f.chat.Conv.Directory)
 	}
 	f.p.reopen.Set(false)
 	f.h.Close()

@@ -167,15 +167,14 @@ func open(ctx context.Context, path string) (*sqlite.DB, snapshot, error) {
 
 func read(ctx context.Context, db *sqlite.DB) (snapshot, error) {
 	snap := snapshot{convs: map[key]workspace.Conversation{}}
-	rows, err := db.Query(ctx, "SELECT path, collapsed, added FROM folders")
+	rows, err := db.Query(ctx, "SELECT path, added FROM folders")
 	if err != nil {
 		return snap, err
 	}
 	for _, r := range rows.Values {
 		path, _ := r[0].(string)
-		collapsed, _ := r[1].(int64)
-		added, _ := r[2].(int64)
-		snap.folders = append(snap.folders, workspace.Folder{Path: path, Collapsed: collapsed != 0, Added: added})
+		added, _ := r[1].(int64)
+		snap.folders = append(snap.folders, workspace.Folder{Path: path, Added: added})
 	}
 	rows, err = db.Query(ctx, `SELECT origin, session, folder, title, model_provider, model_id, model_variant,
 		created, updated FROM conversations`)
@@ -195,14 +194,12 @@ func read(ctx context.Context, db *sqlite.DB) (snapshot, error) {
 
 // ---- Statements
 
+// putFolder records a folder. The collapsed column is from an earlier
+// layout of schema 1 and always 0.
 func putFolder(f workspace.Folder) sqlite.Statement {
-	collapsed := int64(0)
-	if f.Collapsed {
-		collapsed = 1
-	}
 	return sqlite.Statement{
-		SQL:  "INSERT INTO folders (path, collapsed, added) VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET collapsed = excluded.collapsed",
-		Args: []any{f.Path, collapsed, f.Added}}
+		SQL:  "INSERT INTO folders (path, collapsed, added) VALUES (?, 0, ?) ON CONFLICT (path) DO NOTHING",
+		Args: []any{f.Path, f.Added}}
 }
 
 // dropFolder forgets a folder and its conversations under every origin.

@@ -1,5 +1,6 @@
 // Package tabs declares the window's tabs: the conversations, new chats and
-// pages the user has open, grouped by the folder they belong to. A tab only
+// pages the user has open, each conversation and new chat in the space of its
+// folder; the strip shows one space at a time. A tab only
 // points at what it shows; the chat plugin still has one open conversation,
 // and selecting a tab opens it there.
 package tabs
@@ -41,7 +42,7 @@ type Tab struct {
 	ID      string
 	Kind    Kind
 	Session agent.SessionID // Conversation
-	Folder  string          // the group: a workspace folder, or "" for none
+	Folder  string          // its space: a folder, or "" for the agent's default
 	Page    string          // Page: a shell.Pages ID
 	Title   string
 	State   State
@@ -49,15 +50,19 @@ type Tab struct {
 
 // Service is the open tabs. Call it on the UI thread.
 type Service interface {
-	// Tabs lists the open tabs in strip order; a group's tabs are adjacent.
+	// Tabs lists the open tabs in order; a folder's tabs are adjacent.
 	Tabs() []Tab
 	// Active is the tab on show.
 	Active() (Tab, bool)
 	// Select shows a tab.
 	Select(id string)
 	// Close closes a tab; nothing it shows is deleted. Closing the active tab
-	// shows its right neighbor, else its left one, else a new chat.
+	// shows its right neighbor on the strip, else its left one, else a new
+	// chat in its space.
 	Close(id string)
-	// Move puts a tab at index among its group's tabs.
+	// Move puts a tab at index among its folder's tabs.
 	Move(id string, index int)
+	// Space is the folder whose tabs the strip shows; empty for the agent's
+	// default folder.
+	Space() string
 }

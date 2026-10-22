@@ -145,6 +145,15 @@ until it is complete or failed, mode `code` posts the pasted code to
 retried; a failure stays in the form. A change reloads the list and emits
 `agent.ModelsChanged`.
 
+The client is hand-written. `testdata/openapi-<version>.json` is the OpenAPI
+document the pinned release serves at `/openapi.json`, saved by
+`scripts/pin-opencode-spec.sh`. `TestClientSpeaksThePinnedSpec` makes every call
+against a recording server and checks each against it: the route, the query
+parameters, the request body's fields, and the fields of the named reply types
+(`sessionListReply` and the rest) the client decodes. The document leaves event
+payloads opaque, so events are covered by the decoder's own tests. Bumping the
+version fails the test until the new document is pinned.
+
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its
 own kernel scope, so results of a replaced connection are dropped by the kernel.

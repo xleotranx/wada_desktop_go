@@ -100,7 +100,7 @@ func TestDecodeRejectsMalformedKnownEvents(t *testing.T) {
 }
 
 func TestStoredMessagesConvert(t *testing.T) {
-	raw := `[{"id":"msg_u","type":"user","payload":{"text":"Run the wiring check"}},` +
+	raw := `[{"id":"msg_u","type":"user","text":"Run the wiring check"},` +
 		`{"id":"msg_r","type":"assistant","cost":0.5,"tokens":{"input":1200,"output":116,"reasoning":387,"cache":{"read":4000,"write":50}},` +
 		`"model":{"providerID":"p","id":"m"},"content":[` +
 		`{"type":"reasoning","text":"thinking"},{"type":"text","text":"Running it now."},` +

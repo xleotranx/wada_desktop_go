@@ -80,6 +80,9 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 - `WADA_LIVE_PI=1 [WADA_LIVE_PI_MODEL=provider/id] go test -run TestLivePi ./internal/plugins/pi`:
   one real model turn through the installed `pi`; skipped otherwise.
 - `go tool mygo build`: production app/DMG in gitignored `build/`.
+- `scripts/pin-opencode-spec.sh`: save the pinned OpenCode release's OpenAPI document
+  for `TestClientSpeaksThePinnedSpec`; run it after bumping the version in
+  `internal/plugins/opencode/install.go`.
 - `make demo`: the app on throwaway data from `scripts/seed.py` (many folders, chats,
   long conversations and open tabs), served by the installed `pi` from a temporary
   folder.

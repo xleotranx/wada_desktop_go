@@ -156,10 +156,13 @@ func integrationPath(id string, rest ...string) string {
 	return p
 }
 
+// providerListReply is the integrations (GET /integration).
+type providerListReply struct {
+	Data []provider `json:"data"`
+}
+
 func (c *client) providers(ctx context.Context) ([]provider, error) {
-	var out struct {
-		Data []provider `json:"data"`
-	}
+	var out providerListReply
 	err := c.decode(ctx, "GET", "/integration", nil, &out)
 	return out.Data, err
 }
@@ -174,24 +177,30 @@ func (c *client) connectExternal(ctx context.Context, id, methodID string, answe
 		map[string]any{"methodID": methodID, "answer": answer}, nil)
 }
 
+// signInReply is a browser sign-in begun (POST /integration/{id}/connect/oauth).
+type signInReply struct {
+	Data attempt `json:"data"`
+}
+
 func (c *client) beginSignIn(ctx context.Context, id, methodID string, answer map[string]string) (attempt, error) {
-	var out struct {
-		Data attempt `json:"data"`
-	}
+	var out signInReply
 	err := c.decode(ctx, "POST", integrationPath(id, "connect", "oauth"),
 		map[string]any{"methodID": methodID, "answer": answer}, &out)
 	return out.Data, err
 }
 
+// signInStatusReply is a sign-in's state (GET /integration/{id}/connect/oauth/{attempt}).
+type signInStatusReply struct {
+	Data struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	} `json:"data"`
+}
+
 // signInStatus is "pending", "complete" or "failed", with the server's
 // message for a failure.
 func (c *client) signInStatus(ctx context.Context, id, attemptID string) (string, string, error) {
-	var out struct {
-		Data struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		} `json:"data"`
-	}
+	var out signInStatusReply
 	err := c.decode(ctx, "GET", integrationPath(id, "connect", "oauth", attemptID), nil, &out)
 	return out.Data.Status, out.Data.Message, err
 }

@@ -35,6 +35,10 @@ var (
 	Events = kernel.NewTopic[[]Event]("agent.events")
 	// StatusChanged is emitted on the UI thread whenever Status changes.
 	StatusChanged = kernel.NewTopic[Status]("agent.status")
+	// ModelsChanged is emitted on the UI thread when the backend's model
+	// catalog changed on the same connection, such as after a provider was
+	// connected; consumers of Models read it again.
+	ModelsChanged = kernel.NewTopic[struct{}]("agent.models")
 )
 
 var (

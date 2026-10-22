@@ -33,10 +33,13 @@ type fakeServer struct {
 	bodies   map[string]string
 	streams  chan chan string // one per open event stream
 	refuse   bool
+	linked   map[string]bool // providers with a credential
+	polls    int             // sign-in status checks
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
-	f := &fakeServer{password: "pw", bodies: map[string]string{}, streams: make(chan chan string, 8)}
+	f := &fakeServer{password: "pw", bodies: map[string]string{}, streams: make(chan chan string, 8),
+		linked: map[string]bool{"opencode-go": true}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
 	return f
@@ -54,11 +57,14 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	route := r.Method + " " + strings.TrimPrefix(r.URL.RequestURI(), "/api")
 	f.mu.Lock()
-	if route != "GET /info" && route != "GET /event" {
+	if route != "GET /info" && route != "GET /event" && route != "GET /integration" {
 		f.requests = append(f.requests, route)
 		f.bodies[route] = strings.TrimSpace(string(body))
 	}
 	f.mu.Unlock()
+	if f.serveProviders(w, route) {
+		return
+	}
 	switch {
 	case route == "POST /session/ses-9/prompt" && strings.Contains(string(body), "reject-contract-send"):
 		w.WriteHeader(http.StatusBadRequest)
@@ -110,6 +116,47 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		fmt.Fprint(w, `{"data":{}}`)
 	}
+}
+
+// serveProviders answers the integration and credential routes.
+func (f *fakeServer) serveProviders(w http.ResponseWriter, route string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch route {
+	case "GET /integration":
+		var out []string
+		for _, pr := range []struct{ id, name, methods string }{
+			{"anthropic", "Anthropic", `[{"type":"key"},{"type":"env","names":["ANTHROPIC_API_KEY"]}]`},
+			{"azure", "Azure", `[{"type":"key","label":"API key","form":[{"key":"resourceName","type":"string","title":"Resource name","required":true}]}]`},
+			{"openai", "OpenAI", `[{"type":"key"},{"type":"oauth","id":"browser","label":"Sign in with ChatGPT"}]`},
+			{"opencode-go", "OpenCode Go", `[{"type":"key"}]`},
+		} {
+			conns := `[]`
+			if f.linked[pr.id] {
+				conns = `[{"type":"credential","id":"cred-` + pr.id + `","label":"API key","method":"key"}]`
+			}
+			out = append(out, `{"id":"`+pr.id+`","name":"`+pr.name+`","methods":`+pr.methods+`,"connections":`+conns+`}`)
+		}
+		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":[`+strings.Join(out, ",")+`]}`)
+	case "POST /integration/anthropic/connect/key", "POST /integration/azure/connect/key":
+		f.linked[strings.Split(route, "/")[2]] = true
+		w.WriteHeader(http.StatusNoContent)
+	case "POST /integration/openai/connect/oauth":
+		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":{"attemptID":"att-1","url":"https://auth.example/start","instructions":"Finish in your browser","mode":"auto","time":{"created":1,"expires":2}}}`)
+	case "GET /integration/openai/connect/oauth/att-1":
+		f.polls++
+		status := "pending"
+		if f.polls > 1 {
+			status, f.linked["openai"] = "complete", true
+		}
+		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":{"status":"`+status+`","time":{"created":1,"expires":2}}}`)
+	case "DELETE /credential/cred-opencode-go":
+		f.linked["opencode-go"] = false
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		return false
+	}
+	return true
 }
 
 // push sends events to the newest open stream.

@@ -242,7 +242,8 @@ counts, and any failure and recovered panic stack. It uses the public
 `internal/plugins/models` requires `agent.ModelsKey` (so it is Blocked for a backend
 without a catalog) and adds pickers to `chat.ComposerAccessory`: the model, its effort
 when the model has variants, and the mode for a new conversation when the backend
-offers more than one choice. A backend without modes shows "Chat" when targets exist.
+offers more than one choice. It reads the catalog when a new connection attempt is
+ready and again on `agent.ModelsChanged`. A backend without modes shows "Chat" when targets exist.
 The mode picker also lists `chat.Targets` after the modes, under the group each one
 names. Choosing a target applies to the next message only: it is not saved, the picker
 returns to the chosen mode once the message is sent, and it is dropped when another

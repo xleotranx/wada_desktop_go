@@ -19,6 +19,7 @@ reconnecting with backoff, and decoding its protocol.
 | `RewindKey` | `Key[Rewinder]` | optional: take back a user message and everything after it |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
+| `ModelsChanged` | `Topic[struct{}]` | the model catalog changed on the same connection; the model picker reloads it |
 
 Rules every backend follows:
 
@@ -55,8 +56,9 @@ Rules every backend follows:
 - `Status.Attempt` increases with every connection attempt. A consumer that keeps
   server state reloads it when a new attempt becomes `Ready`.
 - `Status.Origin` names where the backend keeps its conversations, set on every
-  status from the first attempt on: `opencode` for the managed server (every run
-  shares its storage), `opencode <url>` for a remote one, `pi <session folder>` for Pi.
+  status from the first attempt on: `opencode <data folder>` for the managed server
+  (every run shares its storage; plain `opencode` when the app has no data folder,
+  as in tests), `opencode <url>` for a remote one, `pi <session folder>` for Pi.
   A session ID means something only under its origin.
 - Events are emitted only after the stream is established, in order, in batches of
   at most 64 events or 256 KiB, collected for at most 1/60 s. At most one batch is
@@ -99,7 +101,11 @@ replaces the default.
   use it downloads the tarball, refuses it unless the checksum matches, and unpacks
   `package/bin/opencode` to `<DataDir>/opencode/bin/<version>/opencode`, then
   removes other versions there. While it downloads, the settings section shows the
-  progress;
+  progress. The server keeps its data apart from the OpenCode CLI's: it runs with
+  `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` under
+  `<DataDir>/opencode/` (`data`, `state`, `cache`), so its credentials, conversations
+  and logs are the app's own. Config is shared: `~/.config/opencode` and the config
+  of the tools the agent runs;
 - `{"remote": true, "url": …, "password": …}`: connect to that server.
 
 Files go in the prompt's `files` as `data:` URIs, which a remote server reads as well
@@ -116,6 +122,22 @@ It provides `agent.RewindKey` in place: `POST /session/<id>/revert/stage` with t
 message and `"files": false`, so the files stay, then `POST /session/<id>/revert/commit`,
 which removes the message and everything after it. A commit that fails after the stage
 is reported as such.
+
+A second settings section, Providers, manages the server's model providers over its
+integration routes, for a managed or a remote server alike. `GET /integration` is
+read once per connection attempt. Connected providers come first, each stored
+credential with Disconnect (`DELETE /credential/<id>`); one connected through an
+environment variable says which. Below, a search over every provider (the popular
+ones before a search) opens a connect form: the provider's methods of type `key`,
+`oauth` and `external` whose forms have only string fields, with each field's
+`when` conditions, options and defaults, and a hidden field sent as its default.
+A key goes to `POST /integration/<id>/connect/key`, an external method to
+`.../connect/external`. A sign-in starts at `.../connect/oauth`, opens the returned
+URL and shows its instructions; mode `auto` checks `.../connect/oauth/<attempt>`
+until it is complete or failed, mode `code` posts the pasted code to
+`.../complete`, and Cancel deletes the attempt. Each of these is a mutation, never
+retried; a failure stays in the form. A change reloads the list and emits
+`agent.ModelsChanged`.
 
 `Configure` saves a new connection and reconnects; `Reconnect` (also the
 `opencode.reconnect` command) restarts the connection. Each connection runs in its

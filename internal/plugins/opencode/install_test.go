@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -111,6 +112,15 @@ func TestManagedServerRunsTheDownloadedBuild(t *testing.T) {
 	}
 	if p.fetch != nil {
 		t.Fatalf("download still shown: %+v", p.fetch)
+	}
+	home := filepath.Join(host.Data, "opencode")
+	if p.Status().Origin != "opencode "+home {
+		t.Fatalf("origin %q", p.Status().Origin)
+	}
+	c, err := p.current()
+	if err != nil || !slices.Contains(c.cmd.Env, "XDG_DATA_HOME="+filepath.Join(home, "data")) ||
+		!slices.Contains(c.cmd.Env, "XDG_STATE_HOME="+filepath.Join(home, "state")) {
+		t.Fatalf("server env %v, %v", c, err)
 	}
 	h.Disable("opencode")
 }

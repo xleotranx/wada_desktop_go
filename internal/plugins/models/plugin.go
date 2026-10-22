@@ -78,6 +78,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 			p.reload()
 		}
 	})
+	kernel.On(c, agent.ModelsChanged, func(struct{}) {
+		if p.agent.Status().State == agent.Ready {
+			p.reload()
+		}
+	})
 	kernel.On(c, chat.Changed, p.conversationChanged)
 	if p.agent.Status().State == agent.Ready {
 		p.reload()

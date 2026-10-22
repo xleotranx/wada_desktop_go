@@ -35,6 +35,7 @@ type Plugin struct {
 	status agent.Status  // UI thread
 	form   form
 	fetch  *progress // the OpenCode download under way, or nil; UI thread
+	prov   providers
 
 	mu       sync.Mutex
 	client   *client // the ready connection, or nil
@@ -85,6 +86,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
 			Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect}),
 		p.contributeSection(c),
+		p.contributeProviders(c),
 	} {
 		if err != nil {
 			return err
@@ -128,6 +130,7 @@ func (p *Plugin) Status() agent.Status { return p.status }
 
 func (p *Plugin) setStatus(st agent.Status) {
 	p.status = st
+	p.statusForProviders(st)
 	kernel.Emit(p.ctx, agent.StatusChanged, st)
 }
 
@@ -168,9 +171,13 @@ var backoff = []time.Duration{time.Second, 3 * time.Second, 7 * time.Second, 15 
 // supervise keeps one connection up until ctx ends: connect, stream events,
 // and retry with backoff after a failure or drop.
 func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, conn Connection) {
-	origin := "opencode" // a managed server keeps the conversations of every run in one place
+	// A managed server keeps the conversations of every run in the app's
+	// own OpenCode data folder.
+	origin := "opencode"
 	if conn.Remote {
 		origin += " " + conn.URL
+	} else if home := p.home(); home != "" {
+		origin += " " + home
 	}
 	post := func(st agent.Status) { st.Origin = origin; run.Post(func() { p.setStatus(st) }) }
 	for failures := 0; ctx.Err() == nil; {
@@ -218,7 +225,32 @@ func (p *Plugin) open(ctx context.Context, run *kernel.Scope, conn Connection) (
 	if err != nil {
 		return nil, err
 	}
-	return spawn(ctx, exe, p.dir)
+	var env []string
+	if home := p.home(); home != "" {
+		env = isolatedEnv(home)
+	}
+	return spawn(ctx, exe, p.dir, env)
+}
+
+// home is the folder the managed server keeps its data in, or "" when the
+// app has none, as in tests.
+func (p *Plugin) home() string {
+	if data := p.host.DataDir(); data != "" {
+		return filepath.Join(data, "opencode")
+	}
+	return ""
+}
+
+// isolatedEnv points OpenCode's data, state and cache under home, so the
+// app's providers, conversations and logs stay apart from the OpenCode CLI's.
+// Config stays shared: ~/.config/opencode, and the config of the tools the
+// agent runs.
+func isolatedEnv(home string) []string {
+	return []string{
+		"XDG_DATA_HOME=" + filepath.Join(home, "data"),
+		"XDG_STATE_HOME=" + filepath.Join(home, "state"),
+		"XDG_CACHE_HOME=" + filepath.Join(home, "cache"),
+	}
 }
 
 // executable returns the OpenCode build to run, downloading it into the app's
@@ -234,12 +266,12 @@ func (p *Plugin) executable(ctx context.Context, run *kernel.Scope) (string, err
 			return "", err
 		}
 	}
-	data := p.host.DataDir()
-	if data == "" {
+	home := p.home()
+	if home == "" {
 		return "", errors.New("the app has no data folder to install OpenCode in")
 	}
 	defer run.Post(func() { p.fetch = nil })
-	return install(ctx, filepath.Join(data, "opencode", "bin"), rel, func(pr progress) {
+	return install(ctx, filepath.Join(home, "bin"), rel, func(pr progress) {
 		run.Post(func() { p.fetch = &pr })
 	})
 }

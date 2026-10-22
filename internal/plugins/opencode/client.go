@@ -86,9 +86,9 @@ func dial(ctx context.Context, conn Connection) (*client, error) {
 	return c, nil
 }
 
-// spawn starts `opencode serve` on a free local port with a fresh password.
-// The process ends with ctx or stop.
-func spawn(ctx context.Context, exe, dir string) (*client, error) {
+// spawn starts `opencode serve` on a free local port with a fresh password,
+// adding env to the app's environment. The process ends with ctx or stop.
+func spawn(ctx context.Context, exe, dir string, env []string) (*client, error) {
 	path, err := exec.LookPath(exe)
 	if err != nil {
 		return nil, fmt.Errorf("opencode was not found: %w", err)
@@ -100,7 +100,7 @@ func spawn(ctx context.Context, exe, dir string) (*client, error) {
 	pw := secret()
 	cmd := exec.CommandContext(ctx, path, "serve", "--hostname", "127.0.0.1", "--port", strconv.Itoa(port))
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "OPENCODE_SERVER_PASSWORD="+pw)
+	cmd.Env = append(append(os.Environ(), env...), "OPENCODE_SERVER_PASSWORD="+pw)
 	ownChild(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err

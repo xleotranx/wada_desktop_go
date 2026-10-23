@@ -13,9 +13,9 @@ import (
 	chatcontract "wada-desktop-go/internal/contract/chat"
 	tabcontract "wada-desktop-go/internal/contract/tabs"
 	wscontract "wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/notifications"
@@ -129,7 +129,7 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 		mu.Unlock()
 	}
 	s, err := shell.New(shell.Options{Post: post,
-		Store: kerneltest.NewStore()}, f.New, ws.New, plugintest.NewFiles(nil).New, chat.New, models.New, activity.New, attachments.New,
+		Store: kerneltest.NewStore()}, f.New, ws.New, plugintest.NewFiles(nil).New, chat.New, models.New, filechanges.New, attachments.New,
 		mentions.New, tabs.New, palette.New, notifications.New, inspector.New, settings.New)
 	if err != nil {
 		b.Fatal(err)

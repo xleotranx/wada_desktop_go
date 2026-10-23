@@ -24,7 +24,7 @@ runs and Settings as tabs across the title strip, one folder's space at a time w
 switcher for the others, each tab showing whether its conversation is working, waiting for you or unread; All
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
-conversation with the files it changed, its last command, its context and cost;
+conversation with its context, session or uncommitted Git changes with expandable diffs, and cost;
 model, effort and mode pickers; file and image attachments; workflows such as plan,
 code, review; desktop notifications for conversations in the background; settings
 for appearance, tabs, the OpenCode connection, Pi, notifications, and turning plugins
@@ -42,7 +42,7 @@ on and off.
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model, effort and mode pickers in the composer |
 | `internal/plugins/usage` | Context and cost, in the work panel or the composer |
-| `internal/plugins/activity` | Changed files and the last command, in the work panel |
+| `internal/plugins/filechanges` | Session or local uncommitted Git changes and expandable diffs below Context |
 | `internal/plugins/attachments` | Files and images sent with a message |
 | `internal/plugins/workspace` | Folders and the conversations started here, in `workspace.db`; folder picker |
 | `internal/plugins/tabs` | Tabs across the title strip, one folder's space at a time; the switcher and menus |

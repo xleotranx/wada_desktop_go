@@ -1,4 +1,4 @@
-package activity
+package filechanges
 
 import (
 	"path"
@@ -12,15 +12,32 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
-const (
-	outputShown = 12  // the last lines of a command's output
-	patchShown  = 400 // lines of one file's diff
-)
+const patchShown = 400 // lines of one file's diff
 
 // changesView lists the changed files with their line counts; a file opens
 // to its diff.
 func (p *Plugin) changesView(c *ui.Context) {
 	pal := native.PaletteFor(c)
+	p.sourcePicker(c, pal)
+	if p.mode == uncommittedChanges {
+		ui.Text(c, "Local repository · staged, unstaged and untracked").FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
+	}
+	if p.problem != "" {
+		ui.Text(c, p.problem).FontSize(12).TextColor(pal.Muted)
+	} else if !p.known {
+		ui.Text(c, "Loading file changes…").FontSize(12).TextColor(pal.Faint)
+		return
+	}
+	if len(p.changes) == 0 {
+		if p.problem == "" {
+			empty := "No file changes"
+			if p.mode == uncommittedChanges {
+				empty = "No uncommitted changes"
+			}
+			ui.Text(c, empty).FontSize(12).TextColor(pal.Faint)
+		}
+		return
+	}
 	added, removed := 0, 0
 	for _, ch := range p.changes {
 		added, removed = added+ch.Added, removed+ch.Removed
@@ -41,10 +58,46 @@ func (p *Plugin) changesView(c *ui.Context) {
 	})
 }
 
+func (p *Plugin) sourcePicker(c *ui.Context, pal native.Palette) {
+	ui.Row(c).FillWidth().Gap(6).Padding(0, 0, 8, 0).Children(func() {
+		c.Key("source")
+		sel := ui.SelectBase(c, &p.mode)
+		sel.Trigger.Label("Change source").Height(28).Grow(1).MinWidth(0).Radius(6).Padding(0, 8).
+			Background(pal.Bg).Cursor(ui.CursorPointer).OnChange(p.chooseSource)
+		if sel.Trigger.Hovered() {
+			sel.Trigger.Background(pal.Hover)
+		}
+		sel.Trigger.Children(func() {
+			ui.Text(c, p.mode.label()).FontSize(12).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Icon(c, lucide.ChevronDown()).FontSize(11).TextColor(pal.Faint).Shrink(0)
+		})
+		sel.Popup(func(panel ui.Element) {
+			panel.Width(252).Padding(4).Radius(8).Background(pal.Bg).Border(1, pal.Hairline)
+			for _, source := range []changeSource{sessionChanges, uncommittedChanges} {
+				c.Key(source)
+				item := sel.Item(source).Label(source.label()).Height(30).Padding(0, 8).Radius(4)
+				if item.Highlighted() {
+					item.Background(pal.Hover)
+				}
+				item.Children(func() { ui.Text(c, source.label()).FontSize(12).TextColor(pal.Text) })
+			}
+		})
+		c.Key("refresh")
+		ui.ButtonBase(c).Label("Refresh file changes").Tooltip("Refresh file changes").Size(28, 28).Radius(6).
+			Disabled(p.load.Running()).Cursor(ui.CursorPointer).Center().OnClick(p.readChanges).Children(func() {
+			ui.Icon(c, lucide.RefreshCw()).FontSize(13).TextColor(pal.Faint)
+		})
+	})
+}
+
 func (p *Plugin) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
 	open := p.open[ch.Path]
 	dir, name := path.Split(ch.Path)
-	b := ui.ButtonBase(c).Label(ch.Path).FillWidth().Height(28).Radius(6).Padding(0, 6).Gap(6).
+	height := float32(28)
+	if dir != "" {
+		height = 44
+	}
+	b := ui.ButtonBase(c).Label(ch.Path).FillWidth().Height(height).Radius(6).Padding(4, 6).Gap(6).
 		AlignItems(ui.Center).Justify(ui.Start).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
@@ -56,17 +109,25 @@ func (p *Plugin) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
 			chevron = lucide.ChevronDown
 		}
 		ui.Icon(c, chevron()).FontSize(11).TextColor(pal.Faint).Shrink(0)
-		label := ui.Text(c, name).FontSize(12.5).TextColor(pal.Text).Shrink(0).SingleLine()
-		switch ch.Status {
-		case agent.FileAdded:
-			label.TextColor(pal.DiffAdd)
-		case agent.FileDeleted:
-			label.TextColor(pal.DiffDel)
-		case agent.FileModified:
-		}
-		ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(11.5).TextColor(pal.Faint).Grow(1).MinWidth(0).
-			SingleLine().Ellipsis("…")
-		counts(c, pal, ch.Added, ch.Removed)
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				label := ui.Text(c, name).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+				switch ch.Status {
+				case agent.FileAdded:
+					label.TextColor(pal.DiffAdd)
+					ui.Text(c, "Added").FontSize(10.5).TextColor(pal.DiffAdd).Shrink(0)
+				case agent.FileDeleted:
+					label.TextColor(pal.DiffDel)
+					ui.Text(c, "Deleted").FontSize(10.5).TextColor(pal.DiffDel).Shrink(0)
+				case agent.FileModified:
+				}
+				counts(c, pal, ch.Added, ch.Removed)
+			})
+			if dir != "" {
+				ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(10.5).TextColor(pal.Faint).FillWidth().
+					SingleLine().Ellipsis("…")
+			}
+		})
 	})
 	if open {
 		patch(c, pal, ch.Patch)
@@ -105,37 +166,6 @@ func patch(c *ui.Context, pal native.Palette, text string) {
 			}
 		}
 	})
-}
-
-// commandView shows the last shell command, how it ended and the end of its
-// output.
-func (p *Plugin) commandView(c *ui.Context) {
-	pal := native.PaletteFor(c)
-	t := p.last
-	ui.Column(c).FillWidth().Radius(8).Clip().Background(pal.Bg).Children(func() {
-		ui.Row(c).FillWidth().Gap(8).Padding(8, 10).AlignItems(ui.Start).Children(func() {
-			ui.Text(c, "$").Font("monospace").FontSize(12).TextColor(pal.Faint).Shrink(0)
-			ui.Text(c, t.Command).Font("monospace").FontSize(12).TextColor(pal.Text).Grow(1).MinWidth(0).Selectable()
-		})
-		lines := output(t)
-		if len(lines) > 0 {
-			ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
-			ui.Column(c).FillWidth().Padding(6, 10).Children(func() {
-				if len(lines) > outputShown {
-					ui.Text(c, "…").FontSize(11.5).TextColor(pal.Faint)
-					lines = lines[len(lines)-outputShown:]
-				}
-				for _, line := range lines {
-					ui.Text(c, line).Font("monospace").FontSize(11.5).LineHeight(1.5).TextColor(pal.Muted).SingleLine()
-				}
-			})
-		}
-	})
-	exit, color := "exit "+strconv.Itoa(t.Exit), pal.Faint
-	if t.Exit != 0 {
-		color = pal.DiffDel
-	}
-	ui.Text(c, exit).FontSize(11.5).TextColor(color)
 }
 
 func counts(c *ui.Context, pal native.Palette, added, removed int) {

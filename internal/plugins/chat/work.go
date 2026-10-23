@@ -55,7 +55,7 @@ func (p *Plugin) settingsSection(c *ui.Context) {
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			ui.Text(c, "Show the work panel").FontSize(13.5).FontWeight(500).TextColor(pal.Text)
-			ui.Text(c, "Beside a conversation: what it changed, its last command, its context and cost. ⌘B turns it on and off.").
+			ui.Text(c, "Beside a conversation: its context, changed files and cost. ⌘B turns it on and off.").
 				FontSize(12).TextColor(pal.Muted)
 		})
 		on := p.workOn.Get()

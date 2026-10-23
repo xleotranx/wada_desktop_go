@@ -13,14 +13,15 @@ import (
 	chatcontract "wada-desktop-go/internal/contract/chat"
 	tabcontract "wada-desktop-go/internal/contract/tabs"
 	wscontract "wada-desktop-go/internal/contract/workspace"
-	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/tabs"
+	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugintest"
@@ -81,7 +82,7 @@ func startApp(t *testing.T) *app {
 		}
 	}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
-		a.New, files.New, chat.New, models.New, activity.New, attachments.New, mentions.New,
+		a.New, files.New, chat.New, models.New, usage.New, filechanges.New, attachments.New, mentions.New,
 		workspace.New, tabs.New, workflow.New, flows.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
@@ -452,5 +453,39 @@ func TestWadaKeepsItsDataAndMenus(t *testing.T) {
 		if m := e.Value.Menu; m != "" && !slices.Contains(wada.Menus, m) {
 			t.Errorf("command %s names menu %q, which the menu bar lacks", e.ID, m)
 		}
+	}
+}
+
+func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
+	a := startApp(t)
+	a.agent.Stored["s1"] = []agent.Message{{ID: "a1", Role: agent.RoleAssistant,
+		Tokens: agent.Tokens{Input: 1000, Output: 200},
+		Parts: []agent.Part{{Kind: agent.PartTool, Tool: &agent.Tool{
+			ID: "t1", Kind: agent.ToolShell, Command: "go test ./...",
+		}}}}}
+	a.agent.Changed["s1"] = []agent.FileChange{{Path: "src/main.go", Added: 3, Removed: 1,
+		Patch: "@@ -1 +1 @@\n-old\n+new\n"}}
+	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
+	var titles []string
+	for _, e := range kernel.Items(a.shell.Kernel, chatcontract.Work) {
+		titles = append(titles, e.Value.Title)
+	}
+	if !slices.Equal(titles, []string{"Context", "File changes", "Cost"}) {
+		t.Fatalf("work panel order: %q", titles)
+	}
+	for _, want := range []string{"Context", "File changes", "Cost", "main.go", "+3", "−1"} {
+		if !a.tt.HasText(want) {
+			t.Fatalf("%q missing: %q", want, a.tt.Texts())
+		}
+	}
+	if a.tt.HasText("Last command") {
+		t.Fatal("the work panel still shows the last command")
+	}
+	if err := a.tt.Click("src/main.go"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if !a.tt.HasText("+new") {
+		t.Fatalf("file diff did not open: %q", a.tt.Texts())
 	}
 }

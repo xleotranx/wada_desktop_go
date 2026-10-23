@@ -325,24 +325,44 @@ conversation it was for: a later navigation drops it, and a failed read shows no
 since the chat page reports the failure. A new chat, or a conversation with no usage,
 shows nothing. The model catalog is read once, for names and context windows.
 
-## Activity
+## File changes
 
-`internal/plugins/activity` requires `agent.ServiceKey` and `chat.ControllerKey` and
-contributes two `chat.Work` sections for the conversation on show:
+`internal/plugins/filechanges` requires `agent.ServiceKey` and `chat.ControllerKey`.
+It contributes **File changes** to `chat.Work` after Context and before Cost. A
+dropdown chooses the source, starting with **Session changes**; the choice stays
+while navigating conversations but is not saved across launches:
 
-- **Changes**, when the backend provides `agent.ChangesKey`: the number of files and
-  the lines added and removed, then each file (its name, colored when added or
-  deleted, its folder and its counts), which opens to its diff: hunk headers muted,
-  added and removed lines on `DiffAddBg` and `DiffDelBg`, up to 400 lines. The
-  changes are read when the conversation opens and after each of its turns ends; a
-  failed read keeps what was shown.
-- **Last command**: the latest finished shell call, read from the stored messages
-  when the conversation opens and then taken from `ToolFinished` events (a call
-  counts as a shell command when its `ToolStarted` or `ToolCalled` said so, or named
-  a command): the command, the last 12 lines of its output and its exit status.
+- **Session changes** reads the backend's optional `agent.ChangesKey`. Without
+  that capability (Pi), the section says session changes are unavailable.
+- **Uncommitted Git changes** reads the local Git repository containing the
+  conversation's absolute folder. It includes staged, unstaged and untracked
+  files, excluding ignored files. Paths are relative to the repository root,
+  including changes outside a conversation's subfolder. It uses local Git even
+  with a remote backend; an absent folder, Git executable or repository is
+  reported. It does not assume the app's working directory when no folder is set.
 
-Both are read again when a new connection attempt becomes ready. Each section shows
-only while it has something to show.
+The section shows the number of files and total lines added and removed, then each
+file's name, folder and line counts. Added and deleted files have a text label as
+well as a color. Selecting a file expands its unified diff: hunk headers muted,
+added and removed lines on `DiffAddBg` and `DiffDelBg`, up to 400 lines. A file
+without a patch says "No diff to show".
+
+Git keeps staged and unstaged patches separately labeled within each file; line
+counts add both, so opposing staged and unstaged edits remain visible. A rename
+shows as a deletion and an addition; binary files report zero line counts. Unmerged
+files show their working copy against Git's "ours" stage. Git reads run off the UI
+thread with a 30-second timeout, literal path arguments, optional index writes
+disabled, and external diff, textconv and filesystem-monitor hooks disabled. Patch
+previews are capped at 256 KiB per command and 4 MiB per repository; counts remain
+complete when a preview is omitted. An oversized status listing is reported.
+
+The selected source is read when a conversation opens or its folder changes,
+after each of its turns ends, when a new connection attempt becomes ready and on
+**Refresh file changes**. Refresh also picks up edits made outside Wada. A first
+read shows a loading state; an empty result says "No file changes" or "No
+uncommitted changes". A failed refresh reports the error and keeps the last known
+files visible. Switching sources or conversations cancels the old read and clears
+the files and expanded diffs. A new chat shows no section.
 
 ## Attachments
 

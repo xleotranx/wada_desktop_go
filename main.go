@@ -1,9 +1,9 @@
 package main
 
 import (
-	"wada-desktop-go/internal/plugins/activity"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
@@ -37,7 +37,7 @@ func main() {
 		chat.New,
 		models.New,
 		usage.New,
-		activity.New, // the files a conversation changed and its last command, in the work panel
+		filechanges.New, // session or local Git changes, below Context in the work panel
 		attachments.New,
 		mentions.New,  // needs a backend that can read files; OpenCode can
 		workspace.New, // folders and the conversations started here, in workspace.db

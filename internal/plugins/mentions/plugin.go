@@ -1,7 +1,8 @@
-// Package mentions lets a message name files of the conversation's folder.
-// Typing "@" in the composer lists matching files, choosing one writes its path
-// into the message, and sending attaches the contents of every file still
-// named in the text. The backend finds and reads the files, so it works the
+// Package mentions lets a message name files and folders of the conversation's
+// folder. Typing "@" in the composer lists matching files and folders, choosing
+// one writes its path into the message, and sending attaches the contents of
+// every file still named in the text. A folder is only named; the backend
+// explores it itself. The backend finds and reads the files, so it works the
 // same on a server that runs somewhere else.
 package mentions
 
@@ -42,8 +43,8 @@ type Plugin struct {
 	chat  chat.Controller
 	host  shell.Host
 
-	found    []string // the paths the latest lookup returned, best first
-	failed   bool     // a lookup failed since the word was started, and said so
+	found    []agent.FileEntry // the files and folders the latest lookup returned, best first
+	failed   bool              // a lookup failed since the word was started, and said so
 	lookup   kernel.Task
 	mentions map[string]*mention // chosen files by path, until the message goes out
 	session  agent.SessionID     // the conversation the mentions belong to
@@ -63,7 +64,7 @@ func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "mentions", Title: "File mentions",
-		Description: "Type @ to mention a file of the project; its contents go with the message.",
+		Description: "Type @ to mention a file or folder of the project; a file's contents go with the message.",
 		Requires:    []kernel.Named{agent.FilesKey, chat.ControllerKey, shell.HostKey},
 	}
 }
@@ -102,7 +103,7 @@ func (p *Plugin) search(typed string, active bool) {
 		return
 	}
 	files, dir, delay := p.files, p.chat.Current().Directory, p.delay
-	kernel.Go(p.ctx, &p.lookup, func(ctx context.Context) ([]string, error) {
+	kernel.Go(p.ctx, &p.lookup, func(ctx context.Context) ([]agent.FileEntry, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -112,7 +113,7 @@ func (p *Plugin) search(typed string, active bool) {
 			return nil, err
 		}
 		return files.Find(ctx, dir, typed, findLimit)
-	}, func(paths []string, err error) {
+	}, func(entries []agent.FileEntry, err error) {
 		if err != nil {
 			p.found = nil
 			if !p.failed { // one notice per word, not one per keystroke
@@ -121,23 +122,35 @@ func (p *Plugin) search(typed string, active bool) {
 			}
 			return
 		}
-		p.found, p.failed = paths, false
+		p.found, p.failed = entries, false
 	})
 }
 
+// candidates lists the files and folders found, best first. A folder's ID
+// carries a trailing slash, which is what accept reads back to tell the two
+// apart.
 func (p *Plugin) candidates() []chat.Candidate {
 	out := make([]chat.Candidate, len(p.found))
-	for i, file := range p.found {
-		dir, name := path.Split(file)
-		out[i] = chat.Candidate{ID: file, Label: name, Detail: strings.TrimSuffix(dir, "/"), Icon: lucide.FileText}
+	for i, entry := range p.found {
+		dir, name := path.Split(entry.Path)
+		id, label, icon := entry.Path, name, lucide.FileText
+		if entry.IsDir {
+			id, label, icon = id+"/", name+"/", lucide.Folder
+		}
+		out[i] = chat.Candidate{ID: id, Label: label, Detail: strings.TrimSuffix(dir, "/"), Icon: icon}
 	}
 	return out
 }
 
 // ---- Choosing
 
-// accept writes the file's path into the message and starts reading it.
+// accept writes the entry's path into the message. A file starts reading, so
+// its contents can go with the message; a folder is only named, for the
+// backend to explore. A folder's ID ends in the slash candidates gave it.
 func (p *Plugin) accept(c chat.Candidate) string {
+	if strings.HasSuffix(c.ID, "/") {
+		return "@" + c.ID + " "
+	}
 	if _, again := p.mentions[c.ID]; !again {
 		p.read(c.ID)
 	}

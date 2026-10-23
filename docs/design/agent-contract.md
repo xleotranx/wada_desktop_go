@@ -119,11 +119,11 @@ Files go in the prompt's `files` as `data:` URIs, which a remote server reads as
 as a local one; the server stores them inline.
 
 It provides `agent.FilesKey` over the server's file routes: `Find` is
-`GET /fs/find?type=file&query=…&limit=…`, which ranks and honors ignore files, and
-`Read` is `GET /fs/read/<path>`; both take the folder as `location[directory]` and
-use the server's own when it is empty. `Read` refuses a path that is empty, absolute
-or leaves the folder, and an HTML answer, which is what a server without the route
-sends in place of an error.
+`GET /fs/find?query=…&limit=…`, which ranks and honors ignore files and returns
+files and folders alike, and `Read` is `GET /fs/read/<path>`; both take the folder
+as `location[directory]` and use the server's own when it is empty. `Read` refuses
+a path that is empty, absolute or leaves the folder, and an HTML answer, which is
+what a server without the route sends in place of an error.
 
 It provides `agent.RewindKey` in place: `POST /session/<id>/revert/stage` with the
 message and `"files": false`, so the files stay, then `POST /session/<id>/revert/commit`,

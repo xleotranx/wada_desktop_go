@@ -461,7 +461,7 @@ func (p *Plugin) Modes(ctx context.Context) ([]agent.Mode, error) {
 	return c.modes(ctx)
 }
 
-func (p *Plugin) Find(ctx context.Context, directory, query string, limit int) ([]string, error) {
+func (p *Plugin) Find(ctx context.Context, directory, query string, limit int) ([]agent.FileEntry, error) {
 	c, err := p.current()
 	if err != nil {
 		return nil, err

@@ -105,13 +105,19 @@ type FileTypes interface {
 // so these are the backend's files, not the app's. Like the rest of Service,
 // the methods block on I/O and are called off the UI thread.
 type Files interface {
-	// Find returns the paths of files in directory (the backend's default
+	// Find returns the files and folders in directory (the backend's default
 	// folder when empty) that match query, best first, at most limit of them.
-	// Paths are slash-separated and relative to directory. An empty query
-	// returns some files in no particular order.
-	Find(ctx context.Context, directory, query string, limit int) ([]string, error)
+	// Paths are slash-separated and relative to directory, without a trailing
+	// slash. An empty query returns some entries in no particular order.
+	Find(ctx context.Context, directory, query string, limit int) ([]FileEntry, error)
 	// Read returns the contents of the file at path, relative to directory.
 	Read(ctx context.Context, directory, path string) ([]byte, error)
+}
+
+// FileEntry is one file or folder a lookup found.
+type FileEntry struct {
+	Path  string // relative to the folder searched, without a trailing slash
+	IsDir bool   // the path names a folder, which Read can't read
 }
 
 // Changes is the optional capability of listing the files a conversation

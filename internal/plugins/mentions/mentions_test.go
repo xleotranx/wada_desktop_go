@@ -84,6 +84,20 @@ func TestTypingListsMatchingFilesWithTheirFolders(t *testing.T) {
 	}
 }
 
+func TestTypingListsMatchingFoldersToo(t *testing.T) {
+	h, _, _, ctl, _ := start(t)
+	ctl.Conv.Directory = "/w/app"
+	c := completion(h)
+	c.Query("s", true)
+	h.Flush()
+	if got := labels(c.Candidates()); !slices.Equal(got, []string{"|src/", "src|mail.go", "src|main.go"}) {
+		t.Fatalf("candidates %q", got)
+	}
+	if first := c.Candidates()[0]; first.ID != "src/" || first.Icon == nil {
+		t.Fatalf("candidate %+v", first)
+	}
+}
+
 func TestOnlyTheLatestLookupLands(t *testing.T) {
 	h, _, _, _, _ := start(t)
 	c := completion(h)
@@ -122,6 +136,26 @@ func TestAChosenFileGoesWithTheMessageAsItsPath(t *testing.T) {
 	}
 	if d, _ = send(h, "again @src/main.go"); len(d.Files) != 0 {
 		t.Fatalf("a sent mention attached again: %q", fileNames(d))
+	}
+}
+
+func TestAChosenFolderIsOnlyNamedInTheMessage(t *testing.T) {
+	h, p, files, ctl, _ := start(t)
+	ctl.Conv.Directory = "/w/app"
+	text := completion(h).Accept(chat.Candidate{ID: "src/"})
+	if text != "@src/ " {
+		t.Fatalf("text %q", text)
+	}
+	h.Flush()
+	if len(p.mentions) != 0 {
+		t.Fatal("a folder was read as a file")
+	}
+	if got := files.Calls(); len(got) != 0 {
+		t.Fatalf("a folder was read: %q", got)
+	}
+	d, err := send(h, "look in "+text+"please")
+	if err != nil || len(d.Files) != 0 || d.Text != "look in @src/ please" {
+		t.Fatalf("draft %+v, %v", d, err)
 	}
 }
 

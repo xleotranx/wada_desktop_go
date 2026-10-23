@@ -359,19 +359,21 @@ still being read, then moves the files into `Draft.Files`.
 
 `internal/plugins/mentions` requires `agent.FilesKey`, so it is Blocked for a backend
 that can't find and read files (Pi). It contributes a `chat.Completions` entry for
-"@": typing it asks the backend's `Find` for files in the open conversation's folder
-(the backend's default for a new chat) and lists up to eight, best first as the backend
-ranks them, by name with their folder beside it. Choosing one writes `@<path> ` into
-the message and starts reading the file through the backend's `Read`, off the UI
-thread. Its `chat.Outgoing` transform runs after the attachments' (order 1001): every
-file whose `@<path>` the text still names, as a word of its own, is added to
-`Draft.Files` under its path, in the order the text names them; the text itself is
-unchanged. A file still being read holds the message back. A file that can't go (over
-1 MB, neither text nor an image, refused by `agent.FileTypesKey`, unreadable), or an
-eleventh in one message, is reported in a toast; its path stays in the text, and the
-agent may still open it. Mentions belong to the draft: they are dropped when the
-message goes out or another conversation opens. A path typed by hand without choosing
-it is plain text.
+"@": typing it asks the backend's `Find` for files and folders in the open
+conversation's folder (the backend's default for a new chat) and lists up to eight,
+best first as the backend ranks them. A file is shown by name with its folder beside
+it; a folder by name with a trailing slash and a folder icon. Choosing a file writes
+`@<path> ` into the message and starts reading it through the backend's `Read`, off
+the UI thread; choosing a folder writes `@<path>/ ` and reads nothing, leaving the
+folder for the agent to explore. Its `chat.Outgoing` transform runs after the
+attachments' (order 1001): every file whose `@<path>` the text still names, as a word
+of its own, is added to `Draft.Files` under its path, in the order the text names
+them; the text itself is unchanged. A file still being read holds the message back.
+A file that can't go (over 1 MB, neither text nor an image, refused by
+`agent.FileTypesKey`, unreadable), or an eleventh in one message, is reported in a
+toast; its path stays in the text, and the agent may still open it. Mentions belong
+to the draft: they are dropped when the message goes out or another conversation
+opens. A path typed by hand without choosing it is plain text.
 
 ## Notifications
 

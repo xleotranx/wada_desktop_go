@@ -149,17 +149,18 @@ func (c *client) send(ctx context.Context, req agent.Send) error {
 
 // ---- Files
 
-// fileFindReply is the files a search found (GET /fs/find).
+// fileFindReply is the entries a search found (GET /fs/find).
 type fileFindReply struct {
 	Data []struct {
 		Path string `json:"path"`
+		Type string `json:"type"`
 	} `json:"data"`
 }
 
-// find asks the server's file index for files whose path matches query. A zero
-// limit takes the server's default.
-func (c *client) find(ctx context.Context, directory, query string, limit int) ([]string, error) {
-	v := url.Values{"type": {"file"}, "query": {query}}
+// find asks the server's file index for files and folders whose path matches
+// query. A zero limit takes the server's default.
+func (c *client) find(ctx context.Context, directory, query string, limit int) ([]agent.FileEntry, error) {
+	v := url.Values{"query": {query}}
 	if limit > 0 {
 		v.Set("limit", strconv.Itoa(limit))
 	}
@@ -170,11 +171,15 @@ func (c *client) find(ctx context.Context, directory, query string, limit int) (
 	if err := c.decode(ctx, "GET", "/fs/find?"+v.Encode(), nil, &out); err != nil {
 		return nil, err
 	}
-	paths := make([]string, 0, len(out.Data))
+	entries := make([]agent.FileEntry, 0, len(out.Data))
 	for _, f := range out.Data {
-		paths = append(paths, f.Path)
+		rel := strings.TrimSuffix(f.Path, "/") // the contract wants no trailing slash
+		if rel == "" {
+			continue // an empty path names nothing
+		}
+		entries = append(entries, agent.FileEntry{Path: rel, IsDir: f.Type == "directory"})
 	}
-	return paths, nil
+	return entries, nil
 }
 
 // read fetches a file of the server's folder. The route takes the path as

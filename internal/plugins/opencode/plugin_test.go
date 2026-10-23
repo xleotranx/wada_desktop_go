@@ -98,7 +98,8 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	case route == "POST /session":
 		fmt.Fprint(w, `{"data":{"id":"ses-9","location":{"directory":"/w"},"model":{"providerID":"p","id":"default"}}}`)
 	case strings.HasPrefix(route, "GET /fs/find?"):
-		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":[{"path":"cmd/main.go","type":"file"},{"path":"README.md","type":"file"}]}`)
+		// An empty path names nothing and is dropped; "cmd/" loses its slash.
+		fmt.Fprint(w, `{"location":{"directory":"/w"},"data":[{"path":"cmd/","type":"directory"},{"path":"","type":"directory"},{"path":"cmd/main.go","type":"file"},{"path":"README.md","type":"file"}]}`)
 	case strings.HasPrefix(route, "GET /fs/read/docs/a%20b.md"):
 		w.Header().Set("Content-Type", "text/markdown")
 		fmt.Fprint(w, "# hi")
@@ -444,11 +445,11 @@ func TestFilesAreFoundAndReadThroughTheServer(t *testing.T) {
 	if !ok {
 		t.Fatal("the backend does not provide files")
 	}
-	paths, err := call(t, h, func(ctx context.Context) ([]string, error) { return files.Find(ctx, "/w/", "ma", 5) })
-	if err != nil || !slices.Equal(paths, []string{"cmd/main.go", "README.md"}) {
-		t.Fatalf("found %q, %v", paths, err)
+	entries, err := call(t, h, func(ctx context.Context) ([]agent.FileEntry, error) { return files.Find(ctx, "/w/", "ma", 5) })
+	if want := []agent.FileEntry{{Path: "cmd", IsDir: true}, {Path: "cmd/main.go"}, {Path: "README.md"}}; err != nil || !slices.Equal(entries, want) {
+		t.Fatalf("found %+v, %v", entries, err)
 	}
-	if _, err := call(t, h, func(ctx context.Context) ([]string, error) { return files.Find(ctx, "", "", 0) }); err != nil {
+	if _, err := call(t, h, func(ctx context.Context) ([]agent.FileEntry, error) { return files.Find(ctx, "", "", 0) }); err != nil {
 		t.Fatal(err)
 	}
 	data, err := call(t, h, func(ctx context.Context) ([]byte, error) { return files.Read(ctx, "/w", "docs/a b.md") })
@@ -456,8 +457,8 @@ func TestFilesAreFoundAndReadThroughTheServer(t *testing.T) {
 		t.Fatalf("read %q, %v", data, err)
 	}
 	if want := []string{
-		"GET /fs/find?limit=5&location%5Bdirectory%5D=%2Fw&query=ma&type=file",
-		"GET /fs/find?query=&type=file",
+		"GET /fs/find?limit=5&location%5Bdirectory%5D=%2Fw&query=ma",
+		"GET /fs/find?query=",
 		"GET /fs/read/docs/a%20b.md?location%5Bdirectory%5D=%2Fw",
 	}; !slices.Equal(f.seen(), want) {
 		t.Fatalf("requests\n got %q\nwant %q", f.seen(), want)

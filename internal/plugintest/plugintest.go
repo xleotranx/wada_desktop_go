@@ -5,6 +5,7 @@ package plugintest
 import (
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -334,25 +335,41 @@ func (f *Files) Calls() []string {
 	return slices.Clone(f.calls)
 }
 
-// Find lists the paths that contain query, in path order.
-func (f *Files) Find(_ context.Context, directory, query string, limit int) ([]string, error) {
+// Find lists the files and their folders whose path contains query, in path
+// order.
+func (f *Files) Find(_ context.Context, directory, query string, limit int) ([]agent.FileEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "find "+directory+"|"+query)
 	if err := f.Fail["Find"]; err != nil {
 		return nil, err
 	}
+	dirs := map[string]bool{}
+	for file := range f.Tree {
+		for dir := path.Dir(file); dir != "." && dir != "/"; dir = path.Dir(dir) {
+			dirs[dir] = true
+		}
+	}
 	var paths []string
-	for path := range f.Tree {
-		if strings.Contains(path, query) {
-			paths = append(paths, path)
+	for file := range f.Tree {
+		if strings.Contains(file, query) {
+			paths = append(paths, file)
+		}
+	}
+	for dir := range dirs {
+		if strings.Contains(dir, query) {
+			paths = append(paths, dir+"/")
 		}
 	}
 	slices.Sort(paths)
 	if limit > 0 && len(paths) > limit {
 		paths = paths[:limit]
 	}
-	return paths, nil
+	entries := make([]agent.FileEntry, len(paths))
+	for i, p := range paths {
+		entries[i] = agent.FileEntry{Path: strings.TrimSuffix(p, "/"), IsDir: strings.HasSuffix(p, "/")}
+	}
+	return entries, nil
 }
 
 func (f *Files) Read(_ context.Context, directory, path string) ([]byte, error) {

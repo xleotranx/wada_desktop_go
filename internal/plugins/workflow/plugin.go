@@ -68,8 +68,8 @@ func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "workflow", Title: "Workflows",
-		Description: "Run flows written in Go that drive the agent through several conversations, such as plan, code and review.",
+		ID: "workflow", Title: "Workflow engine",
+		Description: "Run workflow steps, handle approvals and show progress. Required by workflow providers.",
 		Requires:    []kernel.Named{agent.ServiceKey, shell.HostKey},
 		Provides:    []kernel.Named{wf.ServiceKey},
 	}

@@ -18,8 +18,8 @@ func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "flows", Title: "Flows",
-		Description: "Ready-made workflows for the composer's mode picker and All chats: plan, code, review.",
+		ID: "flows", Title: "Built-in workflows",
+		Description: "Adds Plan → Code → Review to the composer's mode picker and All chats. Uses the Workflow engine.",
 		Requires:    []kernel.Named{wf.ServiceKey},
 	}
 }

@@ -387,6 +387,10 @@ clicking it opens that conversation. Its settings section turns each kind off.
 
 ## Workflows
 
+Settings → Plugins lists the engine as **Workflow engine** and the app's flow
+provider as **Built-in workflows**. The provider depends on the engine; they are
+separate optional plugins.
+
 A flow is Go code that drives the agent backend through conversations the user does not
 see, and returns a result for the user. `internal/contract/workflow` declares the types:
 `Flow{ID, Title, Summary, Run}`, `Input{Brief, Directory}`, and the `Runner` a flow's

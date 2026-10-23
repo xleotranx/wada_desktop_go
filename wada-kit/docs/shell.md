@@ -110,7 +110,9 @@ it shows the first available section. It adds its own Appearance and Plugins
 sections; appearance offers System, Light and Dark, each drawn as a small window in
 that theme (`native.PaletteOf`): the strip with a project's tabs over the panel,
 System half of each, and a Window background choice of Clear, Frosted or Solid. The
-plugin list uses switches to turn optional plugins on and off through `shell.Host`.
+plugin list groups Optional features above Required plugins, preserving installation
+order within each group. Optional features have switches to turn them on and off
+through `shell.Host`; required plugins have a Required badge.
 
 ## Plugin diagnostics
 

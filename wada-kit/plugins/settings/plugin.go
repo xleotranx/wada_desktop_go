@@ -184,49 +184,68 @@ func windowPreview(c *ui.Context, pal native.Palette) {
 }
 
 func (p *Plugin) plugins(c *ui.Context) {
-	pal := native.PaletteFor(c)
-	for i, st := range p.host.Plugins() {
-		if i > 0 {
-			ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
+	var optional, required []kernel.Status
+	for _, st := range p.host.Plugins() {
+		if st.Manifest.Locked {
+			required = append(required, st)
+		} else {
+			optional = append(optional, st)
 		}
-		c.Key("plugin:" + st.Manifest.ID)
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Padding(4, 0).Children(func() {
-			ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-				ui.Text(c, st.Manifest.Title).FontSize(13.5).FontWeight(500).TextColor(pal.Text)
-				if line := statusLine(st); line != "" {
-					tint := pal.Muted
-					if st.State == kernel.Failed {
-						tint = pal.Danger
-					}
-					ui.Text(c, line).FontSize(12).TextColor(tint)
-				}
-			})
-			if st.Manifest.Locked {
-				ui.Text(c, "Required").FontSize(11).TextColor(pal.Muted).Background(pal.Selected).Padding(4, 8).Radius(6)
-				return
+	}
+	p.pluginGroup(c, "Optional features", optional)
+	p.pluginGroup(c, "Required plugins", required)
+}
+
+func (p *Plugin) pluginGroup(c *ui.Context, title string, plugins []kernel.Status) {
+	if len(plugins) == 0 {
+		return
+	}
+	pal := native.PaletteFor(c)
+	ui.Column(c).Key(title).FillWidth().Gap(20).Children(func() {
+		ui.Text(c, title).FontSize(14).FontWeight(500).TextColor(pal.Text)
+		for i, st := range plugins {
+			if i > 0 {
+				ui.Box(c).FillWidth().Height(1).Background(pal.Hairline)
 			}
-			on := st.State != kernel.Disabled
-			label := "Turn off"
-			if !on {
-				label = "Turn on"
-			}
-			enabled := on
-			components.Switch(c, &enabled, label+" "+st.Manifest.Title, components.SwitchOptions{HideLabel: true})
-			if enabled != on {
-				p.ctx.Post(func() {
-					var err error
-					if on {
-						err = p.host.Disable(st.Manifest.ID)
-					} else {
-						err = p.host.Enable(st.Manifest.ID)
-					}
-					if err != nil {
-						p.host.Toast(ui.Toast{Title: st.Manifest.Title + " did not change", Description: err.Error(), Type: components.ToastError})
+			c.Key("plugin:" + st.Manifest.ID)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(16).Padding(4, 0).Children(func() {
+				ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
+					ui.Text(c, st.Manifest.Title).FontSize(13.5).FontWeight(500).TextColor(pal.Text)
+					if line := statusLine(st); line != "" {
+						tint := pal.Muted
+						if st.State == kernel.Failed {
+							tint = pal.Danger
+						}
+						ui.Text(c, line).FontSize(12).TextColor(tint)
 					}
 				})
-			}
-		})
-	}
+				if st.Manifest.Locked {
+					ui.Text(c, "Required").FontSize(11).TextColor(pal.Muted).Background(pal.Selected).Padding(4, 8).Radius(6)
+					return
+				}
+				on := st.State != kernel.Disabled
+				label := "Turn off"
+				if !on {
+					label = "Turn on"
+				}
+				enabled := on
+				components.Switch(c, &enabled, label+" "+st.Manifest.Title, components.SwitchOptions{HideLabel: true})
+				if enabled != on {
+					p.ctx.Post(func() {
+						var err error
+						if on {
+							err = p.host.Disable(st.Manifest.ID)
+						} else {
+							err = p.host.Enable(st.Manifest.ID)
+						}
+						if err != nil {
+							p.host.Toast(ui.Toast{Title: st.Manifest.Title + " did not change", Description: err.Error(), Type: components.ToastError})
+						}
+					})
+				}
+			})
+		}
+	})
 }
 
 func statusLine(st kernel.Status) string {

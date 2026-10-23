@@ -56,6 +56,14 @@ func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 	if !tt.HasText("Required") {
 		t.Fatal("missing required plugin status")
 	}
+	texts := tt.Texts()
+	optional, extra, required := slices.Index(texts, "Optional features"), slices.Index(texts, "Extra"), slices.Index(texts, "Required plugins")
+	if optional < 0 || extra <= optional || required <= extra {
+		t.Fatalf("optional and required plugins are not grouped: %q", texts)
+	}
+	if slices.Index(texts[required:], "Settings") < 0 {
+		t.Fatalf("settings plugin missing from required group: %q", texts)
+	}
 	if err := tt.Click("Turn off Extra"); err != nil {
 		t.Fatal(err)
 	}

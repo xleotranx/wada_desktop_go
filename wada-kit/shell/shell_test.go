@@ -152,18 +152,34 @@ func TestPanickingViewFailsOnlyItsPlugin(t *testing.T) {
 	good := &plugin{id: "good", setup: func(c *kernel.Context) error {
 		return kernel.Contribute(c, shell.Pages, "good.page", 0, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Still here") }})
 	}}
-	s, _ := newShell(t, bad.New, good.New)
+	s, drain := newShell(t, bad.New, good.New)
 	tt := ui.NewTester(s.View, 1000, 700)
-	tt.Frame()
-	tt.Frame()
-	st := s.Kernel.Plugins()
-	i := slices.IndexFunc(st, func(x kernel.Status) bool { return x.Manifest.ID == "bad" })
-	if st[i].State != kernel.Failed || !tt.HasText("Still here") {
-		t.Fatalf("bad=%v texts=%q", st[i].State, tt.Texts())
+	status := func() kernel.Status {
+		st := s.Kernel.Plugins()
+		return st[slices.IndexFunc(st, func(x kernel.Status) bool { return x.Manifest.ID == "bad" })]
 	}
-	if !slices.ContainsFunc(s.host.toasts, func(t ui.Toast) bool { return strings.Contains(t.Title, "bad stopped working") }) &&
-		!tt.HasText("bad stopped working") {
-		t.Fatal("the failure was not reported")
+	// Each failure within the policy restarts the plugin, which fails again
+	// on its next frame; past the policy it stays stopped.
+	for range restartPolicy.Max {
+		tt.Frame()
+		if st := status(); st.State != kernel.Failed || !st.Restarting || !tt.HasText("Still here") {
+			t.Fatalf("bad=%v restarting=%v texts=%q", st.State, st.Restarting, tt.Texts())
+		}
+		drain()
+		if st := status(); st.State != kernel.Active {
+			t.Fatalf("bad was not restarted: %v %v", st.State, st.Err)
+		}
+	}
+	tt.Frame()
+	tt.Frame()
+	if st := status(); st.State != kernel.Failed || st.Restarting {
+		t.Fatalf("bad=%v restarting=%v", st.State, st.Restarting)
+	}
+	// The newest toasts show: the restarts, then the stop.
+	texts := tt.Texts()
+	restarted, stopped := slices.Index(texts, "bad restarted after an error"), slices.Index(texts, "bad stopped working")
+	if restarted < 0 || stopped < restarted {
+		t.Fatalf("toasts %q", texts)
 	}
 }
 

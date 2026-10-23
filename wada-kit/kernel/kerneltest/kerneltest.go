@@ -17,6 +17,9 @@ import (
 type Config struct {
 	Store   *Store // nil means a fresh one
 	Lenient bool   // fail plugins on panic instead of re-panicking
+	// Restart and Now are the kernel's; Restart needs Lenient.
+	Restart kernel.Restart
+	Now     func() time.Time
 }
 
 // Harness is a started kernel. The test goroutine is its UI thread. Posted
@@ -58,6 +61,8 @@ func Start(t testing.TB, cfg Config, plugins ...kernel.Factory) *Harness {
 		Background: func(fn func()) { h.mu.Lock(); h.work = append(h.work, fn); h.mu.Unlock() },
 		Store:      h.Store,
 		Strict:     !cfg.Lenient,
+		Restart:    cfg.Restart,
+		Now:        cfg.Now,
 	})
 	if err := h.Install(plugins...); err != nil {
 		t.Fatal(err)

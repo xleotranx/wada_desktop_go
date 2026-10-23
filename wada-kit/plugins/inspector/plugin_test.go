@@ -3,6 +3,7 @@ package inspector
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
@@ -25,8 +26,9 @@ func (s *snapshot) New() kernel.Plugin           { return s }
 
 func TestInspectorShowsDependenciesResourcesAndFailures(t *testing.T) {
 	probe := &snapshot{rows: []kernel.Diagnostic{{
-		Status:   kernel.Status{Manifest: kernel.Manifest{ID: "chat"}, State: kernel.Blocked, Missing: []string{"agent.service"}, Err: errors.New("startup failed")},
+		Status:   kernel.Status{Manifest: kernel.Manifest{ID: "chat"}, State: kernel.Blocked, Missing: []string{"agent.service"}, Err: errors.New("startup failed"), Restarts: 2},
 		Requires: []kernel.Dependency{{Key: "agent.service", Provider: "pi"}}, Scopes: 2, Workers: 1,
+		Time:     kernel.Meter{Busy: 12500 * time.Microsecond, Calls: 40, Slowest: 3 * time.Millisecond},
 		Registrations: []kernel.Registration{{Kind: "contribution", Name: "shell.pages", ID: "chat.page"}}, Stack: "panic stack details",
 	}}}
 	host := &kittest.Host{}
@@ -46,7 +48,7 @@ func TestInspectorShowsDependenciesResourcesAndFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	for _, want := range []string{"chat · blocked", "2 scopes · 1 workers · 1 registrations", "Missing: agent.service", "agent.service ← pi", "contribution · shell.pages · chat.page", "startup failed", "panic stack details"} {
+	for _, want := range []string{"chat · blocked", "2 scopes · 1 workers · 1 registrations", "UI thread 12.5 ms in 40 calls · slowest 3.0 ms · restarted 2 times", "Missing: agent.service", "agent.service ← pi", "contribution · shell.pages · chat.page", "startup failed", "panic stack details"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q: %q", want, tt.Texts())
 		}

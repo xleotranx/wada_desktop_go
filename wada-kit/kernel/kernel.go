@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Plugin is one installable unit of the app.
@@ -71,6 +72,10 @@ type Status struct {
 	State    State
 	Err      error
 	Missing  []string // unprovided required keys
+	// Restarting is set on a Failed plugin the kernel sets up again shortly;
+	// Restarts counts its restarts within the policy's window.
+	Restarting bool
+	Restarts   int
 }
 
 // PluginError attributes an error to the plugin that caused it.
@@ -105,6 +110,20 @@ type Options struct {
 	Background func(func()) // optional: run off the UI thread; default is a goroutine
 	Store      Store        // required
 	Strict     bool         // re-panic instead of failing the plugin
+	// Restart brings back a plugin that failed after its Setup; the zero
+	// value never does.
+	Restart Restart
+	// Now is the clock for Restart's window; nil means time.Now.
+	Now func() time.Time
+}
+
+// Restart is how often the kernel sets a plugin up again after it failed at
+// run time, as when a view or listener panicked: up to Max times within
+// Within, and then it stays Failed until the user enables it. A Setup that
+// fails is not restarted, since it would fail the same way.
+type Restart struct {
+	Max    int
+	Within time.Duration
 }
 
 // HostPrefix starts the IDs of entries the host contributes through the Kernel.
@@ -129,6 +148,10 @@ type plugin struct {
 	settingUp bool
 	disposing bool
 	workers   atomic.Int64
+
+	failures   []time.Time // run-time failures within the restart window
+	restarting bool        // a restart is posted
+	meter      Meter       // UI-thread time in its callbacks
 }
 
 func (p *plugin) id() string {
@@ -171,6 +194,9 @@ type Kernel struct {
 	workers sync.WaitGroup
 	started bool
 	closed  bool
+	// nested is the time spent in plugin callbacks inside the callback that
+	// runs now, so that one is charged only for its own.
+	nested time.Duration
 }
 
 func New(opts Options) *Kernel {
@@ -179,6 +205,9 @@ func New(opts Options) *Kernel {
 	}
 	if opts.Background == nil {
 		opts.Background = func(fn func()) { go fn() }
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	k := &Kernel{opts: opts, byID: map[string]*plugin{},
 		services: map[string]*service{}, topics: map[string]*topic{},
@@ -297,7 +326,7 @@ func (k *Kernel) Enable(id string) error {
 	if other := k.conflict(p); other != nil {
 		return fmt.Errorf("kernel: %s is already provided by %q", other.key, other.by)
 	}
-	p.enabled, p.state, p.err = true, Disabled, nil
+	p.enabled, p.state, p.err, p.restarting, p.failures = true, Disabled, nil, false, nil
 	if !p.m.Locked {
 		k.set(kernelNamespace, p.m.ID, true)
 	}
@@ -318,7 +347,7 @@ func (k *Kernel) Disable(id string) error {
 	if p.m.Locked {
 		return fmt.Errorf("kernel: plugin %q is locked", id)
 	}
-	p.enabled = false
+	p.enabled, p.restarting = false, false
 	k.set(kernelNamespace, p.m.ID, false)
 	if p.ctx != nil {
 		k.dispose(p, Disabled, nil)
@@ -344,7 +373,7 @@ func (k *Kernel) lookup(id string) (*plugin, error) {
 func (k *Kernel) Plugins() []Status {
 	out := make([]Status, 0, len(k.plugins))
 	for _, p := range k.plugins {
-		st := Status{Manifest: p.m, State: p.state, Err: p.err}
+		st := Status{Manifest: p.m, State: p.state, Err: p.err, Restarting: p.restarting, Restarts: len(p.failures)}
 		if p.state == Blocked {
 			st.Missing = k.missing(p)
 		}
@@ -527,11 +556,23 @@ func (k *Kernel) dependent(p *plugin) *plugin {
 	return nil
 }
 
-// call runs fn on behalf of p, failing p if fn panics. Host callbacks (p nil),
-// Strict kernels and a plugin's own Setup let the panic through; setup then
-// fails the plugin.
+// call runs fn on behalf of p, failing p if fn panics, and charges p for the
+// time fn took, less what callbacks of plugins it ran themselves took. Host
+// callbacks (p nil), Strict kernels and a plugin's own Setup let the panic
+// through; setup then fails the plugin.
 func (k *Kernel) call(p *plugin, fn func()) {
-	if p == nil || k.opts.Strict || p.settingUp {
+	if p == nil {
+		fn()
+		return
+	}
+	start, outer := time.Now(), k.nested
+	k.nested = 0
+	defer func() {
+		took := time.Since(start)
+		p.meter.add(took - k.nested)
+		k.nested = outer + took
+	}()
+	if k.opts.Strict || p.settingUp {
 		fn()
 		return
 	}
@@ -541,7 +582,8 @@ func (k *Kernel) call(p *plugin, fn func()) {
 }
 
 // fail disposes p as Failed with err, or records err while p is already
-// being disposed.
+// being disposed. A plugin within its restart budget is set up again once
+// the callback that failed has unwound.
 func (k *Kernel) fail(p *plugin, err error) {
 	if p == nil || k.opts.Strict {
 		panic(err)
@@ -553,6 +595,41 @@ func (k *Kernel) fail(p *plugin, err error) {
 		return
 	}
 	k.dispose(p, Failed, err)
+	if p.state == Failed && k.mayRestart(p) {
+		p.restarting = true
+		k.opts.Post(func() { k.restart(p) })
+	}
+	k.changed()
+}
+
+// mayRestart counts a run-time failure of p and reports whether the policy
+// allows another restart.
+func (k *Kernel) mayRestart(p *plugin) bool {
+	r := k.opts.Restart
+	if r.Max <= 0 {
+		return false
+	}
+	now := k.opts.Now()
+	p.failures = slices.DeleteFunc(p.failures, func(t time.Time) bool { return now.Sub(t) >= r.Within })
+	if len(p.failures) >= r.Max {
+		return false
+	}
+	p.failures = append(p.failures, now)
+	return true
+}
+
+// restart sets p up again unless something else decided its state since it
+// failed: the user disabled or enabled it, or the kernel closed.
+func (k *Kernel) restart(p *plugin) {
+	if !p.restarting {
+		return
+	}
+	p.restarting = false
+	if k.closed || !p.enabled || p.state != Failed {
+		return
+	}
+	p.state = Disabled // so settle sets it up; its error stays until then
+	k.settle()
 	k.changed()
 }
 

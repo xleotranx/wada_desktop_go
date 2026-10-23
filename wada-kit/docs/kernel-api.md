@@ -65,7 +65,7 @@ Anything with many contributors is a `Point`; a `Key` has one provider.
 Install ──► Disabled ──Enable──► (requirements met?) ──no──► Blocked
                 ▲                       │ yes                   │ provider appears
                 │                     Setup ──error/panic──► Failed
-             Disable                    │ ok                    │ Enable retries
+             Disable                    │ ok                    │ Enable, or a restart
                 └────────────────── Active ◄────────────────────┘
 ```
 
@@ -139,8 +139,16 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
   original scope. Disposed contributions stay invalid after a plugin restarts or
   another contribution reuses their ID, including callbacks already queued by a menu.
 - `Options.Strict` re-panics instead (tests, and `<Env>_STRICT=1`; see the shell note).
-- A Failed plugin can be enabled again from Settings → Plugins. Nothing retries
-  automatically.
+- `Options.Restart{Max, Within}` sets a plugin up again, on a new instance, after a
+  failure at run time: after its Setup returned, as when a view, listener or worker
+  panicked. The restart is posted, so the callback that failed unwinds first, and
+  Blocked dependents come back with it. A plugin that fails `Max` times within
+  `Within` stays Failed. A failing Setup, or a disposer that panics while the plugin
+  is disposed for another reason, is not restarted. `Status.Restarting` marks a
+  posted restart and `Status.Restarts` counts the restarts within the window;
+  disabling the plugin cancels a posted restart, and enabling it starts the count
+  over. The zero value never restarts. `Options.Now` is the clock for the window.
+- A Failed plugin can be enabled again from Settings → Plugins.
 - Panics in host callbacks, registered on the `Kernel` itself, are app bugs and are
   not recovered.
 - `Run` returns a transform's error as a `*PluginError` naming the plugin.
@@ -213,9 +221,14 @@ else changes.
 
 `Kernel.Inspect` returns plugin diagnostics in install order: status, resolved
 required-service providers, live scope count, registered services/listeners/
-transforms/contributions, running worker count and recovered panic stack. Workers
-remain counted after cancellation until their bodies exit, including work from a
-previous activation. The shell provides this read-only API as `InspectorKey`.
+transforms/contributions, running worker count, UI-thread time and recovered panic
+stack. Workers remain counted after cancellation until their bodies exit, including
+work from a previous activation. `Diagnostic.Time` is a `Meter`: the time the
+plugin's callbacks (Setup, listeners, transforms, posts, `apply`, disposers and what
+runs through `Invoke`) took on the UI thread since it was installed, their number,
+and the slowest. A callback is charged only for its own time: a listener that emits
+an event does not pay for other plugins' listeners. Measuring costs two clock reads
+per callback. The shell provides this read-only API as `InspectorKey`.
 
 `kernel/kerneltest`:
 
@@ -223,8 +236,9 @@ previous activation. The shell provides this read-only API as `InspectorKey`.
   test goroutine is the UI thread; posts and background work queue until the test runs
   them. `Flush` drains both; `RunWork(i)`, `RunPosts` and `WaitPosts(n)` let a test
   choose the order in which work finishes and results arrive.
-- `kerneltest.Start(t, kerneltest.Config{Store, Lenient}, factories...)` shares a
-  store across restarts, or fails plugins on panic instead of re-panicking.
+- `kerneltest.Start(t, kerneltest.Config{Store, Lenient, Restart, Now}, factories...)`
+  shares a store across restarts, fails plugins on panic instead of re-panicking, and
+  restarts them by a policy and clock of the test's.
 - `kerneltest.Keep(&p, func() *Plugin { return &Plugin{…} })` is a factory that keeps
   the plugin set up now in `p`, so a test looks into the current instance, also after
   a restart. A test double that records what plugins did, such as `kittest.Host`,

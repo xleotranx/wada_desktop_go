@@ -32,6 +32,11 @@ shell.Run(shell.App{
 `shell.New` builds the same shell without a window, for tests and benchmarks: its
 `Options` take the Name and Menus, and the kernel's Post, Store and Strict.
 
+The shell gives the kernel a fixed restart policy: a plugin that fails at run time
+is set up again, up to 3 times a minute. A toast says "<Title> restarted after an
+error" for a restart and "<Title> stopped working" once the plugin stays Failed;
+Settings → Plugins shows it as Restarting or Stopped with the error.
+
 ## Window
 
 `shell` is the window host. It creates the kernel, opens the settings store, builds
@@ -72,7 +77,7 @@ default).
 differs from the last one.
 
 Every render, command and title callback runs through `kernel.Invoke`, so a panic
-disables only that plugin; the shell shows a toast naming it.
+fails only that plugin, which the restart policy below brings back.
 
 Commands with a `Menu` appear in the menu bar under that name, in the order of
 `App.Menus` (File, View, Help without it), and the menu owns their first shortcut.
@@ -112,5 +117,6 @@ plugin list uses switches to turn optional plugins on and off through `shell.Hos
 The `inspector` plugin adds View → Plugin diagnostics and a button in Settings.
 Its read-only page lists every installed plugin. Expanding one shows required
 service providers, missing requirements, owned registrations, scope and worker
-counts, and any failure and recovered panic stack. It uses the public
+counts, the time its callbacks took on the UI thread (in all, how many, the
+slowest), its recent restarts, and any failure and recovered panic stack. It uses the public
 `kernel.InspectorKey` service and shell page contributions.

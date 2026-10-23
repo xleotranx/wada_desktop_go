@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
@@ -917,4 +918,134 @@ func TestPointChangesWithAnImmediatePost(t *testing.T) {
 		t.Fatalf("heard %v", heard)
 	}
 	k.Close(context.Background())
+}
+
+// crasher fails when pinged "crash"; its consumer requires what it provides.
+func crasher(setups *int) (*fake, *fake) {
+	p := plug("p", func(c *kernel.Context) error {
+		*setups++
+		kernel.On(c, ping, func(s string) {
+			if s == "crash" {
+				panic(s)
+			}
+		})
+		return kernel.Provide[agent](c, agentKey, named("p"))
+	})
+	p.m.Provides = []kernel.Named{agentKey}
+	var got agent
+	return p, consumer("user", &got)
+}
+
+func TestARunTimeFailureRestartsWithinThePolicy(t *testing.T) {
+	now := time.Unix(0, 0)
+	setups := 0
+	p, user := crasher(&setups)
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true, Now: func() time.Time { return now },
+		Restart: kernel.Restart{Max: 2, Within: time.Minute}}, p.New, user.New)
+	for i := range 2 {
+		kernel.Emit(h, ping, "crash")
+		if st := state(t, h, "p"); st.State != kernel.Failed || !st.Restarting || st.Restarts != i+1 {
+			t.Fatalf("after crash %d: %+v", i, st)
+		}
+		if state(t, h, "user").State != kernel.Blocked {
+			t.Fatal("the dependent kept running without its provider")
+		}
+		h.RunPosts()
+		if state(t, h, "p").State != kernel.Active || state(t, h, "user").State != kernel.Active {
+			t.Fatalf("not back after crash %d: %+v %+v", i, state(t, h, "p"), state(t, h, "user"))
+		}
+	}
+	if setups != 3 {
+		t.Fatalf("set up %d times", setups)
+	}
+	// A third failure within the window stays failed.
+	kernel.Emit(h, ping, "crash")
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Failed || st.Restarting {
+		t.Fatalf("past the policy: %+v", st)
+	}
+	// Enabling it starts the count over.
+	if err := h.Enable("p"); err != nil || state(t, h, "p").Restarts != 0 || state(t, h, "user").State != kernel.Active {
+		t.Fatalf("enable: %v %+v", err, state(t, h, "p"))
+	}
+	// Failures older than the window no longer count.
+	kernel.Emit(h, ping, "crash")
+	h.RunPosts()
+	kernel.Emit(h, ping, "crash")
+	h.RunPosts()
+	now = now.Add(time.Minute)
+	kernel.Emit(h, ping, "crash")
+	if st := state(t, h, "p"); !st.Restarting || st.Restarts != 1 {
+		t.Fatalf("old failures counted: %+v", st)
+	}
+	h.RunPosts()
+	closeClean(t, h)
+}
+
+func TestARestartYieldsToTheUser(t *testing.T) {
+	setups := 0
+	p, user := crasher(&setups)
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true, Restart: kernel.Restart{Max: 3, Within: time.Minute}}, p.New, user.New)
+	kernel.Emit(h, ping, "crash")
+	if err := h.Disable("p"); err != nil {
+		t.Fatal(err)
+	}
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Disabled || st.Restarting || setups != 1 {
+		t.Fatalf("restarted a disabled plugin: %+v, %d setups", st, setups)
+	}
+	if err := h.Enable("p"); err != nil {
+		t.Fatal(err)
+	}
+	kernel.Emit(h, ping, "crash")
+	if err := h.Enable("p"); err != nil {
+		t.Fatal(err)
+	}
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Active || setups != 3 {
+		t.Fatalf("enabled and restarted: %+v, %d setups", st, setups)
+	}
+	closeClean(t, h)
+}
+
+func TestSetupFailuresAreNotRestarted(t *testing.T) {
+	p := plug("p", func(*kernel.Context) error { return errors.New("no") })
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true, Restart: kernel.Restart{Max: 3, Within: time.Minute}}, p.New)
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Failed || st.Restarting || st.Restarts != 0 {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestCallbacksAreChargedTheirOwnTime(t *testing.T) {
+	outer := plug("outer", func(c *kernel.Context) error {
+		kernel.On(c, ping, func(s string) {
+			if s == "go" {
+				time.Sleep(5 * time.Millisecond)
+				kernel.Emit(c, ping, "inner")
+			}
+		})
+		return nil
+	})
+	inner := plug("inner", func(c *kernel.Context) error {
+		kernel.On(c, ping, func(s string) {
+			if s == "inner" {
+				time.Sleep(20 * time.Millisecond)
+			}
+		})
+		return nil
+	})
+	h := kerneltest.Start(t, kerneltest.Config{}, outer.New, inner.New)
+	before := h.Inspect()
+	kernel.Emit(h, ping, "go")
+	after := h.Inspect()
+	o := after[0].Time.Busy - before[0].Time.Busy
+	i := after[1].Time.Busy - before[1].Time.Busy
+	if i < 20*time.Millisecond || o < 5*time.Millisecond || o >= 20*time.Millisecond {
+		t.Fatalf("outer %v, inner %v", o, i)
+	}
+	if after[1].Time.Slowest < 20*time.Millisecond || after[0].Time.Calls < before[0].Time.Calls+2 {
+		t.Fatalf("meters %+v", after)
+	}
+	closeClean(t, h)
 }

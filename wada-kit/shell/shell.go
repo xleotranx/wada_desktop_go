@@ -8,6 +8,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
@@ -56,13 +57,26 @@ type Shell struct {
 	title  string
 	accel  map[string]accelerator // parsed command shortcut strings, remembered so frames need not parse them
 	keys   shortcutTable
-	failed map[string]bool        // plugins whose failure was reported, by ID
+	failed map[string]failure // the failure last reported for each plugin, by ID
 }
+
+// failure is what the shell last told the user about a plugin.
+type failure uint8
+
+const (
+	working failure = iota
+	restarting
+	stopped
+)
+
+// restartPolicy brings a plugin back after a run-time failure, unless it
+// fails again and again.
+var restartPolicy = kernel.Restart{Max: 3, Within: time.Minute}
 
 // New installs the shell's own plugin and then plugins, in that order.
 func New(opts Options, plugins ...kernel.Factory) (*Shell, error) {
-	s := &Shell{opts: opts, failed: map[string]bool{}}
-	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
+	s := &Shell{opts: opts, failed: map[string]failure{}}
+	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict, Restart: restartPolicy})
 	// The shell reaches its own plugin as the one set up now.
 	newHost := func() kernel.Plugin {
 		s.host = &host{k: s.Kernel, setTheme: opts.SetTheme, setVibrancy: opts.SetVibrancy, notify: opts.Notify,
@@ -95,18 +109,29 @@ func (s *Shell) Close(ctx context.Context) error { return s.Kernel.Close(ctx) }
 // Call it on the UI thread.
 func (s *Shell) NoticeClicked(id string) { kernel.Emit(s.Kernel, shell.NoticeClicked, id) }
 
-// pluginsChanged rebuilds the menu and reports plugins that just failed. The
-// menu is rebuilt as well whenever the commands change.
+// pluginsChanged rebuilds the menu and reports plugins that just failed:
+// one the kernel restarts as a warning, one that stays stopped as an error.
+// The menu is rebuilt as well whenever the commands change.
 func (s *Shell) pluginsChanged(all []kernel.Status) {
 	s.buildMenu()
 	for _, st := range all {
-		failed := st.State == kernel.Failed
-		if failed && !s.failed[st.Manifest.ID] {
-			log.Printf("plugin %s failed: %v", st.Manifest.ID, st.Err)
-			s.host.Toast(ui.Toast{Title: st.Manifest.Title + " stopped working", Description: st.Err.Error(),
-				Type: components.ToastError})
+		now := working
+		if st.State == kernel.Failed {
+			now = stopped
+			if st.Restarting {
+				now = restarting
+			}
 		}
-		s.failed[st.Manifest.ID] = failed
+		if now != working && now != s.failed[st.Manifest.ID] {
+			log.Printf("plugin %s failed: %v", st.Manifest.ID, st.Err)
+			toast := ui.Toast{Title: st.Manifest.Title + " stopped working", Description: st.Err.Error(),
+				Type: components.ToastError}
+			if now == restarting {
+				toast.Title, toast.Type = st.Manifest.Title+" restarted after an error", components.ToastWarning
+			}
+			s.host.Toast(toast)
+		}
+		s.failed[st.Manifest.ID] = now
 	}
 }
 

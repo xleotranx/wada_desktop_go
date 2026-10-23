@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"slices"
+	"time"
 )
 
 // Inspector is read-only and UI-thread-only. The host exposes the kernel through
@@ -13,12 +14,28 @@ type Inspector interface{ Inspect() []Diagnostic }
 var InspectorKey = NewKey[Inspector]("kernel.inspector")
 
 type Dependency struct{ Key, Provider string }
+
+// Meter is the time a plugin's callbacks took on the UI thread since it was
+// installed, each charged without the callbacks of other plugins it ran.
+type Meter struct {
+	Busy    time.Duration // in all
+	Calls   int64
+	Slowest time.Duration // the longest single call
+}
+
+func (m *Meter) add(d time.Duration) {
+	m.Busy += d
+	m.Calls++
+	m.Slowest = max(m.Slowest, d)
+}
+
 type Registration struct{ Kind, Name, ID string }
 type Diagnostic struct {
 	Status        Status
 	Requires      []Dependency
 	Scopes        int   // active scopes, including the plugin root
 	Workers       int64 // work still running, including cancelled work from older scopes
+	Time          Meter // its UI-thread time, across activations
 	Registrations []Registration
 	Stack         string // recovered panic stack, when present
 }
@@ -28,7 +45,7 @@ func (k *Kernel) Inspect() []Diagnostic {
 	statuses := k.Plugins()
 	out := make([]Diagnostic, len(k.plugins))
 	for i, p := range k.plugins {
-		d := Diagnostic{Status: statuses[i], Workers: p.workers.Load()}
+		d := Diagnostic{Status: statuses[i], Workers: p.workers.Load(), Time: p.meter}
 		var panicErr *PanicError
 		if errors.As(p.err, &panicErr) {
 			d.Stack = string(panicErr.Stack)

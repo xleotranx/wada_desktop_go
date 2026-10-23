@@ -4,6 +4,7 @@ package inspector
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xleotranx/wada-kit/contract/settings"
 	"github.com/xleotranx/wada-kit/contract/shell"
@@ -64,6 +65,7 @@ func (p *Plugin) view(c *ui.Context) {
 						ui.Column(c).Grow(1).Gap(3).Children(func() {
 							ui.Text(c, id+" · "+d.Status.State.String()).FontSize(14).FontWeight(600).TextColor(pal.Text)
 							ui.Text(c, fmt.Sprintf("%d scopes · %d workers · %d registrations", d.Scopes, d.Workers, len(d.Registrations))).FontSize(12).TextColor(pal.Muted)
+							ui.Text(c, timeLine(d)).FontSize(12).TextColor(pal.Muted)
 						})
 						components.Button(c, "Inspect "+id, components.ButtonSecondary).OnClick(func() { p.expanded[id] = !p.expanded[id] })
 					})
@@ -101,4 +103,23 @@ func (*Plugin) details(c *ui.Context, pal native.Palette, d kernel.Diagnostic) {
 	if d.Stack != "" {
 		ui.Text(c, d.Stack).Font("monospace").FontSize(11).TextColor(pal.Muted)
 	}
+}
+
+// timeLine is the plugin's UI-thread time and, after a failure, how often the
+// kernel restarted it lately.
+func timeLine(d kernel.Diagnostic) string {
+	line := fmt.Sprintf("UI thread %s in %d calls · slowest %s", millis(d.Time.Busy), d.Time.Calls, millis(d.Time.Slowest))
+	switch {
+	case d.Status.Restarting:
+		line += " · restarting"
+	case d.Status.Restarts == 1:
+		line += " · restarted once"
+	case d.Status.Restarts > 1:
+		line += fmt.Sprintf(" · restarted %d times", d.Status.Restarts)
+	}
+	return line
+}
+
+func millis(d time.Duration) string {
+	return fmt.Sprintf("%.1f ms", float64(d)/float64(time.Millisecond))
 }

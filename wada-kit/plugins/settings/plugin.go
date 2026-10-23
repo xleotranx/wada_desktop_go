@@ -232,10 +232,14 @@ func (p *Plugin) plugins(c *ui.Context) {
 func statusLine(st kernel.Status) string {
 	switch st.State {
 	case kernel.Failed:
-		if st.Err != nil {
-			return "Stopped: " + st.Err.Error()
+		line := "Stopped"
+		if st.Restarting {
+			line = "Restarting"
 		}
-		return "Stopped"
+		if st.Err != nil {
+			line += ": " + st.Err.Error()
+		}
+		return line
 	case kernel.Blocked:
 		return "Waiting for a plugin that provides " + joinNames(st.Missing)
 	case kernel.Disabled:

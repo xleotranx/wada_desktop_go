@@ -348,3 +348,34 @@ func TestTheMenuFollowsTheCommands(t *testing.T) {
 		t.Fatalf("menus %v keep a withdrawn command's", menuLabels(built))
 	}
 }
+
+// The shortcut table follows the commands: a command added later answers its
+// key, one withdrawn no longer does, and an unchanged frame builds nothing.
+func TestShortcutsFollowTheCommands(t *testing.T) {
+	var ctx *kernel.Context
+	p := &plugin{id: "notes", setup: func(c *kernel.Context) error { ctx = c; return nil }}
+	s, run := newShell(t, p.New)
+	tt := ui.NewTester(s.View, 800, 600)
+	tt.Frame()
+	ran := 0
+	later := ctx.NewScope()
+	kernel.Contribute(later, kernel.Commands, "notes.later", 0, kernel.Command{Title: "Later", Keys: []string{"cmd+j"}, Run: func() { ran++ }})
+	run()
+	tt.Frame()
+	built := &s.keys.bindings[0]
+	tt.Frame()
+	if &s.keys.bindings[0] != built {
+		t.Fatal("an unchanged frame built the shortcuts again")
+	}
+	tt.Key(ui.Cmd, ui.KeyJ)
+	if ran != 1 {
+		t.Fatalf("a later command's shortcut ran %d times", ran)
+	}
+	later.Dispose()
+	run()
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyJ)
+	if ran != 1 || len(s.keys.bindings) != 0 {
+		t.Fatalf("a withdrawn command's shortcut ran: %d, bindings %d", ran, len(s.keys.bindings))
+	}
+}

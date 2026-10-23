@@ -23,16 +23,18 @@ go test -run NONE -bench . -benchtime 30x .
 | `TranscriptScroll` | One frame per wheel notch over the conversation |
 | `SwitchTab` | Showing another open conversation of 120 messages, kept in memory: the frame that shows it, and the read again in the background |
 
-Current numbers on an M4 (30 iterations each; Tester excludes GPU paint and
-present, which `MYGO_FRAME_STATS` measures below):
+Current numbers (Tester excludes GPU paint and present, which
+`MYGO_FRAME_STATS` measures below). Frame times are from an M4, 30 iterations
+each; bytes and allocations per frame are counted by the Go runtime, the same
+on any machine:
 
 | Benchmark | Frame | Bytes | Allocs |
 |---|---|---:|---:|
-| EmptyPageIdle | 128 µs | 7,764 | 88 |
-| TranscriptIdle | 232 µs | 15,376 | 182 |
-| StreamDelta | 207 µs | 12,291 | 158 |
-| TranscriptScroll | 1.7 ms | 46,505 | 516 |
-| SwitchTab | 361 µs | 247,373 | 625 |
+| EmptyPageIdle | 128 µs | 4,798 | 82 |
+| TranscriptIdle | 232 µs | 5,346 | 92 |
+| StreamDelta | 207 µs | 5,646 | 97 |
+| TranscriptScroll | 1.7 ms | 16,392 | 283 |
+| SwitchTab | 361 µs | 260,648 | 560 |
 
 Most of the time of `TranscriptScroll` and `SwitchTab` is the Tester's
 software rasterizer repainting the window, which the GPU does in the real
@@ -47,8 +49,13 @@ The kept conversations hold about 3 MB of heap for eight of 120 messages;
 past that, 3,000 switches across twelve tabs leave it within 0.7 MB.
 
 Most of the per-frame allocation floor is MyGo's element machinery, a pinned
-dependency. The app parses command shortcuts once rather than every frame;
-the tab strip draws from state the tabs plugin keeps, without I/O.
+dependency. A frame builds nothing of the app's own that has not changed: the
+shell builds its table of shortcuts again only when the commands change, the
+chat folds a conversation's turns again only when its rows' order, kinds or
+running turn change (streamed words reuse the folding), `Setting.Get` decodes
+a value once until a setting changes, the tab strip draws from a buffer it
+keeps and from state the tabs plugin holds, without I/O, and the OpenCode
+decoder names event kinds from one table rather than one built per event.
 
 ## The real window
 

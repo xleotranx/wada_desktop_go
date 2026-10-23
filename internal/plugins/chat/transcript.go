@@ -67,6 +67,14 @@ type transcript struct {
 	// anything changes them; loaded tells that a read built them once.
 	read   uint64
 	loaded bool
+	folded folding
+}
+
+// folding keeps the items built from the rows until their shape changes.
+type folding struct {
+	shape []uint64 // each row's id and kind, as built from
+	busy  bool
+	items []item
 }
 
 func (t *transcript) reset() {
@@ -303,22 +311,41 @@ type item struct {
 	row    *row
 	work   []*row // the turn's tool calls and the words between them
 	answer bool   // row is the final answer of a finished turn
-}
-
-// key identifies an item across frames; a fold takes its first row's id,
-// negated so it never meets a row's.
-func (it item) key() any {
-	if it.work != nil {
-		return -int64(it.work[0].id)
-	}
-	return it.row.id
+	// key identifies the item across frames; a fold takes its first row's
+	// id, negated so it never meets a row's.
+	key any
 }
 
 // items folds each finished turn's work, from its first answer or tool call
 // through its last tool call, under one entry, so the answer that follows
 // stands alone as the answer. The turn in flight stays unfolded, so its
 // steps show as they happen, and has no answer yet.
+//
+// Folding depends only on the rows' order, ids and kinds and on busy, so the
+// items are built again only when those change; between changes, as while
+// words stream into a row, a frame reuses them. Callers must not change the
+// slice.
 func (t *transcript) items() []item {
+	f := &t.folded
+	same := f.items != nil && f.busy == t.busy && len(f.shape) == len(t.rows)
+	for i := 0; same && i < len(t.rows); i++ {
+		same = f.shape[i] == shapeOf(t.rows[i])
+	}
+	if same {
+		return f.items
+	}
+	f.shape, f.busy = f.shape[:0], t.busy
+	for _, r := range t.rows {
+		f.shape = append(f.shape, shapeOf(r))
+	}
+	f.items = t.fold()
+	return f.items
+}
+
+// shapeOf is what folding reads of a row: its id and kind.
+func shapeOf(r *row) uint64 { return r.id<<8 | uint64(r.kind) }
+
+func (t *transcript) fold() []item {
 	out := make([]item, 0, len(t.rows))
 	for start := 0; start < len(t.rows); {
 		end := start + 1
@@ -348,6 +375,13 @@ func (t *transcript) items() []item {
 			out[fold].work = append(out[fold].work, r)
 		}
 		start = end
+	}
+	for i := range out {
+		if out[i].work != nil {
+			out[i].key = -int64(out[i].work[0].id)
+		} else {
+			out[i].key = out[i].row.id
+		}
 	}
 	return out
 }

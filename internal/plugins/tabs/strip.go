@@ -44,7 +44,8 @@ func (p *Plugin) strip(c *ui.Context) {
 			// Not laid out yet: draw everything once, then fit.
 			c.Services().Invalidate()
 		}
-		shown, hidden := fit(p.visible(), p.active, width-newButtonWidth)
+		p.shown = p.visibleInto(p.shown)
+		shown, hidden := fit(p.shown, p.active, width-newButtonWidth)
 		row.Children(func() {
 			for _, t := range shown {
 				c.Key(t.ID)

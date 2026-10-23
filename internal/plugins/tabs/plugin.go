@@ -58,6 +58,9 @@ type Plugin struct {
 	space     string
 	lastIn    map[string]string
 	switching bool // the space switcher is open
+	// shown is the strip's buffer for the tabs it draws; only the strip
+	// uses it, so a handler running during a frame cannot overwrite it.
+	shown []tabs.Tab
 
 	// The dialogs the menus open.
 	renaming tabs.Tab
@@ -260,17 +263,23 @@ func (p *Plugin) step(off int) {
 }
 
 // visible is what the strip shows: the space's tabs, then the pages.
-func (p *Plugin) visible() []tabs.Tab {
-	var mine, pages []tabs.Tab
+func (p *Plugin) visible() []tabs.Tab { return p.visibleInto(nil) }
+
+// visibleInto is visible, appended to buf[:0], so the strip, drawing from a
+// buffer it keeps, allocates nothing for it in a frame.
+func (p *Plugin) visibleInto(buf []tabs.Tab) []tabs.Tab {
+	out := buf[:0]
 	for _, t := range p.tabs {
-		switch {
-		case t.Kind == tabs.Page:
-			pages = append(pages, t)
-		case t.Folder == p.space:
-			mine = append(mine, t)
+		if t.Kind != tabs.Page && t.Folder == p.space {
+			out = append(out, t)
 		}
 	}
-	return append(mine, pages...)
+	for _, t := range p.tabs {
+		if t.Kind == tabs.Page {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // showSpace shows a folder's tabs: the one shown there last, else its first,

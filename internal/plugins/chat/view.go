@@ -157,7 +157,7 @@ func (p *Plugin) transcriptView(c *ui.Context, pal native.Palette) {
 			if i == len(items) {
 				return "working"
 			}
-			return items[i].key()
+			return items[i].key
 		}).
 		Rows(func(r ui.ListRow) {
 			if r.Index == len(items) {

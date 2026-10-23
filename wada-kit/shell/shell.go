@@ -55,6 +55,7 @@ type Shell struct {
 	opts   Options
 	title  string
 	accel  map[string]accelerator // parsed command shortcut strings, remembered so frames need not parse them
+	keys   shortcutTable
 	failed map[string]bool        // plugins whose failure was reported, by ID
 }
 
@@ -223,21 +224,39 @@ func (s *Shell) syncTitle(page kernel.Entry[shell.Page], ok bool) {
 	}
 }
 
+// shortcutTable is the window's shortcuts, built from the commands it was
+// built from; Items returns the same slice until the commands change.
+type shortcutTable struct {
+	from     []kernel.Entry[kernel.Command]
+	bindings []binding
+}
+
+type binding struct {
+	accelerator
+	run func()
+}
+
 // shortcuts registers window keys for commands that aren't in the menu bar;
-// the menu bar owns its items' keys.
+// the menu bar owns its items' keys. The table is built again only when the
+// commands change, so a frame registers the keys without building anything.
 func (s *Shell) shortcuts(c *ui.Context) {
-	for _, e := range kernel.Items(s.Kernel, kernel.Commands) {
-		keys := e.Value.Keys
-		if e.Value.Menu != "" && len(keys) > 0 {
-			keys = keys[1:]
-		}
-		for _, k := range keys {
-			a, ok := s.accelerator(k)
-			if !ok {
-				continue
+	commands := kernel.Items(s.Kernel, kernel.Commands)
+	if t := &s.keys; len(commands) != len(t.from) || len(commands) > 0 && &commands[0] != &t.from[0] {
+		t.from, t.bindings = commands, t.bindings[:0]
+		for _, e := range commands {
+			keys := e.Value.Keys
+			if e.Value.Menu != "" && len(keys) > 0 {
+				keys = keys[1:]
 			}
-			c.OnShortcut(a.mods, a.key, func() { s.run(e) })
+			for _, k := range keys {
+				if a, ok := s.accelerator(k); ok {
+					t.bindings = append(t.bindings, binding{a, func() { s.run(e) }})
+				}
+			}
 		}
+	}
+	for _, b := range s.keys.bindings {
+		c.OnShortcut(b.mods, b.key, b.run)
 	}
 }
 

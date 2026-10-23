@@ -508,13 +508,23 @@ func errorText(raw json.RawMessage) string {
 
 // decodeEvent ignores unknown event types, and rejects malformed known ones
 // without quoting remote payloads in the error.
+// eventKinds names the kind of the events whose case covers several, built
+// once rather than for every event of a stream.
+var eventKinds = map[string]agent.EventKind{
+	"session.text.started": agent.TextStarted, "session.text.delta": agent.TextDelta,
+	"session.text.ended": agent.TextEnded, "session.tool.input.started": agent.ToolStarted,
+	"session.tool.called": agent.ToolCalled, "session.tool.success": agent.ToolFinished,
+	"session.execution.started": agent.TurnStarted, "session.execution.succeeded": agent.TurnSucceeded,
+	"session.execution.failed": agent.TurnFailed, "session.execution.interrupted": agent.TurnInterrupted,
+	"session.model.selected": agent.ModelChanged, "session.renamed": agent.SessionRenamed,
+}
+
 func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 	out := agent.Event{Bytes: len(ev.Data)}
 	var err error
 	switch ev.Type {
 	case "session.text.started", "session.text.delta", "session.text.ended":
-		out.Kind = map[string]agent.EventKind{"session.text.started": agent.TextStarted,
-			"session.text.delta": agent.TextDelta, "session.text.ended": agent.TextEnded}[ev.Type]
+		out.Kind = eventKinds[ev.Type]
 		var d struct {
 			Session string `json:"sessionID"`
 			Message string `json:"assistantMessageID"`
@@ -529,8 +539,7 @@ func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 		out.Session = agent.SessionID(d.Session)
 		out.Text = &agent.TextEvent{Message: agent.MessageID(d.Message), Ordinal: d.Ordinal, Delta: d.Delta, Text: d.Text}
 	case "session.tool.input.started", "session.tool.called", "session.tool.success":
-		out.Kind = map[string]agent.EventKind{"session.tool.input.started": agent.ToolStarted,
-			"session.tool.called": agent.ToolCalled, "session.tool.success": agent.ToolFinished}[ev.Type]
+		out.Kind = eventKinds[ev.Type]
 		var d struct {
 			Session string          `json:"sessionID"`
 			ID      string          `json:"id"`
@@ -573,10 +582,7 @@ func decodeEvent(ev wireEvent) (agent.Event, bool, error) {
 		out.Approval = &agent.Approval{ID: agent.ApprovalID(d.ID), Kind: toolKind(d.Action), Action: d.Action, Resources: d.Resources, Save: d.Save}
 	case "session.execution.started", "session.execution.succeeded", "session.execution.failed",
 		"session.execution.interrupted", "session.model.selected", "session.renamed":
-		out.Kind = map[string]agent.EventKind{"session.execution.started": agent.TurnStarted,
-			"session.execution.succeeded": agent.TurnSucceeded, "session.execution.failed": agent.TurnFailed,
-			"session.execution.interrupted": agent.TurnInterrupted, "session.model.selected": agent.ModelChanged,
-			"session.renamed": agent.SessionRenamed}[ev.Type]
+		out.Kind = eventKinds[ev.Type]
 		var d struct {
 			Session string          `json:"sessionID"`
 			Model   wireModel       `json:"model"`

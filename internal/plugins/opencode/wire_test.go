@@ -125,6 +125,22 @@ func TestDecodeIgnoresUnknownEvents(t *testing.T) {
 	}
 }
 
+func TestCatalogEvents(t *testing.T) {
+	for _, name := range []string{
+		"model.updated", "provider.updated", "integration.updated",
+		"credential.updated", "credential.switched",
+	} {
+		if !catalogEvent(name) {
+			t.Errorf("%s is not a catalog event", name)
+		}
+	}
+	for _, name := range []string{"session.text.delta", "server.connected", "future.event", ""} {
+		if catalogEvent(name) {
+			t.Errorf("%s is a catalog event", name)
+		}
+	}
+}
+
 func TestDecodeRejectsMalformedKnownEvents(t *testing.T) {
 	for name, fx := range eventFixtures {
 		t.Run(name, func(t *testing.T) {

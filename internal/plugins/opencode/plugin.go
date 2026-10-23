@@ -301,6 +301,10 @@ func (p *Plugin) stream(ctx context.Context, run *kernel.Scope, c *client, opene
 		defer func() { result <- err }()
 		warned := false
 		err = c.events(ctx, opened, func(wire wireEvent) {
+			if catalogEvent(wire.Type) {
+				run.Post(func() { p.catalogChanged() })
+				return
+			}
 			ev, known, err := decodeEvent(wire)
 			if err != nil && !warned {
 				warned = true

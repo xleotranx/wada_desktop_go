@@ -20,7 +20,7 @@ reconnecting with backoff, and decoding its protocol.
 | `ChangesKey` | `Key[Changes]` | optional: the files a conversation changed, with line counts and a unified diff |
 | `Events` | `Topic[[]Event]` | ordered batches of normalized events, on the UI thread |
 | `StatusChanged` | `Topic[Status]` | connection state, on the UI thread |
-| `ModelsChanged` | `Topic[struct{}]` | the model catalog changed on the same connection; the model picker reloads it |
+| `ModelsChanged` | `Topic[struct{}]` | the model catalog changed on the same connection, including a change the server announced; the model picker reloads it |
 
 Rules every backend follows:
 
@@ -152,7 +152,10 @@ URL and shows its instructions; mode `auto` checks `.../connect/oauth/<attempt>`
 until it is complete or failed, mode `code` posts the pasted code to
 `.../complete`, and Cancel deletes the attempt. Each of these is a mutation, never
 retried; a failure stays in the form. A change reloads the list and emits
-`agent.ModelsChanged`.
+`agent.ModelsChanged`. The server's own `model.updated`, `provider.updated`,
+`integration.updated` and credential notices do the same, so a change made by another
+client, or settled after the connect call returned, reaches the picker without
+reconnecting.
 
 The client is hand-written. `testdata/openapi-<version>.json` is the OpenAPI
 document the pinned release serves at `/openapi.json`, saved by

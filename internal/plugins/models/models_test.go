@@ -88,6 +88,26 @@ func TestNewChatUsesTheChosenModelAndMode(t *testing.T) {
 	}
 }
 
+func TestThePickerReloadsWhenTheCatalogChanges(t *testing.T) {
+	h, p, a, _, _ := start(t, kerneltest.NewStore())
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.Frame()
+	if err := tt.Click("Alpha"); err != nil {
+		t.Fatalf("open the picker: %v", err)
+	}
+	tt.Frame()
+	if tt.HasText("Gamma") {
+		t.Fatal("Gamma is listed before the backend offers it")
+	}
+	a.Catalog = append(a.Catalog, agent.Model{Ref: agent.ModelRef{Provider: "acme", ID: "gamma"}, Name: "Gamma"})
+	kernel.Emit(h, agent.ModelsChanged, struct{}{})
+	h.Flush()
+	tt.Frame()
+	if !tt.HasText("Gamma") {
+		t.Fatalf("the picker did not reload: %q", tt.Texts())
+	}
+}
+
 func TestOpenConversationSwitchesItsModel(t *testing.T) {
 	h, p, a, c, host := start(t, kerneltest.NewStore())
 	c.Open(agent.Session{ID: "s1", Model: alpha})

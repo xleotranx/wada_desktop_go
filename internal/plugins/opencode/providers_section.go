@@ -75,9 +75,10 @@ func (p *Plugin) loadProviders() {
 	})
 }
 
-// providersChanged reloads the list and tells the model picker after a provider was
-// connected or removed.
-func (p *Plugin) providersChanged() {
+// catalogChanged reloads the provider list and tells the model picker after a
+// provider or its models changed, here, in another client, or on the server's
+// own schedule.
+func (p *Plugin) catalogChanged() {
 	p.loadProviders()
 	kernel.Emit(p.ctx, agent.ModelsChanged, struct{}{})
 }
@@ -147,7 +148,7 @@ func (p *Plugin) connect(pr provider, m method) {
 		p.prov.formErr = err.Error()
 		return
 	}
-	connected := func() { p.closeForm(); p.providersChanged() }
+	connected := func() { p.closeForm(); p.catalogChanged() }
 	switch m.Type {
 	case "key":
 		key := strings.TrimSpace(p.prov.key)
@@ -204,7 +205,7 @@ func (p *Plugin) watchSignIn(id, attemptID string) {
 				case status == "complete":
 					p.prov.signIn = nil
 					p.closeForm()
-					p.providersChanged()
+					p.catalogChanged()
 				default:
 					p.prov.signIn, p.prov.formErr = nil, cmp.Or(message, "The sign-in did not finish")
 				}
@@ -223,7 +224,7 @@ func (p *Plugin) disconnect(conn connection) {
 			p.prov.err = err.Error()
 			return
 		}
-		p.providersChanged()
+		p.catalogChanged()
 	})
 }
 
@@ -418,7 +419,7 @@ func (p *Plugin) connectForm(c *ui.Context, pr provider) {
 				finish.OnClick(func() {
 					id, code := pr.ID, strings.TrimSpace(p.prov.code)
 					p.act(func(ctx context.Context, c *client) error { return c.finishSignIn(ctx, id, a.ID, code) },
-						func() { p.prov.signIn = nil; p.closeForm(); p.providersChanged() })
+						func() { p.prov.signIn = nil; p.closeForm(); p.catalogChanged() })
 				})
 			}
 		default:

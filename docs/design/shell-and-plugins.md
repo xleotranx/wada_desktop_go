@@ -278,7 +278,8 @@ notifications plugins contribute their own sections.
 without a catalog) and adds pickers to `chat.ComposerAccessory`: the model, its effort
 when the model has variants, and the mode in both new and existing conversations
 when there is more than one choice across backend modes and targets. It reads the catalog when a new connection attempt is
-ready and again on `agent.ModelsChanged`. A backend without modes shows "Chat" when targets exist.
+ready and again on `agent.ModelsChanged`, which the backend emits for its own provider
+changes and for the server's catalog notices. A backend without modes shows "Chat" when targets exist.
 The mode picker also lists `chat.Targets` after the modes, under the group each one
 names. Choosing a target applies to the next message only: it is not saved, the picker
 returns to the chosen mode once the message is sent, and it is dropped when another

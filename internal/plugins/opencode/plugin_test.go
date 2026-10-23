@@ -36,6 +36,7 @@ type fakeServer struct {
 	refuse   bool
 	linked   map[string]bool // providers with a credential
 	polls    int             // sign-in status checks
+	reads    int             // provider list reads
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -130,6 +131,7 @@ func (f *fakeServer) serveProviders(w http.ResponseWriter, route string) bool {
 	defer f.mu.Unlock()
 	switch route {
 	case "GET /integration":
+		f.reads++
 		var out []string
 		for _, pr := range []struct{ id, name, methods string }{
 			{"anthropic", "Anthropic", `[{"type":"key"},{"type":"env","names":["ANTHROPIC_API_KEY"]}]`},
@@ -181,6 +183,14 @@ func (f *fakeServer) seen() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.requests)
+}
+
+// providerReads counts the GET /integration requests, which are otherwise
+// left out of seen so tests can name the mutations alone.
+func (f *fakeServer) providerReads() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
 }
 
 func (f *fakeServer) body(route string) string {
@@ -292,6 +302,26 @@ func TestConnectsAndEmitsEventBatchesInOrder(t *testing.T) {
 		if ev.Text.Delta != fmt.Sprint(i) {
 			t.Fatalf("event %d out of order: %q", i, ev.Text.Delta)
 		}
+	}
+}
+
+func TestServerCatalogEventsRefreshTheLists(t *testing.T) {
+	f := newFakeServer(t)
+	h, p := start(t, f)
+	lines := f.stream(t)
+	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
+	waitFor(t, h, "providers", func() bool { return p.prov.loaded })
+	var changed int
+	kernel.On(h, agent.ModelsChanged, func(struct{}) { changed++ })
+	var events int
+	kernel.On(h, agent.Events, func([]agent.Event) { events++ })
+	reads := f.providerReads()
+	lines <- `{"type":"model.updated","data":{}}`
+	waitFor(t, h, "catalog refresh", func() bool {
+		return changed == 1 && f.providerReads() > reads
+	})
+	if events != 0 {
+		t.Fatal("a catalog event was forwarded as an agent event")
 	}
 }
 

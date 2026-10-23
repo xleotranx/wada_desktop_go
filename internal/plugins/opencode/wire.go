@@ -516,6 +516,18 @@ func errorText(raw json.RawMessage) string {
 	return ""
 }
 
+// catalogEvent reports whether a server event says that its providers or their
+// models changed. These events carry no session and become no agent event of
+// their own: the plugin reloads the provider list and tells the model picker.
+func catalogEvent(name string) bool {
+	switch name {
+	case "model.updated", "provider.updated", "integration.updated",
+		"credential.updated", "credential.switched":
+		return true
+	}
+	return false
+}
+
 // decodeEvent ignores unknown event types, and rejects malformed known ones
 // without quoting remote payloads in the error.
 // eventKinds names the kind of the events whose case covers several, built

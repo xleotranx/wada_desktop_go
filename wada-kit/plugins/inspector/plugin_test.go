@@ -28,7 +28,7 @@ func TestInspectorShowsDependenciesResourcesAndFailures(t *testing.T) {
 	probe := &snapshot{rows: []kernel.Diagnostic{{
 		Status:   kernel.Status{Manifest: kernel.Manifest{ID: "chat"}, State: kernel.Blocked, Missing: []string{"agent.service"}, Err: errors.New("startup failed"), Restarts: 2},
 		Requires: []kernel.Dependency{{Key: "agent.service", Provider: "pi"}}, Scopes: 2, Workers: 1,
-		Time:     kernel.Meter{Busy: 12500 * time.Microsecond, Calls: 40, Slowest: 3 * time.Millisecond},
+		Time:          kernel.Meter{Busy: 12500 * time.Microsecond, Calls: 40, Slowest: 3 * time.Millisecond},
 		Registrations: []kernel.Registration{{Kind: "contribution", Name: "shell.pages", ID: "chat.page"}}, Stack: "panic stack details",
 	}}}
 	host := &kittest.Host{}

@@ -142,8 +142,8 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 - `Options.Restart{Max, Within}` sets a plugin up again, on a new instance, after a
   failure at run time: after its Setup returned, as when a view, listener or worker
   panicked. The restart is posted, so the callback that failed unwinds first, and
-  Blocked dependents come back with it. A plugin that fails `Max` times within
-  `Within` stays Failed. A failing Setup, or a disposer that panics while the plugin
+  Blocked dependents come back with it. After `Max` restarts within `Within`, the
+  next failure leaves the plugin Failed. A failing Setup, or a disposer that panics while the plugin
   is disposed for another reason, is not restarted. `Status.Restarting` marks a
   posted restart and `Status.Restarts` counts the restarts within the window;
   disabling the plugin cancels a posted restart, and enabling it starts the count

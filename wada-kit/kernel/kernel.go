@@ -373,7 +373,7 @@ func (k *Kernel) lookup(id string) (*plugin, error) {
 func (k *Kernel) Plugins() []Status {
 	out := make([]Status, 0, len(k.plugins))
 	for _, p := range k.plugins {
-		st := Status{Manifest: p.m, State: p.state, Err: p.err, Restarting: p.restarting, Restarts: len(p.failures)}
+		st := Status{Manifest: p.m, State: p.state, Err: p.err, Restarting: p.restarting, Restarts: k.recentRestarts(p)}
 		if p.state == Blocked {
 			st.Missing = k.missing(p)
 		}
@@ -484,11 +484,13 @@ func (k *Kernel) setup(p *plugin) bool {
 	c := &Context{Scope: Scope{newScope(k, p, nil)}, p: p}
 	p.ctx, p.settingUp, p.err, p.setupErr = c, true, nil, nil
 	var err error
-	if k.opts.Strict {
-		err = inst.Setup(c)
-	} else if perr := recovered(func() { err = inst.Setup(c) }); perr != nil {
-		err = perr
-	}
+	k.timed(p, func() {
+		if k.opts.Strict {
+			err = inst.Setup(c)
+		} else if perr := recovered(func() { err = inst.Setup(c) }); perr != nil {
+			err = perr
+		}
+	})
 	p.settingUp = false
 	if err == nil {
 		err = p.setupErr
@@ -556,8 +558,7 @@ func (k *Kernel) dependent(p *plugin) *plugin {
 	return nil
 }
 
-// call runs fn on behalf of p, failing p if fn panics, and charges p for the
-// time fn took, less what callbacks of plugins it ran themselves took. Host
+// call runs fn on behalf of p, failing p if fn panics, and times it. Host
 // callbacks (p nil), Strict kernels and a plugin's own Setup let the panic
 // through; setup then fails the plugin.
 func (k *Kernel) call(p *plugin, fn func()) {
@@ -565,6 +566,18 @@ func (k *Kernel) call(p *plugin, fn func()) {
 		fn()
 		return
 	}
+	k.timed(p, func() {
+		if k.opts.Strict || p.settingUp {
+			fn()
+		} else if err := recovered(fn); err != nil {
+			k.fail(p, err)
+		}
+	})
+}
+
+// timed runs fn and charges p for the time it took, less what callbacks of
+// plugins it ran themselves took.
+func (k *Kernel) timed(p *plugin, fn func()) {
 	start, outer := time.Now(), k.nested
 	k.nested = 0
 	defer func() {
@@ -572,13 +585,7 @@ func (k *Kernel) call(p *plugin, fn func()) {
 		p.meter.add(took - k.nested)
 		k.nested = outer + took
 	}()
-	if k.opts.Strict || p.settingUp {
-		fn()
-		return
-	}
-	if err := recovered(fn); err != nil {
-		k.fail(p, err)
-	}
+	fn()
 }
 
 // fail disposes p as Failed with err, or records err while p is already
@@ -616,6 +623,20 @@ func (k *Kernel) mayRestart(p *plugin) bool {
 	}
 	p.failures = append(p.failures, now)
 	return true
+}
+
+// recentRestarts counts p's restarts within the policy's window.
+func (k *Kernel) recentRestarts(p *plugin) int {
+	if len(p.failures) == 0 {
+		return 0
+	}
+	now, n := k.opts.Now(), 0
+	for _, t := range p.failures {
+		if now.Sub(t) < k.opts.Restart.Within {
+			n++
+		}
+	}
+	return n
 }
 
 // restart sets p up again unless something else decided its state since it

@@ -1049,3 +1049,58 @@ func TestCallbacksAreChargedTheirOwnTime(t *testing.T) {
 	}
 	closeClean(t, h)
 }
+
+func TestSetupIsChargedToThePluginSetUp(t *testing.T) {
+	slow := plug("slow", func(*kernel.Context) error { time.Sleep(20 * time.Millisecond); return nil })
+	slow.m.DefaultOff = true
+	other := plug("other", nil)
+	h := kerneltest.Start(t, kerneltest.Config{}, slow.New, other.New)
+	before := h.Inspect()[1].Time.Busy
+	other.ctx.Post(func() {
+		if err := h.Enable("slow"); err != nil {
+			t.Error(err)
+		}
+	})
+	h.RunPosts()
+	d := h.Inspect()
+	if d[0].Time.Busy < 20*time.Millisecond || d[1].Time.Busy-before >= 20*time.Millisecond {
+		t.Fatalf("slow %v, other %v", d[0].Time.Busy, d[1].Time.Busy-before)
+	}
+	closeClean(t, h)
+}
+
+func TestARestartWhoseSetupFailsStaysStopped(t *testing.T) {
+	setups := 0
+	p := plug("p", func(c *kernel.Context) error {
+		if setups++; setups > 1 {
+			return errors.New("broken now")
+		}
+		kernel.On(c, ping, func(string) { panic("crash") })
+		return nil
+	})
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true, Restart: kernel.Restart{Max: 3, Within: time.Minute}}, p.New)
+	kernel.Emit(h, ping, "x")
+	h.RunPosts()
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Failed || st.Restarting || st.Err == nil || st.Err.Error() != "broken now" || setups != 2 {
+		t.Fatalf("%+v after %d setups", st, setups)
+	}
+}
+
+func TestRestartsCountOnlyWithinTheWindow(t *testing.T) {
+	now := time.Unix(0, 0)
+	setups := 0
+	p, user := crasher(&setups)
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true, Now: func() time.Time { return now },
+		Restart: kernel.Restart{Max: 3, Within: time.Minute}}, p.New, user.New)
+	kernel.Emit(h, ping, "crash")
+	h.RunPosts()
+	if st := state(t, h, "p"); st.State != kernel.Active || st.Restarts != 1 {
+		t.Fatalf("%+v", st)
+	}
+	now = now.Add(time.Minute)
+	if st := state(t, h, "p"); st.Restarts != 0 {
+		t.Fatalf("an old restart still counts: %+v", st)
+	}
+	closeClean(t, h)
+}

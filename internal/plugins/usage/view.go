@@ -76,7 +76,7 @@ func (p *Plugin) view(c *ui.Context) {
 	})
 }
 
-// panel breaks the context down, then totals the conversation.
+// panel breaks the context down, then shows the conversation's cost.
 func (p *Plugin) panel(c *ui.Context, pal native.Palette, used, window int) {
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
@@ -86,7 +86,7 @@ func (p *Plugin) panel(c *ui.Context, pal native.Palette, used, window int) {
 		p.breakdown(c, pal, used, window)
 	})
 	divider(c, pal)
-	p.totals(c, pal)
+	p.costDetails(c, pal)
 }
 
 // contextSection is the work panel's Context: how full the window is, by kind.
@@ -99,9 +99,10 @@ func (p *Plugin) contextSection(c *ui.Context) {
 	})
 }
 
-// costSection is the work panel's Cost: the conversation's totals.
+// costSection is the work panel's Cost: the conversation's model, replies and
+// costs.
 func (p *Plugin) costSection(c *ui.Context) {
-	p.totals(c, native.PaletteFor(c))
+	p.costDetails(c, native.PaletteFor(c))
 }
 
 func contextValue(used, window int) string {
@@ -111,7 +112,8 @@ func contextValue(used, window int) string {
 	return tokens(used) + " tokens"
 }
 
-// breakdown is the context as a bar, then a legend line per kind.
+// breakdown is the context as a bar, then a legend line per kind in use. A kind
+// with no tokens gets no line, since a zero would only add noise.
 func (p *Plugin) breakdown(c *ui.Context, pal native.Palette, used, window int) {
 	parts := p.parts(pal)
 	// Shares are of the window when it is known, else of what is used.
@@ -120,6 +122,9 @@ func (p *Plugin) breakdown(c *ui.Context, pal native.Palette, used, window int) 
 		bar(c, pal, parts, max(window-used, 0))
 	}
 	for i, pt := range parts {
+		if pt.n == 0 {
+			continue
+		}
 		c.Key(i)
 		legend(c, pal, pt.label, tokens(pt.n), share(pt.n, whole), pt.color)
 	}
@@ -129,10 +134,9 @@ func (p *Plugin) breakdown(c *ui.Context, pal native.Palette, used, window int) 
 	}
 }
 
-// totals are the conversation's model, replies, costs and tokens.
-func (p *Plugin) totals(c *ui.Context, pal native.Palette) {
+// costDetails are the conversation's model, replies and costs.
+func (p *Plugin) costDetails(c *ui.Context, pal native.Palette) {
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		heading(c, pal, "Conversation")
 		m := p.model()
 		name := cmp.Or(m.Name, p.sum.model.ID)
 		if v := p.sum.model.Variant; v != "" && name != "" {
@@ -144,16 +148,6 @@ func (p *Plugin) totals(c *ui.Context, pal native.Palette) {
 		detail(c, pal, "Replies", strconv.Itoa(p.sum.replies))
 		detail(c, pal, "Total cost", cost(p.sum.cost, m.Free))
 		detail(c, pal, "Latest reply", cost(p.sum.lastCost, m.Free))
-	})
-	divider(c, pal)
-	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		heading(c, pal, "Tokens in this conversation")
-		t := p.sum.total
-		detail(c, pal, "Input", tokens(t.Input))
-		detail(c, pal, "Cache read", tokens(t.CacheRead))
-		detail(c, pal, "Cache write", tokens(t.CacheWrite))
-		detail(c, pal, "Output", tokens(t.Output))
-		detail(c, pal, "Reasoning", tokens(t.Reasoning))
 	})
 }
 
@@ -188,10 +182,6 @@ func detail(c *ui.Context, pal native.Palette, label, value string) {
 		ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted).Shrink(0)
 		ui.Text(c, value).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0).TextAlign(ui.End).SingleLine().Ellipsis("…")
 	})
-}
-
-func heading(c *ui.Context, pal native.Palette, text string) {
-	ui.Text(c, text).FontSize(11.5).FontWeight(600).TextColor(pal.Faint).SingleLine()
 }
 
 func divider(c *ui.Context, pal native.Palette) {

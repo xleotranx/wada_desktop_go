@@ -88,20 +88,25 @@ func TestPanelBreaksTheContextDown(t *testing.T) {
 	tt.Frame()
 	// The latest answer: 2k in, 41k cached, 500 out, 500 reasoning, of 200k.
 	for _, want := range []string{"44k / 200k", "Cache read", "41k", "20.5%", "Free space", "156k", "78%",
-		"Replies", "2", "Total cost", "$0.42", "Latest reply", "$0.17", "Tokens in this conversation", "49k"} {
+		"Replies", "2", "Total cost", "$0.42", "Latest reply", "$0.17", "Reasoning", "500"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q in %q", want, tt.Texts())
 		}
 	}
+	// The per-kind conversation totals are gone (they summed every reply while
+	// the breakdown shows the latest), and a kind with no tokens gets no line.
+	if tt.HasText("Tokens in this conversation") || tt.HasText("Cache write") {
+		t.Fatalf("the panel still totals or lists empty kinds: %q", tt.Texts())
+	}
 }
 
-func TestSummaryTotalsTheConversation(t *testing.T) {
+func TestSummaryCountsRepliesAndKeepsTheLatestReportedAnswer(t *testing.T) {
 	s := summarize([]agent.Message{
 		{Role: agent.RoleUser},
 		{Role: agent.RoleAssistant, Cost: 0.1, Tokens: agent.Tokens{Input: 10, Output: 2, CacheRead: 5}},
 		{Role: agent.RoleAssistant, Cost: 0.2}, // reported nothing: the context stays the previous answer's
 	})
-	if s.replies != 2 || s.total != (agent.Tokens{Input: 10, Output: 2, CacheRead: 5}) || s.last.Context() != 17 || s.lastCost != 0.1 {
+	if s.replies != 2 || s.last.Context() != 17 || s.lastCost != 0.1 {
 		t.Fatalf("summary %+v", s)
 	}
 }
@@ -159,10 +164,13 @@ func TestWorkPanelTakesOverFromTheComposer(t *testing.T) {
 		})
 	}, 300, 800)
 	panel.Frame()
-	for _, want := range []string{"44k / 200k", "Cache read", "Free space", "Total cost", "$0.42", "Tokens in this conversation"} {
+	for _, want := range []string{"44k / 200k", "Cache read", "Free space", "Total cost", "$0.42"} {
 		if !panel.HasText(want) {
 			t.Fatalf("%q is missing from the work sections: %q", want, panel.Texts())
 		}
+	}
+	if panel.HasText("Tokens in this conversation") {
+		t.Fatalf("the work sections repeat the context breakdown: %q", panel.Texts())
 	}
 }
 

@@ -303,12 +303,11 @@ fills the context is the latest assistant message that reported tokens: its
 sections:
 
 - **Context**: used over the window, a strip with each kind of token in its own color
-  and the free space, and a line for each kind (input, cache read, cache write,
+  and the free space, and a line for each kind in use (input, cache read, cache write,
   output, reasoning) and the free space with its share of the window, or of what is
   used when the window is unknown;
 - **Cost**: the model (with its variant), the number of replies, the total cost and
-  the latest reply's ("Free" on a free model), then the conversation's tokens of each
-  kind, summed over every reply.
+  the latest reply's cost ("Free" on a free model).
 
 While the work panel is hidden it adds a button to `chat.ComposerTrailing` instead:
 the total cost, the share of the context window in use and a ring that fills with it

@@ -1,8 +1,8 @@
 // Package usage shows what the open conversation has cost and how full its
 // context window is: as Context and Cost in the work panel, or, while that is
 // hidden, at the end of the composer with a popover that breaks the latest
-// answer's tokens down and totals the conversation. The backends report usage
-// with the stored messages, not in their events, so the plugin reads the
+// answer's tokens down and shows the conversation's cost. The backends report
+// usage with the stored messages, not in their events, so the plugin reads the
 // conversation's messages when it opens and again after every turn.
 package usage
 
@@ -127,9 +127,8 @@ func (p *Plugin) readCatalog() {
 
 // summary is a conversation's usage.
 type summary struct {
-	cost    float64      // the whole conversation's
-	total   agent.Tokens // the whole conversation's
-	replies int          // assistant messages
+	cost    float64 // the whole conversation's
+	replies int     // assistant messages
 
 	// The latest answer that reported tokens: what fills the context now.
 	last     agent.Tokens
@@ -145,13 +144,7 @@ func summarize(messages []agent.Message) summary {
 		}
 		s.replies++
 		s.cost += m.Cost
-		t := m.Tokens
-		s.total.Input += t.Input
-		s.total.Output += t.Output
-		s.total.Reasoning += t.Reasoning
-		s.total.CacheRead += t.CacheRead
-		s.total.CacheWrite += t.CacheWrite
-		if t.Context() > 0 {
+		if t := m.Tokens; t.Context() > 0 {
 			s.last, s.lastCost, s.model = t, m.Cost, m.Model
 		}
 	}

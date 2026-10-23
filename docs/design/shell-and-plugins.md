@@ -343,7 +343,8 @@ while navigating conversations but is not saved across launches:
 
 The section shows the number of files and total lines added and removed in a
 disclosure that collapses the file list while keeping the summary and source
-selector visible. The list's collapsed state stays while navigating conversations.
+selector visible. The list starts collapsed; its expanded or collapsed state stays
+while navigating conversations.
 Expand-all and collapse-all controls open or close every current file's diff.
 Files are sorted by folder, then path, with root files first; each folder heading
 appears once above compact rows with filenames, A/M/D status markers and line

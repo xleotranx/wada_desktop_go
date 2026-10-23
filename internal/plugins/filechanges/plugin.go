@@ -42,7 +42,7 @@ type Plugin struct {
 	known     bool
 	problem   string
 	open      map[string]bool // files whose diff is shown, by path
-	collapsed bool            // the file list; independent of individual diffs
+	expanded  bool            // the file list; collapsed by default, independent of diffs
 }
 
 // New makes the plugin; the kernel makes one for each activation.

@@ -44,7 +44,7 @@ func (p *Plugin) changesView(c *ui.Context) {
 	}
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
 		p.summary(c, pal, added, removed)
-		if p.collapsed {
+		if !p.expanded {
 			return
 		}
 		previous := ""
@@ -69,13 +69,13 @@ func (p *Plugin) changesView(c *ui.Context) {
 func (p *Plugin) summary(c *ui.Context, pal native.Palette, added, removed int) {
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Padding(0, 0, 4, 0).Children(func() {
 		label, chevron := "Collapse file list", lucide.ChevronDown
-		if p.collapsed {
+		if !p.expanded {
 			label, chevron = "Expand file list", lucide.ChevronRight
 		}
 		c.Key("file-list")
-		b := ui.ButtonBase(c).Label(label).Role(ui.RoleDisclosure).Expanded(!p.collapsed).
+		b := ui.ButtonBase(c).Label(label).Role(ui.RoleDisclosure).Expanded(p.expanded).
 			Grow(1).MinWidth(0).Height(28).Padding(0, 6).Gap(6).Radius(6).Cursor(ui.CursorPointer).
-			OnClick(func() { p.collapsed = !p.collapsed })
+			OnClick(func() { p.expanded = !p.expanded })
 		if b.Hovered() {
 			b.Background(pal.Hover)
 		}
@@ -88,7 +88,7 @@ func (p *Plugin) summary(c *ui.Context, pal native.Palette, added, removed int) 
 			ui.Text(c, files).FontSize(12.5).TextColor(pal.Text).Grow(1).SingleLine()
 			counts(c, pal, added, removed)
 		})
-		if p.collapsed {
+		if !p.expanded {
 			return
 		}
 		expanded := 0

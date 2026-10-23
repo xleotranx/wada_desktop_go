@@ -473,7 +473,7 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	if !slices.Equal(titles, []string{"Context", "File changes", "Cost"}) {
 		t.Fatalf("work panel order: %q", titles)
 	}
-	for _, want := range []string{"Context", "File changes", "Cost", "main.go", "+3", "−1"} {
+	for _, want := range []string{"Context", "File changes", "Cost", "1 file", "+3", "−1"} {
 		if !a.tt.HasText(want) {
 			t.Fatalf("%q missing: %q", want, a.tt.Texts())
 		}
@@ -481,6 +481,13 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	if a.tt.HasText("Last command") {
 		t.Fatal("the work panel still shows the last command")
 	}
+	if a.tt.HasText("main.go") {
+		t.Fatal("the file list should start collapsed")
+	}
+	if err := a.tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
 	if err := a.tt.Click("src/main.go"); err != nil {
 		t.Fatal(err)
 	}

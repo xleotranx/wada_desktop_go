@@ -45,6 +45,9 @@ func TestOpeningAConversationShowsItsFilesAndDiffs(t *testing.T) {
 	}
 	tt := panel(p)
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{"3 files", "+15", "−3", "main.go", "cmd", "README.md", "A", "D"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing: %q", want, tt.Texts())
@@ -96,6 +99,12 @@ func TestCollapsingTheFileListKeepsSummaryAndRestoresOpenDiffs(t *testing.T) {
 	h.Flush()
 	tt := panel(p)
 	tt.Frame()
+	if tt.HasText("main.go") || !tt.HasText("3 files") || !tt.HasText("+15") || !tt.HasText("−3") {
+		t.Fatalf("list should start collapsed with its summary visible: %q", tt.Texts())
+	}
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("cmd/main.go"); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +129,9 @@ func TestExpandAndCollapseAllDiffsSurviveRefresh(t *testing.T) {
 	h.Flush()
 	tt := panel(p)
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("Expand all diffs"); err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +192,9 @@ func TestFailedRefreshKeepsFilesUntilASuccessfulEmptyResult(t *testing.T) {
 	h.Flush()
 	tt := panel(p)
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("Couldn’t load file changes") || !tt.HasText("main.go") || tt.HasText("No file changes") {
 		t.Fatalf("failed refresh: %q", tt.Texts())
 	}
@@ -207,6 +222,9 @@ func TestChangesAreReadAgainOnceTheBackendConnects(t *testing.T) {
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
 	h.Flush()
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("main.go") || tt.HasText("Couldn’t load file changes") {
 		t.Fatalf("reconnected: %q", tt.Texts())
 	}
@@ -228,6 +246,9 @@ func TestSourceDropdownSwitchesToGitAndRefreshesExternalEdits(t *testing.T) {
 	}
 	h.Flush()
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("local.txt") || tt.HasText("main.go") {
 		t.Fatalf("Git view: %q", tt.Texts())
 	}
@@ -289,6 +310,9 @@ func TestSourceAndFolderChangesDropPendingResults(t *testing.T) {
 	}
 	h.Flush()
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if tt.HasText("main.go") || !tt.HasText("first.txt") {
 		t.Fatalf("stale session result: %q", tt.Texts())
 	}
@@ -337,6 +361,9 @@ func TestGitIsAvailableWithoutBackendSessionDiffs(t *testing.T) {
 	}
 	h.Flush()
 	tt.Frame()
+	if err := tt.Click("Expand file list"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("local.txt") || tt.HasText("Session changes aren’t available with this backend") {
 		t.Fatalf("Git unavailable: %q", tt.Texts())
 	}

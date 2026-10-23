@@ -264,7 +264,7 @@ func TestClientSpeaksThePinnedSpec(t *testing.T) {
 	_ = c.waitReady(ctx, time.Second)
 	_, _ = c.sessions(ctx, agent.SessionQuery{Cursor: "c", Search: "s", Directory: "/w"})
 	_, _ = c.create(ctx, agent.CreateSession{Directory: "/w", Mode: "build"})
-	_ = c.send(ctx, agent.Send{Session: id, Text: "hi", Files: []agent.File{{Name: "a.png", MIME: "image/png", Data: []byte{1}}}})
+	_ = c.send(ctx, agent.Send{Session: id, Mode: "plan", Text: "hi", Files: []agent.File{{Name: "a.png", MIME: "image/png", Data: []byte{1}}}})
 	_, _ = c.find(ctx, "/w", "main", 5)
 	_, _ = c.read(ctx, "/w", "docs/a.md")
 	_ = c.abort(ctx, id)

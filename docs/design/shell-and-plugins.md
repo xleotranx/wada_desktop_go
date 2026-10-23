@@ -82,7 +82,7 @@ Conversation settings section with the work panel's switch.
   in order, its title over what it renders. The panel shows while at least one
   section does and the `work-panel` setting is on; ⌘B turns the setting over.
   `Controller.WorkShown` reports it, so a plugin can step aside in the composer.
-- `chat.Targets` entries are other places a new chat's first message can go than a
+- `chat.Targets` entries are other places the next composer message can go than a
   conversation with the agent, such as a workflow. A target has a group, a title, a
   summary and `Take(Draft)`. The mode picker lists them; the plugin that owns the
   choice makes a `chat.Outgoing` transform return `chat.ErrTaken` after handing the
@@ -276,8 +276,8 @@ notifications plugins contribute their own sections.
 
 `internal/plugins/models` requires `agent.ModelsKey` (so it is Blocked for a backend
 without a catalog) and adds pickers to `chat.ComposerAccessory`: the model, its effort
-when the model has variants, and the mode for a new conversation when the backend
-offers more than one choice. It reads the catalog when a new connection attempt is
+when the model has variants, and the mode in both new and existing conversations
+when there is more than one choice across backend modes and targets. It reads the catalog when a new connection attempt is
 ready and again on `agent.ModelsChanged`. A backend without modes shows "Chat" when targets exist.
 The mode picker also lists `chat.Targets` after the modes, under the group each one
 names. Choosing a target applies to the next message only: it is not saved, the picker
@@ -286,9 +286,13 @@ conversation opens, the new chat's folder changes or a later mode is chosen. The
 goes to the target's `Take` through `chat.Outgoing` (order 0, before attachments and
 mentions) and the transform returns `chat.ErrTaken`. A target that is gone, or whose
 `Take` fails, makes the transform return an error instead: the message is not sent to
-the agent in its place and stays in the composer. For a new conversation the mode choice is saved in its
-settings and applied through `chat.Outgoing`, unless the backend no longer offers it. In an open
-conversation, choosing a model calls `SetModel` and shows the choice until the
+the agent in its place and stays in the composer. The mode choice is saved in
+settings and applied to every message through `chat.Outgoing`. With no valid saved
+choice, the first offered mode is used; a backend without modes keeps its own behavior. Chat
+passes `Draft.Mode` to `Send.Mode`; the backend selects it before sending the prompt.
+A workflow uses the brief and current folder for a separate run, leaving the source
+conversation intact. Taking an edited message also clears the composer's edit state.
+In an open conversation, choosing a model calls `SetModel` and shows the choice until the
 backend's `ModelChanged` confirms it; a failure is reported and the choice reverts.
 Switch work and the pending choice belong to that conversation; navigating away
 cancels the work and drops its completion.
@@ -447,7 +451,7 @@ first, and their pages with them.
 
 `internal/plugins/flows` brings the app's flows. Each is a `chat.Targets` entry in the
 group "Workflows", so it is in the composer's mode picker beside Build and Plan: choosing
-it and sending a new chat's first message starts the flow with that text as the brief,
+it and sending a composer message starts the flow with that text as the brief,
 in the folder chosen for the chat (`Take` calls `Start`), with no dialog. Each also gets
 a command, "<Title>…" in the Agent menu and the palette, that calls `Prompt`. **Plan, code, review** runs a plan step
 (read-only: edits are denied), a code step, then a review step (read-only) that must end

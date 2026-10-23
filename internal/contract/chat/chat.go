@@ -59,7 +59,7 @@ var (
 	// file after "@". The composer owns the draft, the caret and the keys;
 	// a contribution only says what to offer and what a choice becomes.
 	Completions = kernel.NewPoint[Completion]("chat.completions")
-	// Targets are other places a new chat's first message can go than a new
+	// Targets are other places the next message can go than the current
 	// conversation with the agent, such as a workflow. The composer's mode
 	// picker lists them after the backend's modes.
 	Targets = kernel.NewPoint[Target]("chat.targets")
@@ -91,7 +91,8 @@ type Target struct {
 	Title   string
 	Summary string // one line, shown under the title
 	// Take receives the message instead of the backend, on the UI thread, with
-	// the folder the user chose for the new chat.
+	// the current chat's folder. Session identifies the source conversation;
+	// a workflow starts a separate run rather than continuing that session.
 	Take func(Draft)
 }
 
@@ -147,9 +148,9 @@ type Unsent struct {
 // Draft is one message on its way out.
 type Draft struct {
 	Session   agent.SessionID // empty starts a new conversation
-	Directory string          // for a new conversation
+	Directory string          // the chat's working folder
 	Model     agent.ModelRef  // for a new conversation; zero for the default
-	Mode      string          // for a new conversation; empty for the default
+	Mode      string          // mode for this message; empty keeps the backend's choice
 	Text      string
 	Files     []agent.File // sent with the message
 }

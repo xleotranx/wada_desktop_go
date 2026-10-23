@@ -150,6 +150,58 @@ func TestOutgoingPipelineRewritesAndRejects(t *testing.T) {
 	}
 }
 
+func TestChosenModeReachesBackend(t *testing.T) {
+	for _, scenario := range []string{"new", "existing", "navigated away"} {
+		t.Run(scenario, func(t *testing.T) {
+			picker := &extension{setup: func(c *kernel.Context) error {
+				kernel.Transform(c, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, error) {
+					d.Mode = "plan"
+					return d, nil
+				})
+				return nil
+			}}
+			h, p, f, _ := start(t, picker.New)
+			if scenario == "existing" {
+				p.Open(agent.Session{ID: "s1", Directory: "/work"})
+				h.Flush()
+			}
+			sent := make(chan agent.Send, 1)
+			f.OnSend = func(req agent.Send) { sent <- req }
+			p.draft = "think first"
+			p.send()
+			if scenario == "navigated away" {
+				p.NewChat("/elsewhere")
+			}
+			h.Flush()
+			select {
+			case req := <-sent:
+				if req.Mode != "plan" || req.Text != "think first" {
+					t.Fatalf("sent %+v", req)
+				}
+			default:
+				t.Fatal("no message was sent")
+			}
+		})
+	}
+}
+
+func TestTakenEditPreservesCurrentConversation(t *testing.T) {
+	taker := &extension{setup: func(c *kernel.Context) error {
+		kernel.Transform(c, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, error) { return d, chat.ErrTaken })
+		return nil
+	}}
+	h, p, f, _ := start(t, taker.New)
+	p.Open(agent.Session{ID: "s1", Directory: "/work"})
+	h.Flush()
+	before := f.Calls()
+	p.draft, p.replacing, p.replacingFiles = "workflow brief", true, true
+	p.send()
+	h.Flush()
+	if p.conv.Session != "s1" || p.draft != "" || p.replacing || p.replacingFiles || p.running() || !slices.Equal(f.Calls(), before) {
+		t.Fatalf("taken edit changed the chat: conv=%+v draft=%q replacing=%v files=%v calls=%q", p.conv, p.draft, p.replacing, p.replacingFiles, f.Calls())
+	}
+}
+
 func TestATakenMessageGoesNoFurther(t *testing.T) {
 	var took []string
 	taker := &extension{setup: func(c *kernel.Context) error {

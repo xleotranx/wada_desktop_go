@@ -248,7 +248,7 @@ func TestEachFolderIsASpaceOfItsOwn(t *testing.T) {
 	a.tt.Type("outline the guide")
 	a.tt.Key(0, ui.KeyEnter)
 	a.settle()
-	if !slices.Contains(a.agent.Calls(), "create /work/docs") {
+	if !slices.Contains(a.agent.Calls(), "create /work/docs  build") {
 		t.Fatalf("calls %q", a.agent.Calls())
 	}
 	ws, _ := kernel.Use[wscontract.Service](a.shell.Kernel, wscontract.ServiceKey)
@@ -366,60 +366,77 @@ func TestPlanCodeReviewRunsFromThePalette(t *testing.T) {
 }
 
 func TestTheModePickerRunsTheNextMessageAsAWorkflow(t *testing.T) {
-	a := startApp(t)
-	a.agent.Numbered = true
-	a.agent.OnSend = func(req agent.Send) {
-		if strings.Contains(req.Text, "review step") {
-			a.agent.Respond(req.Session, "Fine.\n\nVERDICT: PASS")
-			return
+	for _, existing := range []bool{false, true} {
+		name := "new chat"
+		if existing {
+			name = "existing chat"
 		}
-		a.agent.Respond(req.Session, "Did it.")
-	}
-	a.newChatIn("docs")
-	if err := a.tt.Click("Compose"); err != nil {
-		t.Fatal(err)
-	}
-	a.tt.Type("outline the guide")
-	a.settle()
-	if err := a.tt.Click("Build"); err != nil {
-		t.Fatalf("%v in %q", err, a.tt.Texts())
-	}
-	a.settle()
-	for _, want := range []string{"Modes", "Plan", "Workflows", "Plan, code, review"} {
-		if !a.tt.HasText(want) {
-			t.Fatalf("%q is missing from the picker: %q", want, a.tt.Texts())
-		}
-	}
-	if err := a.tt.Click("Plan, code, review"); err != nil {
-		t.Fatal(err)
-	}
-	a.settle()
-	if err := a.tt.Click("Send"); err != nil {
-		t.Fatal(err)
-	}
-	a.until("the result", func() bool { return a.tt.HasText("Review passed") })
-	for _, want := range []string{"outline the guide", "Working in /work/docs", "Done"} {
-		if !a.tt.HasText(want) {
-			t.Fatalf("%q is missing from the run: %q", want, a.tt.Texts())
-		}
-	}
-	calls := a.agent.Calls()
-	if !slices.Contains(calls, "create /work/docs") || a.agent.Called("create /work/docs  ") != 0 {
-		t.Fatalf("calls %q", calls)
-	}
+		t.Run(name, func(t *testing.T) {
+			a := startApp(t)
+			a.agent.Numbered = true
+			a.agent.OnSend = func(req agent.Send) {
+				if strings.Contains(req.Text, "review step") {
+					a.agent.Respond(req.Session, "Fine.\n\nVERDICT: PASS")
+					return
+				}
+				a.agent.Respond(req.Session, "Did it.")
+			}
+			source := "New chat"
+			if existing {
+				source = "Write the docs"
+				a.openConversation(agent.Session{ID: "s2", Title: source, Directory: "/work/docs"})
+			} else {
+				a.newChatIn("docs")
+			}
+			if err := a.tt.Click("Compose"); err != nil {
+				t.Fatal(err)
+			}
+			a.tt.Type("outline the guide")
+			a.settle()
+			if err := a.tt.Click("Build"); err != nil {
+				t.Fatalf("%v in %q", err, a.tt.Texts())
+			}
+			a.settle()
+			for _, want := range []string{"Modes", "Plan", "Workflows", "Plan, code, review"} {
+				if !a.tt.HasText(want) {
+					t.Fatalf("%q is missing from the picker: %q", want, a.tt.Texts())
+				}
+			}
+			if err := a.tt.Click("Plan, code, review"); err != nil {
+				t.Fatal(err)
+			}
+			a.settle()
+			if err := a.tt.Click("Send"); err != nil {
+				t.Fatal(err)
+			}
+			a.until("the result", func() bool { return a.tt.HasText("Review passed") })
+			for _, want := range []string{"outline the guide", "Working in /work/docs", "Done"} {
+				if !a.tt.HasText(want) {
+					t.Fatalf("%q is missing from the run: %q", want, a.tt.Texts())
+				}
+			}
+			if a.agent.Called("send s2 outline the guide") != 0 {
+				t.Fatal("workflow brief was sent to the source conversation")
+			}
+			calls := a.agent.Calls()
+			if !slices.Contains(calls, "create /work/docs") || a.agent.Called("create /work/docs  ") != 0 {
+				t.Fatalf("calls %q", calls)
+			}
 
-	// The message left the composer, and the picker went back to the mode.
-	// The run's tab, named by the message, closes so only the composer could show it.
-	a.selectTab("New chat")
-	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
-	for _, tab := range open.Tabs() {
-		if tab.Title == "outline the guide" {
-			open.Close(tab.ID)
-		}
-	}
-	a.settle()
-	if a.tt.HasText("outline the guide") || !a.tt.HasText("Build") {
-		t.Fatalf("the composer after the workflow: %q", a.tt.Texts())
+			// The message left the composer, and the picker went back to the mode.
+			// The run's tab, named by the message, closes so only the composer could show it.
+			a.selectTab(source)
+			open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+			for _, tab := range open.Tabs() {
+				if tab.Title == "outline the guide" {
+					open.Close(tab.ID)
+				}
+			}
+			a.settle()
+			if a.tt.HasText("outline the guide") || !a.tt.HasText("Build") {
+				t.Fatalf("the composer after the workflow: %q", a.tt.Texts())
+			}
+		})
 	}
 }
 

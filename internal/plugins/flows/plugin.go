@@ -25,7 +25,8 @@ func (*Plugin) Manifest() kernel.Manifest {
 }
 
 // Setup gives each flow a place in the composer's mode picker, where it takes
-// the first message of a new chat, and a command that asks for a brief.
+// the next composer message, and a command that asks for a brief. Each starts a
+// separate run in the current chat's folder.
 func (*Plugin) Setup(c *kernel.Context) error {
 	svc := kernel.Require(c, wf.ServiceKey)
 	for _, f := range []wf.Flow{planCodeReview} {

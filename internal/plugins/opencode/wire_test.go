@@ -1,13 +1,62 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
 )
+
+func TestSendSelectsModeBeforePromptWithoutRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode               string
+		modeStatus, promptStatus int
+		want                     []string
+	}{
+		{"selected mode", "plan", 204, 204, []string{"/session/s1/agent", "/session/s1/prompt"}},
+		{"unchanged mode", "", 204, 204, []string{"/session/s1/prompt"}},
+		{"mode failed", "plan", 500, 204, []string{"/session/s1/agent"}},
+		{"prompt failed", "plan", 204, 500, []string{"/session/s1/agent", "/session/s1/prompt"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := make(chan string, 8)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- r.URL.Path
+				if r.Method != http.MethodPost {
+					t.Errorf("method %s", r.Method)
+				}
+				if strings.HasSuffix(r.URL.Path, "/agent") {
+					var body map[string]string
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["agent"] != tc.mode {
+						t.Errorf("mode body %v, %v", body, err)
+					}
+					w.WriteHeader(tc.modeStatus)
+					return
+				}
+				w.WriteHeader(tc.promptStatus)
+			}))
+			defer srv.Close()
+			c := &client{base: srv.URL, http: srv.Client()}
+			err := c.send(context.Background(), agent.Send{Session: "s1", Mode: tc.mode, Text: "hi"})
+			if (err != nil) != (tc.modeStatus == 500 || tc.promptStatus == 500) {
+				t.Fatalf("send error %v", err)
+			}
+			var got []string
+			for len(requests) > 0 {
+				got = append(got, <-requests)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("requests %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 var eventFixtures = map[string]struct {
 	payload string

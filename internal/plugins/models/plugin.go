@@ -1,8 +1,9 @@
 // Package models is the composer's model, effort and mode pickers. A new
-// conversation starts with the model and mode chosen here (remembered across
-// launches); choosing a model in an open conversation switches it there. The
-// mode picker also lists the chat.Targets other plugins contribute, such as a
-// workflow: choosing one sends the next message there instead of to the agent.
+// conversation starts with the model chosen here; the chosen mode applies to
+// every outgoing message. Both are remembered across launches. Choosing a model
+// in an open conversation switches it there. The mode picker also lists targets
+// contributed by other plugins, such as workflows: choosing one sends the next
+// message there instead of to the agent.
 package models
 
 import (
@@ -44,7 +45,7 @@ type Plugin struct {
 	scope    *kernel.Scope // model switches belong to the current conversation
 
 	newModel *kernel.Setting[agent.ModelRef]
-	newMode  *kernel.Setting[string]
+	mode     *kernel.Setting[string]
 	// target is the chat.Targets entry the next message goes to, instead of the
 	// agent. It is not remembered: the picker returns to the chosen mode once
 	// the message is sent, when another conversation opens and when the new
@@ -73,7 +74,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	p.newModel = kernel.NewSetting(c, "new-chat-model", agent.ModelRef{})
-	p.newMode = kernel.NewSetting(c, "new-chat-mode", "")
+	p.mode = kernel.NewSetting(c, "new-chat-mode", "")
 	p.conversationChanged(p.chat.Current())
 	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
 		if st.State == agent.Ready && st.Attempt != p.attempt {
@@ -144,15 +145,13 @@ func (p *Plugin) reload() {
 	})
 }
 
-// outgoing gives a new conversation the chosen model and mode, unless another
-// transform chose already, or the backend no longer offers them. A message for
-// a target is handed to it and goes no further; one that is gone, or fails
+// outgoing gives a new conversation the chosen model and every message the
+// chosen mode, unless another transform chose already, or the backend no longer
+// offers them. A message for a target is handed to it and goes no further;
+// one that is gone, or fails
 // to take it, is an error, so the message stays in the composer and never
 // reaches the agent in its place.
 func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, error) {
-	if d.Session != "" {
-		return d, nil
-	}
 	if id := p.target; id != "" {
 		p.target = ""
 		taken := false
@@ -166,14 +165,25 @@ func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, error) {
 		}
 		return d, chat.ErrTaken
 	}
-	if m := p.newModel.Get(); d.Model.IsZero() && !m.IsZero() && (!p.loaded || p.find(m) != nil) {
+	if m := p.newModel.Get(); d.Session == "" && d.Model.IsZero() && !m.IsZero() && (!p.loaded || p.find(m) != nil) {
 		d.Model = m
 	}
-	if mode := p.newMode.Get(); d.Mode == "" && mode != "" &&
-		(!p.loaded || slices.ContainsFunc(p.modes, func(x agent.Mode) bool { return x.ID == mode })) {
-		d.Mode = mode
+	if d.Mode == "" {
+		d.Mode = p.selectedMode()
 	}
 	return d, nil
+}
+
+// selectedMode keeps the label and outgoing mode in step when the backend's
+// choices change. A backend without modes keeps its own behavior.
+func (p *Plugin) selectedMode() string {
+	if len(p.modes) == 0 {
+		return ""
+	}
+	if selected := p.mode.Get(); slices.ContainsFunc(p.modes, func(m agent.Mode) bool { return m.ID == selected }) {
+		return selected
+	}
+	return p.modes[0].ID
 }
 
 // current is the model the composer stands on: the open conversation's, or
@@ -294,7 +304,7 @@ func (p *Plugin) view(c *ui.Context) {
 		targets := kernel.Items(p.ctx, chat.Targets)
 		// A backend without modes still has its own way of chatting, to choose
 		// against the targets.
-		if p.chat.Current().Session == "" && max(len(p.modes), 1)+len(targets) > 1 {
+		if max(len(p.modes), 1)+len(targets) > 1 {
 			p.modeView(c, targets)
 		}
 	})
@@ -312,8 +322,7 @@ const (
 	defaultMode  = "(default)"
 )
 
-// modeView picks the mode of a new chat, or one of the targets for its first
-// message.
+// modeView picks the mode for outgoing messages, or a target for the next one.
 func (p *Plugin) modeView(c *ui.Context, targets []kernel.Entry[chat.Target]) {
 	var options []onechat.Option
 	for _, m := range p.modes {
@@ -331,14 +340,9 @@ func (p *Plugin) modeView(c *ui.Context, targets []kernel.Entry[chat.Target]) {
 				Description: e.Value.Summary, Group: cmp.Or(e.Value.Group, "More")})
 		}
 	}
-	selected := p.newMode.Get()
-	switch {
-	case p.target != "":
+	selected := cmp.Or(p.selectedMode(), defaultMode)
+	if p.target != "" {
 		selected = targetPrefix + p.target
-	case selected == "" && len(p.modes) > 0:
-		selected = p.modes[0].ID
-	case selected == "":
-		selected = defaultMode
 	}
 	label := selected
 	for _, o := range options {
@@ -356,7 +360,7 @@ func (p *Plugin) modeView(c *ui.Context, targets []kernel.Entry[chat.Target]) {
 	default:
 		p.target = ""
 		if picked.Chosen != defaultMode {
-			p.newMode.Set(picked.Chosen)
+			p.mode.Set(picked.Chosen)
 		}
 	}
 }

@@ -236,6 +236,7 @@ type CreateSession struct {
 
 type Send struct {
 	Session SessionID
+	Mode    string // select a mode before sending; empty keeps the session's current mode
 	Text    string
 	Files   []File
 }

@@ -43,6 +43,10 @@ Rules every backend follows:
   kind; a later event of the same call may leave it out.
 - `Send.Files` go with the message; stored user messages list theirs in
   `Message.Files`, without data.
+- `Send.Mode` selects the mode for the message when the backend provides `ModesKey`;
+  empty keeps the session's current mode. OpenCode switches through
+  `POST /session/{id}/agent` before posting the prompt. If that switch fails, the
+  prompt is not sent, and neither mutation is retried.
 - A stored assistant message carries its `Cost` and `Tokens`: input, output,
   reasoning, and cache reads and writes. `Output` never includes `Reasoning`; Pi
   counts reasoning within output, so its backend takes it out. `Tokens.Context` sums
@@ -204,7 +208,7 @@ process and fails the plugin.
   `get_state`) and moves to it; the original session file stays as it was. A fork an
   extension cancels is an error.
 - Thinking levels are the model's variants. Pi has no agent modes, so it doesn't
-  provide `ModesKey`, and the mode picker stays hidden.
+  provide `ModesKey`. The picker shows Chat alongside any contributed workflows.
 - Pi keeps no record of the files a session changed, so it doesn't provide
   `ChangesKey`.
 

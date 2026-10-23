@@ -58,7 +58,7 @@ func TestNewChatUsesTheChosenModelAndMode(t *testing.T) {
 	if !tt.HasText("Alpha") || !tt.HasText("Build") || tt.HasText("Default effort") {
 		t.Fatalf("pickers %q", tt.Texts())
 	}
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() || d.Mode != "" {
+	if d := outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() || d.Mode != "build" {
 		t.Fatalf("nothing chosen yet, draft %+v", d)
 	}
 	for _, click := range []string{"Alpha", "Beta", "Build", "Plan"} {
@@ -70,8 +70,8 @@ func TestNewChatUsesTheChosenModelAndMode(t *testing.T) {
 	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Model != beta || d.Mode != "plan" {
 		t.Fatalf("draft %+v", d)
 	}
-	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); !d.Model.IsZero() || d.Mode != "" {
-		t.Fatalf("an existing conversation was changed: %+v", d)
+	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); !d.Model.IsZero() || d.Mode != "plan" {
+		t.Fatalf("existing conversation did not receive the mode: %+v", d)
 	}
 	h.Close()
 
@@ -107,8 +107,8 @@ func TestOpenConversationSwitchesItsModel(t *testing.T) {
 
 	tt := ui.NewTester(p.view, 900, 600)
 	tt.Frame()
-	if tt.HasText("Build") {
-		t.Fatal("the mode picker shows for an existing conversation")
+	if !tt.HasText("Build") {
+		t.Fatal("the mode picker is missing from an existing conversation")
 	}
 	for _, click := range []string{"Default effort", "high"} {
 		if err := tt.Click(click); err != nil {
@@ -218,6 +218,44 @@ func TestChoosingATargetSendsTheNextMessageThereOnly(t *testing.T) {
 	}
 }
 
+func TestExistingChatCanChooseModeAndWorkflow(t *testing.T) {
+	var taken []chat.Draft
+	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
+	c.Open(agent.Session{ID: "s1", Directory: "/work"})
+	tt := ui.NewTester(p.view, 900, 600)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	for _, click := range []string{"Build", "Plan"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	d := outgoing(t, h, chat.Draft{Session: "s1", Directory: "/work", Text: "think first"})
+	if d.Mode != "plan" || d.Session != "s1" {
+		t.Fatalf("mode was not applied to the existing chat: %+v", d)
+	}
+	for _, click := range []string{"Plan", "Plan, code, review"} {
+		if err := tt.Click(click); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	_, err := kernel.Run(h, chat.Outgoing, chat.Draft{Session: "s1", Directory: "/work", Text: "fix parser"})
+	if !errors.Is(err, chat.ErrTaken) || len(taken) != 1 || taken[0].Directory != "/work" || taken[0].Text != "fix parser" {
+		t.Fatalf("workflow did not take the brief: taken=%+v err=%v", taken, err)
+	}
+	if c.Current().Session != "s1" {
+		t.Fatal("workflow replaced the existing chat")
+	}
+	tt.Frame()
+	if !tt.HasText("Plan") {
+		t.Fatalf("picker did not return to Plan: %q", tt.Texts())
+	}
+	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "continue"}); d.Mode != "plan" || len(taken) != 1 {
+		t.Fatalf("next message did not return to the chat: %+v", d)
+	}
+}
+
 func TestChoosingAModeAfterATargetLeavesTheTarget(t *testing.T) {
 	var taken []chat.Draft
 	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
@@ -322,6 +360,7 @@ func TestATargetThatFailsDoesNotTakeTheMessage(t *testing.T) {
 func TestTheModePickerAppearsForATargetWithoutBackendModes(t *testing.T) {
 	var taken []chat.Draft
 	h, p, a, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
+	p.mode.Set("plan") // a choice remembered from a backend with modes
 	a.ModeList = nil
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
 	h.Flush()
@@ -330,6 +369,9 @@ func TestTheModePickerAppearsForATargetWithoutBackendModes(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("Chat") {
 		t.Fatalf("the picker is missing: %q", tt.Texts())
+	}
+	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); d.Mode != "" {
+		t.Fatalf("a mode was sent to a backend without modes: %+v", d)
 	}
 	for _, click := range []string{"Chat", "Plan, code, review"} {
 		if err := tt.Click(click); err != nil {

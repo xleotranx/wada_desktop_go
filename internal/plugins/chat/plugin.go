@@ -232,7 +232,7 @@ func (p *Plugin) send() {
 	}
 	d, err := kernel.Run(p.ctx, chat.Outgoing, chat.Draft{Session: p.conv.Session, Directory: p.conv.Directory, Text: text})
 	if errors.Is(err, chat.ErrTaken) {
-		p.draft = ""
+		p.draft, p.replacing, p.replacingFiles = "", false, false
 		return
 	}
 	if err != nil {
@@ -389,7 +389,7 @@ func (p *Plugin) sendAway(id agent.SessionID, d chat.Draft) {
 	backend := p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files})
 	}, func(_ agent.SendDisposition, err error) {
 		switch {
 		case err == nil:
@@ -406,7 +406,7 @@ func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
 	seq, backend := p.sendSeq, p.agent
 	var task kernel.Task
 	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Text: d.Text, Files: d.Files})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files})
 	}, func(disposition agent.SendDisposition, err error) {
 		finish := func() {
 			if p.sendSeq == seq {

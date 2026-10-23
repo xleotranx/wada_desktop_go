@@ -135,6 +135,11 @@ func (c *client) create(ctx context.Context, req agent.CreateSession) (agent.Ses
 // send posts a prompt. Files go inline as data URIs, which a remote server
 // can read as well as a local one.
 func (c *client) send(ctx context.Context, req agent.Send) error {
+	if req.Mode != "" {
+		if err := c.decode(ctx, "POST", sessionPath(req.Session, "/agent"), map[string]string{"agent": req.Mode}, nil); err != nil {
+			return fmt.Errorf("the mode was not set; the prompt was not sent: %w", err)
+		}
+	}
 	body := map[string]any{"text": req.Text}
 	if len(req.Files) > 0 {
 		files := make([]map[string]string, len(req.Files))

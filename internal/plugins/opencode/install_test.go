@@ -105,8 +105,10 @@ func TestManagedServerRunsTheDownloadedBuild(t *testing.T) {
 	tgz := tarball(t, "#!/bin/sh\nexec \""+os.Args[0]+"\" \"$@\"\n")
 	url, _ := serve(t, tgz)
 	host := &kittest.Host{Data: t.TempDir()}
-	p := &Plugin{dir: t.TempDir(), rel: release{Version: "9.9.9", URL: url, Integrity: integrity(tgz)}}
-	h := kerneltest.New(t, host, p)
+	var p *Plugin
+	h := kerneltest.New(t, host.New, kerneltest.Keep(&p, func() *Plugin {
+		return &Plugin{dir: t.TempDir(), rel: release{Version: "9.9.9", URL: url, Integrity: integrity(tgz)}}
+	}))
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
 	if _, err := os.Stat(filepath.Join(host.Data, "opencode", "bin", "9.9.9", "opencode")); err != nil {
 		t.Fatal(err)

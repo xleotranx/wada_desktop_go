@@ -25,13 +25,14 @@ type plugin struct {
 
 func (p *plugin) Manifest() kernel.Manifest     { return kernel.Manifest{ID: p.id, Title: p.id} }
 func (p *plugin) Setup(c *kernel.Context) error { return p.setup(c) }
+func (p *plugin) New() kernel.Plugin            { return p }
 
 func text(s string) shell.View {
 	return shell.View{Render: func(c *ui.Context) { ui.Text(c, s) }}
 }
 
 // newShell starts a lenient shell whose posts run when the test calls run.
-func newShell(t *testing.T, plugins ...kernel.Plugin) (*Shell, func()) {
+func newShell(t *testing.T, plugins ...kernel.Factory) (*Shell, func()) {
 	t.Helper()
 	var queue []func()
 	s, err := New(Options{Name: "Kit", Post: func(fn func()) { queue = append(queue, fn) }, Store: kerneltest.NewStore()}, plugins...)
@@ -63,7 +64,7 @@ func TestShellDrawsContributionsAndSwitchesPages(t *testing.T) {
 		kernel.Contribute(c, shell.Pages, "notes.other", 1, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Other body") }})
 		return kernel.Contribute(c, kernel.Commands, "notes.run", 0, kernel.Command{Title: "Run", Keys: []string{"cmd+shift+r"}, Run: func() { ran++ }})
 	}}
-	s, _ := newShell(t, p)
+	s, _ := newShell(t, p.New)
 	var title string
 	s.opts.SetTitle = func(t string) { title = t }
 	tt := ui.NewTester(s.View, 1200, 800)
@@ -104,7 +105,7 @@ func TestStripReplacesThePageTitle(t *testing.T) {
 		return kernel.Contribute(c, shell.Pages, "tabs.main", 0, shell.Page{Title: func() string { return "Main page" },
 			Render: func(c *ui.Context) { ui.Text(c, "Main body") }})
 	}}
-	s, _ := newShell(t, p)
+	s, _ := newShell(t, p.New)
 	var title string
 	s.opts.SetTitle = func(t string) { title = t }
 	tt := ui.NewTester(s.View, 1200, 800)
@@ -134,7 +135,7 @@ func TestShowPageAnnouncesEachChange(t *testing.T) {
 		kernel.On(c, shell.PageChanged, func(id string) { got = append(got, id) })
 		return nil
 	}}
-	s, _ := newShell(t, p)
+	s, _ := newShell(t, p.New)
 	host, _ := kernel.Use(s.Kernel, shell.HostKey)
 	for _, id := range []string{"a", "a", "b", "a"} {
 		host.ShowPage(id)
@@ -151,7 +152,7 @@ func TestPanickingViewFailsOnlyItsPlugin(t *testing.T) {
 	good := &plugin{id: "good", setup: func(c *kernel.Context) error {
 		return kernel.Contribute(c, shell.Pages, "good.page", 0, shell.Page{Render: func(c *ui.Context) { ui.Text(c, "Still here") }})
 	}}
-	s, _ := newShell(t, bad, good)
+	s, _ := newShell(t, bad.New, good.New)
 	tt := ui.NewTester(s.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
@@ -230,7 +231,7 @@ func TestNoticesReachTheDesktopAndClicksReachPlugins(t *testing.T) {
 		return nil
 	}}
 	s, err := New(Options{Post: func(fn func()) { fn() }, Store: kerneltest.NewStore(),
-		Notify: func(n shell.Notice) { shown = append(shown, n) }, Foreground: func() bool { return front }}, listener)
+		Notify: func(n shell.Notice) { shown = append(shown, n) }, Foreground: func() bool { return front }}, listener.New)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +281,7 @@ func TestMenusFollowTheAppsOrder(t *testing.T) {
 	} {
 		var built *mygo.Menu
 		s, err := New(Options{Menus: tc.menus, Post: func(fn func()) { fn() }, Store: kerneltest.NewStore(),
-			SetMenu: func(m *mygo.Menu) { built = m }}, p)
+			SetMenu: func(m *mygo.Menu) { built = m }}, p.New)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -303,5 +304,47 @@ func TestAppNeedsOnePlainFolderName(t *testing.T) {
 	}
 	if (App{Folder: "notes"}).check() == nil {
 		t.Error("an App without a Name was accepted")
+	}
+}
+
+// A command contributed after start, as from a scope a plugin opens later,
+// reaches the menu bar, and leaves it with its scope.
+func TestTheMenuFollowsTheCommands(t *testing.T) {
+	var ctx *kernel.Context
+	p := &plugin{id: "notes", setup: func(c *kernel.Context) error { ctx = c; return nil }}
+	var built *mygo.Menu
+	var queue []func()
+	s, err := New(Options{Menus: []string{"File", "Notes"}, Post: func(fn func()) { queue = append(queue, fn) },
+		Store: kerneltest.NewStore(), SetMenu: func(m *mygo.Menu) { built = m }}, p.New)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	run := func() {
+		for len(queue) > 0 {
+			q := queue
+			queue = nil
+			for _, fn := range q {
+				fn()
+			}
+		}
+	}
+	run()
+	if slices.Contains(menuLabels(built), "Notes") {
+		t.Fatal("an empty menu was shown")
+	}
+	later := ctx.NewScope()
+	kernel.Contribute(later, kernel.Commands, "notes.later", 0, kernel.Command{Title: "Later", Menu: "Notes", Run: func() {}})
+	run()
+	if !slices.Contains(menuLabels(built), "Notes") {
+		t.Fatalf("menus %v lack the later command's", menuLabels(built))
+	}
+	later.Dispose()
+	run()
+	if slices.Contains(menuLabels(built), "Notes") {
+		t.Fatalf("menus %v keep a withdrawn command's", menuLabels(built))
 	}
 }

@@ -37,7 +37,7 @@ const (
 	maxBytes     = 20 << 20
 )
 
-// Plugin is the attachments plugin. The zero value is ready to install.
+// Plugin is the attachments plugin.
 type Plugin struct {
 	ctx     *kernel.Context
 	host    shell.Host
@@ -56,6 +56,9 @@ type pending struct {
 	thumb *ui.Bitmap // images only
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "attachments", Title: "Attachments",
@@ -67,7 +70,6 @@ func (*Plugin) Manifest() kernel.Manifest {
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.host = kernel.Require(c, shell.HostKey)
-	p.pending, p.reading = nil, 0
 	if p.choose == nil {
 		p.choose = func() ([]string, error) {
 			return mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Attach files", ButtonLabel: "Attach", Multiple: true})
@@ -75,18 +77,12 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	}
 	// Last, so a transform that rejects the draft doesn't drop the files.
 	kernel.Transform(c, chat.Outgoing, 1000, p.outgoing)
-	for _, err := range []error{
-		kernel.Contribute(c, chat.ComposerAccessory, "attachments.add", -10, shell.View{Render: p.button}),
-		kernel.Contribute(c, chat.ComposerAttachments, "attachments.list", 0, shell.View{Render: p.list}),
-		kernel.Contribute(c, chat.FileDrop, "attachments.drop", 0, p.add),
-		kernel.Contribute(c, chat.Paste, "attachments.paste", 0, p.paste),
-		kernel.Contribute(c, kernel.Commands, "attachments.attach", 20, kernel.Command{
-			Title: "Attach Files…", Menu: "Chat", Keys: []string{"cmd+shift+a"}, Run: p.pick}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, chat.ComposerAccessory, "attachments.add", -10, shell.View{Render: p.button})
+	kernel.Contribute(c, chat.ComposerAttachments, "attachments.list", 0, shell.View{Render: p.list})
+	kernel.Contribute(c, chat.FileDrop, "attachments.drop", 0, p.add)
+	kernel.Contribute(c, chat.Paste, "attachments.paste", 0, p.paste)
+	kernel.Contribute(c, kernel.Commands, "attachments.attach", 20, kernel.Command{
+		Title: "Attach Files…", Menu: "Chat", Keys: []string{"cmd+shift+a"}, Run: p.pick})
 	return nil
 }
 

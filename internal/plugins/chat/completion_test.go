@@ -22,6 +22,7 @@ type words struct {
 	accepted []string
 }
 
+func (f *words) New() kernel.Plugin      { return f }
 func (*words) Manifest() kernel.Manifest { return kernel.Manifest{ID: "words"} }
 
 func (w *words) Setup(c *kernel.Context) error {
@@ -45,7 +46,7 @@ func startWords(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, 
 		{ID: "src/mail.go", Label: "mail.go", Detail: "src"},
 		{ID: "docs/map.md", Label: "map.md", Detail: "docs"},
 	}}
-	h, p, f, _ := start(t, w)
+	h, p, f, _ := start(t, w.New)
 	p.Open(agent.Session{ID: "s1"})
 	h.Flush()
 	tt := ui.NewTester(p.view, 1000, 800)

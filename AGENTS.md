@@ -19,7 +19,8 @@ protocols to simplify a refactor.
     and shortcuts from commands; `shell.Run` takes the app's `shell.App`.
   - `native`: the semantic palette, small shared controls and `Tilde` for paths.
   - `plugins/settings` (settings page) and `plugins/inspector` (plugin diagnostics).
-  - `kittest`: the fake `shell.Host` and the palette guard for apps' tests.
+  - `kittest`: the fake `shell.Host`, the palette guard and the goroutine guard for
+    apps' tests.
   - `examples/notes`: the smallest app on the kit; it must never need Wada.
 - `main.go`: composition only — Wada's `shell.App` and the plugins this build installs.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
@@ -52,7 +53,9 @@ particularly `ui/doc.go`.
 
 1. **Add features as plugins.** A plugin implements `kernel.Plugin`, declares what it
    `Provides` and `Requires` in its manifest, and registers everything in `Setup`
-   through its `*kernel.Context`. It never imports another plugin; shared names go
+   through its `*kernel.Context`. Its package's `New` is the factory `main.go`
+   installs; the kernel makes a new plugin for each activation, so `Setup` starts
+   from zero values and never resets fields. It never imports another plugin; shared names go
    in a contract package. Built-in plugins get no private access to the shell.
 2. **Register, don't wire.** Use `Contribute` for commands, slots and sections,
    `On`/`Emit` for events, `Transform`/`Run` for pipelines, `Provide`/`Require`/`Use`

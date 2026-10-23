@@ -14,7 +14,7 @@ import (
 
 func TestANoteIsAddedAndKept(t *testing.T) {
 	store := kerneltest.NewStore()
-	s, err := kitshell.New(kitshell.Options{Name: "Notes", Post: func(fn func()) { fn() }, Store: store}, &notes{}, &kitsettings.Plugin{})
+	s, err := kitshell.New(kitshell.Options{Name: "Notes", Post: func(fn func()) { fn() }, Store: store}, newNotes, kitsettings.New)
 	if err != nil {
 		t.Fatal(err)
 	}

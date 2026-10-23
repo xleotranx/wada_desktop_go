@@ -19,7 +19,7 @@ import (
 // png is the signature of a PNG file, which is all the type check reads.
 var png = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 
-func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Files, *plugintest.Chat, *kittest.Host) {
+func start(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Files, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	files := plugintest.NewFiles(map[string]string{
 		"src/main.go": "package main\n",
@@ -29,8 +29,8 @@ func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, 
 		"tool.bin":    "\x00\x01\x02binary",
 	})
 	ctl, host := &plugintest.Chat{}, &kittest.Host{}
-	p := &Plugin{delay: 1}
-	h := kerneltest.New(t, append([]kernel.Plugin{files, ctl, host, p}, extra...)...)
+	var p *Plugin
+	h := kerneltest.New(t, append([]kernel.Factory{files.New, ctl.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })}, extra...)...)
 	h.Flush()
 	return h, p, files, ctl, host
 }
@@ -197,7 +197,7 @@ func TestImagesGoWithTheirType(t *testing.T) {
 }
 
 func TestTheAgentsFileTypesLimitWhatGoes(t *testing.T) {
-	h, _, _, _, host := start(t, &textOnly{})
+	h, _, _, _, host := start(t, (&textOnly{}).New)
 	completion(h).Accept(chat.Candidate{ID: "logo.png"})
 	h.Flush()
 	if d, _ := send(h, "@logo.png"); len(d.Files) != 1 {
@@ -218,6 +218,7 @@ func TestTheAgentsFileTypesLimitWhatGoes(t *testing.T) {
 // textOnly is a backend that takes only text files.
 type textOnly struct{}
 
+func (f *textOnly) New() kernel.Plugin { return f }
 func (*textOnly) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "text-only", Provides: []kernel.Named{agent.FileTypesKey}, DefaultOff: true}
 }
@@ -311,8 +312,9 @@ func TestMentionBoundaries(t *testing.T) {
 }
 
 func TestIsBlockedWhereTheBackendCannotReadFiles(t *testing.T) {
-	ctl, host, p := &plugintest.Chat{}, &kittest.Host{}, &Plugin{}
-	h := kerneltest.New(t, ctl, host, p)
+	ctl, host := &plugintest.Chat{}, &kittest.Host{}
+	var p *Plugin
+	h := kerneltest.New(t, ctl.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	for _, st := range h.Plugins() {
 		if st.Manifest.ID == "mentions" && (st.State != kernel.Blocked || !slices.Equal(st.Missing, []string{"agent.files"})) {
 			t.Fatalf("status %+v", st)

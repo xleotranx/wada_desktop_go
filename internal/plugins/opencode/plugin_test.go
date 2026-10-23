@@ -190,9 +190,8 @@ func (f *fakeServer) body(route string) string {
 
 func TestBackendContract(t *testing.T) {
 	f := newFakeServer(t)
-	h, p := start(t, f)
-	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, Service: p, PluginID: "opencode", Session: "ses-9",
-		WaitReady: func() { waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready }) },
+	h, _ := start(t, f)
+	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, PluginID: "opencode", Session: "ses-9",
 		RejectSend: func() (string, func() int) {
 			return "reject-contract-send", func() int {
 				n := 0
@@ -213,12 +212,15 @@ func start(t *testing.T, f *fakeServer) (*kerneltest.Harness, *Plugin) {
 	store := kerneltest.NewStore()
 	raw, _ := json.Marshal(Connection{Remote: true, URL: f.URL, Password: f.password})
 	store.Save(context.Background(), []kernel.Value{{Namespace: "opencode", Key: "connection", JSON: raw}})
-	p := &Plugin{after: func(time.Duration) <-chan time.Time {
-		ch := make(chan time.Time, 1)
-		ch <- time.Now()
-		return ch
-	}}
-	return kerneltest.Start(t, kerneltest.Config{Store: store}, &kittest.Host{}, p), p
+	var p *Plugin
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, (&kittest.Host{}).New, kerneltest.Keep(&p, func() *Plugin {
+		return &Plugin{after: func(time.Duration) <-chan time.Time {
+			ch := make(chan time.Time, 1)
+			ch <- time.Now()
+			return ch
+		}}
+	}))
+	return h, p
 }
 
 // waitFor runs posted work until cond holds.
@@ -265,6 +267,7 @@ func call[T any](t *testing.T, h *kerneltest.Harness, fn func(context.Context) (
 
 func TestConnectsAndEmitsEventBatchesInOrder(t *testing.T) {
 	f := newFakeServer(t)
+	base := attempts.Load()
 	h, p := start(t, f)
 	var states []agent.ConnState
 	kernel.On(h, agent.StatusChanged, func(s agent.Status) { states = append(states, s.State) })
@@ -273,7 +276,7 @@ func TestConnectsAndEmitsEventBatchesInOrder(t *testing.T) {
 
 	lines := f.stream(t)
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
-	if st := p.Status(); st.Version != "2.0.0" || st.Endpoint != f.URL || st.Attempt != 1 {
+	if st := p.Status(); st.Version != "2.0.0" || st.Endpoint != f.URL || st.Attempt != base+1 {
 		t.Fatalf("status %+v", st)
 	}
 	if !slices.Equal(states, []agent.ConnState{agent.Connecting, agent.Ready}) && !slices.Equal(states, []agent.ConnState{agent.Ready}) {
@@ -476,6 +479,7 @@ func TestFilesAreFoundAndReadThroughTheServer(t *testing.T) {
 
 func TestReconnectsAfterTheStreamDrops(t *testing.T) {
 	f := newFakeServer(t)
+	base := attempts.Load()
 	h, p := start(t, f)
 	close(f.stream(t))
 	var downs int
@@ -485,7 +489,7 @@ func TestReconnectsAfterTheStreamDrops(t *testing.T) {
 		}
 	})
 	f.stream(t)
-	waitFor(t, h, "second attempt ready", func() bool { return p.Status().State == agent.Ready && p.Status().Attempt == 2 })
+	waitFor(t, h, "second attempt ready", func() bool { return p.Status().State == agent.Ready && p.Status().Attempt == base+2 })
 	if downs != 1 {
 		t.Fatalf("%d Down statuses, want 1", downs)
 	}

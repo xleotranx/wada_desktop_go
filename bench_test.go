@@ -129,8 +129,8 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 		mu.Unlock()
 	}
 	s, err := shell.New(shell.Options{Post: post,
-		Store: kerneltest.NewStore()}, f, ws, plugintest.NewFiles(nil), &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{},
-		&mentions.Plugin{}, &tabs.Plugin{}, &palette.Plugin{}, &notifications.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		Store: kerneltest.NewStore()}, f.New, ws.New, plugintest.NewFiles(nil).New, chat.New, models.New, activity.New, attachments.New,
+		mentions.New, tabs.New, palette.New, notifications.New, inspector.New, settings.New)
 	if err != nil {
 		b.Fatal(err)
 	}

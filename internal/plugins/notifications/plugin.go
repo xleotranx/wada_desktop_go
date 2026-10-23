@@ -23,7 +23,7 @@ import (
 // noticePrefix marks a notice ID as naming a conversation.
 const noticePrefix = "chat:"
 
-// Plugin is the notifications plugin. The zero value is ready to install.
+// Plugin is the notifications plugin.
 type Plugin struct {
 	ctx       *kernel.Context
 	agent     agent.Service
@@ -43,6 +43,9 @@ type notice struct {
 	body string
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "notifications", Title: "Notifications",
@@ -58,7 +61,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.finished = kernel.NewSetting(c, "turn-finished", true)
 	p.approvals = kernel.NewSetting(c, "approvals", true)
-	p.known, p.waiting = map[agent.SessionID]agent.Session{}, nil
+	p.known = map[agent.SessionID]agent.Session{}
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, workspace.Changed, func(struct{}) { p.flush() })
 	kernel.On(c, shell.NoticeClicked, p.clicked)

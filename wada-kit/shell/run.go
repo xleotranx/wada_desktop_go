@@ -51,7 +51,7 @@ func (app App) check() error {
 
 // Run opens the app window with the shell and plugins, and returns when the
 // app quits.
-func Run(app App, plugins ...kernel.Plugin) {
+func Run(app App, plugins ...kernel.Factory) {
 	if err := app.check(); err != nil {
 		log.Fatal(err)
 	}

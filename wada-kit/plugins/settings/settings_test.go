@@ -15,6 +15,7 @@ import (
 type contributor struct{}
 
 func (contributor) Manifest() kernel.Manifest { return kernel.Manifest{ID: "extra", Title: "Extra"} }
+func (contributor) New() kernel.Plugin        { return contributor{} }
 func (contributor) Setup(c *kernel.Context) error {
 	return kernel.Contribute(c, settings.Sections, "extra.section", 50, settings.Section{
 		Title: "Extra section", Render: func(c *ui.Context) { ui.Text(c, "Extra body") }})
@@ -22,8 +23,8 @@ func (contributor) Setup(c *kernel.Context) error {
 
 func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 	host := &kittest.Host{Mode: "system"}
-	p := &Plugin{}
-	h := kerneltest.New(t, host, p, contributor{})
+	var p *Plugin
+	h := kerneltest.New(t, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }), contributor{}.New)
 	host.PluginList = h.Plugins()
 	tt := ui.NewTester(p.view, 900, 1200)
 	tt.Frame()
@@ -70,8 +71,8 @@ func TestPageShowsSectionsAndChangesSettings(t *testing.T) {
 
 func TestSelectionFallsBackWhenASectionIsRemoved(t *testing.T) {
 	host := &kittest.Host{Mode: "system"}
-	p := &Plugin{}
-	h := kerneltest.New(t, host, p, contributor{})
+	var p *Plugin
+	h := kerneltest.New(t, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }), contributor{}.New)
 	tt := ui.NewTester(p.view, 900, 550)
 	if err := tt.Click("Extra section"); err != nil {
 		t.Fatal(err)

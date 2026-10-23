@@ -55,15 +55,20 @@ type Shell struct {
 	opts   Options
 	title  string
 	accel  map[string]accelerator // parsed command shortcut strings, remembered so frames need not parse them
+	failed map[string]bool        // plugins whose failure was reported, by ID
 }
 
 // New installs the shell's own plugin and then plugins, in that order.
-func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
-	s := &Shell{opts: opts, host: &host{setTheme: opts.SetTheme, setVibrancy: opts.SetVibrancy, notify: opts.Notify, foreground: opts.Foreground,
-		clipboard: opts.Clipboard, dataDir: opts.DataDir}}
+func New(opts Options, plugins ...kernel.Factory) (*Shell, error) {
+	s := &Shell{opts: opts, failed: map[string]bool{}}
 	s.Kernel = kernel.New(kernel.Options{Post: opts.Post, Store: opts.Store, Strict: opts.Strict})
-	s.host.k = s.Kernel
-	if err := s.Kernel.Install(append([]kernel.Plugin{s.host}, plugins...)...); err != nil {
+	// The shell reaches its own plugin as the one set up now.
+	newHost := func() kernel.Plugin {
+		s.host = &host{k: s.Kernel, setTheme: opts.SetTheme, setVibrancy: opts.SetVibrancy, notify: opts.Notify,
+			foreground: opts.Foreground, clipboard: opts.Clipboard, dataDir: opts.DataDir}
+		return s.host
+	}
+	if err := s.Kernel.Install(append([]kernel.Factory{newHost}, plugins...)...); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -72,6 +77,11 @@ func New(opts Options, plugins ...kernel.Plugin) (*Shell, error) {
 // Start sets the plugins up and builds the menu bar.
 func (s *Shell) Start() error {
 	kernel.On(s.Kernel, kernel.PluginsChanged, s.pluginsChanged)
+	kernel.On(s.Kernel, kernel.PointChanged, func(point string) {
+		if point == kernel.Commands.Name() {
+			s.buildMenu()
+		}
+	})
 	err := s.Kernel.Start()
 	s.buildMenu()
 	return err
@@ -84,17 +94,18 @@ func (s *Shell) Close(ctx context.Context) error { return s.Kernel.Close(ctx) }
 // Call it on the UI thread.
 func (s *Shell) NoticeClicked(id string) { kernel.Emit(s.Kernel, shell.NoticeClicked, id) }
 
-// pluginsChanged rebuilds the menu and reports plugins that just failed.
+// pluginsChanged rebuilds the menu and reports plugins that just failed. The
+// menu is rebuilt as well whenever the commands change.
 func (s *Shell) pluginsChanged(all []kernel.Status) {
 	s.buildMenu()
 	for _, st := range all {
 		failed := st.State == kernel.Failed
-		if failed && !s.host.failed[st.Manifest.ID] {
+		if failed && !s.failed[st.Manifest.ID] {
 			log.Printf("plugin %s failed: %v", st.Manifest.ID, st.Err)
 			s.host.Toast(ui.Toast{Title: st.Manifest.Title + " stopped working", Description: st.Err.Error(),
 				Type: components.ToastError})
 		}
-		s.host.failed[st.Manifest.ID] = failed
+		s.failed[st.Manifest.ID] = failed
 	}
 }
 
@@ -313,7 +324,6 @@ type host struct {
 	page        string
 	toasts      []ui.Toast
 	services    ui.Services
-	failed      map[string]bool
 }
 
 var _ shell.Host = (*host)(nil)
@@ -323,7 +333,6 @@ func (*host) Manifest() kernel.Manifest {
 }
 
 func (h *host) Setup(c *kernel.Context) error {
-	h.failed = map[string]bool{}
 	h.appearance = kernel.NewSetting(c, "appearance", "dark")
 	h.applyTheme(h.Appearance())
 	h.backdrop = kernel.NewSetting(c, "backdrop", "clear")

@@ -16,11 +16,15 @@ import (
 
 const pageID = "inspector.page"
 
+// Plugin is the plugin diagnostics page.
 type Plugin struct {
 	inspector kernel.Inspector
 	host      shell.Host
 	expanded  map[string]bool
 }
+
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "inspector", Title: "Plugin diagnostics",
@@ -33,17 +37,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.expanded = map[string]bool{}
 	open := func() { p.host.ShowPage(pageID) }
-	for _, err := range []error{
-		kernel.Contribute(c, shell.Pages, pageID, 200, shell.Page{Title: func() string { return "Plugin diagnostics" }, Render: p.view}),
-		kernel.Contribute(c, kernel.Commands, "inspector.open", 0, kernel.Command{Title: "Plugin diagnostics", Menu: "View", Run: open}),
-		kernel.Contribute(c, settings.Sections, "inspector.settings", 1100, settings.Section{Title: "Diagnostics", Render: func(c *ui.Context) {
-			components.Button(c, "Open plugin diagnostics", components.ButtonSecondary).OnClick(open)
-		}}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, shell.Pages, pageID, 200, shell.Page{Title: func() string { return "Plugin diagnostics" }, Render: p.view})
+	kernel.Contribute(c, kernel.Commands, "inspector.open", 0, kernel.Command{Title: "Plugin diagnostics", Menu: "View", Run: open})
+	kernel.Contribute(c, settings.Sections, "inspector.settings", 1100, settings.Section{Title: "Diagnostics", Render: func(c *ui.Context) {
+		components.Button(c, "Open plugin diagnostics", components.ButtonSecondary).OnClick(open)
+	}})
 	return nil
 }
 

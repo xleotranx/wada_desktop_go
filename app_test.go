@@ -81,8 +81,8 @@ func startApp(t *testing.T) *app {
 		}
 	}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
-		a, files, &chat.Plugin{}, &models.Plugin{}, &activity.Plugin{}, &attachments.Plugin{}, &mentions.Plugin{},
-		&workspace.Plugin{}, &tabs.Plugin{}, &workflow.Plugin{}, &flows.Plugin{}, &palette.Plugin{}, &inspector.Plugin{}, &settings.Plugin{})
+		a.New, files.New, chat.New, models.New, activity.New, attachments.New, mentions.New,
+		workspace.New, tabs.New, workflow.New, flows.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
 	}

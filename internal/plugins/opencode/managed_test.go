@@ -47,8 +47,8 @@ func fakeServe() {
 
 func TestManagedServerRunsAndStopsWithThePlugin(t *testing.T) {
 	t.Setenv("WADA_FAKE_OPENCODE", "1")
-	p := &Plugin{exe: os.Args[0], dir: t.TempDir()}
-	h := kerneltest.New(t, &kittest.Host{}, p)
+	var p *Plugin
+	h := kerneltest.New(t, (&kittest.Host{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{exe: os.Args[0], dir: t.TempDir()} }))
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
 	if p.Status().Version != "managed" {
 		t.Fatalf("status %+v", p.Status())

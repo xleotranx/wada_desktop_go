@@ -38,8 +38,8 @@ func startPi(t *testing.T) (*kerneltest.Harness, *Plugin, string) {
 	store := kerneltest.NewStore()
 	raw, _ := json.Marshal(Settings{Executable: os.Args[0], SessionDir: dir})
 	store.Save(context.Background(), []kernel.Value{{Namespace: "pi", Key: "settings", JSON: raw}})
-	p := &Plugin{}
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+	var p *Plugin
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	if err := h.Enable("pi"); err != nil {
 		t.Fatal(err)
 	}
@@ -81,9 +81,8 @@ func call[T any](t *testing.T, h *kerneltest.Harness, fn func(context.Context) (
 func TestBackendContract(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "attempts")
 	t.Setenv("WADA_FAKE_PI_ATTEMPTS", path)
-	h, p, _ := startPi(t)
-	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, Service: p, PluginID: "pi", Session: "old-1",
-		WaitReady: func() { waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready }) },
+	h, _, _ := startPi(t)
+	plugintest.CheckBackend(t, plugintest.BackendCase{Harness: h, PluginID: "pi", Session: "old-1",
 		RejectSend: func() (string, func() int) {
 			return "reject-contract-send", func() int {
 				raw, _ := os.ReadFile(path)

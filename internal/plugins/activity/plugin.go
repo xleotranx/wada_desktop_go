@@ -15,7 +15,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 )
 
-// Plugin is the work panel's activity. The zero value is ready to install.
+// Plugin is the work panel's activity.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
@@ -33,6 +33,9 @@ type Plugin struct {
 	open        map[string]bool // files whose diff is shown, by path
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "activity", Title: "Activity",
@@ -45,7 +48,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
-	p.session, p.last, p.changes, p.open, p.shell = "", nil, nil, map[string]bool{}, map[string]bool{}
+	p.open, p.shell = map[string]bool{}, map[string]bool{}
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
 	kernel.On(c, agent.Events, p.events)
 	// A read before the backend connected failed; read again once it has.
@@ -61,16 +64,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		}
 	})
 	p.follow(p.chat.Current().Session)
-	for _, err := range []error{
-		kernel.Contribute(c, chat.Work, "activity.changes", 0, chat.WorkSection{Title: "Changes",
-			Shown: func() bool { return len(p.changes) > 0 }, Render: p.changesView}),
-		kernel.Contribute(c, chat.Work, "activity.command", 10, chat.WorkSection{Title: "Last command",
-			Shown: func() bool { return p.last != nil }, Render: p.commandView}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, chat.Work, "activity.changes", 0, chat.WorkSection{Title: "Changes",
+		Shown: func() bool { return len(p.changes) > 0 }, Render: p.changesView})
+	kernel.Contribute(c, chat.Work, "activity.command", 10, chat.WorkSection{Title: "Last command",
+		Shown: func() bool { return p.last != nil }, Render: p.commandView})
 	return nil
 }
 

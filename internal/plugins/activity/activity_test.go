@@ -31,8 +31,8 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plug
 		{Path: "README.md", Status: agent.FileAdded, Added: 12},
 	}
 	chat := &plugintest.Chat{}
-	p := &Plugin{}
-	h := kerneltest.New(t, a, chat, p)
+	var p *Plugin
+	h := kerneltest.New(t, a.New, chat.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	return h, p, a, chat
 }

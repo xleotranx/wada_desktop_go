@@ -12,7 +12,7 @@ import (
 
 func TestDiagnosticsCountCancelledWorkUntilItExits(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	scope := p.ctx.NewScope()
 	var task kernel.Task
 	kernel.Go(scope, &task, func(context.Context) (int, error) { return 0, nil }, func(int, error) {})
@@ -30,7 +30,7 @@ func TestDiagnosticsDescribeDependenciesAndLiveRegistrations(t *testing.T) {
 	provider := backend("provider")
 	var used agent
 	dependent := consumer("consumer", &used)
-	h := kerneltest.New(t, provider, dependent)
+	h := kerneltest.New(t, provider.New, dependent.New)
 	scope := dependent.ctx.NewScope()
 	kernel.On(scope, ping, func(string) {})
 	kernel.Transform(scope, outgoing, 0, func(s string) (string, error) { return s, nil })
@@ -58,7 +58,7 @@ func TestDiagnosticsDescribeDependenciesAndLiveRegistrations(t *testing.T) {
 
 func TestDiagnosticsRetainPanicStacks(t *testing.T) {
 	p := plug("bad", func(*kernel.Context) error { panic("review probe") })
-	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p)
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p.New)
 	got := h.Inspect()[0]
 	var panicErr *kernel.PanicError
 	if !errors.As(got.Status.Err, &panicErr) || !strings.Contains(got.Stack, "TestDiagnosticsRetainPanicStacks") {

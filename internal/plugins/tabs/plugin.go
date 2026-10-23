@@ -22,7 +22,7 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
-// Plugin is the tabs plugin. The zero value is ready to install.
+// Plugin is the tabs plugin.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
@@ -80,6 +80,9 @@ type saved struct {
 
 const newChatTitle = "New chat"
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "tabs", Title: "Tabs", Locked: true,
@@ -99,11 +102,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.savedActive = kernel.NewSetting(c, "active", 0)
 	p.colors = kernel.NewSetting(c, "colors", map[string]int{})
 	p.reopen = kernel.NewSetting(c, "reopen", true)
-	p.tabs, p.active, p.restored, p.selecting = nil, "", false, false
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
-	p.unsent, p.chatTab = map[string]string{}, ""
-	p.space, p.lastIn, p.switching = "", map[string]string{}, false
-	p.renaming, p.renameOn, p.deleting, p.deleteOn, p.removing, p.removeOn = tabs.Tab{}, false, tabs.Tab{}, false, "", false
+	p.unsent, p.lastIn = map[string]string{}, map[string]string{}
 	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
 		return err
 	}
@@ -120,27 +120,21 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	})
 	// Restoring navigates, which is not Setup's job: do it once set up.
 	c.Post(p.restore)
-	for _, err := range []error{
-		kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true}),
-		kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs}),
-		kernel.Contribute(c, settings.Sections, "tabs.settings", 10, settings.Section{
-			Title: "Tabs", Description: "How tabs open and how projects look.", Render: p.section}),
-		kernel.Contribute(c, kernel.Commands, "tabs.new", 0, kernel.Command{
-			Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"}, Run: p.newChat}),
-		kernel.Contribute(c, kernel.Commands, "tabs.close", 0, kernel.Command{
-			Title: "Close Tab", Menu: "File", Keys: []string{"cmd+w"},
-			Enabled: func() bool { return p.active != "" }, Run: func() { p.Close(p.active) }}),
-		kernel.Contribute(c, kernel.Commands, "tabs.next", 0, kernel.Command{
-			Title: "Show Next Tab", Menu: "View", Keys: []string{"ctrl+tab"},
-			Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(1) }}),
-		kernel.Contribute(c, kernel.Commands, "tabs.previous", 0, kernel.Command{
-			Title: "Show Previous Tab", Menu: "View", Keys: []string{"ctrl+shift+tab"},
-			Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(-1) }}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true})
+	kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs})
+	kernel.Contribute(c, settings.Sections, "tabs.settings", 10, settings.Section{
+		Title: "Tabs", Description: "How tabs open and how projects look.", Render: p.section})
+	kernel.Contribute(c, kernel.Commands, "tabs.new", 0, kernel.Command{
+		Title: "New Chat", Menu: "File", Keys: []string{"cmd+n"}, Run: p.newChat})
+	kernel.Contribute(c, kernel.Commands, "tabs.close", 0, kernel.Command{
+		Title: "Close Tab", Menu: "File", Keys: []string{"cmd+w"},
+		Enabled: func() bool { return p.active != "" }, Run: func() { p.Close(p.active) }})
+	kernel.Contribute(c, kernel.Commands, "tabs.next", 0, kernel.Command{
+		Title: "Show Next Tab", Menu: "View", Keys: []string{"ctrl+tab"},
+		Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(1) }})
+	kernel.Contribute(c, kernel.Commands, "tabs.previous", 0, kernel.Command{
+		Title: "Show Previous Tab", Menu: "View", Keys: []string{"ctrl+shift+tab"},
+		Enabled: func() bool { return len(p.tabs) > 1 }, Run: func() { p.step(-1) }})
 	return nil
 }
 

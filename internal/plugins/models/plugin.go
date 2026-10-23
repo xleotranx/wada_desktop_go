@@ -24,7 +24,7 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
-// Plugin is the model picker. The zero value is ready to install.
+// Plugin is the model picker.
 type Plugin struct {
 	ctx    *kernel.Context
 	agent  agent.Service
@@ -55,6 +55,9 @@ type Plugin struct {
 	modelPicker, effortPicker, modePicker onechat.PickerState
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "models", Title: "Model picker",
@@ -71,7 +74,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.newModel = kernel.NewSetting(c, "new-chat-model", agent.ModelRef{})
 	p.newMode = kernel.NewSetting(c, "new-chat-mode", "")
-	p.scope = nil
 	p.conversationChanged(p.chat.Current())
 	kernel.On(c, agent.StatusChanged, func(st agent.Status) {
 		if st.State == agent.Ready && st.Attempt != p.attempt {

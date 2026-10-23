@@ -19,6 +19,7 @@ type commands struct {
 	stopped bool // "Stop Everything" is enabled while this is set
 }
 
+func (f *commands) New() kernel.Plugin      { return f }
 func (*commands) Manifest() kernel.Manifest { return kernel.Manifest{ID: "ext"} }
 
 func (x *commands) Setup(c *kernel.Context) error {
@@ -44,8 +45,9 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Workspace, *
 		{ID: "s4", Title: "Tidy the tests", Updated: 9},
 		{ID: "s5", Title: "Bump the deps", Updated: 8},
 		{ID: "s9", Title: "Old migration notes", Updated: 1}}}
-	chat, ext, p := &plugintest.Chat{}, &commands{}, &Plugin{}
-	h := kerneltest.New(t, ws, chat, ext, p)
+	chat, ext := &plugintest.Chat{}, &commands{}
+	var p *Plugin
+	h := kerneltest.New(t, ws.New, chat.New, ext.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	tt := ui.NewTester(p.view, 800, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
@@ -166,8 +168,9 @@ func TestListsOnlyTheRecordedConversations(t *testing.T) {
 }
 
 func TestCommandsWorkWithoutABackend(t *testing.T) {
-	ext, p := &commands{}, &Plugin{}
-	h := kerneltest.New(t, ext, p)
+	ext := &commands{}
+	var p *Plugin
+	h := kerneltest.New(t, ext.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	tt := ui.NewTester(p.view, 800, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
@@ -199,6 +202,7 @@ func TestShortcutLabels(t *testing.T) {
 // openTabs stands in for the tabs plugin with a fixed list.
 type openTabs struct{ list []tabs.Tab }
 
+func (f *openTabs) New() kernel.Plugin { return f }
 func (*openTabs) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "tabs", Provides: []kernel.Named{tabs.ServiceKey}}
 }
@@ -219,9 +223,10 @@ func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 			{ID: "s1", Title: "Fix the parser", Folder: "/w/app"},
 			{ID: "s2", Title: "Write docs", Folder: "/w/app"},
 		}}
-	chat, p := &plugintest.Chat{}, &Plugin{}
+	chat := &plugintest.Chat{}
+	var p *Plugin
 	open := &openTabs{list: []tabs.Tab{{ID: "chat:s2", Kind: tabs.Conversation, Session: "s2"}}}
-	h := kerneltest.New(t, ws, chat, open, p)
+	h := kerneltest.New(t, ws.New, chat.New, open.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	got := map[string]string{}
 	for _, it := range p.items() {
@@ -245,8 +250,8 @@ func TestOnlyTheLatestFoldersShowBeforeTyping(t *testing.T) {
 		ws.FolderSet = append(ws.FolderSet, workspace.Folder{Path: path, Added: int64(i)})
 	}
 	ws.Convs = []workspace.Conversation{{ID: "s1", Title: "Old work", Folder: "/w/fa", Updated: 100}}
-	p := &Plugin{}
-	h := kerneltest.New(t, ws, &plugintest.Chat{}, p)
+	var p *Plugin
+	h := kerneltest.New(t, ws.New, (&plugintest.Chat{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	var shown []string
 	for _, it := range filter(p.items(), "") {

@@ -28,8 +28,8 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *kittest.Host, string) {
 	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello"), 0o600)
 	os.Mkdir(filepath.Join(dir, "folder"), 0o700)
 	host := &kittest.Host{}
-	p := &Plugin{}
-	h := kerneltest.New(t, host, p)
+	var p *Plugin
+	h := kerneltest.New(t, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	return h, p, host, dir
 }
 
@@ -174,6 +174,7 @@ func TestPasteTakesFilesAndImages(t *testing.T) {
 // types is a backend that takes only text.
 type types struct{}
 
+func (f types) New() kernel.Plugin { return f }
 func (types) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "types", Provides: []kernel.Named{agent.FileTypesKey}}
 }
@@ -188,8 +189,8 @@ func TestRefusesWhatTheBackendDoesNotTake(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o600)
 	os.WriteFile(filepath.Join(dir, "b.zip"), []byte{0, 1}, 0o600)
 	host := &kittest.Host{}
-	p := &Plugin{}
-	h := kerneltest.New(t, host, types{}, p)
+	var p *Plugin
+	h := kerneltest.New(t, host.New, types{}.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	drop(h, filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.zip"))
 	h.Flush()
 	if !slices.Equal(names(p), []string{"a.txt"}) || len(host.Toasts) != 1 {

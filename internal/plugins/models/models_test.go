@@ -20,12 +20,12 @@ var (
 	beta  = agent.ModelRef{Provider: "acme", ID: "beta"}
 )
 
-func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
+func start(t *testing.T, store *kerneltest.Store, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	return startWith(t, kerneltest.Config{Store: store}, extra...)
 }
 
-func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
+func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plugintest.Chat, *kittest.Host) {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Catalog = []agent.Model{
@@ -34,8 +34,9 @@ func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Plugin) (*ke
 	}
 	a.Default = alpha
 	a.ModeList = []agent.Mode{{ID: "build", Name: "Build"}, {ID: "plan", Name: "Plan"}}
-	c, host, p := &plugintest.Chat{}, &kittest.Host{}, &Plugin{}
-	h := kerneltest.Start(t, cfg, append([]kernel.Plugin{a, c, host, p}, extra...)...)
+	c, host := &plugintest.Chat{}, &kittest.Host{}
+	var p *Plugin
+	h := kerneltest.Start(t, cfg, append([]kernel.Factory{a.New, c.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })}, extra...)...)
 	h.Flush()
 	return h, p, a, c, host
 }
@@ -167,6 +168,7 @@ func TestNavigatingDropsEarlierModelSwitchFailure(t *testing.T) {
 // targets contributes a chat target that keeps what it is given.
 type targets struct{ taken *[]chat.Draft }
 
+func (f targets) New() kernel.Plugin      { return f }
 func (targets) Manifest() kernel.Manifest { return kernel.Manifest{ID: "test-targets"} }
 
 func (t targets) Setup(c *kernel.Context) error {
@@ -177,7 +179,7 @@ func (t targets) Setup(c *kernel.Context) error {
 
 func TestChoosingATargetSendsTheNextMessageThereOnly(t *testing.T) {
 	var taken []chat.Draft
-	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	tt := ui.NewTester(p.view, 900, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
@@ -218,7 +220,7 @@ func TestChoosingATargetSendsTheNextMessageThereOnly(t *testing.T) {
 
 func TestChoosingAModeAfterATargetLeavesTheTarget(t *testing.T) {
 	var taken []chat.Draft
-	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	tt := ui.NewTester(p.view, 900, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
@@ -236,7 +238,7 @@ func TestChoosingAModeAfterATargetLeavesTheTarget(t *testing.T) {
 
 func TestATargetIsDroppedWhenAnotherConversationOpens(t *testing.T) {
 	var taken []chat.Draft
-	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	tt := ui.NewTester(p.view, 900, 600)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
@@ -272,7 +274,7 @@ func chooseTarget(t *testing.T, p *Plugin) {
 
 func TestATargetIsDroppedWhenANewChatOpensInAnotherFolder(t *testing.T) {
 	var taken []chat.Draft
-	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, _, c, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	c.NewChat("/a")
 	chooseTarget(t, p)
 	c.NewChat("/b")
@@ -283,7 +285,7 @@ func TestATargetIsDroppedWhenANewChatOpensInAnotherFolder(t *testing.T) {
 
 func TestAGoneTargetKeepsTheMessageFromTheAgent(t *testing.T) {
 	var taken []chat.Draft
-	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, _, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	chooseTarget(t, p)
 	if err := h.Disable("test-targets"); err != nil {
 		t.Fatal(err)
@@ -300,6 +302,7 @@ func TestAGoneTargetKeepsTheMessageFromTheAgent(t *testing.T) {
 // panicking contributes a target whose Take fails.
 type panicking struct{}
 
+func (f panicking) New() kernel.Plugin      { return f }
 func (panicking) Manifest() kernel.Manifest { return kernel.Manifest{ID: "test-targets"} }
 
 func (panicking) Setup(c *kernel.Context) error {
@@ -308,7 +311,7 @@ func (panicking) Setup(c *kernel.Context) error {
 }
 
 func TestATargetThatFailsDoesNotTakeTheMessage(t *testing.T) {
-	h, p, _, _, _ := startWith(t, kerneltest.Config{Lenient: true}, panicking{})
+	h, p, _, _, _ := startWith(t, kerneltest.Config{Lenient: true}, panicking{}.New)
 	chooseTarget(t, p)
 	_, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "hi"})
 	if err == nil || errors.Is(err, chat.ErrTaken) {
@@ -318,7 +321,7 @@ func TestATargetThatFailsDoesNotTakeTheMessage(t *testing.T) {
 
 func TestTheModePickerAppearsForATargetWithoutBackendModes(t *testing.T) {
 	var taken []chat.Draft
-	h, p, a, _, _ := start(t, kerneltest.NewStore(), targets{&taken})
+	h, p, a, _, _ := start(t, kerneltest.NewStore(), targets{&taken}.New)
 	a.ModeList = nil
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
 	h.Flush()

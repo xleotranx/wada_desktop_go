@@ -20,8 +20,8 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Chat, *kitte
 	a := plugintest.NewAgent()
 	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s2", Title: "Fix the build", Directory: "/w/app"}}}
 	c, host := &plugintest.Chat{}, &kittest.Host{}
-	p := &Plugin{}
-	h := kerneltest.New(t, a, c, host, p)
+	var p *Plugin
+	h := kerneltest.New(t, a.New, c.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	c.Open(agent.Session{ID: "s1", Title: "On show"})
 	return h, p, c, host
 }
@@ -88,7 +88,7 @@ func TestNoticesWaitForTheWorkspaceRecord(t *testing.T) {
 	a := plugintest.NewAgent()
 	c, host := &plugintest.Chat{}, &kittest.Host{}
 	ws := &plugintest.Workspace{Pending: true}
-	h := kerneltest.New(t, a, c, host, ws, &Plugin{})
+	h := kerneltest.New(t, a.New, c.New, host.New, ws.New, New)
 	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "ours"}, agent.Event{Kind: agent.TurnSucceeded, Session: "cli"})
 	if len(host.Notices) != 0 {
 		t.Fatalf("notified before the record was read: %+v", host.Notices)

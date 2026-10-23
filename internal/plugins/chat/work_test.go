@@ -14,6 +14,7 @@ import (
 // workPlugin contributes two work sections, one shown only while full is set.
 type workPlugin struct{ full bool }
 
+func (f *workPlugin) New() kernel.Plugin      { return f }
 func (*workPlugin) Manifest() kernel.Manifest { return kernel.Manifest{ID: "work"} }
 
 func (w *workPlugin) Setup(c *kernel.Context) error {
@@ -27,7 +28,7 @@ func (w *workPlugin) Setup(c *kernel.Context) error {
 
 func TestWorkPanelShowsBesideAStoredConversation(t *testing.T) {
 	w := &workPlugin{}
-	h, p, _, _ := start(t, w)
+	h, p, _, _ := start(t, w.New)
 	h.Flush()
 	tt := ui.NewTester(p.view, 1100, 700)
 	tt.Frame()

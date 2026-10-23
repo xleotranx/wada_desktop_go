@@ -19,10 +19,16 @@ import (
 type Plugin interface {
 	Manifest() Manifest
 	// Setup runs on the UI thread and registers everything the plugin needs
-	// through c. If it returns an error or panics, everything registered so
-	// far is undone and the plugin is marked Failed.
+	// through c. If it returns an error or panics, or a registration through
+	// c failed meanwhile, everything registered so far is undone and the
+	// plugin is marked Failed.
 	Setup(c *Context) error
 }
+
+// Factory makes a plugin. The kernel calls it once at Install, for the
+// manifest and the first activation, and again for every later activation,
+// so each Setup starts on a new value with nothing left of an earlier one.
+type Factory func() Plugin
 
 type Manifest struct {
 	ID          string // [a-z][a-z0-9-]*; prefixes every entry ID the plugin registers
@@ -109,9 +115,12 @@ const kernelNamespace = "kernel"
 var pluginID = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type plugin struct {
-	p     Plugin
+	make  Factory
+	fresh Plugin // made and not yet set up; nil once used
 	m     Manifest
 	index int
+	// setupErr is the first registration that failed during Setup.
+	setupErr error
 
 	state     State
 	err       error
@@ -154,6 +163,7 @@ type Kernel struct {
 	moved map[string]bool
 
 	values  map[string]map[string][]byte
+	rev     uint64 // counts changes to values, for Setting's cache
 	dirty   map[valueKey][]byte
 	deleted map[valueKey]bool
 	saving  *pendingSave
@@ -180,13 +190,20 @@ func New(opts Options) *Kernel {
 
 func (k *Kernel) owner() *scope { return k.root }
 
-// Install registers plugins by manifest. It runs no plugin code beyond
-// Manifest and must precede Start.
-func (k *Kernel) Install(plugins ...Plugin) error {
+// Install registers plugins by manifest. It runs no plugin code beyond the
+// factories and Manifest and must precede Start.
+func (k *Kernel) Install(factories ...Factory) error {
 	if k.started {
 		return errors.New("kernel: Install after Start")
 	}
-	for _, p := range plugins {
+	for _, f := range factories {
+		var p Plugin
+		if f != nil {
+			p = f()
+		}
+		if p == nil {
+			return errors.New("kernel: a factory made no plugin")
+		}
 		m := p.Manifest()
 		if !pluginID.MatchString(m.ID) || m.ID == kernelNamespace || m.ID+"." == HostPrefix {
 			return fmt.Errorf("kernel: invalid plugin ID %q", m.ID)
@@ -204,7 +221,7 @@ func (k *Kernel) Install(plugins ...Plugin) error {
 				return fmt.Errorf("kernel: plugin %q requires a key it provides: %s", m.ID, r.Name())
 			}
 		}
-		rec := &plugin{p: p, m: m, index: len(k.plugins), state: Disabled}
+		rec := &plugin{make: f, fresh: p, m: m, index: len(k.plugins), state: Disabled}
 		k.plugins = append(k.plugins, rec)
 		k.byID[m.ID] = rec
 	}
@@ -426,15 +443,28 @@ func (k *Kernel) settle() {
 }
 
 func (k *Kernel) setup(p *plugin) bool {
+	inst := p.fresh
+	p.fresh = nil
+	if inst == nil {
+		inst = p.make()
+	}
+	if inst == nil || inst.Manifest().ID != p.m.ID {
+		p.state, p.err = Failed, errors.New("its factory made another plugin")
+		return false
+	}
 	c := &Context{Scope: Scope{newScope(k, p, nil)}, p: p}
-	p.ctx, p.settingUp, p.err = c, true, nil
+	p.ctx, p.settingUp, p.err, p.setupErr = c, true, nil, nil
 	var err error
 	if k.opts.Strict {
-		err = p.p.Setup(c)
-	} else if perr := recovered(func() { err = p.p.Setup(c) }); perr != nil {
+		err = inst.Setup(c)
+	} else if perr := recovered(func() { err = inst.Setup(c) }); perr != nil {
 		err = perr
 	}
 	p.settingUp = false
+	if err == nil {
+		err = p.setupErr
+	}
+	p.setupErr = nil
 	if err == nil {
 		for _, n := range p.m.Provides {
 			if s := k.services[n.Name()]; s == nil || s.by != p {

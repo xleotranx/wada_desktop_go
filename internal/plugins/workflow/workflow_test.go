@@ -37,8 +37,9 @@ func start(t *testing.T) *rig {
 	t.Helper()
 	a := plugintest.NewAgent()
 	a.Numbered = true
-	host, c, p := &kittest.Host{}, &plugintest.Chat{}, &Plugin{}
-	return &rig{t: t, h: kerneltest.New(t, a, host, c, p), p: p, a: a, host: host, chat: c}
+	host, c := &kittest.Host{}, &plugintest.Chat{}
+	var p *Plugin
+	return &rig{t: t, h: kerneltest.New(t, a.New, host.New, c.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })), p: p, a: a, host: host, chat: c}
 }
 
 func (r *rig) until(what string, ok func() bool) {

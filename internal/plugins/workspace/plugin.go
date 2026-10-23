@@ -34,7 +34,7 @@ const syncPages = 20
 // activity may look, for the backend's clock and the time creating it took.
 const syncSkew = int64(10 * 60 * 1000)
 
-// Plugin is the workspace record. The zero value is ready to install.
+// Plugin is the workspace record.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
@@ -63,6 +63,9 @@ type Plugin struct {
 
 var _ workspace.Service = (*Plugin)(nil)
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "workspace", Title: "Folders", Locked: true,
@@ -77,9 +80,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.store, p.loaded, p.folders, p.list, p.warned = nil, false, nil, nil, false
 	p.convs = map[key]workspace.Conversation{}
-	p.origin, p.synced = p.agent.Status().Origin, 0
+	p.origin = p.agent.Status().Origin
 	if p.choose == nil {
 		p.choose = func() (string, error) {
 			paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Open folder", ButtonLabel: "Open",
@@ -109,17 +111,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	} else {
 		p.loaded = true
 	}
-	for _, err := range []error{
-		kernel.Provide[workspace.Service](c, workspace.ServiceKey, p),
-		kernel.Contribute(c, kernel.Commands, "workspace.open-folder", 1, kernel.Command{
-			Title: "Open Folder…", Menu: "File", Keys: []string{"cmd+o"},
-			Run: func() { p.ChooseFolder(p.chat.NewChat) }}),
-		kernel.Contribute(c, chat.ComposerAccessory, "workspace.folder", -20, shell.View{Render: p.chip}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Provide[workspace.Service](c, workspace.ServiceKey, p)
+	kernel.Contribute(c, kernel.Commands, "workspace.open-folder", 1, kernel.Command{
+		Title: "Open Folder…", Menu: "File", Keys: []string{"cmd+o"},
+		Run: func() { p.ChooseFolder(p.chat.NewChat) }})
+	kernel.Contribute(c, chat.ComposerAccessory, "workspace.folder", -20, shell.View{Render: p.chip})
 	p.maybeSync()
 	return nil
 }

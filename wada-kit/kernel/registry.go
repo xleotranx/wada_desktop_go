@@ -42,17 +42,17 @@ type service struct {
 }
 
 // Provide registers v as the provider of k. It is allowed only during Setup,
-// for a key declared in the Manifest's Provides. The service is withdrawn when
+// for a key declared in the Manifest's Provides; an error fails that Setup. The service is withdrawn when
 // the plugin is disposed, after the plugins that require it.
 func Provide[T any](c *Context, k Key[T], v T) error {
 	p, kn := c.p, c.s.k
 	switch {
 	case !p.settingUp:
-		return fmt.Errorf("kernel: %s provided outside Setup", k.name)
+		return c.s.failSetup(fmt.Errorf("kernel: %s provided outside Setup", k.name))
 	case !declares(p.m.Provides, k.name):
-		return fmt.Errorf("kernel: %s is not in the Manifest's Provides", k.name)
+		return c.s.failSetup(fmt.Errorf("kernel: %s is not in the Manifest's Provides", k.name))
 	case kn.services[k.name] != nil:
-		return fmt.Errorf("kernel: %s is already provided by %q", k.name, kn.services[k.name].by.m.ID)
+		return c.s.failSetup(fmt.Errorf("kernel: %s is already provided by %q", k.name, kn.services[k.name].by.m.ID))
 	}
 	kn.services[k.name] = &service{value: v, by: p}
 	c.s.onDispose(func() { delete(kn.services, k.name) })
@@ -116,18 +116,20 @@ func On[T any](o Owner, t Topic[T], fn func(T)) (off func()) {
 	}
 	l := &listener{s: s, call: func(v any) { fn(v.(T)) }}
 	tp.listeners = append(tp.listeners, l)
+	var d *disposer
 	off = func() {
 		if l.off {
 			return
 		}
 		l.off = true
+		s.drop(d)
 		// Copy on write: an Emit in progress keeps iterating its own slice.
 		tp.listeners = slices.DeleteFunc(slices.Clone(tp.listeners), func(x *listener) bool { return x == l })
 		if len(tp.listeners) == 0 && s.k.topics[t.name] == tp {
 			delete(s.k.topics, t.name)
 		}
 	}
-	s.onDispose(off)
+	d = s.onDispose(off)
 	return off
 }
 
@@ -264,18 +266,19 @@ type entry struct {
 }
 
 // Contribute adds an entry until o is disposed. A plugin's IDs start with its
-// ID and a dot; the host's start with HostPrefix.
+// ID and a dot; the host's start with HostPrefix. An error during the
+// plugin's Setup fails that Setup; later, the caller handles it.
 func Contribute[T any](o Owner, p Point[T], id string, order int, v T) error {
 	s := o.owner()
 	if !s.alive {
-		return errors.New("kernel: contribute on a disposed scope")
+		return s.failSetup(errors.New("kernel: contribute on a disposed scope"))
 	}
 	prefix := HostPrefix
 	if s.plugin != nil {
 		prefix = s.plugin.m.ID + "."
 	}
 	if !strings.HasPrefix(id, prefix) || len(id) == len(prefix) {
-		return fmt.Errorf("kernel: entry ID %q must start with %q", id, prefix)
+		return s.failSetup(fmt.Errorf("kernel: entry ID %q must start with %q", id, prefix))
 	}
 	pt := s.k.points[p.name]
 	if pt == nil {
@@ -283,7 +286,7 @@ func Contribute[T any](o Owner, p Point[T], id string, order int, v T) error {
 		s.k.points[p.name] = pt
 	}
 	if pt.ids[id] {
-		return fmt.Errorf("kernel: duplicate entry %q in %s", id, p.name)
+		return s.failSetup(fmt.Errorf("kernel: duplicate entry %q in %s", id, p.name))
 	}
 	pt.seq++
 	e := &entry{s: s, id: id, order: order, seq: pt.seq, value: v}
@@ -308,10 +311,11 @@ func (k *Kernel) pointMoved(name string) {
 	if k.closed || k.moved[name] {
 		return
 	}
-	if len(k.moved) == 0 {
+	first := len(k.moved) == 0
+	k.moved[name] = true // before posting, which may run at once
+	if first {
 		k.opts.Post(k.announcePoints)
 	}
-	k.moved[name] = true
 }
 
 func (k *Kernel) announcePoints() {

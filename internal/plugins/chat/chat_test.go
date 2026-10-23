@@ -18,12 +18,12 @@ import (
 	"github.com/xleotranx/wada-kit/kittest"
 )
 
-func start(t *testing.T, extra ...kernel.Plugin) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *kittest.Host) {
+func start(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *kittest.Host) {
 	t.Helper()
 	f := plugintest.NewAgent()
 	host := &kittest.Host{}
-	p := &Plugin{}
-	h := kerneltest.New(t, append([]kernel.Plugin{f, host, p}, extra...)...)
+	var p *Plugin
+	h := kerneltest.New(t, append([]kernel.Factory{f.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })}, extra...)...)
 	return h, p, f, host
 }
 
@@ -135,7 +135,7 @@ func TestOutgoingPipelineRewritesAndRejects(t *testing.T) {
 		})
 		return nil
 	}}
-	h, p, f, host := start(t, picker)
+	h, p, f, host := start(t, picker.New)
 	p.draft = "forbidden words"
 	p.send()
 	h.Flush()
@@ -162,7 +162,7 @@ func TestATakenMessageGoesNoFurther(t *testing.T) {
 		})
 		return nil
 	}}
-	h, p, f, host := start(t, taker)
+	h, p, f, host := start(t, taker.New)
 	p.NewChat("/work")
 	p.draft = "take this"
 	p.send()
@@ -183,6 +183,7 @@ func TestATakenMessageGoesNoFurther(t *testing.T) {
 
 type extension struct{ setup func(*kernel.Context) error }
 
+func (f *extension) New() kernel.Plugin            { return f }
 func (*extension) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "extension"} }
 func (e *extension) Setup(c *kernel.Context) error { return e.setup(c) }
 
@@ -359,7 +360,7 @@ func TestFilesGoOutAndShowWithTheMessage(t *testing.T) {
 		return kernel.Contribute(c, chat.ComposerAttachments, "extension.chips", 0,
 			shell.View{Render: func(c *ui.Context) { ui.Text(c, "pending chip") }})
 	}}
-	h, p, f, _ := start(t, attach)
+	h, p, f, _ := start(t, attach.New)
 	p.Open(agent.Session{ID: "s1"})
 	h.Flush()
 	tt := ui.NewTester(p.view, 1000, 800)
@@ -392,7 +393,7 @@ func TestPasteHandlersTakePastes(t *testing.T) {
 			return text == "take me"
 		})
 	}}
-	h, p, _, _ := start(t, taker)
+	h, p, _, _ := start(t, taker.New)
 	p.Open(agent.Session{ID: "s1"})
 	h.Flush()
 	tt := ui.NewTester(p.view, 1000, 800)
@@ -761,5 +762,35 @@ func TestOnlyTheRecentConversationsAreKept(t *testing.T) {
 	}
 	if len(p.kept) != keptLimit || p.kept.find("s0") != nil || p.kept[0].id != agent.SessionID(fmt.Sprintf("s%d", keptLimit)) {
 		t.Fatalf("kept %d, newest %s", len(p.kept), p.kept[0].id)
+	}
+}
+
+// When the backend goes and comes back (as on a switch of backend), the chat
+// is set up anew: nothing of the conversations it showed for the old one is
+// kept or announced as left.
+func TestTheChatStartsOverWithANewBackend(t *testing.T) {
+	f := plugintest.NewAgent()
+	f.Stored["s1"] = []agent.Message{{Role: agent.RoleUser, Text: "go"}}
+	var p *Plugin
+	h := kerneltest.New(t, f.New, (&kittest.Host{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	p.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	p.Open(agent.Session{ID: "s2"})
+	h.Flush()
+	if p.kept.find("s1") == nil {
+		t.Fatal("the conversation left was not kept")
+	}
+	first := p
+	if err := h.Disable("fake-agent"); err != nil {
+		t.Fatal(err)
+	}
+	var left []chat.Unsent
+	kernel.On(h, chat.Leaving, func(u chat.Unsent) { left = append(left, u) })
+	if err := h.Enable("fake-agent"); err != nil {
+		t.Fatal(err)
+	}
+	h.Flush()
+	if p == first || len(p.kept) != 0 || p.conv.Session != "" || len(left) != 0 {
+		t.Fatalf("new instance %v, kept %d, open %q, left %+v", p != first, len(p.kept), p.conv.Session, left)
 	}
 }

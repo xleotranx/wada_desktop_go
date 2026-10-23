@@ -49,17 +49,24 @@ func (s *Settings) Delete(key string) {
 		return
 	}
 	delete(k.values[s.ns], key)
+	k.rev++
 	vk := valueKey{s.ns, key}
 	delete(k.dirty, vk)
 	k.deleted[vk] = true
 	k.save()
 }
 
-// Setting is a typed setting with a default.
+// Setting is a typed setting with a default. It keeps the value it decoded
+// until a setting changes, so Get is cheap enough for a frame; the value it
+// returns is shared, so copy a map or slice before changing it.
 type Setting[T any] struct {
 	s   *Settings
 	key string
 	def T
+
+	cached bool
+	rev    uint64 // the kernel's revision the cached value was read at
+	val    T
 }
 
 func NewSetting[T any](c *Context, key string, def T) *Setting[T] {
@@ -68,11 +75,14 @@ func NewSetting[T any](c *Context, key string, def T) *Setting[T] {
 
 // Get returns the stored value, or the default when none decodes.
 func (s *Setting[T]) Get() T {
-	var v T
-	if s.s.Get(s.key, &v) {
-		return v
+	if k := s.s.k; !s.cached || s.rev != k.rev {
+		var v T
+		if !s.s.Get(s.key, &v) {
+			v = s.def
+		}
+		s.cached, s.rev, s.val = true, k.rev, v
 	}
-	return s.def
+	return s.val
 }
 
 func (s *Setting[T]) Set(v T) error { return s.s.Set(s.key, v) }
@@ -88,6 +98,7 @@ func (k *Kernel) load() error {
 		}
 		k.values[v.Namespace][v.Key] = slices.Clone(v.JSON)
 	}
+	k.rev++
 	return nil
 }
 
@@ -108,6 +119,7 @@ func (k *Kernel) set(ns, key string, v any) error {
 		k.values[ns] = map[string][]byte{}
 	}
 	k.values[ns][key] = raw
+	k.rev++
 	vk := valueKey{ns, key}
 	delete(k.deleted, vk)
 	k.dirty[vk] = raw

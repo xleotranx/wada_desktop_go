@@ -20,8 +20,8 @@ func TestLivePiAnswers(t *testing.T) {
 	if os.Getenv("WADA_LIVE_PI") != "1" {
 		t.Skip("set WADA_LIVE_PI=1 to run against the installed pi")
 	}
-	p := &Plugin{}
-	h := kerneltest.Start(t, kerneltest.Config{}, p)
+	var p *Plugin
+	h := kerneltest.Start(t, kerneltest.Config{}, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	if err := h.Enable("pi"); err != nil {
 		t.Fatal(err)
 	}

@@ -225,6 +225,7 @@ type fakeService struct {
 	started  []wf.Input
 }
 
+func (f *fakeService) New() kernel.Plugin { return f }
 func (*fakeService) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-workflow", Provides: []kernel.Named{wf.ServiceKey}}
 }
@@ -239,7 +240,7 @@ func (f *fakeService) Start(_ wf.Flow, in wf.Input) { f.started = append(f.start
 
 func TestTheCommandAsksForTheBriefOfItsFlow(t *testing.T) {
 	svc := &fakeService{}
-	h := kerneltest.New(t, svc, &Plugin{})
+	h := kerneltest.New(t, svc.New, New)
 	for _, e := range kernel.Items(h, kernel.Commands) {
 		if e.ID != "flows.plan-code-review" {
 			continue
@@ -258,7 +259,7 @@ func TestTheCommandAsksForTheBriefOfItsFlow(t *testing.T) {
 
 func TestTheFlowTakesTheFirstMessageOfANewChat(t *testing.T) {
 	svc := &fakeService{}
-	h := kerneltest.New(t, svc, &Plugin{})
+	h := kerneltest.New(t, svc.New, New)
 	targets := kernel.Items(h, chat.Targets)
 	if len(targets) != 1 {
 		t.Fatalf("targets %+v", targets)

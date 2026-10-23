@@ -32,21 +32,21 @@ var wada = shell.App{
 // main is the composition: the plugins this build installs, in order.
 func main() {
 	shell.Run(wada,
-		&opencode.Plugin{},
-		&pi.Plugin{}, // off by default; turn OpenCode off to use it
-		&chat.Plugin{},
-		&models.Plugin{},
-		&usage.Plugin{},
-		&activity.Plugin{}, // the files a conversation changed and its last command, in the work panel
-		&attachments.Plugin{},
-		&mentions.Plugin{},  // needs a backend that can read files; OpenCode can
-		&workspace.Plugin{}, // folders and the conversations started here, in workspace.db
-		&tabs.Plugin{},      // open chats as tabs across the window; replaces the sidebar
-		&workflow.Plugin{},  // runs flows through hidden conversations
-		&flows.Plugin{},     // plan, code, review, from the command palette
-		&palette.Plugin{},
-		&notifications.Plugin{},
-		&inspector.Plugin{},
-		&settings.Plugin{},
+		opencode.New,
+		pi.New, // off by default; turn OpenCode off to use it
+		chat.New,
+		models.New,
+		usage.New,
+		activity.New, // the files a conversation changed and its last command, in the work panel
+		attachments.New,
+		mentions.New,  // needs a backend that can read files; OpenCode can
+		workspace.New, // folders and the conversations started here, in workspace.db
+		tabs.New,      // open chats as tabs across the window; replaces the sidebar
+		workflow.New,  // runs flows through hidden conversations
+		flows.New,     // plan, code, review, from the command palette
+		palette.New,
+		notifications.New,
+		inspector.New,
+		settings.New,
 	)
 }

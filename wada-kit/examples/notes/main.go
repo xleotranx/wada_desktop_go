@@ -29,9 +29,9 @@ func main() {
 		Name: "Notes", Folder: "wada-kit-notes", Env: "NOTES",
 		Width: 900, Height: 640, MinWidth: 600, MinHeight: 400,
 	},
-		&notes{},
-		&inspector.Plugin{},
-		&kitsettings.Plugin{},
+		newNotes,
+		inspector.New,
+		kitsettings.New,
 	)
 }
 
@@ -45,6 +45,8 @@ type notes struct {
 	focus  bool
 }
 
+func newNotes() kernel.Plugin { return &notes{} }
+
 func (*notes) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "notes", Title: "Notes", Locked: true,
 		Description: "Short notes, kept in the settings.", Requires: []kernel.Named{shell.HostKey}}
@@ -55,18 +57,12 @@ func (n *notes) Setup(c *kernel.Context) error {
 	n.host = kernel.Require(c, shell.HostKey)
 	n.saved = kernel.NewSetting(c, "list", []string{})
 	n.newest = kernel.NewSetting(c, "newest-first", true)
-	for _, err := range []error{
-		kernel.Contribute(c, shell.Pages, "notes.page", 0, shell.Page{Title: func() string { return "Notes" }, Render: n.page}),
-		kernel.Contribute(c, kernel.Commands, "notes.new", 0, kernel.Command{
-			Title: "New Note", Menu: "File", Keys: []string{"cmd+n"},
-			Run: func() { n.host.ShowPage("notes.page"); n.focus = true }}),
-		kernel.Contribute(c, settings.Sections, "notes.settings", 10, settings.Section{
-			Title: "Notes", Description: "How the list is ordered.", Render: n.settings}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, shell.Pages, "notes.page", 0, shell.Page{Title: func() string { return "Notes" }, Render: n.page})
+	kernel.Contribute(c, kernel.Commands, "notes.new", 0, kernel.Command{
+		Title: "New Note", Menu: "File", Keys: []string{"cmd+n"},
+		Run: func() { n.host.ShowPage("notes.page"); n.focus = true }})
+	kernel.Contribute(c, settings.Sections, "notes.settings", 10, settings.Section{
+		Title: "Notes", Description: "How the list is ordered.", Render: n.settings})
 	return nil
 }
 

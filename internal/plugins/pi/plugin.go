@@ -32,7 +32,7 @@ type Settings struct {
 	SessionDir string `json:"sessionDir,omitempty"`
 }
 
-// Plugin is the Pi backend. The zero value is ready to install.
+// Plugin is the Pi backend.
 type Plugin struct {
 	ctx       *kernel.Context
 	cfg       *kernel.Setting[Settings]
@@ -41,9 +41,8 @@ type Plugin struct {
 	form      Settings     // the settings section's unsaved edit
 	formDirty bool
 
-	attempts atomic.Uint64
-	mu       sync.Mutex
-	conn     *connection // the ready connection, or nil
+	mu   sync.Mutex
+	conn *connection // the ready connection, or nil
 
 	// Test seams.
 	after   func(time.Duration) <-chan time.Time
@@ -86,6 +85,9 @@ var (
 	_ agent.Models  = (*Plugin)(nil)
 )
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "pi", Title: "Pi", DefaultOff: true,
@@ -105,20 +107,14 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	}
 	p.status = agent.Status{State: agent.Stopped}
 	c.OnDispose(p.drop)
-	for _, err := range []error{
-		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
-		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
-		kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p),
-		kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, fileTypes{}),
-		kernel.Provide[agent.Rewinder](c, agent.RewindKey, p),
-		kernel.Contribute(c, kernel.Commands, "pi.reconnect", 0, kernel.Command{
-			Title: "Restart Pi", Menu: "Agent", Run: p.Reconnect}),
-		p.contributeSection(c),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Provide[agent.Service](c, agent.ServiceKey, p)
+	kernel.Provide[agent.Models](c, agent.ModelsKey, p)
+	kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p)
+	kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, fileTypes{})
+	kernel.Provide[agent.Rewinder](c, agent.RewindKey, p)
+	kernel.Contribute(c, kernel.Commands, "pi.reconnect", 0, kernel.Command{
+		Title: "Restart Pi", Menu: "Agent", Run: p.Reconnect})
+	p.contributeSection(c)
 	p.Reconnect()
 	return nil
 }
@@ -173,6 +169,11 @@ func (p *Plugin) current() (*connection, error) {
 	return p.conn, nil
 }
 
+// attempts numbers connection attempts across activations, so Status.Attempt
+// keeps increasing when the plugin is turned off and on again, as consumers
+// that kept server state rely on.
+var attempts atomic.Uint64
+
 var backoff = []time.Duration{time.Second, 3 * time.Second, 7 * time.Second, 15 * time.Second}
 
 func defaultSessionDir(home string) string {
@@ -195,7 +196,7 @@ func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, c *connection
 			case <-p.after(backoff[min(failures, len(backoff))-1]):
 			}
 		}
-		attempt := p.attempts.Add(1)
+		attempt := attempts.Add(1)
 		post(agent.Status{State: agent.Connecting, Attempt: attempt, Endpoint: endpoint})
 		if c.version == "" {
 			if out, err := exec.CommandContext(ctx, c.exe, "--version").Output(); err == nil {

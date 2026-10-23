@@ -21,6 +21,7 @@ func (s *snapshot) Setup(c *kernel.Context) error {
 	return kernel.Provide[kernel.Inspector](c, kernel.InspectorKey, s)
 }
 func (s *snapshot) Inspect() []kernel.Diagnostic { return s.rows }
+func (s *snapshot) New() kernel.Plugin           { return s }
 
 func TestInspectorShowsDependenciesResourcesAndFailures(t *testing.T) {
 	probe := &snapshot{rows: []kernel.Diagnostic{{
@@ -29,8 +30,8 @@ func TestInspectorShowsDependenciesResourcesAndFailures(t *testing.T) {
 		Registrations: []kernel.Registration{{Kind: "contribution", Name: "shell.pages", ID: "chat.page"}}, Stack: "panic stack details",
 	}}}
 	host := &kittest.Host{}
-	p := &Plugin{}
-	h := kerneltest.New(t, probe, host, p)
+	var p *Plugin
+	h := kerneltest.New(t, probe.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	for _, cmd := range kernel.Items(h, kernel.Commands) {
 		if cmd.ID == "inspector.open" {
 			kernel.Invoke(h, cmd, func(c kernel.Command) { c.Run() })

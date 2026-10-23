@@ -27,6 +27,10 @@ type Host struct {
 	Data       string          // what DataDir returns
 }
 
+// New installs the fake: it is its own factory, so a test reads what it
+// recorded across restarts. A fake may; a plugin of the app may not.
+func (h *Host) New() kernel.Plugin { return h }
+
 func (*Host) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-host", Provides: []kernel.Named{shell.HostKey}}
 }

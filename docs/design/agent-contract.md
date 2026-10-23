@@ -54,7 +54,8 @@ Rules every backend follows:
   one when it can only fork, leaving the original as it was.
 - `Create` returns the created session together with an error when a later step,
   such as setting the model, fails.
-- `Status.Attempt` increases with every connection attempt. A consumer that keeps
+- `Status.Attempt` increases with every connection attempt, also across the
+  plugin's activations (the count lives outside the plugin). A consumer that keeps
   server state reloads it when a new attempt becomes `Ready`.
 - `Status.Origin` names where the backend keeps its conversations, set on every
   status from the first attempt on: `opencode <data folder>` for the managed server

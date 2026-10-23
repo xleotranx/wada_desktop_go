@@ -33,12 +33,21 @@ type Harness struct {
 }
 
 // New starts a Strict kernel with the plugins installed.
-func New(t testing.TB, plugins ...kernel.Plugin) *Harness {
+func New(t testing.TB, plugins ...kernel.Factory) *Harness {
 	return Start(t, Config{}, plugins...)
 }
 
+// Keep is a factory that makes each plugin with make and keeps the latest in
+// *latest, so a test reaches the plugin set up now, also after a restart.
+func Keep[P kernel.Plugin](latest *P, make func() P) kernel.Factory {
+	return func() kernel.Plugin {
+		*latest = make()
+		return *latest
+	}
+}
+
 // Start starts a kernel; t.Cleanup closes it and fails the test if workers leak.
-func Start(t testing.TB, cfg Config, plugins ...kernel.Plugin) *Harness {
+func Start(t testing.TB, cfg Config, plugins ...kernel.Factory) *Harness {
 	t.Helper()
 	h := &Harness{Store: cfg.Store, t: t}
 	if h.Store == nil {

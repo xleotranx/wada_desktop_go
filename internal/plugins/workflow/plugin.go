@@ -36,7 +36,7 @@ const (
 	pagePrefix = "workflow.run/" // then the run's number: its page's ID
 )
 
-// Plugin is the workflow engine. The zero value is ready to install.
+// Plugin is the workflow engine.
 //
 // The conversations of a flow's steps are opened with the backend but kept out
 // of the app's record, so the tabs and All chats do not list them; a step
@@ -63,6 +63,9 @@ type prompt struct {
 
 var _ wf.Service = (*Plugin)(nil)
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "workflow", Title: "Workflows",
@@ -76,7 +79,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.runs, p.numbered, p.watching, p.ask = nil, 0, map[agent.SessionID]*watch{}, prompt{}
+	p.watching = map[agent.SessionID]*watch{}
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, shell.PageChanged, func(id string) {
 		for _, r := range p.runs {
@@ -90,17 +93,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 			p.showLatest()
 		}
 	})
-	for _, err := range []error{
-		kernel.Provide[wf.Service](c, wf.ServiceKey, p),
-		kernel.Contribute(c, shell.Overlays, "workflow.prompt", 20, shell.View{Render: p.promptView}),
-		kernel.Contribute(c, kernel.Commands, "workflow.show", 0, kernel.Command{
-			Title: "Show Workflow Run", Menu: "View",
-			Enabled: func() bool { return len(p.runs) > 0 }, Run: p.showLatest}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Provide[wf.Service](c, wf.ServiceKey, p)
+	kernel.Contribute(c, shell.Overlays, "workflow.prompt", 20, shell.View{Render: p.promptView})
+	kernel.Contribute(c, kernel.Commands, "workflow.show", 0, kernel.Command{
+		Title: "Show Workflow Run", Menu: "View",
+		Enabled: func() bool { return len(p.runs) > 0 }, Run: p.showLatest})
 	return nil
 }
 

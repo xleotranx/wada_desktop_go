@@ -40,7 +40,7 @@ const (
 	foldersShown = 5          // folders listed before anything is typed
 )
 
-// Plugin is All chats. The zero value is ready to install.
+// Plugin is All chats.
 //
 // Commands need nothing else. Conversations and folders come from the
 // workspace record when it is active, so the palette keeps working without
@@ -52,6 +52,9 @@ type Plugin struct {
 	state command.State
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "palette", Title: "All chats",
@@ -61,16 +64,9 @@ func (*Plugin) Manifest() kernel.Manifest {
 
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
-	p.open = false
-	for _, err := range []error{
-		kernel.Contribute(c, shell.Overlays, "palette.dialog", 10, shell.View{Render: p.view}),
-		kernel.Contribute(c, kernel.Commands, openID, 0, kernel.Command{
-			Title: "All Chats…", Menu: "View", Keys: []string{"cmd+k"}, Run: p.toggle}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, shell.Overlays, "palette.dialog", 10, shell.View{Render: p.view})
+	kernel.Contribute(c, kernel.Commands, openID, 0, kernel.Command{
+		Title: "All Chats…", Menu: "View", Keys: []string{"cmd+k"}, Run: p.toggle})
 	return nil
 }
 

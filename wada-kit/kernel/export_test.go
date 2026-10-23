@@ -14,3 +14,6 @@ func Leaks(k *Kernel) int {
 	}
 	return n
 }
+
+// Disposers counts the disposers a context's root scope still lists.
+func Disposers(c *Context) int { return len(c.s.disposers) }

@@ -35,7 +35,7 @@ const (
 	maxMentionBytes = 1 << 20
 )
 
-// Plugin is the file mentions plugin. The zero value is ready to install.
+// Plugin is the file mentions plugin.
 type Plugin struct {
 	ctx   *kernel.Context
 	files agent.Files
@@ -57,6 +57,9 @@ type mention struct {
 	file    agent.File
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "mentions", Title: "File mentions",
@@ -70,7 +73,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.files = kernel.Require(c, agent.FilesKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.found, p.failed, p.mentions, p.session = nil, false, map[string]*mention{}, p.chat.Current().Session
+	p.mentions, p.session = map[string]*mention{}, p.chat.Current().Session
 	if p.delay == 0 {
 		p.delay = 60 * time.Millisecond
 	}

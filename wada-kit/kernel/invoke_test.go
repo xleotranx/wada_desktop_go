@@ -9,7 +9,7 @@ import (
 
 func TestInvokeDropsDisposedContributions(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	scope := p.ctx.NewScope()
 	if err := kernel.Contribute(scope, sidebar, "p.item", 0, "old"); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestInvokeDropsPreviousActivation(t *testing.T) {
 	p := plug("p", func(c *kernel.Context) error {
 		return kernel.Contribute(c, sidebar, "p.item", 0, "item")
 	})
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	old := kernel.Items(h, sidebar)[0]
 	if err := h.Disable("p"); err != nil {
 		t.Fatal(err)

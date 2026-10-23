@@ -26,8 +26,8 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plug
 			Tokens: agent.Tokens{Input: 2000, Output: 500, Reasoning: 500, CacheRead: 41_000}},
 	}
 	chat := &plugintest.Chat{}
-	p := &Plugin{}
-	h := kerneltest.New(t, a, chat, p)
+	var p *Plugin
+	h := kerneltest.New(t, a.New, chat.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	return h, p, a, chat
 }

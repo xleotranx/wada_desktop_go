@@ -57,21 +57,25 @@ Design notes: [kernel API](wada-kit/docs/kernel-api.md), [kit shell](wada-kit/do
 ## Extend
 
 Write a type that implements `kernel.Plugin`, register what it adds in `Setup`, and
-list it in `main.go`:
+list its factory in `main.go` (`notes.New`); the kernel makes a new one for each
+activation:
 
 ```go
-type Notes struct{}
+type Notes struct{ host shell.Host }
 
-func (Notes) Manifest() kernel.Manifest {
+func New() kernel.Plugin { return &Notes{} }
+
+func (*Notes) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "notes", Title: "Notes", Requires: []kernel.Named{shell.HostKey}}
 }
 
-func (Notes) Setup(c *kernel.Context) error {
-	host := kernel.Require(c, shell.HostKey)
+func (n *Notes) Setup(c *kernel.Context) error {
+	n.host = kernel.Require(c, shell.HostKey)
 	kernel.Contribute(c, shell.Pages, "notes.page", 50, shell.Page{Render: renderNotes})
-	return kernel.Contribute(c, kernel.Commands, "notes.open", 0, kernel.Command{
+	kernel.Contribute(c, kernel.Commands, "notes.open", 0, kernel.Command{
 		Title: "Open Notes", Menu: "View", Keys: []string{"cmd+shift+n"},
-		Run: func() { host.ShowPage("notes.page") }})
+		Run: func() { n.host.ShowPage("notes.page") }})
+	return nil // a registration that failed fails the Setup by itself
 }
 ```
 

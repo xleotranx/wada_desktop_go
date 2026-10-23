@@ -33,8 +33,9 @@ func start(t *testing.T, dir string) fixture {
 	t.Helper()
 	f := fixture{a: plugintest.NewAgent(), chat: &plugintest.Chat{}, host: &kittest.Host{Data: dir}}
 	clock := int64(1000)
-	f.p = &Plugin{now: func() int64 { clock++; return clock }, choose: func() (string, error) { return "", nil }}
-	f.h = kerneltest.New(t, f.a, f.chat, f.host, f.p)
+	f.h = kerneltest.New(t, f.a.New, f.chat.New, f.host.New, kerneltest.Keep(&f.p, func() *Plugin {
+		return &Plugin{now: func() int64 { clock++; return clock }, choose: func() (string, error) { return "", nil }}
+	}))
 	// The record is read on a worker, which posts it back.
 	for deadline := time.Now().Add(2 * time.Second); dir != "" && !f.p.Loaded() && time.Now().Before(deadline); {
 		f.h.RunPosts()

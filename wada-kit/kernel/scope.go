@@ -1,6 +1,9 @@
 package kernel
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // Owner is anything registrations can belong to: *Context, *Scope and *Kernel.
 // Only this package implements it.
@@ -16,8 +19,13 @@ type scope struct {
 	cancel    context.CancelFunc
 	alive     bool
 	children  []*scope
-	disposers []func()
+	disposers []*disposer
+	dropped   int // disposers whose fn was dropped and that are still listed
 }
+
+// disposer is one registration's undo; fn is nil once it was undone early,
+// as by the off function of On.
+type disposer struct{ fn func() }
 
 func newScope(k *Kernel, p *plugin, parent *scope) *scope {
 	base := context.Background()
@@ -33,10 +41,37 @@ func newScope(k *Kernel, p *plugin, parent *scope) *scope {
 }
 
 // onDispose registers fn on a live scope, or runs nothing on a dead one.
-func (s *scope) onDispose(fn func()) {
-	if s.alive {
-		s.disposers = append(s.disposers, fn)
+func (s *scope) onDispose(fn func()) *disposer {
+	if !s.alive {
+		return nil
 	}
+	d := &disposer{fn}
+	s.disposers = append(s.disposers, d)
+	return d
+}
+
+// drop forgets a disposer whose registration was undone early, so a scope
+// that subscribes and unsubscribes for its whole life keeps no more than a
+// few of them.
+func (s *scope) drop(d *disposer) {
+	if d == nil || d.fn == nil || !s.alive {
+		return
+	}
+	d.fn = nil
+	s.dropped++
+	if s.dropped > 16 && 2*s.dropped > len(s.disposers) {
+		s.disposers = slices.DeleteFunc(s.disposers, func(d *disposer) bool { return d.fn == nil })
+		s.dropped = 0
+	}
+}
+
+// failSetup records err as the failure of the Setup that is running for the
+// scope's plugin, if one is, and returns it.
+func (s *scope) failSetup(err error) error {
+	if p := s.plugin; p != nil && p.settingUp && p.setupErr == nil {
+		p.setupErr = err
+	}
+	return err
 }
 
 // dispose marks the scope dead, cancels its context, disposes children newest
@@ -52,7 +87,9 @@ func (s *scope) dispose() {
 	}
 	s.children = nil
 	for i := len(s.disposers) - 1; i >= 0; i-- {
-		s.k.call(s.plugin, s.disposers[i])
+		if fn := s.disposers[i].fn; fn != nil {
+			s.k.call(s.plugin, fn)
+		}
 	}
 	s.disposers = nil
 	if p := s.parent; p != nil && p.alive {

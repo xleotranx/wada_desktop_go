@@ -18,13 +18,19 @@ type fake struct {
 	ctx   *kernel.Context
 }
 
-func (f *fake) Manifest() kernel.Manifest { return f.m }
-func (f *fake) Setup(c *kernel.Context) error {
-	f.ctx = c
-	if f.setup == nil {
+// New is the fake's factory: every activation sets up a new instance, which
+// leaves its context in f.ctx.
+func (f *fake) New() kernel.Plugin { return &fakeRun{f} }
+
+type fakeRun struct{ f *fake }
+
+func (r *fakeRun) Manifest() kernel.Manifest { return r.f.m }
+func (r *fakeRun) Setup(c *kernel.Context) error {
+	r.f.ctx = c
+	if r.f.setup == nil {
 		return nil
 	}
-	return f.setup(c)
+	return r.f.setup(c)
 }
 
 func plug(id string, setup func(*kernel.Context) error) *fake {
@@ -92,7 +98,7 @@ func TestScopeDisposeOrder(t *testing.T) {
 		c.OnDispose(func() { log = append(log, "root second") })
 		return nil
 	})
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	if err := h.Disable("p"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +123,7 @@ func errString(err error) string {
 func TestPostAfterDisposeIsDropped(t *testing.T) {
 	var ran []string
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	s := p.ctx.NewScope()
 	s.Post(func() { ran = append(ran, "alive") })
 	h.RunPosts()
@@ -132,7 +138,7 @@ func TestPostAfterDisposeIsDropped(t *testing.T) {
 
 func TestTaskDropsSupersededAndDisposedResults(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	var task kernel.Task
 	var applied []string
 	run := func(o kernel.Owner, v string) {
@@ -182,7 +188,7 @@ func TestRequirementsBlockAndUnblock(t *testing.T) {
 		return inner(c)
 	}
 	// Installed consumer-first: setup still runs provider-first.
-	h := kerneltest.New(t, chat, b)
+	h := kerneltest.New(t, chat.New, b.New)
 	if got == nil || got.Name() != "opencode" || state(t, h, "chat").State != kernel.Active {
 		t.Fatalf("chat did not get the backend: %v", got)
 	}
@@ -212,7 +218,7 @@ func TestSwitchingProviders(t *testing.T) {
 	var got agent
 	pi := backend("pi")
 	pi.m.DefaultOff = true
-	h := kerneltest.New(t, backend("opencode"), pi, consumer("chat", &got))
+	h := kerneltest.New(t, backend("opencode").New, pi.New, consumer("chat", &got).New)
 	if state(t, h, "pi").State != kernel.Disabled {
 		t.Fatal("DefaultOff plugin started")
 	}
@@ -232,7 +238,7 @@ func TestSwitchingProviders(t *testing.T) {
 }
 
 func TestBothProvidersEnabledFailsTheLater(t *testing.T) {
-	h := kerneltest.New(t, backend("opencode"), backend("pi"))
+	h := kerneltest.New(t, backend("opencode").New, backend("pi").New)
 	if st := state(t, h, "pi"); st.State != kernel.Failed || !strings.Contains(st.Err.Error(), "opencode") {
 		t.Fatalf("pi status %+v", st)
 	}
@@ -245,7 +251,7 @@ func TestProvideRules(t *testing.T) {
 	})
 	silent := plug("silent", nil)
 	silent.m.Provides = []kernel.Named{agentKey}
-	h := kerneltest.New(t, undeclared, silent)
+	h := kerneltest.New(t, undeclared.New, silent.New)
 	if st := state(t, h, "undeclared"); st.State != kernel.Failed || !strings.Contains(st.Err.Error(), "Provides") {
 		t.Fatalf("undeclared %+v", st)
 	}
@@ -268,13 +274,15 @@ func TestInstallValidation(t *testing.T) {
 	a.m.Provides, a.m.Requires = []kernel.Named{agentKey}, []kernel.Named{other}
 	b.m.Provides, b.m.Requires = []kernel.Named{other}, []kernel.Named{agentKey}
 
-	for name, plugins := range map[string][]kernel.Plugin{
-		"bad id":    {plug("Bad_ID", nil)},
-		"reserved":  {plug("kernel", nil)},
-		"host":      {plug("app", nil)},
-		"duplicate": {plug("p", nil), plug("p", nil)},
-		"self":      {selfish},
-		"cycle":     {a, b},
+	for name, plugins := range map[string][]kernel.Factory{
+		"bad id":    {plug("Bad_ID", nil).New},
+		"reserved":  {plug("kernel", nil).New},
+		"host":      {plug("app", nil).New},
+		"duplicate": {plug("p", nil).New, plug("p", nil).New},
+		"self":      {selfish.New},
+		"cycle":     {a.New, b.New},
+		"no plugin": {func() kernel.Plugin { return nil }},
+		"nil":       {nil},
 	} {
 		k := kernel.New(kernel.Options{Post: func(func()) {}, Store: kerneltest.NewStore()})
 		if err := k.Install(plugins...); err == nil {
@@ -296,7 +304,7 @@ func TestFailedSetupUndoesRegistrations(t *testing.T) {
 				}
 				return errors.New("boom")
 			})
-			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p)
+			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p.New)
 			st := state(t, h, "p")
 			if st.State != kernel.Failed || !strings.Contains(st.Err.Error(), "boom") {
 				t.Fatalf("status %+v", st)
@@ -365,7 +373,7 @@ func TestCallbackPanicsFailOnlyTheirPlugin(t *testing.T) {
 	for name, trigger := range cases {
 		t.Run(name, func(t *testing.T) {
 			heard = nil
-			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, bad, good)
+			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, bad.New, good.New)
 			trigger(h)
 			st := state(t, h, "bad")
 			var pe *kernel.PanicError
@@ -389,7 +397,7 @@ func TestCallbackPanicsFailOnlyTheirPlugin(t *testing.T) {
 
 func TestStrictRepanics(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	kernel.On(p.ctx, ping, func(string) { panic("strict") })
 	defer func() {
 		if recover() == nil {
@@ -401,7 +409,7 @@ func TestStrictRepanics(t *testing.T) {
 
 func TestEvents(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	var log []string
 	var off func()
 	kernel.On(p.ctx, ping, func(v string) {
@@ -439,7 +447,7 @@ func TestPipelineOrderAndRejection(t *testing.T) {
 		})
 		return nil
 	})
-	h := kerneltest.New(t, a, b)
+	h := kerneltest.New(t, a.New, b.New)
 	if v, err := kernel.Run(h, outgoing, "x"); err != nil || v != "x-a10-b10-a20" {
 		t.Fatalf("run = %q, %v", v, err)
 	}
@@ -463,7 +471,7 @@ func TestPoints(t *testing.T) {
 	b := plug("b", func(c *kernel.Context) error {
 		return kernel.Contribute(c, sidebar, "b.first", 0, "b-first")
 	})
-	h := kerneltest.New(t, a, b)
+	h := kerneltest.New(t, a.New, b.New)
 	if err := kernel.Contribute(h, sidebar, "app.host", 0, "host"); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +504,7 @@ func TestPoints(t *testing.T) {
 func TestSettingsPersist(t *testing.T) {
 	store := kerneltest.NewStore()
 	var size *kernel.Setting[int]
-	newPlugins := func() []kernel.Plugin {
+	newPlugins := func() []kernel.Factory {
 		p := plug("p", func(c *kernel.Context) error {
 			size = kernel.NewSetting(c, "size", 12)
 			return nil
@@ -505,7 +513,7 @@ func TestSettingsPersist(t *testing.T) {
 		opt.m.DefaultOff = true
 		locked := plug("locked", nil)
 		locked.m.Locked = true
-		return []kernel.Plugin{p, opt, locked}
+		return []kernel.Factory{p.New, opt.New, locked.New}
 	}
 	h := kerneltest.Start(t, kerneltest.Config{Store: store}, newPlugins()...)
 	if size.Get() != 12 {
@@ -541,7 +549,7 @@ func TestSettingsPersist(t *testing.T) {
 func TestSettingsSaveCoalescesAndRetries(t *testing.T) {
 	store := kerneltest.NewStore()
 	p := plug("p", nil)
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p.New)
 	var failures []error
 	kernel.On(h, kernel.SaveFailed, func(err error) { failures = append(failures, err) })
 	s := p.ctx.Settings()
@@ -577,7 +585,7 @@ func TestCloseWritesUnsavedSettingsAndWaitsForWorkers(t *testing.T) {
 		c.Spawn(func(ctx context.Context) { <-ctx.Done(); close(stopped) })
 		return nil
 	})
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p.New)
 	p.ctx.Settings().Set("k", "v")
 	closeClean(t, h)
 	select {
@@ -592,7 +600,7 @@ func TestCloseWritesUnsavedSettingsAndWaitsForWorkers(t *testing.T) {
 
 func TestPluginsChangedReportsTransitions(t *testing.T) {
 	p := plug("p", nil)
-	h := kerneltest.New(t, p)
+	h := kerneltest.New(t, p.New)
 	var states []kernel.State
 	kernel.On(h, kernel.PluginsChanged, func(all []kernel.Status) { states = append(states, all[0].State) })
 	h.Disable("p")
@@ -607,7 +615,7 @@ func TestDisposedSpawnPanicDoesNotFailCurrentPlugin(t *testing.T) {
 	for _, restart := range []bool{false, true} {
 		t.Run(fmt.Sprint("restart=", restart), func(t *testing.T) {
 			p := plug("p", nil)
-			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p)
+			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p.New)
 			s := p.ctx.NewScope()
 			release := make(chan struct{})
 			s.Spawn(func(context.Context) { <-release; panic("obsolete worker") })
@@ -635,7 +643,7 @@ func TestCloseRetriesFailedSaveBeforeItsCompletionIsApplied(t *testing.T) {
 		t.Run(newer, func(t *testing.T) {
 			store := kerneltest.NewStore()
 			p := plug("p", nil)
-			h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+			h := kerneltest.Start(t, kerneltest.Config{Store: store}, p.New)
 			store.Fail = errors.New("temporary failure")
 			p.ctx.Settings().Set("value", 42)
 			h.RunWork(0) // failure is queued, but the UI has not applied it
@@ -670,7 +678,7 @@ func TestCloseRetriesFailedSaveBeforeItsCompletionIsApplied(t *testing.T) {
 func TestCloseReportsPersistentSaveFailure(t *testing.T) {
 	store := kerneltest.NewStore()
 	p := plug("p", nil)
-	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p)
+	h := kerneltest.Start(t, kerneltest.Config{Store: store}, p.New)
 	failure := errors.New("disk full")
 	store.Fail = failure
 	p.ctx.Settings().Set("value", 42)
@@ -687,7 +695,7 @@ func TestPointChangesAreAnnouncedOncePerRound(t *testing.T) {
 		return nil
 	})
 	p := plug("p", nil)
-	h := kerneltest.New(t, watcher, p)
+	h := kerneltest.New(t, watcher.New, p.New)
 	h.Flush()
 	got = nil
 	scope := p.ctx.NewScope()
@@ -735,7 +743,7 @@ func TestProviderFailingDuringSetupBlocksTheDependent(t *testing.T) {
 		kernel.Emit(c, ping, "hello")
 		return kernel.Contribute(c, sidebar, "dependent.item", 0, "item")
 	}
-	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, provider, dependent)
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, provider.New, dependent.New)
 	if st := state(t, h, "provider"); st.State != kernel.Failed {
 		t.Fatalf("provider %+v", st)
 	}
@@ -764,4 +772,149 @@ func TestNameDeclaredWithTwoTypesPanics(t *testing.T) {
 		}
 	}()
 	kernel.NewPoint[int]("test.twice")
+}
+
+// counter is a plugin with state of its own, to tell instances apart.
+type counter struct {
+	id   string
+	runs int
+}
+
+func (c *counter) Manifest() kernel.Manifest { return kernel.Manifest{ID: c.id} }
+func (c *counter) Setup(*kernel.Context) error {
+	c.runs++
+	return nil
+}
+
+func TestEveryActivationSetsUpANewInstance(t *testing.T) {
+	made := 0
+	var latest *counter
+	h := kerneltest.New(t, kerneltest.Keep(&latest, func() *counter { made++; return &counter{id: "p"} }))
+	first := latest
+	if made != 1 || first.runs != 1 {
+		t.Fatalf("after Start: made %d, runs %d", made, first.runs)
+	}
+	if err := h.Disable("p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Enable("p"); err != nil {
+		t.Fatal(err)
+	}
+	if made != 2 || latest == first || latest.runs != 1 || first.runs != 1 {
+		t.Fatalf("after a restart: made %d, the same instance %v, runs %d and %d", made, latest == first, first.runs, latest.runs)
+	}
+}
+
+func TestAFactoryThatMakesAnotherPluginFails(t *testing.T) {
+	made := 0
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, func() kernel.Plugin {
+		made++
+		return &counter{id: fmt.Sprint("p", made)}
+	})
+	if err := h.Disable("p1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Enable("p1"); err == nil || state(t, h, "p1").State != kernel.Failed {
+		t.Fatalf("enable = %v, %+v", err, state(t, h, "p1"))
+	}
+}
+
+// A registration that fails during Setup fails the Setup, even when Setup
+// does not look at the error.
+func TestAFailedRegistrationFailsSetup(t *testing.T) {
+	cases := map[string]func(c *kernel.Context){
+		"duplicate entry": func(c *kernel.Context) {
+			kernel.Contribute(c, sidebar, "p.item", 0, "one")
+			kernel.Contribute(c, sidebar, "p.item", 0, "two")
+		},
+		"foreign entry": func(c *kernel.Context) { kernel.Contribute(c, sidebar, "q.item", 0, "item") },
+		"undeclared key": func(c *kernel.Context) {
+			kernel.Contribute(c, sidebar, "p.item", 0, "item")
+			kernel.Provide[agent](c, agentKey, named("p"))
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := plug("p", func(c *kernel.Context) error { setup(c); return nil })
+			h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, p.New)
+			if st := state(t, h, "p"); st.State != kernel.Failed || st.Err == nil {
+				t.Fatalf("status %+v", st)
+			}
+			if items := kernel.Items(h, sidebar); len(items) != 0 {
+				t.Fatalf("registrations kept: %v", items)
+			}
+			closeClean(t, h)
+		})
+	}
+	// Outside Setup, the caller handles the error and the plugin goes on.
+	p := plug("p", nil)
+	h := kerneltest.New(t, p.New)
+	if err := kernel.Contribute(p.ctx, sidebar, "q.item", 0, "item"); err == nil || state(t, h, "p").State != kernel.Active {
+		t.Fatalf("contribute after Setup = %v, %+v", err, state(t, h, "p"))
+	}
+}
+
+func TestUnsubscribingLeavesNoDisposersBehind(t *testing.T) {
+	p := plug("p", nil)
+	h := kerneltest.New(t, p.New)
+	heard := 0
+	for range 10000 {
+		off := kernel.On(p.ctx, ping, func(string) { heard++ })
+		off()
+	}
+	kept := kernel.On(p.ctx, ping, func(string) { heard++ })
+	if n := kernel.Disposers(p.ctx); n > 40 {
+		t.Fatalf("%d disposers after 10000 subscriptions came and went", n)
+	}
+	kernel.Emit(h, ping, "x")
+	if heard != 1 {
+		t.Fatalf("heard %d", heard)
+	}
+	kept()
+	closeClean(t, h)
+}
+
+func TestSettingGetFollowsChangesWithoutDecodingEachTime(t *testing.T) {
+	var a, b *kernel.Setting[map[string]int]
+	p := plug("p", func(c *kernel.Context) error {
+		a = kernel.NewSetting(c, "colors", map[string]int{})
+		b = kernel.NewSetting(c, "colors", map[string]int{})
+		return nil
+	})
+	h := kerneltest.New(t, p.New)
+	if len(a.Get()) != 0 {
+		t.Fatal("default")
+	}
+	if allocs := testing.AllocsPerRun(100, func() { a.Get() }); allocs != 0 {
+		t.Fatalf("Get allocates %v times", allocs)
+	}
+	b.Set(map[string]int{"x": 1})
+	if a.Get()["x"] != 1 {
+		t.Fatal("a change through another Setting was not seen")
+	}
+	p.ctx.Settings().Delete("colors")
+	if len(a.Get()) != 0 {
+		t.Fatal("a deleted value still read")
+	}
+	closeClean(t, h)
+}
+
+// A host whose Post runs at once still hears every point change.
+func TestPointChangesWithAnImmediatePost(t *testing.T) {
+	k := kernel.New(kernel.Options{Post: func(fn func()) { fn() }, Background: func(fn func()) { fn() }, Store: kerneltest.NewStore()})
+	p := plug("p", nil)
+	if err := k.Install(p.New); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var heard []string
+	kernel.On(k, kernel.PointChanged, func(name string) { heard = append(heard, name) })
+	kernel.Contribute(p.ctx, sidebar, "p.one", 0, "one")
+	kernel.Contribute(p.ctx, sidebar, "p.two", 0, "two")
+	if len(heard) != 2 {
+		t.Fatalf("heard %v", heard)
+	}
+	k.Close(context.Background())
 }

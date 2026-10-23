@@ -12,7 +12,7 @@ An app's main calls `shell.Run` with its `shell.App` and its plugins:
 shell.Run(shell.App{
 	Name: "Notes", Folder: "wada-kit-notes", Env: "NOTES",
 	Width: 900, Height: 640, MinWidth: 600, MinHeight: 400,
-}, &notes{}, &inspector.Plugin{}, &settings.Plugin{})
+}, newNotes, inspector.New, settings.New)
 ```
 
 - `Name` ends the window title, as "Page — Name".
@@ -78,7 +78,8 @@ Commands with a `Menu` appear in the menu bar under that name, in the order of
 `App.Menus` (File, View, Help without it), and the menu owns their first shortcut.
 File is followed by the standard Edit menu, View ends with the developer tools, and
 Window comes last. Other shortcuts are window shortcuts. The menu is rebuilt
-whenever plugins change state.
+whenever plugins change state and whenever the commands change, as when a plugin
+contributes one from a scope it opens later.
 
 `shell.Host` gives plugins the window services they need: show a page, toasts,
 clipboard, opening links, desktop notifications (`Notify`), whether the window is

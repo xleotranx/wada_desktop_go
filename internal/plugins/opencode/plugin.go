@@ -27,7 +27,7 @@ type Connection struct {
 	Password string `json:"password,omitempty"`
 }
 
-// Plugin is the OpenCode backend. The zero value is ready to install.
+// Plugin is the OpenCode backend.
 type Plugin struct {
 	ctx    *kernel.Context
 	host   shell.Host
@@ -38,9 +38,8 @@ type Plugin struct {
 	fetch  *progress // the OpenCode download under way, or nil; UI thread
 	prov   providers
 
-	mu       sync.Mutex
-	client   *client // the ready connection, or nil
-	attempts atomic.Uint64
+	mu     sync.Mutex
+	client *client // the ready connection, or nil
 
 	// Test seams. exe, when set, runs in place of the downloaded build.
 	exe   string
@@ -55,6 +54,9 @@ var (
 	_ agent.Modes   = (*Plugin)(nil)
 	_ agent.Files   = (*Plugin)(nil)
 )
+
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
@@ -78,22 +80,16 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	}
 	p.status = agent.Status{State: agent.Stopped}
 	c.OnDispose(p.dropClient)
-	for _, err := range []error{
-		kernel.Provide[agent.Service](c, agent.ServiceKey, p),
-		kernel.Provide[agent.Models](c, agent.ModelsKey, p),
-		kernel.Provide[agent.Modes](c, agent.ModesKey, p),
-		kernel.Provide[agent.Files](c, agent.FilesKey, p),
-		kernel.Provide[agent.Rewinder](c, agent.RewindKey, p),
-		kernel.Provide[agent.Changes](c, agent.ChangesKey, p),
-		kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
-			Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect}),
-		p.contributeSection(c),
-		p.contributeProviders(c),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Provide[agent.Service](c, agent.ServiceKey, p)
+	kernel.Provide[agent.Models](c, agent.ModelsKey, p)
+	kernel.Provide[agent.Modes](c, agent.ModesKey, p)
+	kernel.Provide[agent.Files](c, agent.FilesKey, p)
+	kernel.Provide[agent.Rewinder](c, agent.RewindKey, p)
+	kernel.Provide[agent.Changes](c, agent.ChangesKey, p)
+	kernel.Contribute(c, kernel.Commands, "opencode.reconnect", 0, kernel.Command{
+		Title: "Reconnect to OpenCode", Menu: "Agent", Run: p.Reconnect})
+	p.contributeSection(c)
+	p.contributeProviders(c)
 	p.Reconnect()
 	return nil
 }
@@ -168,6 +164,11 @@ func (p *Plugin) current() (*client, error) {
 	return p.client, nil
 }
 
+// attempts numbers connection attempts across activations, so Status.Attempt
+// keeps increasing when the plugin is turned off and on again, as consumers
+// that kept server state rely on.
+var attempts atomic.Uint64
+
 var backoff = []time.Duration{time.Second, 3 * time.Second, 7 * time.Second, 15 * time.Second}
 
 // supervise keeps one connection up until ctx ends: connect, stream events,
@@ -190,7 +191,7 @@ func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, conn Connecti
 			case <-p.after(backoff[min(failures, len(backoff))-1]):
 			}
 		}
-		attempt := p.attempts.Add(1)
+		attempt := attempts.Add(1)
 		post(agent.Status{State: agent.Connecting, Attempt: attempt, Endpoint: conn.URL})
 		c, err := p.open(ctx, run, conn)
 		if err != nil {

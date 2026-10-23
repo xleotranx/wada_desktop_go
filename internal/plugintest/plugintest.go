@@ -54,6 +54,7 @@ func NewAgent() *Agent {
 		Fail:    map[string]error{}, State: agent.Status{State: agent.Ready, Attempt: 1, Origin: "fake"}}
 }
 
+func (f *Agent) New() kernel.Plugin { return f }
 func (*Agent) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey, agent.ChangesKey}}
 }
@@ -256,6 +257,7 @@ type Chat struct {
 	Work  bool // what WorkShown reports
 }
 
+func (f *Chat) New() kernel.Plugin { return f }
 func (*Chat) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-chat", Provides: []kernel.Named{chat.ControllerKey}}
 }
@@ -316,6 +318,7 @@ func NewFiles(tree map[string]string) *Files {
 	return f
 }
 
+func (f *Files) New() kernel.Plugin { return f }
 func (*Files) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-files", Provides: []kernel.Named{agent.FilesKey}}
 }
@@ -376,6 +379,7 @@ type Workspace struct {
 	Pending   bool // the record has not been read yet
 }
 
+func (f *Workspace) New() kernel.Plugin { return f }
 func (*Workspace) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-workspace", Provides: []kernel.Named{workspace.ServiceKey}}
 }

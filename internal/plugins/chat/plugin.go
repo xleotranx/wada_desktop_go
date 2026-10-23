@@ -23,7 +23,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 )
 
-// Plugin is the chat page. The zero value is ready to install.
+// Plugin is the chat page.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
@@ -59,6 +59,9 @@ type Plugin struct {
 
 var _ chat.Controller = (*Plugin)(nil)
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "chat", Title: "Chat", Locked: true,
@@ -78,22 +81,16 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.switchTo(chat.Conversation{})
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, agent.StatusChanged, p.statusChanged)
-	for _, err := range []error{
-		kernel.Provide[chat.Controller](c, chat.ControllerKey, p),
-		kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view}),
-		kernel.Contribute(c, settings.Sections, "chat.settings", 20, settings.Section{
-			Title: "Conversation", Description: "What shows beside a conversation.", Render: p.settingsSection}),
-		kernel.Contribute(c, kernel.Commands, "chat.work", 5, kernel.Command{
-			Title: "Toggle Work Panel", Menu: "View", Keys: []string{"cmd+b"},
-			Run: func() { p.workOn.Set(!p.workOn.Get()) }}),
-		kernel.Contribute(c, kernel.Commands, "chat.stop", 10, kernel.Command{
-			Title: "Stop the Agent", Menu: "Chat", Keys: []string{"cmd+."},
-			Enabled: p.running, Run: p.stop}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Provide[chat.Controller](c, chat.ControllerKey, p)
+	kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view})
+	kernel.Contribute(c, settings.Sections, "chat.settings", 20, settings.Section{
+		Title: "Conversation", Description: "What shows beside a conversation.", Render: p.settingsSection})
+	kernel.Contribute(c, kernel.Commands, "chat.work", 5, kernel.Command{
+		Title: "Toggle Work Panel", Menu: "View", Keys: []string{"cmd+b"},
+		Run: func() { p.workOn.Set(!p.workOn.Get()) }})
+	kernel.Contribute(c, kernel.Commands, "chat.stop", 10, kernel.Command{
+		Title: "Stop the Agent", Menu: "Chat", Keys: []string{"cmd+."},
+		Enabled: p.running, Run: p.stop})
 	return nil
 }
 

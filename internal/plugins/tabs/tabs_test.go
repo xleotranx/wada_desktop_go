@@ -40,9 +40,10 @@ func record() *plugintest.Workspace {
 
 func start(t *testing.T, store *kerneltest.Store, ws *plugintest.Workspace) fixture {
 	t.Helper()
-	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: ws, chat: &plugintest.Chat{}, host: &kittest.Host{}}
+	f := fixture{a: plugintest.NewAgent(), ws: ws, chat: &plugintest.Chat{}, host: &kittest.Host{}}
 	pages := &pagesPlugin{}
-	f.h = kerneltest.Start(t, kerneltest.Config{Store: store}, f.a, f.ws, f.chat, f.host, pages, f.p)
+	f.h = kerneltest.Start(t, kerneltest.Config{Store: store}, f.a.New, f.ws.New, f.chat.New, f.host.New, pages.New,
+		kerneltest.Keep(&f.p, func() *Plugin { return &Plugin{} }))
 	f.h.Flush()
 	return f
 }
@@ -50,6 +51,7 @@ func start(t *testing.T, store *kerneltest.Store, ws *plugintest.Workspace) fixt
 // pagesPlugin contributes a page other than the chat, as Settings does.
 type pagesPlugin struct{}
 
+func (f *pagesPlugin) New() kernel.Plugin      { return f }
 func (*pagesPlugin) Manifest() kernel.Manifest { return kernel.Manifest{ID: "pages"} }
 func (*pagesPlugin) Setup(c *kernel.Context) error {
 	return kernel.Contribute(c, shell.Pages, "pages.settings", 100, shell.Page{Title: func() string { return "Settings" }})
@@ -458,6 +460,7 @@ func TestRemovingAFolderClosesItsTabs(t *testing.T) {
 // runPages contributes a page while its scope lives, as a workflow run does.
 type runPages struct{ ctx *kernel.Context }
 
+func (f *runPages) New() kernel.Plugin            { return f }
 func (*runPages) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "runs"} }
 func (r *runPages) Setup(c *kernel.Context) error { r.ctx = c; return nil }
 
@@ -469,8 +472,9 @@ func (r *runPages) add(id, title string) *kernel.Scope {
 
 func TestAPageThatGoesAwayLosesItsTab(t *testing.T) {
 	runs := &runPages{}
-	f := fixture{p: &Plugin{}, a: plugintest.NewAgent(), ws: record(), chat: &plugintest.Chat{}, host: &kittest.Host{}}
-	f.h = kerneltest.Start(t, kerneltest.Config{}, f.a, f.ws, f.chat, f.host, runs, f.p)
+	f := fixture{a: plugintest.NewAgent(), ws: record(), chat: &plugintest.Chat{}, host: &kittest.Host{}}
+	f.h = kerneltest.Start(t, kerneltest.Config{}, f.a.New, f.ws.New, f.chat.New, f.host.New, runs.New,
+		kerneltest.Keep(&f.p, func() *Plugin { return &Plugin{} }))
 	f.h.Flush()
 	f.open("s1")
 	run := runs.add("runs.run/1", "add a flag")

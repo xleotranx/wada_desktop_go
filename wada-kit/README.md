@@ -25,7 +25,7 @@ Notes: [kernel API](docs/kernel-api.md), [shell and the kit's plugins](docs/shel
 
 ```go
 shell.Run(shell.App{Name: "Notes", Folder: "notes", Env: "NOTES", Width: 900, Height: 640},
-	&notes{}, &inspector.Plugin{}, &settings.Plugin{})
+	newNotes, inspector.New, settings.New)
 ```
 
 `go run ./examples/notes` runs the example. An app beside the kit requires

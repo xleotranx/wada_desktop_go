@@ -16,7 +16,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 )
 
-// Plugin is the usage meter. The zero value is ready to install.
+// Plugin is the usage meter.
 //
 // The context window comes from the model catalog when the backend provides
 // one; without it the meter shows the tokens alone.
@@ -37,6 +37,9 @@ type Plugin struct {
 	open bool // the panel
 }
 
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
+
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "usage", Title: "Usage",
@@ -49,7 +52,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
-	p.session, p.known, p.catalog, p.catalogRead = "", false, nil, false
 	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.follow(conv.Session) })
 	kernel.On(c, agent.Events, p.events)
 	// A read before the backend connected failed; read again once it has.
@@ -63,17 +65,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		}
 	})
 	p.follow(p.chat.Current().Session)
-	for _, err := range []error{
-		kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view}),
-		kernel.Contribute(c, chat.Work, "usage.context", 20, chat.WorkSection{Title: "Context",
-			Shown: func() bool { return p.measured() && p.sum.last.Context() > 0 }, Render: p.contextSection}),
-		kernel.Contribute(c, chat.Work, "usage.cost", 30, chat.WorkSection{Title: "Cost",
-			Shown: p.measured, Render: p.costSection}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, chat.ComposerTrailing, "usage.meter", 0, shell.View{Render: p.view})
+	kernel.Contribute(c, chat.Work, "usage.context", 20, chat.WorkSection{Title: "Context",
+		Shown: func() bool { return p.measured() && p.sum.last.Context() > 0 }, Render: p.contextSection})
+	kernel.Contribute(c, chat.Work, "usage.cost", 30, chat.WorkSection{Title: "Cost",
+		Shown: p.measured, Render: p.costSection})
 	return nil
 }
 

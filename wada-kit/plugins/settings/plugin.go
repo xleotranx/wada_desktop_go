@@ -16,12 +16,15 @@ import (
 	"github.com/oneo-me/onevra/source/theme"
 )
 
-// Plugin is the settings page. The zero value is ready to install.
+// Plugin is the settings page.
 type Plugin struct {
 	ctx     *kernel.Context
 	host    shell.Host
 	section string
 }
+
+// New makes the plugin; the kernel makes one for each activation.
+func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
@@ -35,19 +38,13 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.host = kernel.Require(c, shell.HostKey)
 	open := func() { p.host.ShowPage(settings.PageID) }
-	for _, err := range []error{
-		kernel.Contribute(c, shell.Pages, settings.PageID, 100, shell.Page{Title: func() string { return "Settings" }, Render: p.view}),
-		kernel.Contribute(c, kernel.Commands, "settings.open", 0, kernel.Command{
-			Title: "Settings…", Menu: "File", Keys: []string{"cmd+,"}, Run: open}),
-		kernel.Contribute(c, settings.Sections, "settings.appearance", 0, settings.Section{
-			Title: "Appearance", Description: "Choose how the app looks on this Mac.", Render: p.appearance}),
-		kernel.Contribute(c, settings.Sections, "settings.plugins", 1000, settings.Section{
-			Title: "Plugins", Description: "Manage the features in your workspace. Disabled plugins keep their settings.", Render: p.plugins}),
-	} {
-		if err != nil {
-			return err
-		}
-	}
+	kernel.Contribute(c, shell.Pages, settings.PageID, 100, shell.Page{Title: func() string { return "Settings" }, Render: p.view})
+	kernel.Contribute(c, kernel.Commands, "settings.open", 0, kernel.Command{
+		Title: "Settings…", Menu: "File", Keys: []string{"cmd+,"}, Run: open})
+	kernel.Contribute(c, settings.Sections, "settings.appearance", 0, settings.Section{
+		Title: "Appearance", Description: "Choose how the app looks on this Mac.", Render: p.appearance})
+	kernel.Contribute(c, settings.Sections, "settings.plugins", 1000, settings.Section{
+		Title: "Plugins", Description: "Manage the features in your workspace. Disabled plugins keep their settings.", Render: p.plugins})
 	return nil
 }
 

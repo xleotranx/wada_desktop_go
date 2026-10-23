@@ -45,7 +45,7 @@ func TestOpeningAConversationShowsItsFilesAndDiffs(t *testing.T) {
 	}
 	tt := panel(p)
 	tt.Frame()
-	for _, want := range []string{"3 files", "+15", "−3", "main.go", "cmd", "README.md", "Added", "Deleted"} {
+	for _, want := range []string{"3 files", "+15", "−3", "main.go", "cmd", "README.md", "A", "D"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing: %q", want, tt.Texts())
 		}
@@ -87,6 +87,69 @@ func TestOpeningAConversationShowsItsFilesAndDiffs(t *testing.T) {
 		if e.Value.Shown() {
 			t.Fatal("new chat shows a file changes section")
 		}
+	}
+}
+
+func TestCollapsingTheFileListKeepsSummaryAndRestoresOpenDiffs(t *testing.T) {
+	h, p, _, ctl := start(t)
+	ctl.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	tt := panel(p)
+	tt.Frame()
+	if err := tt.Click("cmd/main.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Collapse file list"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("main.go") || tt.HasText("+var x = 2") || !tt.HasText("3 files") || !tt.HasText("+15") || !tt.HasText("−3") {
+		t.Fatalf("collapsed list: %q", tt.Texts())
+	}
+	// The summary remains focused; Space reopens it without losing a file's state.
+	tt.Key(0, ui.KeySpace)
+	tt.Frame()
+	if !tt.HasText("main.go") || !tt.HasText("+var x = 2") {
+		t.Fatalf("reopened list: %q", tt.Texts())
+	}
+}
+
+func TestExpandAndCollapseAllDiffsSurviveRefresh(t *testing.T) {
+	h, p, a, ctl := start(t)
+	ctl.Open(agent.Session{ID: "s1"})
+	h.Flush()
+	tt := panel(p)
+	tt.Frame()
+	if err := tt.Click("Expand all diffs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("+var x = 2") || !tt.HasText("No diff to show") {
+		t.Fatalf("expanded diffs: %q", tt.Texts())
+	}
+	// A refreshed result can reorder files and add a file with the same name.
+	a.Changed["s1"] = append([]agent.FileChange{{Path: "other/main.go", Patch: "+new file"}}, a.Changed["s1"]...)
+	if err := tt.Click("Refresh file changes"); err != nil {
+		t.Fatal(err)
+	}
+	h.Flush()
+	tt.Frame()
+	if !tt.HasText("+var x = 2") || tt.HasText("+new file") || !tt.HasText("4 files") {
+		t.Fatalf("refreshed diffs: %q", tt.Texts())
+	}
+	if err := tt.Click("Expand all diffs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("+new file") {
+		t.Fatalf("new diff: %q", tt.Texts())
+	}
+	if err := tt.Click("Collapse all diffs"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("+var x = 2") || tt.HasText("+new file") || tt.HasText("No diff to show") || !tt.HasText("main.go") {
+		t.Fatalf("collapsed diffs: %q", tt.Texts())
 	}
 }
 

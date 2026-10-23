@@ -341,9 +341,14 @@ while navigating conversations but is not saved across launches:
   with a remote backend; an absent folder, Git executable or repository is
   reported. It does not assume the app's working directory when no folder is set.
 
-The section shows the number of files and total lines added and removed, then each
-file's name, folder and line counts. Added and deleted files have a text label as
-well as a color. Selecting a file expands its unified diff: hunk headers muted,
+The section shows the number of files and total lines added and removed in a
+disclosure that collapses the file list while keeping the summary and source
+selector visible. The list's collapsed state stays while navigating conversations.
+Expand-all and collapse-all controls open or close every current file's diff.
+Files are sorted by folder, then path, with root files first; each folder heading
+appears once above compact rows with filenames, A/M/D status markers and line
+counts. Full paths and status names are available in tooltips and accessibility
+labels. Selecting a file expands its unified diff: hunk headers muted,
 added and removed lines on `DiffAddBg` and `DiffDelBg`, up to 400 lines. A file
 without a patch says "No diff to show".
 

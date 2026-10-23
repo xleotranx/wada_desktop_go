@@ -20,7 +20,7 @@ func (p *Plugin) changesView(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	p.sourcePicker(c, pal)
 	if p.mode == uncommittedChanges {
-		ui.Text(c, "Local repository · staged, unstaged and untracked").FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
+		ui.Text(c, "Staged, unstaged & untracked").FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
 	}
 	if p.problem != "" {
 		ui.Text(c, p.problem).FontSize(12).TextColor(pal.Muted)
@@ -43,17 +43,80 @@ func (p *Plugin) changesView(c *ui.Context) {
 		added, removed = added+ch.Added, removed+ch.Removed
 	}
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
-		ui.Row(c).FillWidth().Gap(8).Padding(0, 0, 6, 0).Children(func() {
+		p.summary(c, pal, added, removed)
+		if p.collapsed {
+			return
+		}
+		previous := ""
+		for _, ch := range p.changes {
+			dir := path.Dir(ch.Path)
+			if dir != previous {
+				previous = dir
+				folder := dir
+				if dir == "." {
+					folder = "Root files"
+				}
+				ui.Row(c).Key("folder:"+dir).FillWidth().AlignItems(ui.Center).Gap(6).Padding(8, 6, 4, 6).Children(func() {
+					ui.Icon(c, lucide.Folder()).FontSize(11).TextColor(pal.Faint).Shrink(0)
+					ui.Text(c, folder).FontSize(10.5).TextColor(pal.Muted).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(folder)
+				})
+			}
+			ui.Column(c).Key(ch.Path).FillWidth().Children(func() { p.file(c, pal, ch) })
+		}
+	})
+}
+
+func (p *Plugin) summary(c *ui.Context, pal native.Palette, added, removed int) {
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Padding(0, 0, 4, 0).Children(func() {
+		label, chevron := "Collapse file list", lucide.ChevronDown
+		if p.collapsed {
+			label, chevron = "Expand file list", lucide.ChevronRight
+		}
+		c.Key("file-list")
+		b := ui.ButtonBase(c).Label(label).Role(ui.RoleDisclosure).Expanded(!p.collapsed).
+			Grow(1).MinWidth(0).Height(28).Padding(0, 6).Gap(6).Radius(6).Cursor(ui.CursorPointer).
+			OnClick(func() { p.collapsed = !p.collapsed })
+		if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.Children(func() {
+			ui.Icon(c, chevron()).FontSize(11).TextColor(pal.Faint).Shrink(0)
 			files := strconv.Itoa(len(p.changes)) + " files"
 			if len(p.changes) == 1 {
 				files = "1 file"
 			}
-			ui.Text(c, files).FontSize(12.5).TextColor(pal.Text).Grow(1)
+			ui.Text(c, files).FontSize(12.5).TextColor(pal.Text).Grow(1).SingleLine()
 			counts(c, pal, added, removed)
 		})
+		if p.collapsed {
+			return
+		}
+		expanded := 0
 		for _, ch := range p.changes {
-			c.Key(ch.Path)
-			p.file(c, pal, ch)
+			if p.open[ch.Path] {
+				expanded++
+			}
+		}
+		for _, action := range []struct {
+			label    string
+			icon     func() *ui.SVG
+			open     bool
+			disabled bool
+		}{
+			{"Expand all diffs", lucide.ChevronsUpDown, true, expanded == len(p.changes)},
+			{"Collapse all diffs", lucide.ChevronsDownUp, false, expanded == 0},
+		} {
+			c.Key(action.label)
+			b := ui.ButtonBase(c).Label(action.label).Tooltip(action.label).Size(24, 28).Radius(6).
+				Disabled(action.disabled).Cursor(ui.CursorPointer).Center().OnClick(func() {
+				for _, ch := range p.changes {
+					p.open[ch.Path] = action.open
+				}
+			})
+			if b.Hovered() {
+				b.Background(pal.Hover)
+			}
+			b.Children(func() { ui.Icon(c, action.icon()).FontSize(13).TextColor(pal.Faint) })
 		}
 	})
 }
@@ -92,12 +155,17 @@ func (p *Plugin) sourcePicker(c *ui.Context, pal native.Palette) {
 
 func (p *Plugin) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
 	open := p.open[ch.Path]
-	dir, name := path.Split(ch.Path)
-	height := float32(28)
-	if dir != "" {
-		height = 44
+	status, marker, color := "Modified", "M", pal.Faint
+	switch ch.Status {
+	case agent.FileAdded:
+		status, marker, color = "Added", "A", pal.DiffAdd
+	case agent.FileDeleted:
+		status, marker, color = "Deleted", "D", pal.DiffDel
+	case agent.FileModified:
 	}
-	b := ui.ButtonBase(c).Label(ch.Path).FillWidth().Height(height).Radius(6).Padding(4, 6).Gap(6).
+	c.Key("file")
+	b := ui.ButtonBase(c).Label(ch.Path).Description(status).Tooltip(ch.Path+" · "+status).
+		Role(ui.RoleDisclosure).Expanded(open).FillWidth().Height(28).Radius(6).Padding(4, 6).Gap(6).
 		AlignItems(ui.Center).Justify(ui.Start).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
@@ -109,27 +177,12 @@ func (p *Plugin) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
 			chevron = lucide.ChevronDown
 		}
 		ui.Icon(c, chevron()).FontSize(11).TextColor(pal.Faint).Shrink(0)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-				label := ui.Text(c, name).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
-				switch ch.Status {
-				case agent.FileAdded:
-					label.TextColor(pal.DiffAdd)
-					ui.Text(c, "Added").FontSize(10.5).TextColor(pal.DiffAdd).Shrink(0)
-				case agent.FileDeleted:
-					label.TextColor(pal.DiffDel)
-					ui.Text(c, "Deleted").FontSize(10.5).TextColor(pal.DiffDel).Shrink(0)
-				case agent.FileModified:
-				}
-				counts(c, pal, ch.Added, ch.Removed)
-			})
-			if dir != "" {
-				ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(10.5).TextColor(pal.Faint).FillWidth().
-					SingleLine().Ellipsis("…")
-			}
-		})
+		ui.Text(c, path.Base(ch.Path)).FontSize(12.5).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		ui.Text(c, marker).FontSize(10.5).FontWeight(600).TextColor(color).Width(12).Tooltip(status).Shrink(0)
+		counts(c, pal, ch.Added, ch.Removed)
 	})
 	if open {
+		c.Key("patch")
 		patch(c, pal, ch.Patch)
 	}
 }

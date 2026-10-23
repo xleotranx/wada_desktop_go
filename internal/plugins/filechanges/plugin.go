@@ -5,6 +5,9 @@ package filechanges
 import (
 	"context"
 	"errors"
+	"path"
+	"slices"
+	"strings"
 	"unicode"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -39,6 +42,7 @@ type Plugin struct {
 	known     bool
 	problem   string
 	open      map[string]bool // files whose diff is shown, by path
+	collapsed bool            // the file list; independent of individual diffs
 }
 
 // New makes the plugin; the kernel makes one for each activation.
@@ -133,7 +137,13 @@ func (p *Plugin) readChanges() {
 				p.problem = string(message)
 			}
 		} else {
-			p.changes, p.known = changes, true
+			p.changes, p.known = slices.Clone(changes), true
+			slices.SortFunc(p.changes, func(a, b agent.FileChange) int {
+				if dir := strings.Compare(path.Dir(a.Path), path.Dir(b.Path)); dir != 0 {
+					return dir
+				}
+				return strings.Compare(a.Path, b.Path)
+			})
 		}
 	})
 }

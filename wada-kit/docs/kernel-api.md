@@ -74,7 +74,10 @@ Install ──► Disabled ──Enable──► (requirements met?) ──no─
    while a setup provides something new, so providers come before their consumers.
    Then it emits `Started` and `PluginsChanged`.
 3. A Setup that errors or panics, or that declares a key it didn't provide, has its
-   registrations undone and the plugin is Failed.
+   registrations undone and the plugin is Failed. A plugin whose required provider
+   went down while its Setup ran, as when a listener of the provider panicked at an
+   event the Setup emitted, has its registrations undone once Setup returns and is
+   Blocked.
 4. **Disable** disposes, newest first, every active plugin that requires a key the
    target provides (they become Blocked), then the target. Its settings stay.
 5. **Enable** sets the plugin up, then retries Blocked plugins. Enabling a second
@@ -99,6 +102,11 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 - The kernel is not safe for concurrent use. Everything runs on the UI thread except
   `Scope.Lifetime`, `Scope.Post`, the body of `Spawn` and the `work` function of `Go`.
 - Workers never touch plugin state: they return a value (`Go`) or `Post` a closure.
+- A plugin starts every goroutine with `Spawn` or `Go`, never a `go` statement, which
+  the kernel can neither recover nor wait for. A worker (a `Spawn` body or `Go` work,
+  of any plugin) may `Spawn` a goroutine of its own; `Spawn` reports false, starting
+  nothing, once the scope is disposed. `kittest.PluginsSpawnTheirGoroutines` fails an
+  app's test on a `go` statement in its plugins.
 - Rendering performs no kernel mutation. Reading `Items`, `Use` and settings during a
   frame is fine; `Emit`, `Contribute`, `Go` and `Setting.Set` belong in handlers.
 - Navigation-dependent work belongs to a child scope. A page that shows one document
@@ -108,7 +116,8 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 ## Failures
 
 - A panic in Setup, a listener, a transform, a disposer, a posted closure, a `Spawn`
-  worker, a task's `work` or `apply`, or a callback run through `Invoke` is recovered
+  worker, a task's `work` (also of a run a later one replaced) or `apply`, or a
+  callback run through `Invoke` is recovered
   and fails the owning plugin, which is disposed with a `*PanicError` (value and
   stack). Other listeners still run. Dependents become Blocked.
 - The shell renders every contribution and runs every command through `Invoke`, so
@@ -127,6 +136,9 @@ dropped, including failure reports from `Spawn` workers that panic after disposa
 
 - Keys, topics, pipelines and points: `<owning package>.<name>`, e.g. `shell.host`,
   `shell.strip`, `settings.sections`.
+- A name is declared once per kind, with one type: `NewKey`, `NewTopic`,
+  `NewPipeline` or `NewPoint` panics when the name was declared with another type,
+  which would otherwise fail a type assertion later, possibly in the host.
 - Entry IDs: `<plugin id>.<name>`; the kernel enforces the prefix.
 - Shortcuts are fixed: each command declares its accelerators, and there is no
   remapping. The shell gives a command's first key to the menu bar when it has a
@@ -197,11 +209,9 @@ previous activation. The shell provides this read-only API as `InspectorKey`.
 - Cleanup closes the kernel and fails the test if workers are still running.
 
 `kittest` has `Host`, a fake `shell.Host` that records what plugins ask of the
-window, and `ColorsStayInThePalette`, the guard an app's test calls on its own tree
-so that every color comes from `native.PaletteFor`.
-Its `CheckBackend` suite runs against both protocol fixtures and checks failed sends
-are attempted once, disabled services return `ErrNotConnected`, and reactivation
-advances the connection generation.
+window; `ColorsStayInThePalette`, the guard an app's test calls on its own tree so
+that every color comes from `native.PaletteFor`; and `PluginsSpawnTheirGoroutines`,
+which an app's test calls on its plugins folder.
 
 ## Out-of-process plugins
 

@@ -1,7 +1,7 @@
 // Package kernel is the app's plugin core: plugin lifecycle, scoped and
 // reversible registration, services, events, pipelines, extension points,
 // background tasks and settings. It has no UI and knows no feature; see
-// docs/design/kernel-api.md.
+// docs/kernel-api.md.
 package kernel
 
 import (
@@ -344,8 +344,8 @@ func (k *Kernel) Close(ctx context.Context) error {
 	if k.closed {
 		return nil
 	}
-	for i := len(k.active) - 1; i >= 0; i-- {
-		k.dispose(k.active[i], Disabled, nil)
+	for len(k.active) > 0 {
+		k.dispose(k.active[len(k.active)-1], Disabled, nil)
 	}
 	k.root.dispose()
 	k.closed = true
@@ -443,11 +443,17 @@ func (k *Kernel) setup(p *plugin) bool {
 			}
 		}
 	}
-	if err != nil {
+	state := Failed
+	if err == nil && len(k.missing(p)) > 0 {
+		// A provider went down while Setup ran, as when a listener of its
+		// panicked: p is not yet active, so it was not taken down with it.
+		state = Blocked
+	}
+	if err != nil || state == Blocked {
 		p.disposing = true
 		c.s.dispose()
 		p.ctx, p.disposing = nil, false
-		p.state, p.err = Failed, err
+		p.state, p.err = state, err
 		return false
 	}
 	p.state = Active

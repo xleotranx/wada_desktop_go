@@ -13,7 +13,7 @@ type Task struct {
 // Go cancels the task's previous run, runs work off the UI thread with a
 // context derived from o's Lifetime, and calls apply on the UI thread only if
 // o is still alive and this is still the task's latest run. A panic in work
-// fails the owning plugin.
+// fails the owning plugin, even when a later run has replaced this one.
 func Go[T any](o Owner, t *Task, work func(context.Context) (T, error), apply func(T, error)) {
 	s := o.owner()
 	if !s.alive {
@@ -32,18 +32,17 @@ func Go[T any](o Owner, t *Task, work func(context.Context) (T, error), apply fu
 		done()
 		k.opts.Post(func() {
 			cancel()
-			if t.gen != gen {
-				return
+			latest := t.gen == gen
+			if latest {
+				t.cancel, t.running = nil, false
 			}
-			t.cancel, t.running = nil, false
-			if !s.alive {
-				return
-			}
-			if perr != nil {
+			switch {
+			case !s.alive:
+			case perr != nil:
 				k.fail(s.plugin, perr)
-				return
+			case latest:
+				k.call(s.plugin, func() { apply(v, err) })
 			}
-			k.call(s.plugin, func() { apply(v, err) })
 		})
 	})
 }

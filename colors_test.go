@@ -11,3 +11,9 @@ import (
 func TestColorsStayInThePalette(t *testing.T) {
 	kittest.ColorsStayInThePalette(t, ".")
 }
+
+// TestPluginsSpawnTheirGoroutines keeps the app's plugins to goroutines the
+// kernel runs, so a panic fails the plugin instead of ending the app.
+func TestPluginsSpawnTheirGoroutines(t *testing.T) {
+	kittest.PluginsSpawnTheirGoroutines(t, "internal/plugins")
+}

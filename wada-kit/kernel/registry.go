@@ -5,17 +5,36 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
+	"sync"
 )
+
+// declared holds the type each name was declared with, by kind and name.
+var declared sync.Map
+
+// declare panics when a name of this kind was already declared with another
+// type: the kernel looks entries up by name, so two types under one name
+// would fail a type assertion later, possibly in the host, which no plugin
+// failure contains. Declaring the same name with the same type again is fine.
+func declare[T any](kind, name string) {
+	t := reflect.TypeFor[T]()
+	if prev, loaded := declared.LoadOrStore(kind+" "+name, t); loaded && prev != t {
+		panic(fmt.Sprintf("kernel: %s %q declared as %v and as %v", kind, name, prev, t))
+	}
+}
 
 // ---- Services
 
 // Key names a capability with exactly one provider.
 type Key[T any] struct{ name string }
 
-func NewKey[T any](name string) Key[T] { return Key[T]{name} }
-func (k Key[T]) Name() string          { return k.name }
+func NewKey[T any](name string) Key[T] {
+	declare[T]("key", name)
+	return Key[T]{name}
+}
+func (k Key[T]) Name() string { return k.name }
 
 type service struct {
 	value any
@@ -70,8 +89,11 @@ func Use[T any](o Owner, k Key[T]) (T, bool) {
 // Topic names a broadcast notification.
 type Topic[T any] struct{ name string }
 
-func NewTopic[T any](name string) Topic[T] { return Topic[T]{name} }
-func (t Topic[T]) Name() string            { return t.name }
+func NewTopic[T any](name string) Topic[T] {
+	declare[T]("topic", name)
+	return Topic[T]{name}
+}
+func (t Topic[T]) Name() string { return t.name }
 
 type topic struct{ listeners []*listener }
 
@@ -129,8 +151,11 @@ func Emit[T any](o Owner, t Topic[T], v T) {
 // Pipeline names an ordered chain of transforms over a value.
 type Pipeline[T any] struct{ name string }
 
-func NewPipeline[T any](name string) Pipeline[T] { return Pipeline[T]{name} }
-func (p Pipeline[T]) Name() string               { return p.name }
+func NewPipeline[T any](name string) Pipeline[T] {
+	declare[T]("pipeline", name)
+	return Pipeline[T]{name}
+}
+func (p Pipeline[T]) Name() string { return p.name }
 
 type pipeline struct {
 	stages []*stage
@@ -209,8 +234,11 @@ func Run[T any](o Owner, p Pipeline[T], v T) (T, error) {
 // Point names a collection of contributions.
 type Point[T any] struct{ name string }
 
-func NewPoint[T any](name string) Point[T] { return Point[T]{name} }
-func (p Point[T]) Name() string            { return p.name }
+func NewPoint[T any](name string) Point[T] {
+	declare[T]("point", name)
+	return Point[T]{name}
+}
+func (p Point[T]) Name() string { return p.name }
 
 type Entry[T any] struct {
 	ID     string // "<plugin-id>.<name>", unique within the point

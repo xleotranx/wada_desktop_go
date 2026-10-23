@@ -292,9 +292,14 @@ func (p *Plugin) stream(ctx context.Context, run *kernel.Scope, c *client, opene
 	ctx, cancel := context.WithCancel(ctx)
 	queue := make(chan agent.Event)
 	result := make(chan error, 1)
-	go func() {
+	reading := run.Spawn(func(context.Context) {
+		// Deferred, so a panic while decoding, which fails the plugin, still
+		// lets this function return.
+		err := errors.New("the event stream stopped")
+		defer close(queue)
+		defer func() { result <- err }()
 		warned := false
-		result <- c.events(ctx, opened, func(wire wireEvent) {
+		err = c.events(ctx, opened, func(wire wireEvent) {
 			ev, known, err := decodeEvent(wire)
 			if err != nil && !warned {
 				warned = true
@@ -312,8 +317,11 @@ func (p *Plugin) stream(ctx context.Context, run *kernel.Scope, c *client, opene
 			case <-ctx.Done():
 			}
 		})
-		close(queue)
-	}()
+	})
+	if !reading {
+		cancel()
+		return ctx.Err()
+	}
 	defer func() {
 		cancel()
 		for range queue { // let the reader exit

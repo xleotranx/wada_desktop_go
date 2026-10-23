@@ -350,6 +350,17 @@ func TestCallbackPanicsFailOnlyTheirPlugin(t *testing.T) {
 			bad.ctx.Spawn(func(context.Context) { panic("spawn") })
 			h.WaitPosts(1)
 		},
+		"superseded task": func(h *kerneltest.Harness) {
+			kernel.Go(bad.ctx, &task, func(context.Context) (int, error) { panic("superseded task") }, func(int, error) {})
+			kernel.Go(bad.ctx, &task, func(context.Context) (int, error) { return 0, nil }, func(int, error) {})
+			h.Flush()
+		},
+		"worker's own goroutine": func(h *kerneltest.Harness) {
+			bad.ctx.Spawn(func(context.Context) {
+				bad.ctx.Spawn(func(context.Context) { panic("worker's own goroutine") })
+			})
+			h.WaitPosts(1)
+		},
 	}
 	for name, trigger := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -697,4 +708,60 @@ func TestPointChangesAreAnnouncedOncePerRound(t *testing.T) {
 	if !slices.Equal(got, []string{sidebar.Name(), sidebar.Name()}) || len(kernel.Items(h, sidebar)) != 0 {
 		t.Fatalf("after removal: announced %q", got)
 	}
+}
+
+// A provider that fails while a dependent's Setup runs, as when the dependent
+// emits to a listener of the provider that panics, leaves the dependent
+// Blocked, not active without what it requires.
+func TestProviderFailingDuringSetupBlocksTheDependent(t *testing.T) {
+	provider := backend("provider")
+	panicked := false
+	provider.setup = func(c *kernel.Context) error {
+		kernel.On(c, ping, func(string) {
+			if !panicked {
+				panicked = true
+				panic("provider's listener")
+			}
+		})
+		return kernel.Provide[agent](c, agentKey, named("provider"))
+	}
+	var got agent
+	dependent := consumer("dependent", &got)
+	inner := dependent.setup
+	dependent.setup = func(c *kernel.Context) error {
+		if err := inner(c); err != nil {
+			return err
+		}
+		kernel.Emit(c, ping, "hello")
+		return kernel.Contribute(c, sidebar, "dependent.item", 0, "item")
+	}
+	h := kerneltest.Start(t, kerneltest.Config{Lenient: true}, provider, dependent)
+	if st := state(t, h, "provider"); st.State != kernel.Failed {
+		t.Fatalf("provider %+v", st)
+	}
+	if st := state(t, h, "dependent"); st.State != kernel.Blocked || !slices.Equal(st.Missing, []string{agentKey.Name()}) {
+		t.Fatalf("dependent %+v", st)
+	}
+	if items := kernel.Items(h, sidebar); len(items) != 0 {
+		t.Fatalf("the blocked dependent kept its contributions: %v", items)
+	}
+	if err := h.Enable("provider"); err != nil {
+		t.Fatal(err)
+	}
+	if st := state(t, h, "dependent"); st.State != kernel.Active {
+		t.Fatalf("dependent after the provider came back %+v", st)
+	}
+	closeClean(t, h)
+}
+
+func TestNameDeclaredWithTwoTypesPanics(t *testing.T) {
+	kernel.NewPoint[string]("test.twice")
+	kernel.NewPoint[string]("test.twice") // the same type again is fine
+	kernel.NewTopic[int]("test.twice")    // so is another kind
+	defer func() {
+		if v := recover(); v == nil || !strings.Contains(fmt.Sprint(v), `point "test.twice"`) {
+			t.Fatalf("recovered %v", v)
+		}
+	}()
+	kernel.NewPoint[int]("test.twice")
 }

@@ -1,5 +1,6 @@
 // Package kittest helps an app's tests: Host fakes what the shell provides
-// plugins, and ColorsStayInThePalette guards the app's colors.
+// plugins, ColorsStayInThePalette guards the app's colors and
+// PluginsSpawnTheirGoroutines its plugins' goroutines.
 package kittest
 
 import (

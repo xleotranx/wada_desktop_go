@@ -35,3 +35,21 @@ func TestAnAppsOwnPaletteFileIsChecked(t *testing.T) {
 		t.Fatalf("an app's native/palette.go raised %d complaints, want 1", r.errors)
 	}
 }
+
+func TestAPluginsGoStatementIsCaught(t *testing.T) {
+	dir := t.TempDir()
+	body := "package p\n\nfunc f() { go func() {}() }\n"
+	if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &recorder{TB: t}
+	PluginsSpawnTheirGoroutines(r, dir)
+	if r.errors != 1 {
+		t.Fatalf("a go statement raised %d complaints, want 1", r.errors)
+	}
+}
+
+// TestKitPluginsSpawnTheirGoroutines holds the kit's own plugins to it.
+func TestKitPluginsSpawnTheirGoroutines(t *testing.T) {
+	PluginsSpawnTheirGoroutines(t, "../plugins")
+}

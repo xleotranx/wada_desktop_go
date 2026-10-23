@@ -58,7 +58,8 @@ particularly `ui/doc.go`.
    `On`/`Emit` for events, `Transform`/`Run` for pipelines, `Provide`/`Require`/`Use`
    for services. Everything a plugin registers is undone when it's disposed.
 3. **Threading.** Plugin state belongs to the UI thread. Background work goes through
-   `kernel.Go` (replaceable, stale results dropped) or `Scope.Spawn`; workers return
+   `kernel.Go` (replaceable, stale results dropped) or `Scope.Spawn`, never a `go`
+   statement (a guard test enforces it); workers return
    values or `Post` closures and never touch plugin state. Tie navigation-dependent
    work to a child `Scope` and dispose it when navigation changes.
 4. **Rendering performs no I/O and no kernel mutation.** Do changes in `OnClick` and

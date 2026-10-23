@@ -103,12 +103,16 @@ func (s *Scope) Post(fn func()) {
 	})
 }
 
-// Spawn runs a long-lived worker bound to Lifetime. Close waits for it to return.
-// A panic in fn fails the owning plugin.
-func (s *Scope) Spawn(fn func(ctx context.Context)) {
+// Spawn runs a long-lived worker bound to Lifetime and reports whether it
+// started: it does not once the scope is disposed. Close waits for it to
+// return. A panic in fn fails the owning plugin. Call it on the UI thread or
+// from a worker the kernel runs (a Spawn body or the work of Go, of any
+// plugin), which is how a worker starts a goroutine of its own; a plugin
+// never uses a bare go statement, whose panic would end the app.
+func (s *Scope) Spawn(fn func(ctx context.Context)) bool {
 	sc := s.s
-	if !sc.alive {
-		return
+	if sc.ctx.Err() != nil { // cancelled first by dispose; safe off the UI thread
+		return false
 	}
 	done := sc.beginWork()
 	go func() {
@@ -117,9 +121,12 @@ func (s *Scope) Spawn(fn func(ctx context.Context)) {
 			s.Post(func() { sc.k.fail(sc.plugin, err) })
 		}
 	}()
+	return true
 }
 
-// beginWork is called on the UI thread; its completion is safe on a worker.
+// beginWork is called on the UI thread, or by a worker the kernel already
+// counts, so Close cannot be waiting on a zero count meanwhile; its
+// completion is safe on a worker.
 func (s *scope) beginWork() func() {
 	s.k.workers.Add(1)
 	if s.plugin != nil {

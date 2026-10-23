@@ -52,6 +52,7 @@ type Plugin struct {
 
 // connection is everything one supervisor run owns.
 type connection struct {
+	run      *kernel.Scope // starts the processes' readers
 	ctx      context.Context
 	exe, dir string // executable and session directory
 	home     string
@@ -131,7 +132,7 @@ func (p *Plugin) Reconnect() {
 	p.run = p.ctx.NewScope()
 	run, cfg := p.run, p.cfg.Get()
 	home, _ := os.UserHomeDir()
-	c := &connection{ctx: run.Lifetime(), exe: cmpOr(cfg.Executable, "pi"), home: home, maxIdle: p.maxIdle,
+	c := &connection{run: run, ctx: run.Lifetime(), exe: cmpOr(cfg.Executable, "pi"), home: home, maxIdle: p.maxIdle,
 		queue: make(chan agent.Event, 256), sessions: map[agent.SessionID]*live{}, dialogs: map[agent.InteractionID]dialog{}}
 	c.dir = cmpOr(cfg.SessionDir, defaultSessionDir(home))
 	c.files.dir = c.dir
@@ -201,7 +202,7 @@ func (p *Plugin) supervise(ctx context.Context, run *kernel.Scope, c *connection
 				c.version = strings.TrimSpace(string(out))
 			}
 		}
-		control, err := start(ctx, c.exe, c.home, []string{"--no-session", "--session-dir", c.dir}, c.controlEvents)
+		control, err := start(ctx, c.exe, c.home, []string{"--no-session", "--session-dir", c.dir}, run.Spawn, c.controlEvents)
 		if err == nil {
 			err = control.call(ctx, "get_state", nil, nil)
 			if err != nil {
@@ -281,7 +282,7 @@ func (c *connection) spawnLocked(id agent.SessionID, dir string, args []string) 
 	}
 	l := &live{used: time.Now()}
 	t := &translator{session: id}
-	pr, err := start(c.ctx, c.exe, dir, append(args, "--session-dir", c.dir), func(pr *proc, kind string, raw []byte) {
+	pr, err := start(c.ctx, c.exe, dir, append(args, "--session-dir", c.dir), c.run.Spawn, func(pr *proc, kind string, raw []byte) {
 		c.sessionEvent(pr, l, t, kind, raw)
 	})
 	if err != nil {
@@ -342,7 +343,9 @@ func (c *connection) reapLocked(max int) {
 	for _, id := range idle[:len(idle)-max] {
 		l := c.sessions[id]
 		delete(c.sessions, id)
-		go l.p.close()
+		// Off the caller; once the connection has ended, its context has
+		// stopped the process already.
+		c.run.Spawn(func(context.Context) { l.p.close() })
 	}
 }
 

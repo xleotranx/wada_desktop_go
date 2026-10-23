@@ -46,8 +46,11 @@ type record struct {
 
 // start runs pi in dir with args after "--mode rpc". Every record that is not
 // a command response goes to events, on the reader goroutine, in order; events
-// receives the process so it can answer before start has returned.
-func start(ctx context.Context, exe, dir string, args []string, events func(p *proc, kind string, raw []byte)) (*proc, error) {
+// receives the process so it can answer before start has returned. spawn
+// starts the reader (kernel.Scope.Spawn, so a panic in events fails the
+// plugin), and reports whether it did.
+func start(ctx context.Context, exe, dir string, args []string, spawn func(func(context.Context)) bool,
+	events func(p *proc, kind string, raw []byte)) (*proc, error) {
 	path, err := exec.LookPath(exe)
 	if err != nil {
 		return nil, fmt.Errorf("pi was not found: %w", err)
@@ -68,11 +71,24 @@ func start(ctx context.Context, exe, dir string, args []string, events func(p *p
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	go p.read(stdout, events)
+	if !spawn(func(context.Context) { p.read(stdout, events) }) {
+		p.cmd.Process.Kill()
+		p.finish(context.Canceled)
+		return nil, errors.New("pi was stopped")
+	}
 	return p, nil
 }
 
 func (p *proc) read(stdout io.Reader, events func(*proc, string, []byte)) {
+	defer func() {
+		if v := recover(); v != nil {
+			// Nothing reads its output any more: end the process, release
+			// its callers, then fail the plugin through Spawn.
+			p.cmd.Process.Kill()
+			p.finish(fmt.Errorf("its output could not be read: %v", v))
+			panic(v)
+		}
+	}()
 	r := bufio.NewReaderSize(stdout, 64*1024)
 	var err error
 	for {
@@ -94,6 +110,12 @@ func (p *proc) read(stdout io.Reader, events func(*proc, string, []byte)) {
 			break
 		}
 	}
+	p.finish(err)
+}
+
+// finish waits for the process to exit, records why it ended, releases the
+// callers still waiting for a response and closes done.
+func (p *proc) finish(err error) {
 	waitErr := p.cmd.Wait()
 	p.mu.Lock()
 	if waitErr != nil {

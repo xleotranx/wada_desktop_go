@@ -101,8 +101,7 @@ func spawn(ctx context.Context, exe, dir string, env []string) (*client, error) 
 	cmd := exec.CommandContext(ctx, path, "serve", "--hostname", "127.0.0.1", "--port", strconv.Itoa(port))
 	cmd.Dir = dir
 	cmd.Env = append(append(os.Environ(), env...), "OPENCODE_SERVER_PASSWORD="+pw)
-	ownChild(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := startOwned(cmd); err != nil {
 		return nil, err
 	}
 	c := &client{base: "http://127.0.0.1:" + strconv.Itoa(port) + "/api", password: pw, http: httpClient(), cmd: cmd}

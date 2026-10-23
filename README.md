@@ -1,14 +1,15 @@
 # wada_desktop_go
 
-A native macOS AI chat app built with Go, MyGo and Onevra, with no webview. The app
+A native desktop AI chat app built with Go, MyGo and Onevra, with no webview. The app
 is a small plugin kernel; the window, the backend and every feature are plugins.
 OpenCode is the default backend; Pi is the other one.
 
 ## Run
 
-Requires macOS, the Go version in `go.mod`, and the OpenCode CLI on `PATH` (or an
-OpenCode server to connect to from Settings). To use Pi instead, install the `pi` CLI,
-then in Settings → Plugins turn OpenCode off and Pi on.
+Requires macOS and the Go version in `go.mod`; the app also builds for Windows,
+where it has not been tried yet. It downloads its own pinned OpenCode build on first
+use, or connects to an OpenCode server from Settings. To use Pi instead, install the
+`pi` CLI, then in Settings → Plugins turn OpenCode off and Pi on.
 
 ```sh
 go tool mygo dev .       # live reload; q quits, r rebuilds

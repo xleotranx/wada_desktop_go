@@ -97,12 +97,16 @@ replaces the default.
 `connection`:
 
 - zero value: run `opencode serve` on a free local port, in the home directory,
-  with a fresh password per run; the process ends with the plugin. The server is
+  with a fresh password per run; the process ends with the plugin, and with the
+  app even when it crashes on Linux (a parent-death signal) and Windows (a job
+  object that kills its processes when the app's handle closes). The server is
   the app's own OpenCode build, never one on `PATH`: the plugin pins a version and,
-  per platform, the npm tarball (`@opencode/cli-darwin-arm64`,
-  `@opencode/cli-darwin-x64-baseline`) and its published sha512 integrity. On first
-  use it downloads the tarball, refuses it unless the checksum matches, and unpacks
-  `package/bin/opencode` to `<DataDir>/opencode/bin/<version>/opencode`, then
+  for the running OS and architecture, the npm tarball (`@opencode/cli-darwin-arm64`,
+  `@opencode/cli-darwin-x64-baseline`, `@opencode/cli-windows-x64-baseline`,
+  `@opencode/cli-windows-arm64`) and its published sha512 integrity; another
+  platform reports that it has no build. On first use it downloads the tarball,
+  refuses it unless the checksum matches, and unpacks `package/bin/opencode`
+  (`opencode.exe` on Windows) to `<DataDir>/opencode/bin/<version>/`, then
   removes other versions there. While it downloads, the settings section shows the
   progress. The server keeps its data apart from the OpenCode CLI's: it runs with
   `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` under

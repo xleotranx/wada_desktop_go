@@ -28,7 +28,7 @@ func tarball(t *testing.T, body string) []byte {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	for name, data := range map[string]string{"package/package.json": "{}", "package/bin/opencode": body} {
+	for name, data := range map[string]string{"package/package.json": "{}", "package/bin/" + binary: body} {
 		tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg})
 		tw.Write([]byte(data))
 	}
@@ -64,7 +64,7 @@ func TestInstallDownloadsOnceAndRemovesOtherVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exe != filepath.Join(root, "9.9.9", "opencode") {
+	if exe != filepath.Join(root, "9.9.9", binary) {
 		t.Fatalf("exe %q", exe)
 	}
 	info, err := os.Stat(exe)
@@ -110,7 +110,7 @@ func TestManagedServerRunsTheDownloadedBuild(t *testing.T) {
 		return &Plugin{dir: t.TempDir(), rel: release{Version: "9.9.9", URL: url, Integrity: integrity(tgz)}}
 	}))
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
-	if _, err := os.Stat(filepath.Join(host.Data, "opencode", "bin", "9.9.9", "opencode")); err != nil {
+	if _, err := os.Stat(filepath.Join(host.Data, "opencode", "bin", "9.9.9", binary)); err != nil {
 		t.Fatal(err)
 	}
 	if p.fetch != nil {

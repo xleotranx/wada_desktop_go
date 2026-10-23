@@ -7,7 +7,8 @@ import (
 	"syscall"
 )
 
-// ownChild makes the child process die when this app dies.
-func ownChild(cmd *exec.Cmd) {
+// startOwned starts cmd so that it dies when this app dies.
+func startOwned(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	return cmd.Start()
 }

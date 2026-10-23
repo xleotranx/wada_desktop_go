@@ -18,7 +18,7 @@ import (
 )
 
 // release is the OpenCode build the app runs: an npm tarball whose
-// package/bin/opencode is the server, checked against the registry's
+// package/bin/opencode (opencode.exe on Windows) is the server, checked against the registry's
 // integrity before it is unpacked.
 type release struct {
 	Version   string
@@ -38,7 +38,23 @@ var releases = map[string]release{
 	"darwin/amd64": {version,
 		"https://registry.npmjs.org/@opencode/cli-darwin-x64-baseline/-/cli-darwin-x64-baseline-" + version + ".tgz",
 		"sha512-s3gu8lFo7/pEC+GP5QBvVXeqMj5ZwhraG5vL3Han2DV9v30/m6hjIgejS75wdb/Y5p0SWgrDOJM/ZAHb8vCj6A=="},
+	// As on Intel Macs, the baseline build runs with or without AVX2.
+	"windows/amd64": {version,
+		"https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-" + version + ".tgz",
+		"sha512-TcrUfc1GcjeNtaCFebhCS8+zWhPqkuAhGEGQUkdlEy7Z1BwBHV6T4/c/IR54NRgUg45vA7zEIzGIghvUBHrnRQ=="},
+	"windows/arm64": {version,
+		"https://registry.npmjs.org/@opencode/cli-windows-arm64/-/cli-windows-arm64-" + version + ".tgz",
+		"sha512-PWmp5UQ6sVNQaTiDXdQEw3sq2TumJDqs6cQsNZ9EW77mOzZcOcW7jVA+3u1bdkPDoYcmv+NfTLhOl3t+C6hPUQ=="},
 }
+
+// binary is the server's file name, in the tarball's package/bin and
+// installed.
+var binary = func() string {
+	if runtime.GOOS == "windows" {
+		return "opencode.exe"
+	}
+	return "opencode"
+}()
 
 func platformRelease() (release, error) {
 	r, ok := releases[runtime.GOOS+"/"+runtime.GOARCH]
@@ -60,7 +76,7 @@ type progress struct {
 // root are removed once r is in place. report is called from the worker.
 func install(ctx context.Context, root string, r release, report func(progress)) (string, error) {
 	dir := filepath.Join(root, r.Version)
-	exe := filepath.Join(dir, "opencode")
+	exe := filepath.Join(dir, binary)
 	if info, err := os.Stat(exe); err == nil && info.Mode().IsRegular() {
 		return exe, nil
 	}
@@ -151,7 +167,7 @@ func download(ctx context.Context, dir string, r release, report func(progress))
 	return f.Name(), nil
 }
 
-// unpack writes the tarball's package/bin/opencode to exe, through a
+// unpack writes the tarball's package/bin/<binary> to exe, through a
 // temporary file so a partial binary is never left in place.
 func unpack(tgz, exe string) error {
 	f, err := os.Open(tgz)
@@ -167,12 +183,12 @@ func unpack(tgz, exe string) error {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return errors.New("package/bin/opencode is missing")
+			return errors.New("package/bin/" + binary + " is missing")
 		}
 		if err != nil {
 			return err
 		}
-		if h.Name != "package/bin/opencode" || h.Typeflag != tar.TypeReg {
+		if h.Name != "package/bin/"+binary || h.Typeflag != tar.TypeReg {
 			continue
 		}
 		out, err := os.CreateTemp(filepath.Dir(exe), "opencode-*")

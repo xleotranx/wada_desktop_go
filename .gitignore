@@ -1,0 +1,19 @@
+/build/
+/.mygo/
+mygo_windows_*.syso
+/wada-desktop-go
+.DS_Store
+/go.work
+/go.work.sum
+# Local app data and generated conversation output
+/pig/
+/data/
+/designs/
+/*.db
+/*.db-shm
+/*.db-wal
+/.env
+/.env.*
+*.pem
+*.key
+__pycache__/

@@ -5,7 +5,7 @@ Onevra. PiG runs the coding agent inside the app; no separate agent executable i
 required. Chat and controls are native. The design canvas uses embedded WebViews
 to preview local HTML.
 
-![Wada's new conversation screen](docs/images/wada.png)
+![Wada's native desktop chat interface](docs/images/new_dekstop.png)
 
 Wada is development software. macOS is the tested platform. Windows compilation
 is checked in CI, but interactive Windows behavior has not been verified. There
@@ -74,6 +74,10 @@ children retain their fixed policies. Questions do not restart the workflow, whi
 related changes receive another independent review. Queued follow-ups are handled
 after the active turn. Tasks and queues persist in `workflow.db`; interrupted work
 requires explicit resume.
+
+**Design canvas** — work with the agent beside previews of its HTML artboards.
+
+![Wada's design canvas showing three mobile onboarding artboards](docs/images/claude_design.png)
 
 ## Architecture
 

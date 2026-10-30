@@ -8,7 +8,7 @@ release or change provider accounts, local data, or API credentials.
 
 - The root MIT license for Wada and a pinned MIT-licensed wada-kit release.
 - Build and contributor instructions, security policy, changelog, issue templates
-  and a screenshot captured using temporary app data.
+  and desktop/design-canvas screenshots.
 - A versioned runtime license inventory and complete collected notices, checked
   during CI and packaging. MyGo includes them in the app's resources.
 - Lifetime vet, lint, license verification, race tests, no-cgo tests, secret scanning,

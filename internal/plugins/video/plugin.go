@@ -75,13 +75,15 @@ type Plugin struct {
 	opening  string
 	starts   map[uint64]video // videos awaiting a session, by the source chat's DraftID
 
-	open    bool   // the editor shows beside the conversation
-	folder  string // the conversation's folder
-	dir     string // the project's folder
-	project *Project
-	check   check
-	loadErr string
-	scene   *Scene // the scene the timeline edits; nil for the root
+	open       bool   // the editor shows beside the conversation
+	folder     string // the conversation's folder
+	dir        string // the project's folder
+	project    *Project
+	check      check // what the Check panel shows: the editor's, or the CLI's
+	quick      check // the editor's own check, kept while the CLI's shows
+	cliChecked bool
+	loadErr    string
+	scene      *Scene // the scene the timeline edits; nil for the root
 
 	web      shell.WebView
 	webDir   string    // the folder the page shows
@@ -110,6 +112,7 @@ type Plugin struct {
 
 	loading    kernel.Task
 	mounting   kernel.Task
+	checking   kernel.Task
 	seeking    kernel.Task
 	editing    kernel.Task
 	adding     kernel.Task
@@ -211,7 +214,7 @@ func (p *Plugin) close() {
 	}
 	p.webDir, p.webMTime = "", time.Time{}
 	p.info, p.webErr = previewInfo{}, ""
-	p.project, p.check, p.loadErr = nil, check{}, ""
+	p.project, p.check, p.quick, p.cliChecked, p.loadErr = nil, check{}, check{}, false, ""
 	p.scene = nil
 	p.found = nil
 	p.values = nil
@@ -276,7 +279,8 @@ func (p *Plugin) load() {
 			return
 		}
 		p.loadErr = ""
-		p.project, p.check, p.found = l.project, l.check, l.found
+		p.project, p.check, p.quick, p.found = l.project, l.check, l.check, l.found
+		p.cliChecked = false
 		p.values = p.saved[p.dir]
 		p.pruneFocus()
 		p.pruneSelection()

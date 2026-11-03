@@ -119,11 +119,21 @@ message, a fix and a line.
 | `caption_track_kind_missing` | error | a legacy caption layer (`id="captions"`, `caption-*` class) that does not say `data-track-kind="captions"` |
 | `multiple_caption_tracks` | error | captions spread across more than one timeline track |
 
-The check does not port the variables, captions, fonts, textures, shaders,
-slideshow, contrast and layout groups, nor the project-level probes that open
-media files to read their lengths: those need the linter's own parsers and
-media probing. A finding in a scene the editor cannot parse is reported at
-that file's first line.
+**Full check** runs the official CLI over the project and shows everything it
+found: its lint, runtime, layout, motion, contrast, craft and audio checks,
+which open a browser and are the reference. The command is
+`npx --yes hyperframes check --json`, run in the project folder; its findings
+keep their code, severity, message and fix, their file is made relative to the
+project, and a `#id` selector names the clip when the editor knows it. They are
+marked **CLI** in the panel. **Quick check** puts the editor's own check back,
+and opening the project again does too. The full check needs Node.js and, on
+first use, the network while `npx` fetches the package.
+
+The editor's check does not port the fonts, textures, shaders, slideshow and
+layout groups, nor the project-level probes that open media files to read their
+lengths: those need the linter's own parsers and media probing, which is what
+the full check is for. A finding in a scene the editor cannot parse is reported
+at that file's first line.
 
 ## Variables
 
@@ -323,7 +333,8 @@ markup. `composition_test.go` pins the start grammar and reference resolution.
 `check_test.go` pins the check against a project that breaks each group of rules,
 and that a new project is clean. `edit_test.go` pins surgical timing writes and
 scene creation. `project_test.go` pins discovery, opening with a missing scene
-and timing resolution. `video_test.go` runs the plugin on `kerneltest` with a
+and timing resolution. `cli_check_test.go` pins the CLI report's conversion and the panel's way to it.
+`video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
 on another conversation, seeks from the ruler, drags a root clip and a clip
 inside a scene, starts a new video, sends the brief and survives a window with

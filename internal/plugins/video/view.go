@@ -529,6 +529,36 @@ func (p *Plugin) variableRow(c *ui.Context, pal native.Palette, e *variableEdito
 
 // checkPanel lists what the check found.
 func (p *Plugin) checkPanel(c *ui.Context, pal native.Palette) {
+	ui.Row(c).FillWidth().Height(32).Shrink(0).Padding(0, 10).AlignItems(ui.Center).Gap(4).Children(func() {
+		label := "The editor's check"
+		if p.cliChecked {
+			label = "The HyperFrames CLI"
+		}
+		if p.checking.Running() {
+			label = "Checking with the CLI…"
+		}
+		ui.Text(c, label).FontSize(10.5).TextColor(pal.Faint).SingleLine().MinWidth(0).Ellipsis("…")
+		ui.Box(c).Grow(1)
+		name := "Full check"
+		if p.cliChecked {
+			name = "Quick check"
+		}
+		b := ui.ButtonBase(c.Key("full-check")).Label(name).Height(22).Padding(0, 6).Radius(5).
+			AlignItems(ui.Center).Shrink(0).Disabled(p.checking.Running()).Cursor(ui.CursorPointer)
+		if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.OnClick(func() {
+			p.ctx.Post(func() {
+				if p.cliChecked {
+					p.check, p.cliChecked = p.quick, false
+					return
+				}
+				p.fullCheck()
+			})
+		})
+		b.Children(func() { ui.Text(c, name).FontSize(10.5).TextColor(pal.Text).SingleLine() })
+	})
 	ui.Scroll(c.Key("check-list")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(6, 8).Gap(2).Children(func() {
 			if len(p.check.Findings) == 0 {
@@ -571,6 +601,9 @@ func (p *Plugin) findingRow(c *ui.Context, pal native.Palette, i int, f finding)
 				ui.Box(c).Width(6).Height(6).Radius(3).Background(color).Shrink(0)
 				ui.Text(c, f.Code).FontSize(10.5).TextColor(color).SingleLine().MinWidth(0)
 				ui.Box(c).Grow(1)
+				if f.Source == "cli" {
+					ui.Text(c, "CLI").FontSize(9).TextColor(pal.Link).SingleLine().Shrink(0)
+				}
 				if f.Line > 0 {
 					ui.Text(c, strconv.Itoa(f.Line)).FontSize(10).TextColor(pal.Faint).FontFeatures("tnum").Shrink(0)
 				}

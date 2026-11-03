@@ -837,7 +837,8 @@ buttons scale it. The Clip panel rewrites a clip's own words, which undo covers
 too. The sidebar lists the scenes (with **Add scene**, which
 writes a four second scene and mounts it at the end), the selected clip, the
 focused composition's variables, and the check's findings, each of which selects
-the clip it names. A variable's control edits its value, which the preview shows
+the clip it names. **Full check** runs the official `hyperframes check` and shows
+its findings in place of the editor's own, until **Quick check**. A variable's control edits its value, which the preview shows
 at once and the plugin keeps by project; a value the scene host pins wins, and a
 render writes the values onto the scene hosts in a linked staging folder so the
 MP4 matches the preview.

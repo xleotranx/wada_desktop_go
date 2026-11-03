@@ -28,6 +28,7 @@ type finding struct {
 	File     string // relative to the project
 	Line     int
 	Clip     string // the element id, when the finding has one
+	Source   string // "cli" for a finding of the HyperFrames CLI
 }
 
 // check is a project's findings, in file order.

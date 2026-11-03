@@ -96,12 +96,14 @@ type Plugin struct {
 	hover    string
 	drag     dragState
 
-	stage    ui.Handle
-	timeline ui.Handle
-	tlWidth  float32 // the timeline's width as last drawn
-	zoom     float64
-	keys     bool  // the timeline has the keyboard
-	found    []ref // the conversation folder's projects, read with the project
+	stage     ui.Handle
+	timeline  ui.Handle
+	tlWidth   float32 // the timeline's width as last drawn
+	viewStart float64 // the time at the timeline's left edge
+	viewZoom  float64 // 1 fits the whole composition; more magnifies
+	zoom      float64
+	keys      bool  // the timeline has the keyboard
+	found     []ref // the conversation folder's projects, read with the project
 
 	loading   kernel.Task
 	mounting  kernel.Task
@@ -210,6 +212,7 @@ func (p *Plugin) follow(folder, dir string) {
 	p.selected, p.drag = "", dragState{}
 	p.undo, p.redo = nil, nil
 	p.scene = nil
+	p.viewStart, p.viewZoom = 0, 1
 	p.folder, p.dir = folder, dir
 	p.project, p.check, p.loadErr = nil, check{}, ""
 	p.playhead = 0
@@ -256,6 +259,7 @@ func (p *Plugin) load() {
 		p.values = p.saved[p.dir]
 		p.pruneFocus()
 		p.pruneSelection()
+		p.clampView()
 		p.buildEditors()
 		p.mount()
 	})
@@ -361,6 +365,7 @@ func (p *Plugin) focusOn(s *Scene) {
 	p.scene = s
 	p.selected = ""
 	p.drag = dragState{}
+	p.viewStart, p.viewZoom = 0, 1
 	p.buildEditors()
 	if s.Host != nil {
 		p.seek(s.Host.Start)
@@ -372,6 +377,7 @@ func (p *Plugin) unfocus() {
 	p.scene = nil
 	p.selected = ""
 	p.drag = dragState{}
+	p.viewStart, p.viewZoom = 0, 1
 	p.buildEditors()
 }
 

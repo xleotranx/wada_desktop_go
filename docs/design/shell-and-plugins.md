@@ -832,7 +832,8 @@ writes its `data-track-index`) and an edge drag trims it; the release writes the
 timing into the clip's file, replaces only the values it changed, grows the
 root's `data-duration` when a root clip now ends past it, and reads the project
 again. ⌘Z and ⇧⌘Z, and the header's arrows, take timing edits back and apply them
-again. The sidebar lists the scenes (with **Add scene**, which
+again; scrolling pans a zoomed timeline and a pinch or the transport's zoom
+buttons scale it. The sidebar lists the scenes (with **Add scene**, which
 writes a four second scene and mounts it at the end), the selected clip, the
 focused composition's variables, and the check's findings, each of which selects
 the clip it names. A variable's control edits its value, which the preview shows

@@ -486,3 +486,45 @@ func TestTheEditorFillsTheWindow(t *testing.T) {
 		t.Fatalf("texts = %v", tt.Texts())
 	}
 }
+
+// TestZoomingTheTimelineMapsTheRuler zooms in and scrubs: the ruler's middle
+// is the middle of what the view shows, not of the whole film.
+func TestZoomingTheTimelineMapsTheRuler(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	f.p.viewZoom, f.p.viewStart = 2, 2
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Fill().MinHeight(0).Children(func() {
+			ui.Box(c).Grow(1).MinWidth(0)
+			f.p.drawer(c)
+		})
+	}, 1400, 900)
+	tt.Frame()
+	f.h.Flush()
+	tt.Frame()
+	rect, ok := tt.Find("Timeline")
+	if !ok {
+		t.Fatal("timeline missing")
+	}
+	tt.ClickAt(rect.X+timelinePad+(rect.W-2*timelinePad)/2, rect.Y+8)
+	f.h.Flush()
+	if f.p.playhead < 3.9 || f.p.playhead > 4.1 {
+		t.Fatalf("playhead = %v", f.p.playhead)
+	}
+	// Scrolling pans forward; the view cannot leave the film.
+	tt.Scroll(rect.X+rect.W/2, rect.Y+40, 0, 200)
+	f.h.Flush()
+	if f.p.viewStart <= 2 {
+		t.Fatalf("view start = %v", f.p.viewStart)
+	}
+	tt.Scroll(rect.X+rect.W/2, rect.Y+40, 0, 4000)
+	f.h.Flush()
+	if end, span := f.p.viewEnd(), f.p.span(); end > span+1e-6 || f.p.viewStart < span-f.p.viewSpan()-1e-6 {
+		t.Fatalf("view = %v..%v of %v", f.p.viewStart, end, span)
+	}
+	tt.Scroll(rect.X+rect.W/2, rect.Y+40, 0, -4000)
+	f.h.Flush()
+	if f.p.viewStart != 0 {
+		t.Fatalf("view start = %v", f.p.viewStart)
+	}
+}

@@ -239,6 +239,16 @@ func (p *Plugin) transport(c *ui.Context, pal native.Palette) {
 		ui.Text(c, "f "+strconv.Itoa(int(p.displayTime()*p.fps()+0.5))).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
 			SingleLine().Shrink(0)
 		ui.Box(c).Grow(1)
+		if p.viewZoom > 1 {
+			ui.Text(c, fmt.Sprintf("%.1f×", p.viewZoom)).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
+				SingleLine().Shrink(0)
+		}
+		p.iconButton(c, pal, "zoom-out", "Zoom out (⌘−)", lucide.ZoomOut, false,
+			func() { p.zoomAt(1/1.5, timelinePad) })
+		p.iconButton(c, pal, "zoom-fit", "Fit the timeline (⌘0)", lucide.Maximize2, false,
+			func() { p.viewStart, p.viewZoom = 0, 1 })
+		p.iconButton(c, pal, "zoom-in", "Zoom in (⌘=)", lucide.ZoomIn, false,
+			func() { p.zoomAt(1.5, timelinePad) })
 		if p.project != nil {
 			w, h := p.project.Size()
 			ui.Text(c, fmt.Sprintf("%g×%g · %g fps", w, h, p.fps())).FontSize(11).TextColor(pal.Faint).

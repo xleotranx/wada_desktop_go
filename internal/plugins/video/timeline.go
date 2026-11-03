@@ -197,6 +197,50 @@ func (p *Plugin) timelineHeight() float32 {
 	return min(h, timelineMaxH)
 }
 
+// viewSpan is the time the timeline shows at its zoom.
+func (p *Plugin) viewSpan() float64 {
+	span := p.span()
+	if p.viewZoom <= 1 {
+		return span
+	}
+	return span / p.viewZoom
+}
+
+// viewEnd is the time at the timeline's right edge.
+func (p *Plugin) viewEnd() float64 { return p.viewStart + p.viewSpan() }
+
+// clampView keeps the view inside the composition.
+func (p *Plugin) clampView() {
+	if p.viewZoom <= 1 {
+		p.viewStart, p.viewZoom = 0, 1
+		return
+	}
+	if high := p.span() - p.viewSpan(); p.viewStart > high {
+		p.viewStart = math.Max(0, high)
+	}
+	if p.viewStart < 0 {
+		p.viewStart = 0
+	}
+}
+
+// zoomAt scales the view by factor, keeping the time under x where it is.
+func (p *Plugin) zoomAt(factor float64, x float32) {
+	w := p.tlWidth
+	if w <= 2*timelinePad {
+		return
+	}
+	at := p.tOf(x, w)
+	p.viewZoom = math.Max(1, math.Min(20, p.viewZoom*factor))
+	p.viewStart = at - float64((x-timelinePad)/float32(w-2*timelinePad))*p.viewSpan()
+	p.clampView()
+}
+
+// panBy moves the view by seconds.
+func (p *Plugin) panBy(seconds float64) {
+	p.viewStart += seconds
+	p.clampView()
+}
+
 // span is the time the timeline draws: the scene's length, or the film's.
 func (p *Plugin) span() float64 {
 	if p.scene != nil {
@@ -215,7 +259,7 @@ func (p *Plugin) xOf(t float64, w float32) float32 {
 	if w <= 2*timelinePad {
 		return timelinePad
 	}
-	return timelinePad + float32(t/p.span())*(w-2*timelinePad)
+	return timelinePad + float32((t-p.viewStart)/p.viewSpan())*(w-2*timelinePad)
 }
 
 // tOf reads the time at a timeline x.
@@ -223,7 +267,7 @@ func (p *Plugin) tOf(x float32, w float32) float64 {
 	if w <= 2*timelinePad {
 		return 0
 	}
-	t := float64((x - timelinePad) / (w - 2*timelinePad) * float32(p.span()))
+	t := p.viewStart + float64((x-timelinePad)/(w-2*timelinePad))*p.viewSpan()
 	return p.clampTime(t, 0, p.span())
 }
 
@@ -270,9 +314,12 @@ func (p *Plugin) timelineView(c *ui.Context, pal native.Palette) {
 		if w <= 2*timelinePad {
 			return
 		}
-		span := p.span()
-		step := tickStep(float64(w - 2*timelinePad))
-		for t := 0.0; t <= span+1e-9; t += step {
+		step := tickStep(float64(w-2*timelinePad), p.viewSpan())
+		first := math.Floor(p.viewStart/step) * step
+		for t := first; t <= p.viewEnd()+step+1e-9; t += step {
+			if t < p.viewStart-1e-9 {
+				continue
+			}
 			ui.Text(c, tickLabel(t)).FontSize(9.5).TextColor(pal.Faint).FontFeatures("tnum").SingleLine().
 				Absolute().Left(p.xOf(t, w) + 3).Top(2).Width(64).PassThrough()
 		}
@@ -298,9 +345,12 @@ func (p *Plugin) timelineView(c *ui.Context, pal native.Palette) {
 func (p *Plugin) drawRuler(painter *ui.Painter, r ui.Rect, pal native.Palette) {
 	w := r.W
 	painter.Fill(ui.Rect{X: r.X, Y: r.Y, W: w, H: rulerHeight}, pal.PanelBg, 0)
-	span := p.span()
-	step := tickStep(float64(r.W - 2*timelinePad))
-	for t := 0.0; t <= span+1e-9; t += step {
+	step := tickStep(float64(r.W-2*timelinePad), p.viewSpan())
+	first := math.Floor(p.viewStart/step) * step
+	for t := first; t <= p.viewEnd()+step+1e-9; t += step {
+		if t < p.viewStart-1e-9 {
+			continue
+		}
 		x := p.xOf(t, w)
 		painter.Fill(ui.Rect{X: x, Y: rulerHeight - 4, W: 1, H: 4}, pal.Hairline, 0)
 		if t > 0 {
@@ -318,15 +368,14 @@ func tickLabel(t float64) string {
 	return fmt.Sprintf("%d:%02ds", int(t)/60, int(t)%60)
 }
 
-// tickStep is the seconds between ruler ticks, so ticks stay readable.
-func tickStep(pixelWidth float64) float64 {
-	if pixelWidth <= 0 {
+// tickStep is the seconds between ruler ticks, about 70 DIPs apart at the
+// view's zoom.
+func tickStep(pixels, viewSpan float64) float64 {
+	if pixels <= 0 || viewSpan <= 0 {
 		return 1
 	}
-	// One tick per ~70 DIPs, rounded up to 1, 2 or 5 times a power of ten.
-	want := 70 / pixelWidth * 10
-	steps := []float64{0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300}
-	for _, s := range steps {
+	want := 70 * viewSpan / pixels
+	for _, s := range []float64{0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300} {
 		if s >= want {
 			return s
 		}
@@ -340,7 +389,7 @@ func (p *Plugin) playheadX(w float32) float32 {
 		return -1
 	}
 	local, ok := p.localPlayhead()
-	if !ok {
+	if !ok || local < p.viewStart || local > p.viewEnd() {
 		return -1
 	}
 	return p.xOf(local, w)
@@ -433,7 +482,7 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 			}
 			return clip != nil
 		}
-		delta := float64((ev.X - p.drag.x) / (w - 2*timelinePad) * float32(p.span()))
+		delta := float64((ev.X-p.drag.x)/(w-2*timelinePad)) * p.viewSpan()
 		switch p.drag.kind {
 		case dragNone:
 			return false
@@ -474,6 +523,19 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		}
 		return kind == dragScrub
 	case ui.InputKeyDown:
+		if ev.Mods&ui.Cmd != 0 {
+			switch ev.Key {
+			case ui.KeyEqual:
+				p.zoomAt(1.5, timelinePad)
+				return true
+			case ui.KeyMinus:
+				p.zoomAt(1/1.5, timelinePad)
+				return true
+			case ui.Key0:
+				p.viewStart, p.viewZoom = 0, 1
+				return true
+			}
+		}
 		if ev.Mods&ui.Cmd != 0 && ev.Key == ui.KeyZ {
 			if ev.Mods&ui.Shift != 0 {
 				p.redoEdit()
@@ -483,8 +545,16 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 			return true
 		}
 		return p.key(ev)
-	case ui.InputScroll, ui.InputZoom:
-		return false
+	case ui.InputScroll:
+		if ev.Mods&ui.Cmd != 0 {
+			p.zoomAt(math.Exp(float64(ev.DY)*.01), ev.X)
+			return true
+		}
+		p.panBy(float64(ev.DY) / float64(w-2*timelinePad) * p.viewSpan())
+		return true
+	case ui.InputZoom:
+		p.zoomAt(float64(ev.Scale), ev.X)
+		return true
 	case ui.InputKeyUp, ui.InputText, ui.InputCompose, ui.InputCommand, ui.InputSelect:
 	}
 	return false

@@ -230,6 +230,12 @@ window there.
 - Undo and redo put a timing edit back: the header's arrows, or ⌘Z and ⇧⌘Z while
   the timeline has the keyboard. They cover moves, trims and lane changes, not
   scene creation or variable values, and a new edit drops the redo steps.
+
+The timeline fits the composition at first: scrolling pans, a pinch or ⌘-scroll
+zooms around the pointer, and the transport's **−**, **Fit** and **+** buttons
+zoom from 1× to 20× (⌘=, ⌘− and ⌘0 while the timeline has the keyboard). The
+ruler picks its tick step for the zoom, about seventy DIPs apart, and the view
+cannot leave the composition.
 - Releasing writes the clip's `data-start` and `data-duration` into its own file,
   through `setClipTiming`, which replaces only those values. When a root clip now
   ends past the root's declared `data-duration`, the root's length grows to the

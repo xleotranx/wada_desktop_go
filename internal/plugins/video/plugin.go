@@ -38,6 +38,9 @@ const videosKey = "videos-v1"
 // project's variables, by project folder.
 const valuesKey = "values-v1"
 
+// renderKey is the setting that remembers the render's format and quality.
+const renderKey = "render-v1"
+
 // panelKind is the sidebar's tab.
 type panelKind uint8
 
@@ -105,19 +108,22 @@ type Plugin struct {
 	keys      bool  // the timeline has the keyboard
 	found     []ref // the conversation folder's projects, read with the project
 
-	loading   kernel.Task
-	mounting  kernel.Task
-	seeking   kernel.Task
-	editing   kernel.Task
-	adding    kernel.Task
-	rendering kernel.Task
-	renderLog []string
-	renderOut string
-	renderErr string
-	renderPct int
+	loading    kernel.Task
+	mounting   kernel.Task
+	seeking    kernel.Task
+	editing    kernel.Task
+	adding     kernel.Task
+	rendering  kernel.Task
+	renderLog  []string
+	renderOut  string
+	renderErr  string
+	renderPct  int
+	renderOpts renderOptions
 
-	undo []timingEdit // timing edits, oldest first
-	redo []timingEdit // edits undone, newest last
+	undo    []clipEdit // edits the timeline made, oldest first
+	redo    []clipEdit // edits undone, newest last
+	text    string     // the selected clip's words, as the sidebar edits them
+	textFor string     // the clip those words belong to
 
 	values  map[string]any            // the user's variable values for the open project
 	saved   map[string]map[string]any // and by project folder, kept in the settings
@@ -145,6 +151,13 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	c.Settings().Get(videosKey, &p.videos)
 	c.Settings().Get(valuesKey, &p.saved)
+	c.Settings().Get(renderKey, &p.renderOpts)
+	if p.renderOpts.Format == "" {
+		p.renderOpts.Format = "mp4"
+	}
+	if p.renderOpts.Quality == "" {
+		p.renderOpts.Quality = "standard"
+	}
 	p.starts = map[uint64]video{}
 	c.OnDispose(func() {
 		// Nothing may use the page once it is gone: stop the work that does,
@@ -267,6 +280,9 @@ func (p *Plugin) load() {
 		p.values = p.saved[p.dir]
 		p.pruneFocus()
 		p.pruneSelection()
+		if c, ok := p.clip(p.selected); ok && p.textFor != p.selected {
+			p.text, p.textFor = c.Text, p.selected
+		}
 		p.clampView()
 		p.buildEditors()
 		p.mount()
@@ -340,7 +356,7 @@ func (p *Plugin) newScene() {
 			p.host.Toast(ui.Toast{Title: "The scene was not added", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		p.selected = id
+		p.selectClip(id)
 		p.reload()
 	})
 }
@@ -398,8 +414,41 @@ func (p *Plugin) pruneSelection() {
 		return
 	}
 	if _, ok := p.clip(p.selected); !ok {
-		p.selected = ""
+		p.selected, p.text, p.textFor = "", "", ""
 	}
+}
+
+// selectClip selects a clip and takes its words into the sidebar.
+func (p *Plugin) selectClip(id string) {
+	p.selected = id
+	if c, ok := p.clip(id); ok {
+		p.text, p.textFor = c.Text, id
+		return
+	}
+	p.text, p.textFor = "", id
+}
+
+// saveText writes the selected clip's words into its file and takes an undo
+// step for them.
+func (p *Plugin) saveText(c *Clip) {
+	if c == nil || !c.TextEditable || p.dir == "" || c.ID != p.selected {
+		return
+	}
+	if p.text == c.Text {
+		return
+	}
+	p.rememberText(c)
+	dir, file, id, text := p.dir, c.File, c.ID, p.text
+	kernel.Go(p.navigation, &p.editing, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, writeClipText(dir, file, id, text)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.host.Toast(ui.Toast{Title: "The words did not change", Description: err.Error(), Type: components.ToastError})
+			return
+		}
+		p.textFor = id
+		p.reload()
+	})
 }
 
 // clip finds a clip of the project by id.
@@ -426,14 +475,14 @@ func (p *Plugin) focusClip(id string) {
 	}
 	if c := clipIn(p.project.Root, id); c != nil {
 		p.unfocus()
-		p.selected = id
+		p.selectClip(id)
 		p.seek(c.Start)
 		return
 	}
 	for _, s := range p.project.Scenes {
 		if c := clipIn(s.Comp, id); c != nil {
 			p.focusOn(s)
-			p.selected = id
+			p.selectClip(id)
 			p.seek(c.Start)
 			return
 		}

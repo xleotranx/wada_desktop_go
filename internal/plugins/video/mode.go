@@ -69,6 +69,12 @@ func (p *Plugin) canVideo() bool {
 // canOpenPage reports that the full-window editor can show.
 func (p *Plugin) canOpenPage() bool { return p.open && p.host.Page() != PageID }
 
+// setRenderOptions keeps the render's format and quality.
+func (p *Plugin) setRenderOptions(opts renderOptions) {
+	p.renderOpts = opts
+	p.ctx.Settings().Set(renderKey, opts)
+}
+
 // openPage shows the editor in the window, with no chat beside it.
 func (p *Plugin) openPage() {
 	if p.open {

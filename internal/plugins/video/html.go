@@ -305,6 +305,59 @@ func (e *element) text(src string) string {
 	return plainText(src[inner.Start:inner.End])
 }
 
+// ownText is the element's own words: its direct text, leaving its child
+// elements and their contents out.
+func ownText(src string, n *element) string {
+	inner := n.Inner
+	if inner.Start < 0 || inner.Start > len(src) {
+		return ""
+	}
+	end := inner.End
+	if end > len(src) {
+		end = len(src)
+	}
+	var b strings.Builder
+	collect := func(a, z int) {
+		if a < z {
+			b.WriteString(" " + plainText(stripHTMLComments(src[a:z])))
+		}
+	}
+	cursor := inner.Start
+	for _, ch := range n.Children {
+		if ch.Opening.Start > cursor {
+			collect(cursor, min(ch.Opening.Start, end))
+		}
+		cursor = ch.Opening.End
+		if ch.Closing.End > 0 {
+			cursor = ch.Closing.End
+		} else if ch.Inner.End > ch.Inner.Start {
+			cursor = ch.Inner.End
+		}
+		if cursor > end {
+			cursor = end
+		}
+	}
+	if cursor < end {
+		collect(cursor, end)
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// stripHTMLComments takes the comments out of a piece of markup.
+func stripHTMLComments(s string) string {
+	for {
+		start := strings.Index(s, "<!--")
+		if start < 0 {
+			return s
+		}
+		end := strings.Index(s[start:], "-->")
+		if end < 0 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+3:]
+	}
+}
+
 // plainText removes tags from markup and collapses its whitespace.
 func plainText(markup string) string {
 	var b strings.Builder

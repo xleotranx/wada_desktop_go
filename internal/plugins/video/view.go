@@ -195,6 +195,36 @@ func (p *Plugin) renderButton(c *ui.Context, pal native.Palette) {
 		}
 		ui.Text(c, label).FontSize(11.5).TextColor(pal.Text).SingleLine()
 	})
+	p.renderOptionsButton(c, pal)
+}
+
+// renderOptionsButton chooses the render's format and quality.
+func (p *Plugin) renderOptionsButton(c *ui.Context, pal native.Palette) {
+	b := ui.ButtonBase(c.Key("render-options")).Label("Render options").Size(22, 26).Radius(6).Center().Shrink(0).
+		Disabled(p.rendering.Running()).Cursor(ui.CursorPointer)
+	if b.Hovered() {
+		b.Background(pal.Hover)
+	}
+	b.Menu(func(m *ui.Menu) {
+		for _, f := range renderFormats {
+			if m.Item("Format: " + f.Name).Checked(p.renderOpts.Format == f.Name).Chosen() {
+				next := p.renderOpts
+				next.Format = f.Name
+				p.ctx.Post(func() { p.setRenderOptions(next) })
+			}
+		}
+		m.Separator()
+		for _, q := range renderQualities {
+			if m.Item("Quality: " + q).Checked(p.renderOpts.Quality == q).Chosen() {
+				next := p.renderOpts
+				next.Quality = q
+				p.ctx.Post(func() { p.setRenderOptions(next) })
+			}
+		}
+	})
+	b.Children(func() {
+		ui.Icon(c, lucide.ChevronDown()).FontSize(11).TextColor(pal.Muted)
+	})
 }
 
 // stageView shows the composition's current frame at the size of the room.
@@ -361,9 +391,9 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 	}
 	b.OnClick(func() {
 		p.ctx.Post(func() {
-			p.selected = host.ID
 			p.panel = clipPanel
 			p.focusOn(s)
+			p.selectClip(host.ID)
 		})
 	})
 	b.Children(func() {
@@ -403,6 +433,26 @@ func (p *Plugin) clipPanel(c *ui.Context, pal native.Palette) {
 			p.detail(c, pal, "Track", trackName(clip.TrackKind)+" "+strconv.Itoa(clip.Track))
 			if clip.StartExpr != "" && clip.StartExpr != formatSeconds(clip.Start) {
 				p.detail(c, pal, "Written as", clip.StartExpr)
+			}
+			if clip.TextEditable {
+				ui.Text(c, "Words").FontSize(10.5).TextColor(pal.Faint).SingleLine()
+				ui.TextInput(c.Key("clip-text-"+clip.ID), &p.text).FillWidth().Label("The clip's words").
+					OnSubmit(func() { p.saveText(clip) })
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(4).Children(func() {
+					ui.Text(c, "Enter saves").FontSize(9.5).TextColor(pal.Faint).SingleLine()
+					ui.Box(c).Grow(1)
+					b := ui.ButtonBase(c.Key("save-text-"+clip.ID)).Label("Save the words").Height(20).Padding(0, 8).
+						Radius(4).AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
+					if b.Hovered() {
+						b.Background(pal.Hover)
+					}
+					b.OnClick(func() { p.saveText(clip) })
+					b.Children(func() { ui.Text(c, "Save").FontSize(10.5).TextColor(pal.Text).SingleLine() })
+				})
+			} else if clip.Text != "" {
+				ui.Text(c, clip.Text).FontSize(10.5).TextColor(pal.Muted).MaxLines(3)
+				ui.Text(c, "This element holds other elements, so its words are changed in its file.").
+					FontSize(9.5).TextColor(pal.Faint).MaxLines(3)
 			}
 			ui.Text(c, "Drag the clip to move it; drag its edges to trim it. Changes are saved to the HTML file.").
 				FontSize(10.5).TextColor(pal.Faint).MaxLines(4)

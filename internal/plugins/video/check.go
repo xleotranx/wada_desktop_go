@@ -172,6 +172,7 @@ func checkClips(c *check, comp *Composition, p *Project) {
 		return
 	}
 	rows := topLevel(comp)
+	lanes := map[string]bool{}
 	for _, el := range rows {
 		if !el.has("data-duration") && !el.has("data-end") && !mediaTag(el.Tag) && !isHost(el) {
 			c.add(finding{Code: "timeline_element_missing_timing", Severity: sevError, File: comp.File,
@@ -180,6 +181,22 @@ func checkClips(c *check, comp *Composition, p *Project) {
 					el.Tag, idOf(el)),
 				Fix: fmt.Sprintf(`Add data-duration (in seconds) to <%s%s>.`, el.Tag, idOf(el))})
 		}
+		kind, source := trackKindOf(el)
+		if kind != "captions" {
+			continue
+		}
+		line := lineOf(comp.src, el.Opening.Start)
+		if source == "legacy-captions" {
+			c.add(finding{Code: "caption_track_kind_missing", Severity: sevError, File: comp.File, Line: line, Clip: el.value("id"),
+				Message: fmt.Sprintf("<%s%s> looks like captions but is not marked as such, so the timeline cannot group it on the caption track.", el.Tag, idOf(el)),
+				Fix:     `Add data-track-kind="captions" to the element.`})
+		}
+		lanes[strings.TrimSpace(el.value("data-track-index"))] = true
+	}
+	if len(lanes) > 1 {
+		c.add(finding{Code: "multiple_caption_tracks", Severity: sevError, File: comp.File, Line: 1,
+			Message: fmt.Sprintf("Captions are spread across %d timeline tracks. Keep all captions on one track.", len(lanes)),
+			Fix:     "Give every caption element the same data-track-index."})
 	}
 	comp.root.walk(func(n *element) bool {
 		if n == comp.root {
@@ -593,20 +610,41 @@ func hasSourceChild(n *element) bool {
 	return false
 }
 
-// topLevel returns the composition's top-level timeline rows.
+// topLevel returns the composition's timeline rows. An untimed wrapper is not
+// a row: its contents are, as the platform reads the timeline.
 func topLevel(comp *Composition) []*element {
 	if comp.root == nil {
 		return nil
 	}
 	var rows []*element
-	for _, ch := range comp.root.Children {
-		switch ch.Tag {
-		case "style", "script", "template", "noscript":
-			continue
+	var visit func(n *element)
+	visit = func(n *element) {
+		for _, ch := range n.Children {
+			switch ch.Tag {
+			case "style", "script", "template", "noscript":
+				continue
+			}
+			if ch.has("data-composition-src") || ch.has("data-composition-id") || isTimed(ch) {
+				rows = append(rows, ch)
+				continue
+			}
+			visit(ch)
 		}
-		rows = append(rows, ch)
 	}
+	visit(comp.root)
 	return rows
+}
+
+// isTimed reports an element the timeline times: it has a start, a lane and a
+// length, or it is media.
+func isTimed(n *element) bool {
+	if n.has("data-start") {
+		return true
+	}
+	if n.has("data-track-index") && n.has("data-duration") {
+		return true
+	}
+	return mediaTag(n.Tag)
 }
 
 // idOf is the element's id as it shows in a message.

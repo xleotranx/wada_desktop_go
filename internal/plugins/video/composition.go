@@ -43,6 +43,8 @@ type Clip struct {
 	Source        string // the src of a media element
 	Mount         string // the composition a scene mounts
 	Label         string
+	Text          string // the element's own words
+	TextEditable  bool   // the words can be rewritten without touching children
 	Line          int
 	CompositionID string         // data-composition-id, on the root and on scene hosts
 	MountValues   map[string]any // data-variable-values of a scene host
@@ -210,29 +212,50 @@ func (c *Composition) clip(n *element) *Clip {
 		cl.Unknown = true
 	}
 	if cl.TrackKind == "" {
-		cl.TrackKind = trackKindOf(n)
+		cl.TrackKind, _ = trackKindOf(n)
 	}
 	if src := n.value("data-composition-src"); src != "" {
 		cl.Mount = src
 		cl.Label = strings.TrimSuffix(path.Base(src), path.Ext(src))
 	}
 	cl.Label = clipLabel(n, cl, c.src)
+	cl.Text = ownText(c.src, n)
+	cl.TextEditable = !mediaTag(n.Tag) && n.Tag != "script" && n.Tag != "style" &&
+		n.Tag != "br" && len(n.Children) == 0 && cl.Mount == ""
 	return cl
 }
 
-// trackKindOf is the lane a clip shows in: its own declaration, or the kind
-// its tag implies.
-func trackKindOf(n *element) string {
+// trackKindOf is the lane a clip shows in, and where that kind came from:
+// its own declaration, its tag, or the legacy caption naming.
+func trackKindOf(n *element) (kind, source string) {
+	if explicit := strings.ToLower(strings.TrimSpace(n.value("data-track-kind"))); explicit != "" {
+		switch explicit {
+		case "video", "audio", "captions", "graphics":
+			return explicit, "attribute"
+		}
+	}
 	switch n.Tag {
-	case "video":
-		return "video"
-	case "audio":
-		return "audio"
+	case "video", "audio":
+		return n.Tag, "tag"
 	}
-	if n.has("data-composition-src") {
-		return "graphics"
+	if n.has("data-composition-src") || n.has("data-composition-id") {
+		if n.value("data-composition-id") == "captions" || captionClass(n) {
+			return "captions", "legacy-captions"
+		}
+		return "graphics", "sub-composition"
 	}
-	return "graphics"
+	return "graphics", "tag"
+}
+
+// captionClass reports a class named caption-… or caption_…, the legacy way
+// to name a caption layer.
+func captionClass(n *element) bool {
+	for _, class := range n.classes() {
+		if strings.HasPrefix(class, "caption-") || strings.HasPrefix(class, "caption_") {
+			return true
+		}
+	}
+	return false
 }
 
 // clipLabel names a clip for the timeline: its scene's name, its words, or

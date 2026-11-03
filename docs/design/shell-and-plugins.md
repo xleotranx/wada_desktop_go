@@ -833,7 +833,8 @@ timing into the clip's file, replaces only the values it changed, grows the
 root's `data-duration` when a root clip now ends past it, and reads the project
 again. ⌘Z and ⇧⌘Z, and the header's arrows, take timing edits back and apply them
 again; scrolling pans a zoomed timeline and a pinch or the transport's zoom
-buttons scale it. The sidebar lists the scenes (with **Add scene**, which
+buttons scale it. The Clip panel rewrites a clip's own words, which undo covers
+too. The sidebar lists the scenes (with **Add scene**, which
 writes a four second scene and mounts it at the end), the selected clip, the
 focused composition's variables, and the check's findings, each of which selects
 the clip it names. A variable's control edits its value, which the preview shows
@@ -846,7 +847,9 @@ as the `video.page` page in the whole window; its empty state and its header go
 back to the chat.
 
 **Render** runs the official HyperFrames CLI in the project folder and writes
-`renders/<title>.mp4`: `npx --yes hyperframes render --output …`. It is disabled
+`renders/<title>.<ext>`: `npx --yes hyperframes render --output …`, with the
+format (MP4, WebM, MOV, GIF) and quality (draft, standard, high) the chevron
+beside it chose. It is disabled
 while the check has errors and while a render runs; the job runs on a worker,
 reads the CLI's progress lines into a bar, keeps the tail of what it wrote, shows
 it in the sidebar with a way to stop the job, and opens the file when it

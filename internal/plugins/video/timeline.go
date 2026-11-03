@@ -449,7 +449,7 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 			return true
 		}
 		if clip, edge := p.clipAt(ev.X, ev.Y, w); clip != nil {
-			p.selected = clip.ID
+			p.selectClip(clip.ID)
 			start, duration := clip.Start, clip.Duration
 			switch edge {
 			case dragMove:
@@ -644,6 +644,20 @@ func (p *Plugin) writeTiming(id string, start, duration float64, track int) {
 		}
 		p.reload()
 	})
+}
+
+// writeClipText writes one clip's own words into its file.
+func writeClipText(dir, file, id, text string) error {
+	path := projectFile(dir, file)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	out, err := setClipText(string(data), id, text)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, []byte(out), 0o644)
 }
 
 // writeClipTiming writes one clip's timing into its file, and extends the

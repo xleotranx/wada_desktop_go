@@ -41,7 +41,7 @@ func TestCheckFindsWhatBreaksARender(t *testing.T) {
   <img src="assets/b.png">
   <audio id="sound" src="assets/theme.mp3"></audio>
   <audio src="assets/theme.mp3" data-start="0"></audio>
-  <div id="bare">A row the timeline cannot draw</div>
+  <div id="bare" data-start="3">A row the timeline cannot draw</div>
   <div class="clip" id="later" data-start="clip + 1" data-duration="2"></div>
 </div>
 <script>
@@ -148,5 +148,34 @@ func TestCheckTimingReadsReferences(t *testing.T) {
 	p.Root = root
 	if !slices.Contains(codes(p), "unresolved_start_reference") {
 		t.Fatalf("codes = %v", codes(p))
+	}
+}
+
+// TestCaptionRules keeps the captions on one marked track: a legacy caption
+// layer must say so, and captions spread across lanes are reported.
+func TestCaptionRules(t *testing.T) {
+	p := &Project{}
+	root, err := parseComposition(".", "index.html", `<div data-composition-id="main" data-width="1920" data-height="1080" data-duration="8">
+  <div class="stage">
+    <div id="captions" class="caption-group" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="2"></div>
+    <div id="c2" data-track-kind="captions" data-start="2" data-duration="2" data-track-index="2">Two</div>
+  </div>
+</div>
+<script>window.__timelines = { main: gsap.timeline({ paused: true }) };</script>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Root = root
+	got := codes(p)
+	if !slices.Contains(got, "caption_track_kind_missing") {
+		t.Errorf("missing caption_track_kind_missing in %v", got)
+	}
+	// The legacy layer is on track 0 (unwritten) and the other on 2.
+	if !slices.Contains(got, "multiple_caption_tracks") {
+		t.Errorf("missing multiple_caption_tracks in %v", got)
+	}
+	// Both are rows even though they sit inside an untimed wrapper.
+	if rows := topLevel(root); len(rows) != 2 {
+		t.Fatalf("rows = %d", len(rows))
 	}
 }

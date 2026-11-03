@@ -113,7 +113,8 @@ func (p *Plugin) render() {
 		return
 	}
 	dir := p.dir
-	out := filepath.Join(dir, "renders", renderName(p.project.Title)+".mp4")
+	opts := p.renderOpts
+	out := filepath.Join(dir, "renders", renderName(p.project.Title)+opts.extension())
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		p.host.Toast(ui.Toast{Title: "The render folder was not made", Description: err.Error(), Type: components.ToastError})
 		return
@@ -128,7 +129,7 @@ func (p *Plugin) render() {
 			return nil, err
 		}
 		defer cleanup()
-		cmd := exec.CommandContext(ctx, npx, renderArgs(dest, vars)...)
+		cmd := exec.CommandContext(ctx, npx, renderArgs(dest, vars, opts)...)
 		cmd.Dir = stage
 		cmd.Env = append(os.Environ(), "PATH="+renderPath(npx))
 		tail := &commandOutput{onLine: func(line string) {
@@ -167,10 +168,42 @@ func (p *Plugin) render() {
 	})
 }
 
-// renderArgs is the CLI command line: the output, and the project's values
-// when the user changed any.
-func renderArgs(dest, vars string) []string {
+// renderOptions is how the user last asked to render: the format and the
+// quality, kept in the settings.
+type renderOptions struct {
+	Format  string `json:"format"`
+	Quality string `json:"quality"`
+}
+
+// renderFormats are the formats the editor offers, with their extension.
+var renderFormats = []struct{ Name, Ext string }{
+	{"mp4", ".mp4"}, {"webm", ".webm"}, {"mov", ".mov"}, {"gif", ".gif"},
+}
+
+// renderQualities are the CLI's quality levels, best last.
+var renderQualities = []string{"draft", "standard", "high"}
+
+// extension is a format's file extension.
+func (o renderOptions) extension() string {
+	for _, f := range renderFormats {
+		if f.Name == o.Format {
+			return f.Ext
+		}
+	}
+	return ".mp4"
+}
+
+// renderArgs is the CLI command line: the output, the format and quality when
+// they are not the default, and the project's values when the user changed
+// any.
+func renderArgs(dest, vars string, opts renderOptions) []string {
 	args := []string{"--yes", "hyperframes", "render", "--output", dest}
+	if opts.Format != "" && opts.Format != "mp4" {
+		args = append(args, "--format", opts.Format)
+	}
+	if opts.Quality != "" && opts.Quality != "standard" {
+		args = append(args, "--quality", opts.Quality)
+	}
 	if vars != "" {
 		args = append(args, "--variables", vars)
 	}

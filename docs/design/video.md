@@ -92,7 +92,7 @@ message, a fix and a line.
 | `root_composition_duration_derived` | warning | no `data-duration`: the length comes from the clips |
 | `missing_timeline_registry` | error | the root registers no `window.__timelines` |
 | `gsap_timeline_not_registered` | error | a scene builds a timeline but never registers it, so nothing in it animates |
-| `timeline_element_missing_timing` | error | a top-level element with no duration where the timeline can draw its end |
+| `timeline_element_missing_timing` | error | a timed row with no duration where the timeline can draw its end |
 | `timed_element_missing_clip_class` | warning | timing attributes without `class="clip"` |
 | `host_missing_composition_id` | error | a scene host without `data-composition-id` |
 | `timeline_id_mismatch` | error | the host and the scene file name different ids |
@@ -116,6 +116,8 @@ message, a fix and a line.
 | `invalid_composition_variables_declaration` | error | the declarations are not JSON, or an entry has no id, type, label or matching default |
 | `unloadable_media_variable_default` | error | a media variable defaults to a URL the runtime refuses |
 | `unknown_variable_binding` | warning | `data-var-text`/`data-var-src` names a variable this file does not declare |
+| `caption_track_kind_missing` | error | a legacy caption layer (`id="captions"`, `caption-*` class) that does not say `data-track-kind="captions"` |
+| `multiple_caption_tracks` | error | captions spread across more than one timeline track |
 
 The check does not port the variables, captions, fonts, textures, shaders,
 slideshow, contrast and layout groups, nor the project-level probes that open
@@ -227,9 +229,10 @@ window there.
 - Dragging a clip's middle moves it, rounded to a frame; dropping it on another
   lane writes that lane's `data-track-index`. Dragging an edge trims that edge,
   keeping the other one still.
-- Undo and redo put a timing edit back: the header's arrows, or ⌘Z and ⇧⌘Z while
-  the timeline has the keyboard. They cover moves, trims and lane changes, not
-  scene creation or variable values, and a new edit drops the redo steps.
+- Undo and redo put an edit back: the header's arrows, or ⌘Z and ⇧⌘Z while the
+  timeline has the keyboard. They cover moves, trims, lane changes and a clip's
+  words, not scene creation or variable values, and a new edit drops the redo
+  steps.
 
 The timeline fits the composition at first: scrolling pans, a pinch or ⌘-scroll
 zooms around the pointer, and the transport's **−**, **Fit** and **+** buttons
@@ -248,9 +251,13 @@ cannot leave the composition.
 The sidebar has three tabs: **Scenes**, the compositions the root mounts, in
 order, with their windows; clicking one opens its clips on the timeline, and
 **Add scene** (in the root's view) writes a four-second scene and mounts it at the
-end; **Clip**, the selected clip's file, element, start, duration, end and track;
-and **Check**, the findings, whose row opens the composition the clip is written
-in, selects it and moves the playhead to its start.
+end; **Clip**, the selected clip's file, element, start, duration, end, track and
+words; and **Check**, the findings, whose row opens the composition the clip is
+written in, selects it and moves the playhead to its start. A clip whose words
+are its own text (a title, a caption) can be rewritten there: Enter or **Save**
+writes the element's text and reloads, and undo takes the words back. An element
+whose words sit around other elements is read-only there, since rewriting it
+would remove those elements.
 
 ## The full-window page
 
@@ -271,7 +278,11 @@ so the way back needs no tab.
 npx --yes hyperframes render --output renders/<title>.mp4
 ```
 
-It is disabled while the check has errors, and while a render runs. The job runs
+The chevron beside it chooses the format (MP4, WebM, MOV, GIF) and the quality
+(draft, standard, high), which the plugin remembers in `render-v1`; the CLI gets
+`--format` and `--quality` only when they are not the defaults, and the output
+file takes the format's extension. **Render** is disabled while the check has
+errors, and while a render runs. The job runs
 on a worker, reads the CLI's progress lines into a bar, keeps the last lines it
 wrote, and opens the MP4 when it finishes; the sidebar says what happened, and
 **Stop** cancels the job and the CLI process with it. `npx` is looked up on the usual

@@ -556,3 +556,56 @@ func TestAFindingOpensItsScene(t *testing.T) {
 		t.Fatalf("selected = %q", f.p.selected)
 	}
 }
+
+// TestEditingAClipsWords writes the selected clip's text, takes the edit back
+// and applies it again.
+func TestEditingAClipsWords(t *testing.T) {
+	f := start(t)
+	dir := filepath.Join(f.dir, "videos", "video-1")
+	f.open(t, dir)
+	f.p.focusClip("scene-01-title")
+	clip, ok := f.p.clip("scene-01-title")
+	if !ok || !clip.TextEditable {
+		t.Fatalf("clip = %+v", clip)
+	}
+	if clip.Text != "Launch film" {
+		t.Fatalf("text = %q", clip.Text)
+	}
+	f.p.text = "Launch night"
+	f.p.saveText(clip)
+	f.h.Flush()
+	if got := sceneTitle(t, dir); got != "Launch night" {
+		t.Fatalf("words = %q", got)
+	}
+	f.p.undoEdit()
+	f.h.Flush()
+	if got := sceneTitle(t, dir); got != "Launch film" {
+		t.Fatalf("after undo = %q", got)
+	}
+	if f.p.text != "Launch film" {
+		t.Fatalf("the field shows %q", f.p.text)
+	}
+	f.p.redoEdit()
+	f.h.Flush()
+	if got := sceneTitle(t, dir); got != "Launch night" {
+		t.Fatalf("after redo = %q", got)
+	}
+}
+
+// sceneTitle reads the title element's own words from the scene file.
+func sceneTitle(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "compositions", "scene-01.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := scanHTML(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := doc.byID("scene-01-title")
+	if el == nil {
+		t.Fatal("the title is missing")
+	}
+	return ownText(string(data), el)
+}

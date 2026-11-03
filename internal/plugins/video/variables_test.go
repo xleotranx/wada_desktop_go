@@ -85,13 +85,22 @@ func TestMountScriptCarriesValues(t *testing.T) {
 
 // TestRenderArgs passes the values the user changed to the CLI.
 func TestRenderArgs(t *testing.T) {
-	args := renderArgs("/tmp/out.mp4", `{"title":"Hello"}`)
+	args := renderArgs("/tmp/out.mp4", `{"title":"Hello"}`, renderOptions{Format: "mp4", Quality: "standard"})
 	want := []string{"--yes", "hyperframes", "render", "--output", "/tmp/out.mp4", "--variables", `{"title":"Hello"}`}
 	if !slices.Equal(args, want) {
 		t.Fatalf("args = %v", args)
 	}
-	if args := renderArgs("/tmp/out.mp4", ""); len(args) != 5 {
+	if args := renderArgs("/tmp/out.mp4", "", renderOptions{Format: "mp4", Quality: "standard"}); len(args) != 5 {
 		t.Fatalf("args without values = %v", args)
+	}
+	// A format or quality the user chose is passed; the defaults are not.
+	args = renderArgs("/tmp/out.webm", "", renderOptions{Format: "webm", Quality: "high"})
+	if !slices.Contains(args, "--format") || !slices.Contains(args, "webm") ||
+		!slices.Contains(args, "--quality") || !slices.Contains(args, "high") {
+		t.Fatalf("args = %v", args)
+	}
+	if ext := (renderOptions{Format: "gif"}).extension(); ext != ".gif" {
+		t.Fatalf("extension = %q", ext)
 	}
 }
 

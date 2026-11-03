@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // setClipTiming writes a clip's start and duration into its composition file,
@@ -36,6 +37,32 @@ func setClipTimingOn(src, id string, start, duration float64, track int) (string
 		values["data-track-index"] = strconv.Itoa(track)
 	}
 	return setAttrs(src, el, values)
+}
+
+// setClipText writes a clip's own words, leaving its children and its timing
+// as they are. Only an element without child elements can be rewritten.
+func setClipText(src, id, text string) (string, error) {
+	doc, err := scanHTML(src)
+	if err != nil {
+		return "", err
+	}
+	el := doc.byID(id)
+	if el == nil {
+		return "", fmt.Errorf("no element with id %q", id)
+	}
+	if len(el.Children) > 0 {
+		return "", fmt.Errorf("the element has child elements, so its words are not one text")
+	}
+	inner := el.Inner
+	if inner.Start < 0 || inner.End > len(src) || inner.Start > inner.End {
+		return "", errors.New("the element has no contents to rewrite")
+	}
+	return src[:inner.Start] + escapeHTML(text) + src[inner.End:], nil
+}
+
+// escapeHTML makes text safe inside markup.
+func escapeHTML(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
 }
 
 // setRootDuration writes the composition's length on the root element.

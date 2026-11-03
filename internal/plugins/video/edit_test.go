@@ -103,3 +103,25 @@ func TestAddSceneAppendsAScene(t *testing.T) {
 		t.Fatalf("findings = %+v", checkProject(again).Findings)
 	}
 }
+
+// TestSetClipTextReplacesTheWords replaces an element's own text and escapes
+// markup in it.
+func TestSetClipTextReplacesTheWords(t *testing.T) {
+	src := `<h1 id="t" class="clip" data-start="0" data-duration="2">Old words</h1>`
+	out, err := setClipText(src, "t", `New & <better> words`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `<h1 id="t" class="clip" data-start="0" data-duration="2">New &amp; &lt;better&gt; words</h1>` {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+// TestSetClipTextLeavesChildrenAlone refuses an element whose words are split
+// around other elements.
+func TestSetClipTextLeavesChildrenAlone(t *testing.T) {
+	src := `<h1 id="t">Hello <em>world</em></h1>`
+	if _, err := setClipText(src, "t", "Hi"); err == nil {
+		t.Fatal("an element with children was rewritten")
+	}
+}

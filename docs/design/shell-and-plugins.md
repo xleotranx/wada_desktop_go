@@ -827,16 +827,22 @@ The timeline is native and draws one composition's clips, one row per
 `data-track-index`, with a ruler, the playhead and each clip's label. It edits
 the root, or a scene opened from the sidebar, whose own time it draws and whose
 own playhead the transport shows; the header goes back to the main composition.
-A click scrubs or selects, a drag moves a clip and an edge drag trims it; the
-release writes the timing into the clip's file, replaces only the values it
-changed, grows the root's `data-duration` when a root clip now ends past it, and
-reads the project again. The sidebar lists the scenes (with **Add scene**, which
+A click scrubs or selects, a drag moves a clip (onto another lane too, which
+writes its `data-track-index`) and an edge drag trims it; the release writes the
+timing into the clip's file, replaces only the values it changed, grows the
+root's `data-duration` when a root clip now ends past it, and reads the project
+again. ⌘Z and ⇧⌘Z, and the header's arrows, take timing edits back and apply them
+again. The sidebar lists the scenes (with **Add scene**, which
 writes a four second scene and mounts it at the end), the selected clip, the
 focused composition's variables, and the check's findings, each of which selects
 the clip it names. A variable's control edits its value, which the preview shows
 at once and the plugin keeps by project; a value the scene host pins wins, and a
 render writes the values onto the scene hosts in a linked staging folder so the
 MP4 matches the preview.
+
+**Open Video Editor** (File) and the drawer's expand button show the same editor
+as the `video.page` page in the whole window; its empty state and its header go
+back to the chat.
 
 **Render** runs the official HyperFrames CLI in the project folder and writes
 `renders/<title>.mp4`: `npx --yes hyperframes render --output …`. It is disabled

@@ -37,13 +37,15 @@ const (
 )
 
 // dragState is a timeline drag in progress: a clip's timing as it was when
-// the drag started, and where the pointer was.
+// the drag started, where the pointer was, and the track it would land on.
 type dragState struct {
-	kind     dragKind
-	id       string
-	x        float32
-	start    float64
-	duration float64
+	kind      dragKind
+	id        string
+	x         float32
+	start     float64
+	duration  float64
+	track     int
+	fromTrack int
 }
 
 // row is one track of the timeline.
@@ -149,6 +151,16 @@ func (p *Plugin) localPlayhead() (float64, bool) {
 	}
 	local := p.localAt(p.playhead)
 	return local, local >= -1e-6 && local <= p.span()+1e-6
+}
+
+// laneRow is the row a track draws in.
+func (p *Plugin) laneRow(track int) (int, bool) {
+	for i, row := range p.rows() {
+		if row.track == track {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // rows groups the composition's clips by track, in time order.
@@ -337,6 +349,11 @@ func (p *Plugin) playheadX(w float32) float32 {
 // clipView is one clip's bar: its label, its selection and its edges.
 func (p *Plugin) clipView(c *ui.Context, pal native.Palette, clip *Clip, i int, w float32, h float32) {
 	start, duration := p.shownTiming(clip)
+	if p.drag.kind == dragMove && p.drag.id == clip.ID {
+		if lane, ok := p.laneRow(p.drag.track); ok {
+			i = lane
+		}
+	}
 	y, _ := clipBand(i)
 	x0 := p.xOf(start, w)
 	x1 := p.xOf(start+duration, w)
@@ -387,11 +404,14 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 			start, duration := clip.Start, clip.Duration
 			switch edge {
 			case dragMove:
-				p.drag = dragState{kind: dragMove, id: clip.ID, x: ev.X, start: start, duration: duration}
+				p.drag = dragState{kind: dragMove, id: clip.ID, x: ev.X, start: start, duration: duration,
+					track: clip.Track, fromTrack: clip.Track}
 			case dragTrimStart:
-				p.drag = dragState{kind: dragTrimStart, id: clip.ID, x: ev.X, start: start, duration: duration}
+				p.drag = dragState{kind: dragTrimStart, id: clip.ID, x: ev.X, start: start, duration: duration,
+					track: clip.Track, fromTrack: clip.Track}
 			case dragTrimEnd:
-				p.drag = dragState{kind: dragTrimEnd, id: clip.ID, x: ev.X, start: start, duration: duration}
+				p.drag = dragState{kind: dragTrimEnd, id: clip.ID, x: ev.X, start: start, duration: duration,
+					track: clip.Track, fromTrack: clip.Track}
 			case dragNone, dragScrub:
 				return false
 			}
@@ -421,9 +441,13 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 			p.seekLocal(p.tOf(ev.X, w))
 		case dragMove:
 			// A clip may move past the film's end: the root's length grows to
-			// hold it when the drag is written.
+			// hold it when the drag is written. Dropping it on another lane
+			// changes its track.
 			p.drag.start = p.clampTime(p.drag.start+delta, 0, math.Max(0, p.span()))
 			p.drag.x = ev.X
+			if track, ok := p.trackAt(ev.Y); ok {
+				p.drag.track = track
+			}
 		case dragTrimStart:
 			end := p.drag.start + p.drag.duration
 			start := p.clampTime(p.drag.start+delta, 0, end-minClip)
@@ -437,20 +461,45 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		return true
 	case ui.InputPointerUp:
 		kind, id := p.drag.kind, p.drag.id
-		start, duration := p.drag.start, p.drag.duration
+		start, duration, track := p.drag.start, p.drag.duration, p.drag.track
+		from := p.drag.fromTrack
 		p.drag = dragState{}
 		if kind == dragMove || kind == dragTrimStart || kind == dragTrimEnd {
-			p.writeTiming(id, start, duration)
+			lane := -1
+			if track != from {
+				lane = track
+			}
+			p.writeTiming(id, start, duration, lane)
 			return true
 		}
 		return kind == dragScrub
 	case ui.InputKeyDown:
+		if ev.Mods&ui.Cmd != 0 && ev.Key == ui.KeyZ {
+			if ev.Mods&ui.Shift != 0 {
+				p.redoEdit()
+			} else {
+				p.undoEdit()
+			}
+			return true
+		}
 		return p.key(ev)
 	case ui.InputScroll, ui.InputZoom:
 		return false
 	case ui.InputKeyUp, ui.InputText, ui.InputCompose, ui.InputCommand, ui.InputSelect:
 	}
 	return false
+}
+
+// trackAt is the track of the row under a timeline point.
+func (p *Plugin) trackAt(y float32) (int, bool) {
+	rows := p.rows()
+	for i, row := range rows {
+		top, height := clipBand(i)
+		if y >= top && y <= top+height {
+			return row.track, true
+		}
+	}
+	return 0, false
 }
 
 // clipAt finds the clip under a timeline point, and what dragging there does.
@@ -506,15 +555,17 @@ func (p *Plugin) key(ev ui.InputEvent) bool {
 	return true
 }
 
-// writeTiming saves a clip's timing and shows the project as written.
-func (p *Plugin) writeTiming(id string, start, duration float64) {
+// writeTiming saves a clip's timing and shows the project as written. A
+// negative track keeps the clip's lane.
+func (p *Plugin) writeTiming(id string, start, duration float64, track int) {
 	clip, ok := p.clip(id)
 	if !ok || p.project == nil || p.dir == "" {
 		return
 	}
+	p.rememberTiming(editOf(clip))
 	dir, file, project := p.dir, clip.File, p.project
 	kernel.Go(p.navigation, &p.editing, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, writeClipTiming(dir, file, project, id, start, duration)
+		return struct{}{}, writeClipTiming(dir, file, project, id, start, duration, track)
 	}, func(_ struct{}, err error) {
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The clip did not change", Description: err.Error(), Type: components.ToastError})
@@ -526,13 +577,13 @@ func (p *Plugin) writeTiming(id string, start, duration float64) {
 
 // writeClipTiming writes one clip's timing into its file, and extends the
 // root's duration when the clip now ends past it.
-func writeClipTiming(dir, file string, project *Project, id string, start, duration float64) error {
+func writeClipTiming(dir, file string, project *Project, id string, start, duration float64, track int) error {
 	path := projectFile(dir, file)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	out, err := setClipTiming(string(data), id, start, duration)
+	out, err := setClipTimingOn(string(data), id, start, duration, track)
 	if err != nil {
 		return err
 	}

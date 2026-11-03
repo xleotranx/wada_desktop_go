@@ -224,8 +224,12 @@ to the main composition, and a drag on the root timeline moves or trims a scene'
 window there.
 
 - A click on the ruler or empty space scrubs. A click on a clip selects it.
-- Dragging a clip's middle moves it, rounded to a frame. Dragging an edge trims
-  that edge, keeping the other one still.
+- Dragging a clip's middle moves it, rounded to a frame; dropping it on another
+  lane writes that lane's `data-track-index`. Dragging an edge trims that edge,
+  keeping the other one still.
+- Undo and redo put a timing edit back: the header's arrows, or ⌘Z and ⇧⌘Z while
+  the timeline has the keyboard. They cover moves, trims and lane changes, not
+  scene creation or variable values, and a new edit drops the redo steps.
 - Releasing writes the clip's `data-start` and `data-duration` into its own file,
   through `setClipTiming`, which replaces only those values. When a root clip now
   ends past the root's declared `data-duration`, the root's length grows to the
@@ -240,6 +244,17 @@ order, with their windows; clicking one opens its clips on the timeline, and
 **Add scene** (in the root's view) writes a four-second scene and mounts it at the
 end; **Clip**, the selected clip's file, element, start, duration, end and track;
 and **Check**, the findings, whose row selects the clip it names.
+
+## The full-window page
+
+The drawer shares the page with the conversation, which leaves the stage and the
+timeline narrow. **Open Video Editor** (File) and the drawer header's expand
+button show the same editor in `shell.Pages` as the `video.page` page: the
+header, the stage, the transport, the timeline and the sidebar at the window's
+width. It shows the conversation's video; when the conversation on show is not a
+video, or none is open, the page says so and offers the way back to the chat.
+The page's header button and the empty state call `host.ShowPage(chat.PageID)`,
+so the way back needs no tab.
 
 ## Rendering
 

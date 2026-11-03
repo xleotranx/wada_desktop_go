@@ -66,6 +66,16 @@ func (p *Plugin) canVideo() bool {
 	return p.agent.Status().State == agent.Ready && !p.making.Running()
 }
 
+// canOpenPage reports that the full-window editor can show.
+func (p *Plugin) canOpenPage() bool { return p.open && p.host.Page() != PageID }
+
+// openPage shows the editor in the window, with no chat beside it.
+func (p *Plugin) openPage() {
+	if p.open {
+		p.host.ShowPage(PageID)
+	}
+}
+
 // newVideo opens a new chat in the video editor, in the open conversation's
 // folder, or the folder whose tabs are on show, or a folder the user picks.
 func (p *Plugin) newVideo() {

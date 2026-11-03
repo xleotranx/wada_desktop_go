@@ -28,26 +28,47 @@ func (p *Plugin) drawer(c *ui.Context) {
 	ui.Row(c.Key("video")).Grow(editorGrow).MinWidth(editorMinWidth).FillHeight().Label("Video editor").Children(func() {
 		ui.Box(c).Width(1).FillHeight().Background(pal.Hairline)
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Background(pal.DrawerBg).Children(func() {
-			p.header(c, pal)
-			if p.project == nil {
-				p.empty(c, pal)
-				return
-			}
-			ui.Row(c).Grow(1).MinWidth(0).MinHeight(0).FillHeight().Children(func() {
-				ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
-					p.stageView(c, pal)
-					p.transport(c, pal)
-					p.timelineView(c, pal)
-				})
-				ui.Box(c).Width(1).FillHeight().Background(pal.Hairline)
-				p.side(c, pal)
-			})
+			p.header(c, pal, false)
+			p.editor(c, pal)
 		})
 	})
 }
 
-// header names the project and takes the actions: check, render, reload.
-func (p *Plugin) header(c *ui.Context, pal native.Palette) {
+// pageView is the editor in the whole window, for working on the timeline
+// without the conversation beside it.
+func (p *Plugin) pageView(c *ui.Context) {
+	pal := native.PaletteFor(c)
+	ui.Column(c).Fill().MinHeight(0).Background(pal.Bg).Children(func() {
+		p.header(c, pal, true)
+		if !p.open || p.project == nil {
+			p.empty(c, pal)
+			return
+		}
+		p.editor(c, pal)
+	})
+}
+
+// editor is what both the drawer and the page show: the stage, the
+// transport, the timeline and the sidebar.
+func (p *Plugin) editor(c *ui.Context, pal native.Palette) {
+	if p.project == nil {
+		p.empty(c, pal)
+		return
+	}
+	ui.Row(c).Grow(1).MinWidth(0).MinHeight(0).FillHeight().Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
+			p.stageView(c, pal)
+			p.transport(c, pal)
+			p.timelineView(c, pal)
+		})
+		ui.Box(c).Width(1).FillHeight().Background(pal.Hairline)
+		p.side(c, pal)
+	})
+}
+
+// header names the project and takes the actions: check, render, reload. A
+// page has no drawer around it, so it offers the way back.
+func (p *Plugin) header(c *ui.Context, pal native.Palette, page bool) {
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 10, 0, 14).AlignItems(ui.Center).Gap(6).Children(func() {
 		ui.Icon(c, lucide.Clapperboard()).FontSize(14).TextColor(pal.Muted).Shrink(0)
 		ui.Text(c, "Video").FontSize(13.5).FontWeight(600).TextColor(pal.Text).SingleLine().Shrink(0)
@@ -66,8 +87,15 @@ func (p *Plugin) header(c *ui.Context, pal native.Palette) {
 			b.Children(func() { ui.Icon(c, lucide.CornerUpLeft()).FontSize(11).TextColor(pal.Muted) })
 		}
 		ui.Box(c).Grow(1)
+		p.iconButton(c, pal, "undo", "Undo the last timing change", lucide.Undo2, false, p.undoEdit, !p.canUndo())
+		p.iconButton(c, pal, "redo", "Redo the timing change", lucide.Redo2, false, p.redoEdit, !p.canRedo())
 		p.checkChip(c, pal)
 		p.renderButton(c, pal)
+		if page {
+			p.iconButton(c, pal, "back-chat", "Back to the chat", lucide.CornerUpLeft, false, func() { p.host.ShowPage(chat.PageID) })
+		} else {
+			p.iconButton(c, pal, "open-page", "Open the editor in the window", lucide.Maximize2, false, p.openPage)
+		}
 		p.iconButton(c, pal, "reload", "Reload the project", lucide.RotateCw, false, p.reload)
 	})
 	ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
@@ -507,6 +535,11 @@ func (p *Plugin) empty(c *ui.Context, pal native.Palette) {
 			ui.Text(c, p.loadErr).FontSize(11.5).TextColor(pal.Danger).MaxLines(4)
 			return
 		}
+		b := ui.ButtonBase(c.Key("back-chat")).Label("Back to the chat").Height(28).Padding(0, 12).Radius(7).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).OnClick(func() { p.host.ShowPage(chat.PageID) })
+		b.Children(func() {
+			ui.Text(c, "Back to the chat").FontSize(12).TextColor(pal.Text)
+		})
 		ui.Text(c, "No video here yet").FontSize(13).TextColor(pal.Text)
 		ui.Text(c, "Ask for a video, or start one with its own composition and timeline.").FontSize(11.5).
 			TextColor(pal.Muted).MaxLines(3)
@@ -571,9 +604,12 @@ func (p *Plugin) titleButton(c *ui.Context) {
 }
 
 // iconButton is a small icon button of the header.
-func (p *Plugin) iconButton(c *ui.Context, pal native.Palette, key, label string, icon func() *ui.SVG, active bool, run func()) {
+func (p *Plugin) iconButton(c *ui.Context, pal native.Palette, key, label string, icon func() *ui.SVG, active bool, run func(), disabled ...bool) {
 	b := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(label).Size(26, 26).Radius(6).Center().Shrink(0).
 		Cursor(ui.CursorPointer)
+	if len(disabled) > 0 && disabled[0] {
+		b.Disabled(true)
+	}
 	switch {
 	case active:
 		b.Background(pal.Selected)

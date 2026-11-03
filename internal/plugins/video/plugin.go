@@ -25,6 +25,12 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
+// maxUndo is how many timing edits the editor can take back.
+const maxUndo = 50
+
+// PageID is the editor's full-window page.
+const PageID = "video.page"
+
 // videosKey is the setting that remembers the conversations that are videos.
 const videosKey = "videos-v1"
 
@@ -108,6 +114,9 @@ type Plugin struct {
 	renderErr string
 	renderPct int
 
+	undo []timingEdit // timing edits, oldest first
+	redo []timingEdit // edits undone, newest last
+
 	values  map[string]any            // the user's variable values for the open project
 	saved   map[string]map[string]any // and by project folder, kept in the settings
 	editors []*variableEditor
@@ -151,11 +160,19 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Contribute(c, chat.Drawers, "video.editor", 20, shell.View{Render: p.drawer})
 	kernel.Contribute(c, chat.HideWork, "video.editor", 0, func() bool { return p.open })
 	kernel.Contribute(c, shell.TitleBar, "video.new", 0, shell.View{Render: p.titleButton})
+	if err := kernel.Contribute(c, shell.Pages, PageID, 0, shell.Page{
+		Title: func() string { return "Video" }, Render: p.pageView}); err != nil {
+		return err
+	}
 	kernel.Contribute(c, tabs.Looks, "video.tabs", 0, tabs.Look{Applies: p.isVideoTab, Icon: lucide.Clapperboard, Name: "Video",
 		Draft: "New video"})
 	p.update(p.chat.Current())
-	return kernel.Contribute(c, kernel.Commands, "video.new", 0, kernel.Command{
-		Title: "New Video", Menu: "File", Keys: []string{"cmd+shift+v"}, Enabled: p.canVideo, Run: p.newVideo})
+	if err := kernel.Contribute(c, kernel.Commands, "video.new", 0, kernel.Command{
+		Title: "New Video", Menu: "File", Keys: []string{"cmd+shift+v"}, Enabled: p.canVideo, Run: p.newVideo}); err != nil {
+		return err
+	}
+	return kernel.Contribute(c, kernel.Commands, "video.open", 0, kernel.Command{
+		Title: "Open Video Editor", Menu: "File", Enabled: p.canOpenPage, Run: p.openPage})
 }
 
 // close puts the editor away until another video conversation shows, as when
@@ -191,6 +208,7 @@ func (p *Plugin) follow(folder, dir string) {
 	p.seeking.Cancel()
 	p.stopPlaying()
 	p.selected, p.drag = "", dragState{}
+	p.undo, p.redo = nil, nil
 	p.scene = nil
 	p.folder, p.dir = folder, dir
 	p.project, p.check, p.loadErr = nil, check{}, ""

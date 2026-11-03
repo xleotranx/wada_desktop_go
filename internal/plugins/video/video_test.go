@@ -164,7 +164,7 @@ func TestDraggingAClipWritesItsTiming(t *testing.T) {
 	f := start(t)
 	dir := filepath.Join(f.dir, "videos", "video-1")
 	f.open(t, dir)
-	f.p.writeTiming("scene-01-title", 1, 9)
+	f.p.writeTiming("scene-01-title", 1, 9, -1)
 	f.h.Flush()
 	data, err := os.ReadFile(filepath.Join(dir, "compositions", "scene-01.html"))
 	if err != nil {
@@ -370,5 +370,119 @@ func TestTheTimelineEditsAScene(t *testing.T) {
 	f.p.unfocus()
 	if f.p.span() != 8 || len(f.p.rows()) != 1 {
 		t.Fatalf("root = %v span", f.p.span())
+	}
+}
+
+// TestDraggingAClipToAnotherTrack writes the lane into the file.
+func TestDraggingAClipToAnotherTrack(t *testing.T) {
+	f := start(t)
+	dir := filepath.Join(f.dir, "videos", "video-1")
+	write(t, dir, "index.html", `<div id="main" data-composition-id="main" data-width="1920" data-height="1080" data-duration="8">
+  <div id="a" class="clip" data-start="0" data-duration="2" data-track-index="0">A</div>
+  <div id="b" class="clip" data-start="4" data-duration="2" data-track-index="1">B</div>
+  <script>window.__timelines = { main: gsap.timeline({ paused: true }) };</script>
+</div>`)
+	f.open(t, dir)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Fill().MinHeight(0).Children(func() {
+			ui.Box(c).Grow(1).MinWidth(0)
+			f.p.drawer(c)
+		})
+	}, 1400, 900)
+	tt.Frame()
+	f.h.Flush()
+	tt.Frame()
+	rect, ok := tt.Find("Timeline")
+	if !ok {
+		t.Fatal("timeline missing")
+	}
+	x := rect.X + timelinePad + 60
+	top := rect.Y + rulerHeight + rowHeight/2
+	second := rect.Y + rulerHeight + rowHeight + rowGap + rowHeight/2
+	tt.Press(x, top)
+	tt.Move(x, second)
+	tt.Release(x, second)
+	f.h.Flush()
+	data, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := scanHTML(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.byID("a").value("data-track-index"); got != "1" {
+		t.Fatalf("track = %q in %s", got, data)
+	}
+}
+
+// TestUndoAndRedoPutATimingBack takes a drag back and applies it again.
+func TestUndoAndRedoPutATimingBack(t *testing.T) {
+	f := start(t)
+	dir := filepath.Join(f.dir, "videos", "video-1")
+	f.open(t, dir)
+	f.p.writeTiming("scene-01", 1, 8, -1)
+	f.h.Flush()
+	start := func() string {
+		data, err := os.ReadFile(filepath.Join(dir, "index.html"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, err := scanHTML(string(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.byID("scene-01").value("data-start")
+	}
+	if got := start(); got != "1" {
+		t.Fatalf("start = %q", got)
+	}
+	if !f.p.canUndo() {
+		t.Fatal("nothing to undo")
+	}
+	f.p.undoEdit()
+	f.h.Flush()
+	if got := start(); got != "0" {
+		t.Fatalf("after undo start = %q", got)
+	}
+	if !f.p.canRedo() {
+		t.Fatal("nothing to redo")
+	}
+	f.p.redoEdit()
+	f.h.Flush()
+	if got := start(); got != "1" {
+		t.Fatalf("after redo start = %q", got)
+	}
+	// A new edit drops the redo steps.
+	f.p.undoEdit()
+	f.h.Flush()
+	f.p.writeTiming("scene-01", 2, 8, -1)
+	f.h.Flush()
+	if f.p.canRedo() {
+		t.Fatal("a new edit kept the redo steps")
+	}
+}
+
+// TestTheEditorFillsTheWindow draws the page: the stage, the timeline and the
+// way back to the chat.
+func TestTheEditorFillsTheWindow(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	tt := ui.NewTester(f.p.pageView, 1200, 800)
+	tt.Frame()
+	f.h.Flush()
+	tt.Frame()
+	for _, text := range []string{"Video", "Timeline", "Back to the chat", "Play"} {
+		if !tt.HasText(text) {
+			t.Fatalf("%q is missing; texts = %v", text, tt.Texts())
+		}
+	}
+
+	// Without a video conversation the page says so and offers the chat.
+	f.chat.Open(agent.Session{ID: "other", Directory: f.dir})
+	f.h.Flush()
+	tt.Frame()
+	if !tt.HasText("No video here yet") {
+		t.Fatalf("texts = %v", tt.Texts())
 	}
 }

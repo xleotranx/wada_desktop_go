@@ -14,6 +14,12 @@ import (
 // changing only those attribute values: the rest of the file, and the way the
 // agent wrote it, stays as it is.
 func setClipTiming(src, id string, start, duration float64) (string, error) {
+	return setClipTimingOn(src, id, start, duration, -1)
+}
+
+// setClipTimingOn writes a clip's timing on a track; a negative track keeps
+// the lane it already has.
+func setClipTimingOn(src, id string, start, duration float64, track int) (string, error) {
 	doc, err := scanHTML(src)
 	if err != nil {
 		return "", err
@@ -22,10 +28,14 @@ func setClipTiming(src, id string, start, duration float64) (string, error) {
 	if el == nil {
 		return "", fmt.Errorf("no element with id %q", id)
 	}
-	return setAttrs(src, el, map[string]string{
+	values := map[string]string{
 		"data-start":    formatSeconds(start),
 		"data-duration": formatSeconds(duration),
-	})
+	}
+	if track >= 0 {
+		values["data-track-index"] = strconv.Itoa(track)
+	}
+	return setAttrs(src, el, values)
 }
 
 // setRootDuration writes the composition's length on the root element.

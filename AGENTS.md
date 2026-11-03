@@ -33,7 +33,9 @@ backend plugin.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `design` (design mode for
   conversations: a canvas beside a design whose artboards are the HTML files the agent writes, with comments, notes, tweaks,
-  presenting and a brief that tells the agent how to write for it), `documents` (Word, PowerPoint, Excel, PDF and more read as
+  presenting and a brief that tells the agent how to write for it), `video` (HyperFrames videos: a stage and a
+  timeline beside the chat, the project's checks, scene and clip timing written into the HTML, and a render
+  through the HyperFrames CLI), `documents` (Word, PowerPoint, Excel, PDF and more read as
   Markdown in the app through anydoc's embedded WebAssembly build, with a Sources section in the work panel), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
   `workspace.db`, needing no chat), `folderpicker` (Open Folder… and the new chat's folder
@@ -50,7 +52,7 @@ backend plugin.
 Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
 [shell and built-in plugins](docs/design/shell-and-plugins.md),
-[documents](docs/design/documents.md), [jobs](docs/design/jobs.md). Keep them in step with the code.
+[documents](docs/design/documents.md), [jobs](docs/design/jobs.md), [video](docs/design/video.md). Keep them in step with the code.
 
 Before nontrivial UI work, read [.agents/skills/mygo-maintenance/SKILL.md](.agents/skills/mygo-maintenance/SKILL.md).
 Check APIs against the pinned module with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`,

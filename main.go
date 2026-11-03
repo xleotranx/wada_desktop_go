@@ -20,6 +20,7 @@ import (
 	"wada-desktop-go/internal/plugins/skills"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
+	"wada-desktop-go/internal/plugins/video"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 
@@ -56,6 +57,7 @@ func main() {
 		tabs.New,         // open chats as tabs across the window; replaces the sidebar
 		explore.New,      // read-only side chats in a drawer, from selected text
 		design.New,       // a canvas of the agent's web pages: comments, notes, tweaks, present
+		video.New,        // HyperFrames videos: stage, timeline, checks, render
 		documents.New,    // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
 		jobs.New,         // reads a folder, works on a goal, keeps the brief, in jobs.db
 		workflow.New,     // owns conversational tasks and fresh reviewer children

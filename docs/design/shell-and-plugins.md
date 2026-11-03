@@ -792,6 +792,54 @@ variants**, **Slide deck**) that start a request in the composer.
 to the next message as `Design.png`, then `Design 2.png` and so on, where the
 screenshot markup editor can draw on it. A failure shows a toast.
 
+## Video editor
+
+`internal/plugins/video` requires the agent service, the workspace record, the
+chat controller and the shell host, and uses the tabs service when there is one.
+It contributes the editor to `chat.Drawers` after the design canvas, a
+`chat.HideWork` entry, a title-strip button and a `tabs.Looks` entry that marks
+video conversations and calls the new one **New video**, and **New Video** (File,
+⇧⌘V), enabled while the agent is ready.
+
+A video belongs to a conversation: `videos/video-N` in its folder, created by
+**New Video** with a root composition, one scene and an `assets/` folder. The
+plugin's `videos-v1` setting keeps `{Origin, Session, Dir}`, so the editor shows
+again when the conversation is reopened, also after a restart, and forgets a
+conversation the workspace record no longer has. The first message carries the
+`video-editor.md` brief, which tells the agent the HyperFrames timing attributes,
+the scene layout and the deterministic-animation rules, and that the user's
+timeline drags write `data-start` and `data-duration` into the same files. The
+project menu in the header lists the folder's other projects, and opens one when
+chosen.
+
+The editor takes 2.4 parts of the page's width to the conversation's 1, at least
+620 px, and hides the work panel while it shows. A header names the project,
+shows the check's result and has **Render** and **Reload**. The stage holds one
+web page, the project's `index.html`, loaded from its file so relative assets and
+the composition's own scripts work; a small runtime embedded in the plugin mounts
+the scene files the page cannot fetch itself, seeks every composition's paused
+timeline, hides clips outside their window and sets media to their time. The page
+is laid out at the composition's size and scaled to the stage. The transport has
+**Play**, the timecode, the frame number and the video's size and frame rate;
+playback is Go asking for a frame every 33 ms, not the page playing itself.
+
+The timeline is native and draws the root composition's clips, one row per
+`data-track-index`, with a ruler, the playhead and each clip's label. A click
+scrubs or selects, a drag moves a clip and an edge drag trims it; the release
+writes the timing into the file, replaces only the values it changed, grows the
+root's `data-duration` when the clip now ends past it, and reads the project
+again. The sidebar lists the scenes (with **Add scene**, which writes a four
+second scene and mounts it at the end), the selected clip and the check's
+findings, each of which selects the clip it names.
+
+**Render** runs the official HyperFrames CLI in the project folder and writes
+`renders/<title>.mp4`: `npx --yes hyperframes render --output …`. It is disabled
+while the check has errors and while a render runs; the job runs on a worker,
+keeps the tail of what the CLI wrote, shows it in the sidebar, and opens the file
+when it finishes. Rendering needs Node.js, and the network on first use while
+`npx` fetches the package. The full contract, the check's rules and what is not
+ported are in [video](video.md).
+
 ## Screenshot markup
 
 `internal/contract/attachments` declares the pending-image service, image actions

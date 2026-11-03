@@ -843,6 +843,9 @@ at once and the plugin keeps by project; a value the scene host pins wins, and a
 render writes the values onto the scene hosts in a linked staging folder so the
 MP4 matches the preview.
 
+The header's grid button storyboards the film: nine frames captured from the
+preview page, shown over the window, each a way to its moment.
+
 **Open Video Editor** (File) and the drawer's expand button show the same editor
 as the `video.page` page in the whole window; its empty state and its header go
 back to the chat.

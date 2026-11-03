@@ -269,6 +269,21 @@ writes the element's text and reloads, and undo takes the words back. An element
 whose words sit around other elements is read-only there, since rewriting it
 would remove those elements.
 
+## The storyboard
+
+The header's grid button captures the film's frames for review. It asks the
+preview page for nine evenly spaced frames across what the timeline draws (the
+scene's own span when a scene is focused, the whole film otherwise), captures
+each from the page and shows them over the window: one card per moment, with
+its timecode. Choosing a card puts the playhead there, and Esc or **Close** puts
+the storyboard away.
+
+The frames are the preview's own, so they show the user's variable values and
+the timeline's clip visibility without a render; playback pauses while they are
+taken, and the playhead returns to where it was. A capture is a page `Eval`
+seek and a `Capture`, both on a worker, and the PNG is decoded and built into a
+bitmap there too. Closing the storyboard cancels a capture still in flight.
+
 ## The full-window page
 
 The drawer shares the page with the conversation, which leaves the stage and the
@@ -333,7 +348,9 @@ markup. `composition_test.go` pins the start grammar and reference resolution.
 `check_test.go` pins the check against a project that breaks each group of rules,
 and that a new project is clean. `edit_test.go` pins surgical timing writes and
 scene creation. `project_test.go` pins discovery, opening with a missing scene
-and timing resolution. `cli_check_test.go` pins the CLI report's conversion and the panel's way to it.
+and timing resolution. `story_test.go` is covered inside `video_test.go`, which also pins the
+storyboard's nine frames and the overlay. `cli_check_test.go` pins the CLI
+report's conversion and the panel's way to it.
 `video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
 on another conversation, seeks from the ruler, drags a root clip and a clip

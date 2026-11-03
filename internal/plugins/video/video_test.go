@@ -1,7 +1,10 @@
 package video
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,8 +43,12 @@ func start(t *testing.T) *fixture {
 	if _, err := newProject(filepath.Join(f.dir, "videos", "video-1"), "Launch film"); err != nil {
 		t.Fatal(err)
 	}
+	var bitmap bytes.Buffer
+	if err := png.Encode(&bitmap, image.NewNRGBA(image.Rect(0, 0, 32, 20))); err != nil {
+		t.Fatal(err)
+	}
 	f.host = &kittest.Host{Web: func(int) *kittest.WebView {
-		return &kittest.WebView{EvalFunc: f.eval}
+		return &kittest.WebView{EvalFunc: f.eval, PNG: bitmap.Bytes()}
 	}}
 	f.ws = &plugintest.Workspace{Convs: []workspace.Conversation{{ID: "s", Folder: f.dir}}}
 	f.h = kerneltest.New(t, f.agent.New, f.ws.New, f.chat.New, f.host.New,
@@ -608,4 +615,35 @@ func sceneTitle(t *testing.T, dir string) string {
 		t.Fatal("the title is missing")
 	}
 	return ownText(string(data), el)
+}
+
+// TestTheStoryboardCapturesFrames reads the frames across the film, shows
+// them, and hides them again.
+func TestTheStoryboardCapturesFrames(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	f.p.takeStoryboard()
+	f.h.Flush()
+	if len(f.p.shots) != storyFrames {
+		t.Fatalf("shots = %d", len(f.p.shots))
+	}
+	if !f.p.story {
+		t.Fatal("the storyboard is not shown")
+	}
+	if f.p.shots[0].Time != 0 || f.p.shots[storyFrames-1].Time != 8 {
+		t.Fatalf("times = %v .. %v", f.p.shots[0].Time, f.p.shots[storyFrames-1].Time)
+	}
+	if f.p.shots[4].Image == nil {
+		t.Fatal("a frame has no image")
+	}
+	tt := ui.NewTester(f.p.storyView, 1200, 800)
+	tt.Frame()
+	if !tt.HasText("Storyboard") || !tt.HasText("0:00.00") {
+		t.Fatalf("texts = %v", tt.Texts())
+	}
+	f.p.closeStoryboard()
+	tt.Frame()
+	if len(f.p.shots) != storyFrames {
+		t.Fatal("closing dropped the frames")
+	}
 }

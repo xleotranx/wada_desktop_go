@@ -87,6 +87,8 @@ func (p *Plugin) header(c *ui.Context, pal native.Palette, page bool) {
 			b.Children(func() { ui.Icon(c, lucide.CornerUpLeft()).FontSize(11).TextColor(pal.Muted) })
 		}
 		ui.Box(c).Grow(1)
+		p.iconButton(c, pal, "storyboard", "Storyboard the video", lucide.LayoutGrid, p.story,
+			p.takeStoryboard, p.web == nil || p.project == nil || p.shooting.Running())
 		p.iconButton(c, pal, "undo", "Undo the last timing change", lucide.Undo2, false, p.undoEdit, !p.canUndo())
 		p.iconButton(c, pal, "redo", "Redo the timing change", lucide.Redo2, false, p.redoEdit, !p.canRedo())
 		p.checkChip(c, pal)

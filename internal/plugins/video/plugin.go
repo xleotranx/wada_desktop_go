@@ -113,6 +113,7 @@ type Plugin struct {
 	loading    kernel.Task
 	mounting   kernel.Task
 	checking   kernel.Task
+	shooting   kernel.Task
 	seeking    kernel.Task
 	editing    kernel.Task
 	adding     kernel.Task
@@ -127,6 +128,8 @@ type Plugin struct {
 	redo    []clipEdit // edits undone, newest last
 	text    string     // the selected clip's words, as the sidebar edits them
 	textFor string     // the clip those words belong to
+	shots   []shot     // the storyboard's frames
+	story   bool       // the frames show over the window
 
 	values  map[string]any            // the user's variable values for the open project
 	saved   map[string]map[string]any // and by project folder, kept in the settings
@@ -167,6 +170,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		// then close it.
 		p.ticking.Cancel()
 		p.mounting.Cancel()
+		p.shooting.Cancel()
 		p.seeking.Cancel()
 		p.apply.Cancel()
 		p.editing.Cancel()
@@ -186,6 +190,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Contribute(c, chat.Drawers, "video.editor", 20, shell.View{Render: p.drawer})
 	kernel.Contribute(c, chat.HideWork, "video.editor", 0, func() bool { return p.open })
 	kernel.Contribute(c, shell.TitleBar, "video.new", 0, shell.View{Render: p.titleButton})
+	kernel.Contribute(c, shell.Overlays, "video.storyboard", 0, shell.View{Render: p.storyView})
 	if err := kernel.Contribute(c, shell.Pages, PageID, 0, shell.Page{
 		Title: func() string { return "Video" }, Render: p.pageView}); err != nil {
 		return err
@@ -235,6 +240,7 @@ func (p *Plugin) follow(folder, dir string) {
 	p.stopPlaying()
 	p.selected, p.drag = "", dragState{}
 	p.undo, p.redo = nil, nil
+	p.shots, p.story = nil, false
 	p.scene = nil
 	p.viewStart, p.viewZoom = 0, 1
 	p.folder, p.dir = folder, dir

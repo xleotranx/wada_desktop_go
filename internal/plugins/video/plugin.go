@@ -105,6 +105,7 @@ type Plugin struct {
 	stage     ui.Handle
 	timeline  ui.Handle
 	tlWidth   float32 // the timeline's width as last drawn
+	tlScroll  float32 // DIPs the timeline's rows are scrolled down
 	viewStart float64 // the time at the timeline's left edge
 	viewZoom  float64 // 1 fits the whole composition; more magnifies
 	zoom      float64
@@ -125,12 +126,13 @@ type Plugin struct {
 	renderPct  int
 	renderOpts renderOptions
 
-	undo    []clipEdit // edits the timeline made, oldest first
-	redo    []clipEdit // edits undone, newest last
-	text    string     // the selected clip's words, as the sidebar edits them
-	textFor string     // the clip those words belong to
-	shots   []shot     // the storyboard's frames
-	story   bool       // the frames show over the window
+	undo     []clipEdit // edits the timeline made, oldest first
+	redo     []clipEdit // edits undone, newest last
+	text     string     // the selected clip's words, as the sidebar edits them
+	textBase string     // the words the file had when they were taken
+	textFor  string     // the clip those words belong to
+	shots    []shot     // the storyboard's frames
+	story    bool       // the frames show over the window
 
 	values  map[string]any            // the user's variable values for the open project
 	saved   map[string]map[string]any // and by project folder, kept in the settings
@@ -238,12 +240,15 @@ func (p *Plugin) follow(folder, dir string) {
 	p.loading.Cancel()
 	p.mounting.Cancel()
 	p.seeking.Cancel()
+	p.rendering.Cancel()
 	p.stopPlaying()
 	p.selected, p.drag = "", dragState{}
+	p.text, p.textBase, p.textFor = "", "", ""
 	p.undo, p.redo = nil, nil
 	p.shots, p.story = nil, false
+	p.renderOut, p.renderErr, p.renderPct, p.renderLog = "", "", 0, nil
 	p.scene = nil
-	p.viewStart, p.viewZoom = 0, 1
+	p.viewStart, p.viewZoom, p.tlScroll = 0, 1, 0
 	p.folder, p.dir = folder, dir
 	p.project, p.check, p.loadErr = nil, check{}, ""
 	p.playhead = 0
@@ -291,9 +296,7 @@ func (p *Plugin) load() {
 		p.values = p.saved[p.dir]
 		p.pruneFocus()
 		p.pruneSelection()
-		if c, ok := p.clip(p.selected); ok && p.textFor != p.selected {
-			p.text, p.textFor = c.Text, p.selected
-		}
+		p.syncClipText()
 		p.clampView()
 		p.buildEditors()
 		p.mount()
@@ -367,6 +370,9 @@ func (p *Plugin) newScene() {
 			p.host.Toast(ui.Toast{Title: "The scene was not added", Description: err.Error(), Type: components.ToastError})
 			return
 		}
+		// The new scene is a host of the root: show the root so it is on the
+		// timeline, and select it.
+		p.unfocus()
 		p.selectClip(id)
 		p.reload()
 	})
@@ -395,6 +401,20 @@ func (p *Plugin) pruneFocus() {
 	p.scene = nil
 }
 
+// focusSceneByID focuses the scene with a host id, when the project still
+// has it.
+func (p *Plugin) focusSceneByID(id string) {
+	if p.project == nil {
+		return
+	}
+	for _, s := range p.project.Scenes {
+		if s.Host != nil && s.Host.ID == id {
+			p.focusOn(s)
+			return
+		}
+	}
+}
+
 // focusOn edits one scene's clips on the timeline instead of the root's.
 func (p *Plugin) focusOn(s *Scene) {
 	if s == nil || s.Comp == nil {
@@ -403,7 +423,7 @@ func (p *Plugin) focusOn(s *Scene) {
 	p.scene = s
 	p.selected = ""
 	p.drag = dragState{}
-	p.viewStart, p.viewZoom = 0, 1
+	p.viewStart, p.viewZoom, p.tlScroll = 0, 1, 0
 	p.buildEditors()
 	if s.Host != nil {
 		p.seek(s.Host.Start)
@@ -415,7 +435,7 @@ func (p *Plugin) unfocus() {
 	p.scene = nil
 	p.selected = ""
 	p.drag = dragState{}
-	p.viewStart, p.viewZoom = 0, 1
+	p.viewStart, p.viewZoom, p.tlScroll = 0, 1, 0
 	p.buildEditors()
 }
 
@@ -425,18 +445,37 @@ func (p *Plugin) pruneSelection() {
 		return
 	}
 	if _, ok := p.clip(p.selected); !ok {
-		p.selected, p.text, p.textFor = "", "", ""
+		p.selected, p.text, p.textBase, p.textFor = "", "", "", ""
 	}
 }
 
-// selectClip selects a clip and takes its words into the sidebar.
+// selectClip selects a clip and takes its words into the sidebar. Selecting
+// the clip that is already selected keeps the words being typed.
 func (p *Plugin) selectClip(id string) {
-	p.selected = id
-	if c, ok := p.clip(id); ok {
-		p.text, p.textFor = c.Text, id
+	if id == p.selected && p.textFor == id {
 		return
 	}
-	p.text, p.textFor = "", id
+	p.selected = id
+	if c, ok := p.clip(id); ok {
+		p.text, p.textBase, p.textFor = c.Text, c.Text, id
+		return
+	}
+	p.text, p.textBase, p.textFor = "", "", id
+}
+
+// syncClipText takes the selected clip's words from the project, unless the
+// user typed something the file does not have yet: a draft survives a reload,
+// and an edit the agent made to the words shows.
+func (p *Plugin) syncClipText() {
+	c, ok := p.clip(p.selected)
+	if !ok {
+		p.text, p.textBase, p.textFor = "", "", ""
+		return
+	}
+	if p.textFor != p.selected || p.text == p.textBase {
+		p.text, p.textBase = c.Text, c.Text
+	}
+	p.textFor = p.selected
 }
 
 // saveText writes the selected clip's words into its file and takes an undo
@@ -457,6 +496,7 @@ func (p *Plugin) saveText(c *Clip) {
 			p.host.Toast(ui.Toast{Title: "The words did not change", Description: err.Error(), Type: components.ToastError})
 			return
 		}
+		p.textBase = text
 		p.textFor = id
 		p.reload()
 	})

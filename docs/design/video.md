@@ -238,39 +238,47 @@ stops at the scene's end. The header carries the scene's name with a button back
 to the main composition, and a drag on the root timeline moves or trims a scene's
 window there.
 
-- A click on the ruler or empty space scrubs. A click on a clip selects it.
+- A click on the ruler or empty space scrubs. A click on a clip selects it and
+  opens its **Clip** panel.
 - Dragging a clip's middle moves it, rounded to a frame; dropping it on another
   lane writes that lane's `data-track-index`. Dragging an edge trims that edge,
-  keeping the other one still.
+  keeping the other one still. A click that moves nothing writes nothing.
+- Releasing writes the clip's `data-start` and `data-duration` into its own file,
+  through `setClipTiming`, which replaces only those values. When a root clip now
+  ends past the root's declared `data-duration`, the root's length grows to the
+  clip's end, as the HyperFrames editor does; a clip inside a scene leaves the
+  scene's own length alone, the timeline draws that length, and the scene's
+  window is the host's timing.
+- The project is read again after the write, so the timeline shows what the file
+  says, not what the drag showed. The scene focus survives the reload while the
+  scene is still there.
 - Undo and redo put an edit back: the header's arrows, or ⌘Z and ⇧⌘Z while the
   timeline has the keyboard. They cover moves, trims, lane changes and a clip's
   words, not scene creation or variable values, and a new edit drops the redo
   steps.
 
-The timeline fits the composition at first: scrolling pans, a pinch or ⌘-scroll
-zooms around the pointer, and the transport's **−**, **Fit** and **+** buttons
-zoom from 1× to 20× (⌘=, ⌘− and ⌘0 while the timeline has the keyboard). The
-ruler picks its tick step for the zoom, about seventy DIPs apart, and the view
-cannot leave the composition.
-- Releasing writes the clip's `data-start` and `data-duration` into its own file,
-  through `setClipTiming`, which replaces only those values. When a root clip now
-  ends past the root's declared `data-duration`, the root's length grows to the
-  clip's end, as the HyperFrames editor does; a clip inside a scene is bounded by
-  the scene's own length, and the scene's window by the host's timing.
-- The project is read again after the write, so the timeline shows what the file
-  says, not what the drag showed. The scene focus survives the reload while the
-  scene is still there.
+The timeline fits the composition at first: scrolling pans the film, a
+horizontal gesture pans it too, and a pinch or ⌘-scroll zooms around the
+pointer. When the tracks are taller than the timeline, a wheel scrolls them
+instead and a thin scrollbar on the right says where the view is; ⇧-scroll
+pans the film then. The transport's **−**, **Fit** and **+** buttons zoom from
+1× to 20× (⌘=, ⌘− and ⌘0 while the timeline has the keyboard). The ruler picks
+its tick step for the zoom, about seventy DIPs apart, and the view cannot leave
+the composition.
 
-The sidebar has three tabs: **Scenes**, the compositions the root mounts, in
-order, with their windows; clicking one opens its clips on the timeline, and
-**Add scene** (in the root's view) writes a four-second scene and mounts it at the
-end; **Clip**, the selected clip's file, element, start, duration, end, track and
-words; and **Check**, the findings, whose row opens the composition the clip is
-written in, selects it and moves the playhead to its start. A clip whose words
-are its own text (a title, a caption) can be rewritten there: Enter or **Save**
-writes the element's text and reloads, and undo takes the words back. An element
-whose words sit around other elements is read-only there, since rewriting it
-would remove those elements.
+The sidebar has four tabs: **Scenes**, the compositions the root mounts, in
+order, with their windows; clicking one edits its clips on the timeline and
+leaves nothing selected, and **Add scene** writes a four-second scene and mounts
+it at the end; **Clip**, the selected clip's file, element, start, duration, end,
+track and words, which opens when a clip is clicked on the timeline; **Vars**,
+the focused composition's declarations, described above; and **Check**, the
+findings, whose row opens the clip's composition, selects it and moves the
+playhead to its start. A finding that names only a file leaves the check on show,
+with its file and line, since there is no clip to open. A clip whose words are
+its own text (a title, a caption) can be rewritten there: Enter or **Save**
+writes the element's text and reloads, and undo takes the words back. Save waits
+for a change. An element whose words sit around other elements is read-only
+there, since rewriting it would remove those elements.
 
 ## The storyboard
 
@@ -290,10 +298,11 @@ bitmap there too. Closing the storyboard cancels a capture still in flight.
 ## The full-window page
 
 The drawer shares the page with the conversation, which leaves the stage and the
-timeline narrow. **Open Video Editor** (File) and the drawer header's expand
-button show the same editor in `shell.Pages` as the `video.page` page: the
-header, the stage, the transport, the timeline and the sidebar at the window's
-width. It shows the conversation's video; when the conversation on show is not a
+timeline narrow. The header drops the check's words and the transport the
+composition's size when the editor is narrow, so every action stays reachable.
+**Open Video Editor** (File) and the drawer header's expand button show the same
+editor in `shell.Pages` as the `video.page` page: the header, the stage, the
+transport, the timeline and the sidebar at the window's width. It shows the conversation's video; when the conversation on show is not a
 video, or none is open, the page says so and offers the way back to the chat.
 The page's header button and the empty state call `host.ShowPage(chat.PageID)`,
 so the way back needs no tab.
@@ -309,11 +318,16 @@ npx --yes hyperframes render --output renders/<title>.mp4
 The chevron beside it chooses the format (MP4, WebM, MOV, GIF) and the quality
 (draft, standard, high), which the plugin remembers in `render-v1`; the CLI gets
 `--format` and `--quality` only when they are not the defaults, and the output
-file takes the format's extension. **Render** is disabled while the check has
-errors, and while a render runs. The job runs
+file takes the format's extension. **Render** is disabled while a render runs.
+With errors in the check it stays clickable and says what blocks the render, so
+the button explains itself, and the header's check chip says the count and opens
+the findings. The job runs
 on a worker, reads the CLI's progress lines into a bar, keeps the last lines it
-wrote, and opens the MP4 when it finishes; the sidebar says what happened, and
-**Stop** cancels the job and the CLI process with it. `npx` is looked up on the usual
+wrote, and opens the MP4 when it finishes; the sidebar says what happened,
+**Show** opens the render's folder, and **Stop** cancels the job and the CLI
+process with it. A failure shows the CLI's error and the last three lines it
+wrote, without its progress lines, and **Copy** puts the whole log on the
+clipboard. `npx` is looked up on the usual
 places as well as `PATH`, since a window started from the Dock has a short one.
 Rendering needs Node.js and the network on first use, when `npx` fetches the
 package.
@@ -359,7 +373,11 @@ on another conversation, seeks from the ruler, drags a root clip and a clip
 inside a scene, starts a new video, sends the brief and survives a window with
 no web pages. `variables_test.go` pins declaration parsing, the merge order, the
 panel, keeping and resetting a value, the check's variable rules, the render
-arguments, the CLI's progress lines and the staging folder.
+arguments, the CLI's progress lines and the staging folder. `ui_test.go` pins
+the editor's edges: the ruler stays inside the timeline, a narrow header keeps
+its actions, selecting a clip opens its panel, a scene row focuses without
+selecting, the render explains check errors, the tracks scroll when they do not
+fit, and a clip too short for its edges still moves.
 
 ## Not there yet
 
@@ -370,6 +388,6 @@ inline: the root page loads its own scripts, but the runtime does not fetch a
 the declarations: changing a declaration is a source edit for the agent, and a
 font or image declared as a typed object is edited by its family name or URL.
 `--variables-file`, batch rows and strict variables are not used. Captions,
-snapshot review, audio preview, linked clips, keyframes, undo, and cloud or
+snapshot review, audio preview, linked clips, keyframes, and cloud or
 distributed rendering are not ported. A render is local and synchronous from the
 editor's point of view.

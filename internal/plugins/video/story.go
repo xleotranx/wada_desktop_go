@@ -94,7 +94,10 @@ func (p *Plugin) storyView(c *ui.Context) {
 						ui.Text(c, p.project.Title).FontSize(12).TextColor(pal.Muted).SingleLine().Ellipsis("…").MinWidth(0)
 					}
 					ui.Box(c).Grow(1)
-					b := ui.ButtonBase(c.Key("story-close")).Label("Close the storyboard").Height(26).Padding(0, 10).
+					ui.Text(c, "Click a frame to show it · Esc closes").FontSize(10).TextColor(pal.Faint).
+						SingleLine().Shrink(0)
+					b := ui.ButtonBase(c.Key("story-close")).Label("Close the storyboard").
+						Tooltip("Close the storyboard (Esc)").Height(26).Padding(0, 10).
 						Radius(6).AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
 					if b.Hovered() {
 						b.Background(pal.Hover)

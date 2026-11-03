@@ -66,6 +66,10 @@ func (p *Plugin) canVideo() bool {
 	return p.agent.Status().State == agent.Ready && !p.making.Running()
 }
 
+// agentDown reports that the backend is not connected, so a video cannot
+// start.
+func (p *Plugin) agentDown() bool { return p.agent.Status().State == agent.Down }
+
 // canOpenPage reports that the full-window editor can show.
 func (p *Plugin) canOpenPage() bool { return p.open && p.host.Page() != PageID }
 

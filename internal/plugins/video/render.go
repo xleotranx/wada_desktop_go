@@ -168,6 +168,23 @@ func (p *Plugin) render() {
 	})
 }
 
+// lastLines are the last n lines of a command's output that say something,
+// without the CLI's progress lines.
+func lastLines(lines []string, n int) []string {
+	out := make([]string, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "@hf-progress ") {
+			continue
+		}
+		out = append(out, line)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 // renderOptions is how the user last asked to render: the format and the
 // quality, kept in the settings.
 type renderOptions struct {
@@ -182,6 +199,29 @@ var renderFormats = []struct{ Name, Ext string }{
 
 // renderQualities are the CLI's quality levels, best last.
 var renderQualities = []string{"draft", "standard", "high"}
+
+// renderFormatLabel names a format the way the menu does.
+func renderFormatLabel(name string) string {
+	switch name {
+	case "mp4":
+		return "MP4"
+	case "webm":
+		return "WebM"
+	case "mov":
+		return "MOV"
+	case "gif":
+		return "GIF"
+	}
+	return name
+}
+
+// renderQualityLabel names a quality the way the menu does.
+func renderQualityLabel(name string) string {
+	if name == "" {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
 
 // extension is a format's file extension.
 func (o renderOptions) extension() string {

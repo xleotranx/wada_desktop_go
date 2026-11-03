@@ -2,7 +2,9 @@ package video
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"wada-desktop-go/internal/contract/chat"
 
@@ -66,6 +68,20 @@ func (p *Plugin) editor(c *ui.Context, pal native.Palette) {
 	})
 }
 
+// narrowHeader reports that the editor beside the sidebar has little room,
+// so the header keeps its actions and drops the check's words.
+func (p *Plugin) narrowHeader(c *ui.Context) bool {
+	w := p.timeline.Bounds(c).W
+	return w > 0 && w < 620
+}
+
+// narrowTransport reports that the transport has little room, so it drops
+// the composition's size beside the timecode.
+func (p *Plugin) narrowTransport(c *ui.Context) bool {
+	w := p.timeline.Bounds(c).W
+	return w > 0 && w < 480
+}
+
 // header names the project and takes the actions: check, render, reload. A
 // page has no drawer around it, so it offers the way back.
 func (p *Plugin) header(c *ui.Context, pal native.Palette, page bool) {
@@ -77,7 +93,8 @@ func (p *Plugin) header(c *ui.Context, pal native.Palette, page bool) {
 		}
 		if p.scene != nil {
 			ui.Icon(c, lucide.ChevronRight()).FontSize(12).TextColor(pal.Faint).Shrink(0)
-			ui.Text(c, p.scene.Comp.ID).FontSize(12).TextColor(pal.Text).SingleLine().Shrink(0)
+			ui.Text(c, p.scene.Comp.ID).FontSize(12).TextColor(pal.Text).SingleLine().Ellipsis("…").
+				MaxWidth(150).MinWidth(56).Shrink(1)
 			b := ui.ButtonBase(c.Key("back")).Label("Back to the main composition").Tooltip("Back to the main composition").
 				Size(22, 22).Radius(5).Center().Shrink(0).Cursor(ui.CursorPointer)
 			if b.Hovered() {
@@ -87,10 +104,14 @@ func (p *Plugin) header(c *ui.Context, pal native.Palette, page bool) {
 			b.Children(func() { ui.Icon(c, lucide.CornerUpLeft()).FontSize(11).TextColor(pal.Muted) })
 		}
 		ui.Box(c).Grow(1)
-		p.iconButton(c, pal, "storyboard", "Storyboard the video", lucide.LayoutGrid, p.story,
+		storyIcon, storyLabel := lucide.LayoutGrid, "Storyboard the video"
+		if p.shooting.Running() {
+			storyIcon, storyLabel = lucide.Loader, "Capturing the storyboard…"
+		}
+		p.iconButton(c, pal, "storyboard", storyLabel, storyIcon, p.story,
 			p.takeStoryboard, p.web == nil || p.project == nil || p.shooting.Running())
-		p.iconButton(c, pal, "undo", "Undo the last timing change", lucide.Undo2, false, p.undoEdit, !p.canUndo())
-		p.iconButton(c, pal, "redo", "Redo the timing change", lucide.Redo2, false, p.redoEdit, !p.canRedo())
+		p.iconButton(c, pal, "undo", "Undo the last timing change (⌘Z)", lucide.Undo2, false, p.undoEdit, !p.canUndo())
+		p.iconButton(c, pal, "redo", "Redo the timing change (⇧⌘Z)", lucide.Redo2, false, p.redoEdit, !p.canRedo())
 		p.checkChip(c, pal)
 		p.renderButton(c, pal)
 		if page {
@@ -111,26 +132,29 @@ func (p *Plugin) projectMenu(c *ui.Context, pal native.Palette) {
 		found = nil
 	}
 	label := p.project.Title
+	if len(found) <= 1 {
+		// One project: a name, not a control that opens nothing.
+		ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted).SingleLine().Ellipsis("…").
+			MinWidth(0).Shrink(1).Tooltip(label)
+		return
+	}
 	b := ui.ButtonBase(c.Key("project")).Label(label).Tooltip("Choose the video of this folder").Height(24).
-		Padding(0, 6).Radius(5).AlignItems(ui.Center).MinWidth(0).Cursor(ui.CursorPointer)
+		Padding(0, 6).Radius(5).AlignItems(ui.Center).MinWidth(0).MaxWidth(260).Shrink(1).
+		Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
-	if len(found) > 1 {
-		b.Menu(func(m *ui.Menu) {
-			for _, r := range found {
-				if m.Item(r.Title).Checked(r.Dir == p.dir).Chosen() {
-					dir := r.Dir
-					p.ctx.Post(func() { p.chooseProject(dir) })
-				}
+	b.Menu(func(m *ui.Menu) {
+		for _, r := range found {
+			if m.Item(r.Title).Checked(r.Dir == p.dir).Chosen() {
+				dir := r.Dir
+				p.ctx.Post(func() { p.chooseProject(dir) })
 			}
-		})
-	}
-	b.Children(func() {
-		ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted).SingleLine().Ellipsis("…").MinWidth(0)
-		if len(found) > 1 {
-			ui.Icon(c, lucide.ChevronDown()).FontSize(10).TextColor(pal.Faint).Shrink(0)
 		}
+	})
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+		ui.Icon(c, lucide.ChevronDown()).FontSize(10).TextColor(pal.Faint).Shrink(0)
 	})
 }
 
@@ -144,20 +168,29 @@ func (p *Plugin) chooseProject(dir string) {
 	p.update(conv)
 }
 
-// checkChip says what the project's check found; clicking it shows it.
+// checkChip says what the project's check found; clicking it shows it. In a
+// narrow editor it keeps the icon and the tooltip, so the actions beside it
+// stay reachable.
 func (p *Plugin) checkChip(c *ui.Context, pal native.Palette) {
 	if p.project == nil {
 		return
 	}
-	color := pal.Muted
+	color, icon := pal.Muted, lucide.CircleCheck
 	label := "No problems"
+	tip := "No problems — the project is ready to render"
 	switch {
+	case p.checking.Running():
+		icon, label = lucide.Loader, "Checking…"
+		tip = "Running the HyperFrames CLI check…"
 	case p.check.Errors > 0:
-		color, label = pal.Danger, p.check.message()
+		color, icon, label = pal.Danger, lucide.CircleAlert, p.check.message()
+		tip = label + " — click to see what to fix"
 	case p.check.Warnings > 0:
-		color, label = pal.Warning, p.check.message()
+		color, icon, label = pal.Warning, lucide.TriangleAlert, p.check.message()
+		tip = label + " — click to see them"
 	}
-	b := ui.ButtonBase(c.Key("check")).Label(label).Tooltip("Show what the check found").Height(26).Padding(0, 8).
+	showLabel := !p.narrowHeader(c)
+	b := ui.ButtonBase(c.Key("check")).Label(label).Tooltip(tip).Height(26).Padding(0, 8).
 		Radius(6).Gap(5).AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
@@ -167,25 +200,37 @@ func (p *Plugin) checkChip(c *ui.Context, pal native.Palette) {
 	}
 	b.OnClick(func() { p.ctx.Post(func() { p.panel = checkPanel }) })
 	b.Children(func() {
-		ui.Icon(c, lucide.CircleAlert()).FontSize(12).TextColor(color)
-		ui.Text(c, label).FontSize(11.5).TextColor(color).SingleLine().FontFeatures("tnum")
+		iconColor := color
+		if !p.checking.Running() && p.check.Errors == 0 && p.check.Warnings == 0 {
+			iconColor = pal.GreenBadge
+		}
+		ui.Icon(c, icon()).FontSize(12).TextColor(iconColor)
+		if showLabel {
+			ui.Text(c, label).FontSize(11.5).TextColor(color).SingleLine().FontFeatures("tnum")
+		}
 	})
 }
 
-// renderButton renders the project to MP4, or says it is rendering.
+// renderButton renders the project to MP4, or says it is rendering. With
+// errors in the check it stays clickable and says what blocks the render.
 func (p *Plugin) renderButton(c *ui.Context, pal native.Palette) {
 	if p.project == nil {
 		return
 	}
 	running := p.rendering.Running()
+	blocked := p.check.Errors > 0
 	label := "Render"
-	if running {
+	tip := "Render the project to an MP4 with the HyperFrames CLI"
+	switch {
+	case running:
 		label = "Rendering…"
+	case blocked:
+		tip = p.check.message() + " — fix them before rendering"
 	}
-	b := ui.ButtonBase(c.Key("render")).Label(label).Tooltip("Render the project to an MP4 with the HyperFrames CLI").
+	b := ui.ButtonBase(c.Key("render")).Label(label).Tooltip(tip).
 		Height(26).Padding(0, 9).Radius(6).Gap(5).AlignItems(ui.Center).Shrink(0).
-		Disabled(running || p.check.Errors > 0).Cursor(ui.CursorPointer)
-	if b.Hovered() && !running && p.check.Errors == 0 {
+		Disabled(running).Cursor(ui.CursorPointer)
+	if b.Hovered() && !running {
 		b.Background(pal.Hover)
 	}
 	b.OnClick(p.render)
@@ -195,21 +240,26 @@ func (p *Plugin) renderButton(c *ui.Context, pal native.Palette) {
 		} else {
 			ui.Icon(c, lucide.Film()).FontSize(12).TextColor(pal.Muted)
 		}
-		ui.Text(c, label).FontSize(11.5).TextColor(pal.Text).SingleLine()
+		color := pal.Text
+		if blocked {
+			color = pal.Muted
+		}
+		ui.Text(c, label).FontSize(11.5).TextColor(color).SingleLine()
 	})
 	p.renderOptionsButton(c, pal)
 }
 
 // renderOptionsButton chooses the render's format and quality.
 func (p *Plugin) renderOptionsButton(c *ui.Context, pal native.Palette) {
-	b := ui.ButtonBase(c.Key("render-options")).Label("Render options").Size(22, 26).Radius(6).Center().Shrink(0).
+	b := ui.ButtonBase(c.Key("render-options")).Label("Render options").
+		Tooltip("Choose the render's format and quality").Size(22, 26).Radius(6).Center().Shrink(0).
 		Disabled(p.rendering.Running()).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
 	b.Menu(func(m *ui.Menu) {
 		for _, f := range renderFormats {
-			if m.Item("Format: " + f.Name).Checked(p.renderOpts.Format == f.Name).Chosen() {
+			if m.Item("Format: " + renderFormatLabel(f.Name)).Checked(p.renderOpts.Format == f.Name).Chosen() {
 				next := p.renderOpts
 				next.Format = f.Name
 				p.ctx.Post(func() { p.setRenderOptions(next) })
@@ -217,7 +267,7 @@ func (p *Plugin) renderOptionsButton(c *ui.Context, pal native.Palette) {
 		}
 		m.Separator()
 		for _, q := range renderQualities {
-			if m.Item("Quality: " + q).Checked(p.renderOpts.Quality == q).Chosen() {
+			if m.Item("Quality: " + renderQualityLabel(q)).Checked(p.renderOpts.Quality == q).Chosen() {
 				next := p.renderOpts
 				next.Quality = q
 				p.ctx.Post(func() { p.setRenderOptions(next) })
@@ -255,6 +305,10 @@ func (p *Plugin) stageView(c *ui.Context, pal native.Palette) {
 			}
 			sw, sh := float32(w)*float32(k), float32(h)*float32(k)
 			p.web.Show(c.Key("preview")).Absolute().Left((r.W - sw) / 2).Top((r.H - sh) / 2).Width(sw).Height(sh)
+			if p.mounting.Running() {
+				ui.Text(c, "Loading the preview…").FontSize(11).TextColor(pal.Faint).Absolute().Left(12).Bottom(10).
+					PassThrough()
+			}
 		})
 	if len(p.info.Errors) > 0 {
 		ui.Text(c, p.info.Errors[0]).FontSize(11).TextColor(pal.Warning).Absolute().Left(12).Bottom(6).
@@ -269,7 +323,7 @@ func (p *Plugin) transport(c *ui.Context, pal native.Palette) {
 		ui.Text(c, timecode(p.displayTime())).FontSize(12).TextColor(pal.Text).FontFeatures("tnum").SingleLine().Shrink(0)
 		ui.Text(c, "/ "+timecode(p.displayDuration())).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum").SingleLine().Shrink(0)
 		ui.Text(c, "f "+strconv.Itoa(int(p.displayTime()*p.fps()+0.5))).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
-			SingleLine().Shrink(0)
+			SingleLine().Shrink(0).Tooltip("The frame at the playhead")
 		ui.Box(c).Grow(1)
 		if p.viewZoom > 1 {
 			ui.Text(c, fmt.Sprintf("%.1f×", p.viewZoom)).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
@@ -277,11 +331,11 @@ func (p *Plugin) transport(c *ui.Context, pal native.Palette) {
 		}
 		p.iconButton(c, pal, "zoom-out", "Zoom out (⌘−)", lucide.ZoomOut, false,
 			func() { p.zoomAt(1/1.5, timelinePad) })
-		p.iconButton(c, pal, "zoom-fit", "Fit the timeline (⌘0)", lucide.Maximize2, false,
+		p.iconButton(c, pal, "zoom-fit", "Fit the timeline (⌘0)", lucide.Frame, false,
 			func() { p.viewStart, p.viewZoom = 0, 1 })
 		p.iconButton(c, pal, "zoom-in", "Zoom in (⌘=)", lucide.ZoomIn, false,
 			func() { p.zoomAt(1.5, timelinePad) })
-		if p.project != nil {
+		if p.project != nil && !p.narrowTransport(c) {
 			w, h := p.project.Size()
 			ui.Text(c, fmt.Sprintf("%g×%g · %g fps", w, h, p.fps())).FontSize(11).TextColor(pal.Faint).
 				FontFeatures("tnum").SingleLine().Shrink(0)
@@ -292,19 +346,17 @@ func (p *Plugin) transport(c *ui.Context, pal native.Palette) {
 
 // playButton plays or pauses the preview.
 func (p *Plugin) playButton(c *ui.Context, pal native.Palette) {
-	b := ui.ButtonBase(c.Key("play")).Label("Play").Tooltip("Play the preview (space)").Size(26, 26).Radius(13).Center().
+	label, tip, icon := "Play", "Play the preview (space)", lucide.Play
+	if p.playing {
+		label, tip, icon = "Pause", "Pause the preview (space)", lucide.Pause
+	}
+	b := ui.ButtonBase(c.Key("play")).Label(label).Tooltip(tip).Size(26, 26).Radius(13).Center().
 		Shrink(0).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(pal.Hover)
 	}
 	b.OnClick(p.togglePlay)
-	b.Children(func() {
-		if p.playing {
-			ui.Icon(c, lucide.Pause()).FontSize(12).TextColor(pal.Text)
-			return
-		}
-		ui.Icon(c, lucide.Play()).FontSize(12).TextColor(pal.Text)
-	})
+	b.Children(func() { ui.Icon(c, icon()).FontSize(12).TextColor(pal.Text) })
 }
 
 // side is the sidebar: the scenes, the selected clip and the check.
@@ -336,7 +388,17 @@ func (p *Plugin) side(c *ui.Context, pal native.Palette) {
 
 // panelTab is one sidebar tab.
 func (p *Plugin) panelTab(c *ui.Context, pal native.Palette, label string, kind panelKind) {
-	b := ui.ButtonBase(c.Key("tab-"+label)).Label(label).Height(26).Padding(0, 8).Radius(6).
+	tip := "The scenes this video mounts"
+	switch kind {
+	case scenesPanel:
+	case clipPanel:
+		tip = "The clip selected on the timeline"
+	case varsPanel:
+		tip = "The values this composition declares"
+	case checkPanel:
+		tip = "What the check found"
+	}
+	b := ui.ButtonBase(c.Key("tab-"+label)).Label(label).Tooltip(tip).Height(26).Padding(0, 8).Radius(6).
 		AlignItems(ui.Center).Cursor(ui.CursorPointer)
 	if p.panel == kind {
 		b.Background(pal.Selected)
@@ -354,18 +416,17 @@ func (p *Plugin) scenesView(c *ui.Context, pal native.Palette) {
 	ui.Row(c).FillWidth().Height(32).Shrink(0).Padding(0, 10).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, "Scenes").FontSize(11).TextColor(pal.Faint).SingleLine().Shrink(0)
 		ui.Box(c).Grow(1)
-		if p.scene == nil {
-			b := ui.ButtonBase(c.Key("add-scene")).Label("Add scene").Height(22).Padding(0, 6).Radius(5).
-				AlignItems(ui.Center).Shrink(0).Disabled(p.adding.Running()).Cursor(ui.CursorPointer)
-			if b.Hovered() {
-				b.Background(pal.Hover)
-			}
-			b.OnClick(p.newScene)
-			b.Children(func() {
-				ui.Icon(c, lucide.Plus()).FontSize(11).TextColor(pal.Muted)
-				ui.Text(c, "Add scene").FontSize(11).TextColor(pal.Text).SingleLine()
-			})
+		b := ui.ButtonBase(c.Key("add-scene")).Label("Add scene").Tooltip("Add a scene to the end of the video").
+			Height(22).Padding(0, 6).Radius(5).AlignItems(ui.Center).Shrink(0).
+			Disabled(p.adding.Running()).Cursor(ui.CursorPointer)
+		if b.Hovered() {
+			b.Background(pal.Hover)
 		}
+		b.OnClick(p.newScene)
+		b.Children(func() {
+			ui.Icon(c, lucide.Plus()).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, "Add scene").FontSize(11).TextColor(pal.Text).SingleLine()
+		})
 	})
 	ui.Scroll(c.Key("scenes")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(6, 8).Gap(2).Children(func() {
@@ -392,10 +453,13 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 		b.Background(pal.Hover)
 	}
 	b.OnClick(func() {
+		id := host.ID
 		p.ctx.Post(func() {
-			p.panel = clipPanel
-			p.focusOn(s)
-			p.selectClip(host.ID)
+			// The scene's own clips are what the timeline shows; the host
+			// belongs to the root, so it is not what this view selects. The
+			// project may have been read again since the click: find the
+			// scene there by name.
+			p.focusSceneByID(id)
 		})
 	})
 	b.Children(func() {
@@ -440,16 +504,27 @@ func (p *Plugin) clipPanel(c *ui.Context, pal native.Palette) {
 				ui.Text(c, "Words").FontSize(10.5).TextColor(pal.Faint).SingleLine()
 				ui.TextInput(c.Key("clip-text-"+clip.ID), &p.text).FillWidth().Label("The clip's words").
 					OnSubmit(func() { p.saveText(clip) })
+				unsaved := p.text != clip.Text
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(4).Children(func() {
-					ui.Text(c, "Enter saves").FontSize(9.5).TextColor(pal.Faint).SingleLine()
+					hint := "Enter saves"
+					if unsaved {
+						hint = "Unsaved words — Enter saves"
+					}
+					ui.Text(c, hint).FontSize(9.5).TextColor(pal.Faint).SingleLine()
 					ui.Box(c).Grow(1)
 					b := ui.ButtonBase(c.Key("save-text-"+clip.ID)).Label("Save the words").Height(20).Padding(0, 8).
-						Radius(4).AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
+						Radius(4).AlignItems(ui.Center).Shrink(0).Disabled(!unsaved).Cursor(ui.CursorPointer)
 					if b.Hovered() {
 						b.Background(pal.Hover)
 					}
 					b.OnClick(func() { p.saveText(clip) })
-					b.Children(func() { ui.Text(c, "Save").FontSize(10.5).TextColor(pal.Text).SingleLine() })
+					b.Children(func() {
+						color := pal.Text
+						if !unsaved {
+							color = pal.Faint
+						}
+						ui.Text(c, "Save").FontSize(10.5).TextColor(color).SingleLine()
+					})
 				})
 			} else if clip.Text != "" {
 				ui.Text(c, clip.Text).FontSize(10.5).TextColor(pal.Muted).MaxLines(3)
@@ -495,7 +570,7 @@ func (p *Plugin) variablesView(c *ui.Context, pal native.Palette) {
 func (p *Plugin) variableRow(c *ui.Context, pal native.Palette, e *variableEditor) {
 	ui.Column(c).FillWidth().Gap(3).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(4).Children(func() {
-			ui.Text(c, e.label()).FontSize(11.5).TextColor(pal.Text).SingleLine().Ellipsis("…").MinWidth(0)
+			ui.Text(c, e.label()).FontSize(11.5).TextColor(pal.Text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 			ui.Box(c).Grow(1)
 			if p.overridden(e.ID) {
 				b := ui.ButtonBase(c.Key("reset-"+e.ID)).Label("Reset "+e.label()).Tooltip("Back to the declared default").
@@ -545,7 +620,11 @@ func (p *Plugin) checkPanel(c *ui.Context, pal native.Palette) {
 		if p.cliChecked {
 			name = "Quick check"
 		}
-		b := ui.ButtonBase(c.Key("full-check")).Label(name).Height(22).Padding(0, 6).Radius(5).
+		tip := "Run the HyperFrames CLI over the project; it needs Node.js and, the first time, the network."
+		if p.cliChecked {
+			tip = "Go back to the editor's own check"
+		}
+		b := ui.ButtonBase(c.Key("full-check")).Label(name).Tooltip(tip).Height(22).Padding(0, 6).Radius(5).
 			AlignItems(ui.Center).Shrink(0).Disabled(p.checking.Running()).Cursor(ui.CursorPointer)
 		if b.Hovered() {
 			b.Background(pal.Hover)
@@ -563,8 +642,18 @@ func (p *Plugin) checkPanel(c *ui.Context, pal native.Palette) {
 	})
 	ui.Scroll(c.Key("check-list")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(6, 8).Gap(2).Children(func() {
+			if p.checking.Running() {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(4, 6).Children(func() {
+					ui.Icon(c, lucide.Loader()).FontSize(13).TextColor(pal.Muted)
+					ui.Text(c, "The HyperFrames CLI is checking the project…").FontSize(11).TextColor(pal.Muted).MaxLines(2)
+				})
+				return
+			}
 			if len(p.check.Findings) == 0 {
-				ui.Text(c, "No problems.").FontSize(11.5).TextColor(pal.Link).Padding(4, 6)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(4, 6).Children(func() {
+					ui.Icon(c, lucide.CircleCheck()).FontSize(13).TextColor(pal.GreenBadge)
+					ui.Text(c, "No problems.").FontSize(11.5).TextColor(pal.Muted)
+				})
 				return
 			}
 			for i, f := range p.check.Findings {
@@ -591,8 +680,10 @@ func (p *Plugin) findingRow(c *ui.Context, pal native.Palette, i int, f finding)
 	}
 	b.OnClick(func() {
 		p.ctx.Post(func() {
-			p.panel = clipPanel
+			// A finding with a clip opens it; one about the file leaves the
+			// check on show so its message stays readable.
 			if f.Clip != "" {
+				p.panel = clipPanel
 				p.focusClip(f.Clip)
 			}
 		})
@@ -614,8 +705,23 @@ func (p *Plugin) findingRow(c *ui.Context, pal native.Palette, i int, f finding)
 			if f.Fix != "" {
 				ui.Text(c, f.Fix).FontSize(10).TextColor(pal.Faint).MaxLines(2)
 			}
+			if place := findingPlace(f); place != "" {
+				ui.Text(c, place).FontSize(9.5).TextColor(pal.Faint).SingleLine().Ellipsis("…")
+			}
 		})
 	})
+}
+
+// findingPlace is where a finding sits: its file, and its line when the
+// check knows it.
+func findingPlace(f finding) string {
+	switch {
+	case f.File != "" && f.Line > 0:
+		return fmt.Sprintf("%s:%d", f.File, f.Line)
+	case f.File != "":
+		return f.File
+	}
+	return ""
 }
 
 // empty is the editor without a project: the first video can start here.
@@ -627,20 +733,33 @@ func (p *Plugin) empty(c *ui.Context, pal native.Palette) {
 			ui.Text(c, p.loadErr).FontSize(11.5).TextColor(pal.Danger).MaxLines(4)
 			return
 		}
+		if p.open && p.dir != "" {
+			ui.Text(c, "Loading the video…").FontSize(13).TextColor(pal.Text)
+			return
+		}
+		ui.Text(c, "No video here yet").FontSize(13).TextColor(pal.Text)
+		ui.Text(c, "Ask the agent for a video, or start one with its own composition and timeline.").FontSize(11.5).
+			TextColor(pal.Muted).MaxLines(3)
+		if p.canVideo() {
+			ui.ButtonBase(c.Key("new-video")).Label("New video").Height(28).Padding(0, 12).Radius(7).
+				AlignItems(ui.Center).Cursor(ui.CursorPointer).OnClick(p.newVideo).Children(func() {
+				ui.Text(c, "New video").FontSize(12).TextColor(pal.Text)
+			})
+		} else {
+			note := "The agent is starting…"
+			switch {
+			case p.making.Running():
+				note = "Starting the video…"
+			case p.agentDown():
+				note = "The agent is not connected."
+			}
+			ui.Text(c, note).FontSize(10.5).TextColor(pal.Faint).SingleLine()
+		}
 		b := ui.ButtonBase(c.Key("back-chat")).Label("Back to the chat").Height(28).Padding(0, 12).Radius(7).
 			AlignItems(ui.Center).Cursor(ui.CursorPointer).OnClick(func() { p.host.ShowPage(chat.PageID) })
 		b.Children(func() {
-			ui.Text(c, "Back to the chat").FontSize(12).TextColor(pal.Text)
+			ui.Text(c, "Back to the chat").FontSize(12).TextColor(pal.Muted)
 		})
-		ui.Text(c, "No video here yet").FontSize(13).TextColor(pal.Text)
-		ui.Text(c, "Ask for a video, or start one with its own composition and timeline.").FontSize(11.5).
-			TextColor(pal.Muted).MaxLines(3)
-		if p.canVideo() {
-			ui.ButtonBase(c.Key("new-video")).Label("New Video").Height(28).Padding(0, 12).Radius(7).
-				AlignItems(ui.Center).Cursor(ui.CursorPointer).OnClick(p.newVideo).Children(func() {
-				ui.Text(c, "New Video").FontSize(12).TextColor(pal.Text)
-			})
-		}
 	})
 }
 
@@ -677,10 +796,39 @@ func (p *Plugin) renderStatus(c *ui.Context, pal native.Palette) {
 				}
 			})
 		case p.renderErr != "":
-			ui.Text(c, "The render failed").FontSize(11.5).TextColor(pal.Danger).SingleLine()
-			ui.Text(c, p.renderErr).FontSize(10).TextColor(pal.Muted).MaxLines(4)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Text(c, "The render failed").FontSize(11.5).TextColor(pal.Danger).SingleLine().Shrink(0)
+				ui.Box(c).Grow(1)
+				if len(p.renderLog) > 0 {
+					log := strings.Join(p.renderLog, "\n")
+					b := ui.ButtonBase(c.Key("copy-render-log")).Label("Copy the render log").
+						Tooltip("Copy the CLI's output").Height(20).Padding(0, 6).Radius(4).
+						AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
+					if b.Hovered() {
+						b.Background(pal.Hover)
+					}
+					b.OnClick(func() { p.host.Copy(log) })
+					b.Children(func() { ui.Text(c, "Copy").FontSize(10.5).TextColor(pal.Text).SingleLine() })
+				}
+			})
+			ui.Text(c, p.renderErr).FontSize(10).TextColor(pal.Muted).MaxLines(2)
+			for _, line := range lastLines(p.renderLog, 3) {
+				ui.Text(c, line).FontSize(9.5).TextColor(pal.Faint).MaxLines(2)
+			}
 		case p.renderOut != "":
-			ui.Text(c, "Rendered").FontSize(11.5).TextColor(pal.Link).SingleLine()
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Text(c, "Rendered").FontSize(11.5).TextColor(pal.Link).SingleLine().Shrink(0)
+				ui.Box(c).Grow(1)
+				out := p.renderOut
+				b := ui.ButtonBase(c.Key("show-render")).Label("Show the render in the folder").
+					Tooltip("Show the render in the folder").Height(20).Padding(0, 6).Radius(4).
+					AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
+				if b.Hovered() {
+					b.Background(pal.Hover)
+				}
+				b.OnClick(func() { p.host.OpenURL("file://" + filepath.Dir(out)) })
+				b.Children(func() { ui.Text(c, "Show").FontSize(10.5).TextColor(pal.Text).SingleLine() })
+			})
 			ui.Text(c, rel(p.dir, p.renderOut)).FontSize(10).TextColor(pal.Faint).MaxLines(2)
 		}
 	})

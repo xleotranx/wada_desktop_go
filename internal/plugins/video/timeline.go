@@ -524,14 +524,15 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		return kind == dragScrub
 	case ui.InputKeyDown:
 		if ev.Mods&ui.Cmd != 0 {
-			switch ev.Key {
-			case ui.KeyEqual:
+			if ev.Key == ui.KeyEqual {
 				p.zoomAt(1.5, timelinePad)
 				return true
-			case ui.KeyMinus:
+			}
+			if ev.Key == ui.KeyMinus {
 				p.zoomAt(1/1.5, timelinePad)
 				return true
-			case ui.Key0:
+			}
+			if ev.Key == ui.Key0 {
 				p.viewStart, p.viewZoom = 0, 1
 				return true
 			}

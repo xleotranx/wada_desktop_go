@@ -249,7 +249,9 @@ no web pages.
 ## Not there yet
 
 The timeline edits one composition at a time, so a scene's clips are reached by
-opening the scene, not by expanding its host in place. Variables and their
-bindings, captions, snapshot review, audio preview, linked clips, keyframes,
-undo, and cloud or distributed rendering are not ported. A render is local and
-synchronous from the editor's point of view.
+opening the scene, not by expanding its host in place. A scene's scripts must be
+inline: the root page loads its own scripts, but the runtime does not fetch a
+`<script src>` inside a scene's template. Variables and their bindings, captions,
+snapshot review, audio preview, linked clips, keyframes, undo, and cloud or
+distributed rendering are not ported. A render is local and synchronous from the
+editor's point of view.

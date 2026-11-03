@@ -249,7 +249,8 @@ The sidebar has three tabs: **Scenes**, the compositions the root mounts, in
 order, with their windows; clicking one opens its clips on the timeline, and
 **Add scene** (in the root's view) writes a four-second scene and mounts it at the
 end; **Clip**, the selected clip's file, element, start, duration, end and track;
-and **Check**, the findings, whose row selects the clip it names.
+and **Check**, the findings, whose row opens the composition the clip is written
+in, selects it and moves the playhead to its start.
 
 ## The full-window page
 

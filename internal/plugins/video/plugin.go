@@ -418,6 +418,28 @@ func (p *Plugin) clip(id string) (*Clip, bool) {
 	return nil, false
 }
 
+// focusClip shows the composition a clip belongs to, selects it and moves
+// the playhead to its start.
+func (p *Plugin) focusClip(id string) {
+	if p.project == nil || id == "" {
+		return
+	}
+	if c := clipIn(p.project.Root, id); c != nil {
+		p.unfocus()
+		p.selected = id
+		p.seek(c.Start)
+		return
+	}
+	for _, s := range p.project.Scenes {
+		if c := clipIn(s.Comp, id); c != nil {
+			p.focusOn(s)
+			p.selected = id
+			p.seek(c.Start)
+			return
+		}
+	}
+}
+
 // clipIn finds a clip of a composition.
 func clipIn(comp *Composition, id string) *Clip {
 	if comp == nil {

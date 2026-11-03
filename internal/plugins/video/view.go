@@ -509,12 +509,9 @@ func (p *Plugin) findingRow(c *ui.Context, pal native.Palette, i int, f finding)
 	}
 	b.OnClick(func() {
 		p.ctx.Post(func() {
-			if f.Clip != "" {
-				p.selected = f.Clip
-			}
 			p.panel = clipPanel
-			if clip, ok := p.clip(f.Clip); ok {
-				p.seek(clip.Start)
+			if f.Clip != "" {
+				p.focusClip(f.Clip)
 			}
 		})
 	})

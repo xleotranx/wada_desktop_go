@@ -528,3 +528,31 @@ func TestZoomingTheTimelineMapsTheRuler(t *testing.T) {
 		t.Fatalf("view start = %v", f.p.viewStart)
 	}
 }
+
+// TestAFindingOpensItsScene selects a clip in a scene from the check: the
+// timeline follows it there.
+func TestAFindingOpensItsScene(t *testing.T) {
+	f := start(t)
+	dir := filepath.Join(f.dir, "videos", "video-1")
+	f.open(t, dir)
+	scene := f.p.project.Scenes[0]
+	// The scene's title is on track 0; make it the clip a finding names.
+	f.p.focusClip("scene-01-title")
+	if f.p.selected != "scene-01-title" {
+		t.Fatalf("selected = %q", f.p.selected)
+	}
+	if f.p.scene == nil || f.p.scene.Host.ID != scene.Host.ID {
+		t.Fatalf("scene = %+v", f.p.scene)
+	}
+	if f.p.playhead != 0 {
+		t.Fatalf("playhead = %v", f.p.playhead)
+	}
+	// A clip of the root takes the timeline back to the root.
+	f.p.focusClip("scene-01")
+	if f.p.scene != nil {
+		t.Fatalf("scene = %+v", f.p.scene)
+	}
+	if f.p.selected != "scene-01" {
+		t.Fatalf("selected = %q", f.p.selected)
+	}
+}

@@ -348,9 +348,8 @@ markup. `composition_test.go` pins the start grammar and reference resolution.
 `check_test.go` pins the check against a project that breaks each group of rules,
 and that a new project is clean. `edit_test.go` pins surgical timing writes and
 scene creation. `project_test.go` pins discovery, opening with a missing scene
-and timing resolution. `story_test.go` is covered inside `video_test.go`, which also pins the
-storyboard's nine frames and the overlay. `cli_check_test.go` pins the CLI
-report's conversion and the panel's way to it.
+and timing resolution. `video_test.go` also pins the storyboard's nine frames and the overlay.
+`cli_check_test.go` pins the CLI report's conversion and the panel's way to it.
 `video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
 on another conversation, seeks from the ruler, drags a root clip and a clip

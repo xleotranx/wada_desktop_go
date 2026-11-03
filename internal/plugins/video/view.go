@@ -571,7 +571,23 @@ func (p *Plugin) renderStatus(c *ui.Context, pal native.Palette) {
 			if p.renderPct > 0 {
 				label = fmt.Sprintf("Rendering the video… %d%%", p.renderPct)
 			}
-			ui.Text(c, label).FontSize(11.5).TextColor(pal.Text).SingleLine()
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Text(c, label).FontSize(11.5).TextColor(pal.Text).SingleLine().MinWidth(0)
+				ui.Box(c).Grow(1)
+				b := ui.ButtonBase(c.Key("stop-render")).Label("Stop the render").Height(20).Padding(0, 6).Radius(4).
+					AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer)
+				if b.Hovered() {
+					b.Background(pal.Hover)
+				}
+				b.OnClick(func() {
+					p.ctx.Post(func() {
+						p.rendering.Cancel()
+						p.renderPct = 0
+						p.renderLog = nil
+					})
+				})
+				b.Children(func() { ui.Text(c, "Stop").FontSize(10.5).TextColor(pal.Danger).SingleLine() })
+			})
 			fill := float32(sideWidth-20) * float32(p.renderPct) / 100
 			ui.Box(c).FillWidth().Height(4).Radius(2).Background(pal.Hairline).Children(func() {
 				if fill > 0 {

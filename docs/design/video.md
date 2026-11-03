@@ -271,8 +271,9 @@ npx --yes hyperframes render --output renders/<title>.mp4
 ```
 
 It is disabled while the check has errors, and while a render runs. The job runs
-on a worker, keeps the last lines the CLI wrote, and opens the MP4 when it
-finishes; the sidebar says what happened. `npx` is looked up on the usual
+on a worker, reads the CLI's progress lines into a bar, keeps the last lines it
+wrote, and opens the MP4 when it finishes; the sidebar says what happened, and
+**Stop** cancels the job and the CLI process with it. `npx` is looked up on the usual
 places as well as `PATH`, since a window started from the Dock has a short one.
 Rendering needs Node.js and the network on first use, when `npx` fetches the
 package.
@@ -295,8 +296,9 @@ tied to a navigation scope the plugin replaces when the open project changes:
 | discovery | `scanning` | lists the folder's projects for the header menu |
 
 Closing the editor, changing conversation or switching project closes the web
-page; the plugin closes it on dispose too. The page is not created until a
-project is open, and no work runs for a conversation that is not a video.
+page; the plugin stops the work that uses the page and closes it on dispose too.
+The page is not created until a project is open, and no work runs for a
+conversation that is not a video.
 
 The editor follows the agent: after a tool that may change files (anything but a
 read, search or fetch) and when a turn ends, it reads the project again and

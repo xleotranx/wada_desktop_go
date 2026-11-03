@@ -848,8 +848,9 @@ back to the chat.
 **Render** runs the official HyperFrames CLI in the project folder and writes
 `renders/<title>.mp4`: `npx --yes hyperframes render --output …`. It is disabled
 while the check has errors and while a render runs; the job runs on a worker,
-keeps the tail of what the CLI wrote, shows it in the sidebar, and opens the file
-when it finishes. Rendering needs Node.js, and the network on first use while
+reads the CLI's progress lines into a bar, keeps the tail of what it wrote, shows
+it in the sidebar with a way to stop the job, and opens the file when it
+finishes. Rendering needs Node.js, and the network on first use while
 `npx` fetches the package. The full contract, the check's rules and what is not
 ported are in [video](video.md).
 

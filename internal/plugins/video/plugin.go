@@ -147,10 +147,18 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	c.Settings().Get(valuesKey, &p.saved)
 	p.starts = map[uint64]video{}
 	c.OnDispose(func() {
+		// Nothing may use the page once it is gone: stop the work that does,
+		// then close it.
+		p.ticking.Cancel()
+		p.mounting.Cancel()
+		p.seeking.Cancel()
+		p.apply.Cancel()
+		p.editing.Cancel()
+		p.rendering.Cancel()
 		if p.web != nil {
 			p.web.Close()
+			p.web = nil
 		}
-		p.ticking.Cancel()
 	})
 	kernel.On(c, chat.Leaving, p.leaving)
 	kernel.On(c, chat.Changed, p.changed)
@@ -299,6 +307,9 @@ func (p *Plugin) mount() {
 	}
 	kernel.Go(p.navigation, &p.mounting, func(ctx context.Context) (previewInfo, error) {
 		if err := waitReady(ctx, web, root, 10*time.Second); err != nil {
+			return previewInfo{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return previewInfo{}, err
 		}
 		result, err := web.Eval(ctx, script)

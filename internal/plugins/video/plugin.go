@@ -28,12 +28,17 @@ import (
 // videosKey is the setting that remembers the conversations that are videos.
 const videosKey = "videos-v1"
 
+// valuesKey is the setting that remembers the values the user gave a
+// project's variables, by project folder.
+const valuesKey = "values-v1"
+
 // panelKind is the sidebar's tab.
 type panelKind uint8
 
 const (
 	scenesPanel panelKind = iota
 	clipPanel
+	varsPanel
 	checkPanel
 )
 
@@ -101,6 +106,12 @@ type Plugin struct {
 	renderLog []string
 	renderOut string
 	renderErr string
+	renderPct int
+
+	values  map[string]any            // the user's variable values for the open project
+	saved   map[string]map[string]any // and by project folder, kept in the settings
+	editors []*variableEditor
+	apply   kernel.Task
 }
 
 // New makes the plugin.
@@ -122,6 +133,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
 	c.Settings().Get(videosKey, &p.videos)
+	c.Settings().Get(valuesKey, &p.saved)
 	p.starts = map[uint64]video{}
 	c.OnDispose(func() {
 		if p.web != nil {
@@ -162,6 +174,8 @@ func (p *Plugin) close() {
 	p.project, p.check, p.loadErr = nil, check{}, ""
 	p.scene = nil
 	p.found = nil
+	p.values = nil
+	p.editors = nil
 	p.dir, p.playhead = "", 0
 }
 
@@ -221,8 +235,10 @@ func (p *Plugin) load() {
 		}
 		p.loadErr = ""
 		p.project, p.check, p.found = l.project, l.check, l.found
+		p.values = p.saved[p.dir]
 		p.pruneFocus()
 		p.pruneSelection()
+		p.buildEditors()
 		p.mount()
 	})
 }
@@ -254,7 +270,7 @@ func (p *Plugin) mount() {
 		}
 	}
 	p.webErr = ""
-	script, err := mountScript(project)
+	script, err := mountScript(project, p.values)
 	if err != nil {
 		p.webErr = err.Error()
 		return
@@ -327,6 +343,7 @@ func (p *Plugin) focusOn(s *Scene) {
 	p.scene = s
 	p.selected = ""
 	p.drag = dragState{}
+	p.buildEditors()
 	if s.Host != nil {
 		p.seek(s.Host.Start)
 	}
@@ -337,6 +354,7 @@ func (p *Plugin) unfocus() {
 	p.scene = nil
 	p.selected = ""
 	p.drag = dragState{}
+	p.buildEditors()
 }
 
 // pruneSelection forgets a clip the project no longer has.

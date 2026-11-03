@@ -2,7 +2,9 @@ package video
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,33 +19,80 @@ import (
 // tailLines is how much of the CLI's output the editor keeps.
 const tailLines = 80
 
-// tailWriter keeps the last lines a command wrote, so a failure says why.
-type tailWriter struct {
-	mu    sync.Mutex
-	lines []string
+// commandOutput keeps the last lines a command wrote, so a failure says why,
+// and reads the progress lines the HyperFrames CLI prints.
+type commandOutput struct {
+	mu      sync.Mutex
+	lines   []string
+	partial string
+	onLine  func(string) // called on the worker, once per complete line
 }
 
-// Write adds what a command wrote, keeping the tail.
-func (w *tailWriter) Write(b []byte) (int, error) {
+// Write splits what a command wrote into lines and keeps their tail.
+func (w *commandOutput) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
-		if line == "" {
-			continue
+	w.partial += string(b)
+	for {
+		i := strings.IndexByte(w.partial, '\n')
+		if i < 0 {
+			break
 		}
-		w.lines = append(w.lines, line)
-	}
-	if len(w.lines) > tailLines {
-		w.lines = w.lines[len(w.lines)-tailLines:]
+		line := strings.TrimRight(w.partial[:i], "\r")
+		w.partial = w.partial[i+1:]
+		w.add(line)
 	}
 	return len(b), nil
 }
 
-// tail returns a copy of the lines kept so far.
-func (w *tailWriter) tail() []string {
+// add keeps one line.
+func (w *commandOutput) add(line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	w.lines = append(w.lines, line)
+	if len(w.lines) > tailLines {
+		w.lines = w.lines[len(w.lines)-tailLines:]
+	}
+	if w.onLine != nil {
+		w.onLine(line)
+	}
+}
+
+// tail returns a copy of the lines kept so far, with what a command wrote
+// without a closing newline.
+func (w *commandOutput) tail() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return append([]string(nil), w.lines...)
+	out := append([]string(nil), w.lines...)
+	if strings.TrimSpace(w.partial) != "" {
+		out = append(out, strings.TrimRight(w.partial, "\r"))
+	}
+	return out
+}
+
+// progressLine is what the CLI prints while it renders:
+// "@hf-progress {\"code\":\"encode\",\"done\":52,\"total\":240,\"pct\":78}".
+type progressLine struct {
+	Code string `json:"code"`
+	Pct  int    `json:"pct"`
+}
+
+// progressOf reads a CLI progress line's percent, or -1 when the line is
+// not one.
+func progressOf(line string) int {
+	const prefix = "@hf-progress "
+	if !strings.HasPrefix(line, prefix) {
+		return -1
+	}
+	var p progressLine
+	if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, prefix))), &p); err != nil {
+		return -1
+	}
+	if p.Pct < 0 || p.Pct > 100 {
+		return -1
+	}
+	return p.Pct
 }
 
 // render runs the HyperFrames CLI over the project and writes an MP4 beside
@@ -69,15 +118,26 @@ func (p *Plugin) render() {
 		p.host.Toast(ui.Toast{Title: "The render folder was not made", Description: err.Error(), Type: components.ToastError})
 		return
 	}
-	p.renderLog, p.renderErr, p.renderOut = nil, "", ""
+	p.renderLog, p.renderErr, p.renderOut, p.renderPct = nil, "", "", 0
 	dest := out
+	vars := p.variablesJSONFor()
+	values := maps.Clone(p.values)
 	kernel.Go(p.navigation, &p.rendering, func(ctx context.Context) ([]string, error) {
-		cmd := exec.CommandContext(ctx, npx, "--yes", "hyperframes", "render", "--output", dest)
-		cmd.Dir = dir
+		stage, cleanup, err := renderDir(dir, values)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		cmd := exec.CommandContext(ctx, npx, renderArgs(dest, vars)...)
+		cmd.Dir = stage
 		cmd.Env = append(os.Environ(), "PATH="+renderPath(npx))
-		tail := &tailWriter{}
+		tail := &commandOutput{onLine: func(line string) {
+			if pct := progressOf(line); pct >= 0 {
+				p.ctx.Post(func() { p.renderPct = pct })
+			}
+		}}
 		cmd.Stdout, cmd.Stderr = tail, tail
-		err := cmd.Run()
+		err = cmd.Run()
 		if err != nil {
 			if ctx.Err() != nil {
 				return tail.tail(), ctx.Err()
@@ -90,6 +150,7 @@ func (p *Plugin) render() {
 		}
 		return tail.tail(), nil
 	}, func(lines []string, err error) {
+		p.renderPct = 0
 		p.renderLog = lines
 		if err != nil {
 			p.renderErr = err.Error()
@@ -104,6 +165,16 @@ func (p *Plugin) render() {
 		p.host.Toast(ui.Toast{Title: "Rendered", Description: rel(p.dir, out), Type: components.ToastSuccess})
 		p.host.OpenURL("file://" + out)
 	})
+}
+
+// renderArgs is the CLI command line: the output, and the project's values
+// when the user changed any.
+func renderArgs(dest, vars string) []string {
+	args := []string{"--yes", "hyperframes", "render", "--output", dest}
+	if vars != "" {
+		args = append(args, "--variables", vars)
+	}
+	return args
 }
 
 // findNpx finds npx, since a window started from the Dock has a short PATH.

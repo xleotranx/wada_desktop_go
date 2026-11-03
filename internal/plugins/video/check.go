@@ -1,6 +1,7 @@
 package video
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"regexp"
@@ -127,6 +128,7 @@ func checkRoot(c *check, p *Project) {
 	checkClips(c, root, p)
 	checkScripts(c, root, root.HasDuration)
 	checkSource(c, root)
+	checkVariables(c, root)
 }
 
 // checkScene checks one scene file against the root that mounts it.
@@ -160,6 +162,7 @@ func checkScene(c *check, p *Project, s *Scene) {
 	checkClips(c, comp, p)
 	checkScripts(c, comp, comp.HasDuration)
 	checkSource(c, comp)
+	checkVariables(c, comp)
 }
 
 // checkClips checks the timed elements of a composition: their classes,
@@ -308,6 +311,161 @@ func checkScripts(c *check, comp *Composition, hasDuration bool) {
 	}
 }
 
+// checkVariables checks a composition's variable declarations and the
+// bindings that name them.
+func checkVariables(c *check, comp *Composition) {
+	doc, err := scanHTML(comp.src)
+	if err != nil {
+		return
+	}
+	holder := variablesHolder(doc)
+	hasHTML := false
+	doc.walk(func(n *element) bool {
+		if n.Tag == "html" {
+			hasHTML = true
+			return false
+		}
+		return true
+	})
+	if holder == nil && !hasHTML {
+		// A fragment's values come from the host that mounts it.
+		return
+	}
+	var entries []json.RawMessage
+	parsed := holder != nil
+	if parsed {
+		raw := strings.TrimSpace(holder.value("data-composition-variables"))
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			c.add(finding{Code: "invalid_composition_variables_declaration", Severity: sevError, File: comp.File,
+				Line:    lineOf(comp.src, holder.Opening.Start),
+				Message: "data-composition-variables is not valid JSON.",
+				Fix:     `Give it a JSON array of declarations: [{"id":"title","type":"string","label":"Title","default":"Hello"}].`})
+			parsed = false
+			entries = nil
+		}
+	}
+	declared := map[string]bool{}
+	srcBound := map[string]bool{}
+	doc.walk(func(n *element) bool {
+		if id := strings.TrimSpace(n.value("data-var-src")); id != "" {
+			srcBound[id] = true
+		}
+		return true
+	})
+	if parsed {
+		line := lineOf(comp.src, holder.Opening.Start)
+		for i, raw := range entries {
+			var entry map[string]any
+			if err := json.Unmarshal(raw, &entry); err != nil {
+				c.add(declarationFinding(comp, line, i, "is not an object"))
+				continue
+			}
+			if id, ok := entry["id"].(string); ok && id != "" {
+				declared[id] = true
+			}
+			var missing []string
+			if _, ok := entry["id"].(string); !ok {
+				missing = append(missing, "id")
+			}
+			if t, ok := entry["type"].(string); !ok || variableTypes[t] == "" {
+				missing = append(missing, "type")
+			}
+			if _, ok := entry["label"].(string); !ok {
+				missing = append(missing, "label")
+			}
+			if _, ok := entry["default"]; !ok {
+				missing = append(missing, "default")
+			}
+			if len(missing) > 0 {
+				c.add(declarationFinding(comp, line, i, "is missing or has invalid: "+strings.Join(missing, ", ")))
+				continue
+			}
+			var v variable
+			if err := json.Unmarshal(raw, &v); err != nil || !v.valid() {
+				c.add(declarationFinding(comp, line, i, "has a default that does not match its type, or an enum without options"))
+				continue
+			}
+			if url, ok := mediaDefault(v); ok && (v.Type == "image" || srcBound[v.ID]) && url != "" && !safeMediaURL(url) {
+				c.add(finding{Code: "unloadable_media_variable_default", Severity: sevError, File: comp.File, Line: line,
+					Message: fmt.Sprintf("Variable %q defaults to a URL the runtime refuses to load, so whatever binds it keeps its authored fallback.", v.ID),
+					Fix:     `Media URLs must be relative, http(s), blob:, or a data:image/* URI.`})
+			}
+		}
+	}
+	doc.walk(func(n *element) bool {
+		for _, name := range []string{"data-var-src", "data-var-text"} {
+			id := strings.TrimSpace(n.value(name))
+			if id == "" || declared[id] {
+				continue
+			}
+			c.add(finding{Code: "unknown_variable_binding", Severity: sevWarning, File: comp.File,
+				Line: lineOf(comp.src, n.Opening.Start), Clip: n.value("id"),
+				Message: fmt.Sprintf("<%s> binds %s=%q but no variable %q is declared here, so the binding keeps the authored fallback.", n.Tag, name, id, id),
+				Fix:     fmt.Sprintf(`Declare %q in data-composition-variables, or fix the binding.`, id)})
+		}
+		return true
+	})
+}
+
+// variablesHolder is the element that declares the composition's variables:
+// its <html>, or its composition root.
+func variablesHolder(doc *element) *element {
+	var holder *element
+	doc.walk(func(n *element) bool {
+		if holder != nil {
+			return false
+		}
+		if n.has("data-composition-variables") {
+			holder = n
+			return false
+		}
+		return true
+	})
+	return holder
+}
+
+// declarationFinding is a malformed declaration entry.
+func declarationFinding(comp *Composition, line, index int, detail string) finding {
+	return finding{Code: "invalid_composition_variables_declaration", Severity: sevError, File: comp.File, Line: line,
+		Message: fmt.Sprintf("data-composition-variables entry [%d] %s.", index, detail),
+		Fix:     fmt.Sprintf(`Give entry [%d] a string id and label, a supported type, and a default of that type.`, index)}
+}
+
+// mediaDefault is a media variable's default URL, for an image or a string.
+func mediaDefault(v variable) (string, bool) {
+	switch value := v.Default.(type) {
+	case string:
+		return value, true
+	case map[string]any:
+		if url, ok := value["url"].(string); ok {
+			return url, true
+		}
+	}
+	return "", false
+}
+
+// safeMediaURL is the scheme allowlist the runtime applies to a media
+// variable: relative, http(s), blob, and image data URIs.
+func safeMediaURL(raw string) bool {
+	normalized := strings.Map(func(r rune) rune {
+		if r <= ' ' {
+			return -1
+		}
+		return r
+	}, raw)
+	m := urlScheme.FindStringSubmatch(normalized)
+	if m == nil {
+		return true
+	}
+	switch strings.ToLower(m[1]) {
+	case "https", "http", "blob":
+		return true
+	case "data":
+		return strings.HasPrefix(strings.ToLower(normalized), "data:image/")
+	}
+	return false
+}
+
 // checkSource checks what is written in a file's markup rather than in its
 // elements: self-closing media, unbalanced styles, escaped asset paths.
 func checkSource(c *check, comp *Composition) {
@@ -400,6 +558,9 @@ var nondeterministic = []struct {
 
 // selfClosingMedia matches <video ... /> and <audio ... />.
 var selfClosingMedia = regexp.MustCompile(`<(video|audio)\b[^>]*?/>`)
+
+// urlScheme matches a URL's scheme.
+var urlScheme = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9+.-]*):`)
 
 // negativeZIndex matches a negative level in a stylesheet.
 var negativeZIndex = regexp.MustCompile(`z-index\s*:\s*-\d+`)

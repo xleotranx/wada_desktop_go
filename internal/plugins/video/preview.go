@@ -18,22 +18,26 @@ var previewJS string
 // previewPayload is what the page needs to show a project: its root, and the
 // scenes it mounts, whose files the page cannot read itself.
 type previewPayload struct {
-	RootID   string         `json:"rootId"`
-	FPS      float64        `json:"fps"`
-	Duration float64        `json:"duration"`
-	Scenes   []previewScene `json:"scenes"`
+	RootID    string         `json:"rootId"`
+	FPS       float64        `json:"fps"`
+	Duration  float64        `json:"duration"`
+	Variables map[string]any `json:"variables,omitempty"`
+	Declared  map[string]any `json:"declared,omitempty"`
+	Scenes    []previewScene `json:"scenes"`
 }
 
 // previewScene is one scene of the payload.
 type previewScene struct {
-	HostID        string  `json:"hostId"`
-	CompID        string  `json:"compId"`
-	File          string  `json:"file"`
-	HTML          string  `json:"html"`
-	Start         float64 `json:"start"`
-	Duration      float64 `json:"duration"`
-	PlaybackStart float64 `json:"playbackStart"`
-	Rate          float64 `json:"rate"`
+	HostID        string         `json:"hostId"`
+	CompID        string         `json:"compId"`
+	File          string         `json:"file"`
+	HTML          string         `json:"html"`
+	Start         float64        `json:"start"`
+	Duration      float64        `json:"duration"`
+	PlaybackStart float64        `json:"playbackStart"`
+	Rate          float64        `json:"rate"`
+	Declared      map[string]any `json:"declared,omitempty"`
+	Mount         map[string]any `json:"mount,omitempty"`
 }
 
 // previewInfo is what the page answers about the composition it shows.
@@ -47,9 +51,22 @@ type previewInfo struct {
 	Scenes    int      `json:"scenes"`
 }
 
+// defaultsOf is a declaration's default values by id.
+func defaultsOf(variables []variable) map[string]any {
+	if len(variables) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(variables))
+	for _, v := range variables {
+		out[v.ID] = v.Default
+	}
+	return out
+}
+
 // payload reads what the preview page needs from the project's files.
-func payload(p *Project) previewPayload {
-	out := previewPayload{RootID: p.Root.ID, FPS: p.FPS, Duration: p.Duration()}
+func payload(p *Project, values map[string]any) previewPayload {
+	out := previewPayload{RootID: p.Root.ID, FPS: p.FPS, Duration: p.Duration(),
+		Variables: values, Declared: defaultsOf(p.Root.Variables)}
 	if out.RootID == "" {
 		out.RootID = "main"
 	}
@@ -65,6 +82,8 @@ func payload(p *Project) previewPayload {
 			Duration:      s.Host.Duration,
 			PlaybackStart: s.PlaybackStart,
 			Rate:          s.Rate,
+			Declared:      defaultsOf(s.Comp.Variables),
+			Mount:         s.Host.MountValues,
 		}
 		if out.RootID == s.Host.ID {
 			continue
@@ -79,8 +98,8 @@ func payload(p *Project) previewPayload {
 
 // mountScript is the script that installs the preview and shows the first
 // frame: the page's own scripts have run by then.
-func mountScript(p *Project) (string, error) {
-	data, err := json.Marshal(payload(p))
+func mountScript(p *Project, values map[string]any) (string, error) {
+	data, err := json.Marshal(payload(p, values))
 	if err != nil {
 		return "", err
 	}
@@ -96,6 +115,15 @@ func jsonString(s string) string {
 		return `""`
 	}
 	return string(data)
+}
+
+// variableScript sets one variable in the page.
+func variableScript(id string, value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "return null;"
+	}
+	return "return window.__video ? window.__video.setVariable(" + jsonString(id) + ", " + string(data) + ") : null;"
 }
 
 // seekScript shows the frame at t.

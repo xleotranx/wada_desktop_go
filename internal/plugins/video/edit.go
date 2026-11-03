@@ -41,22 +41,36 @@ func setRootDuration(src, id string, seconds float64) (string, error) {
 	return setAttrs(src, el, map[string]string{"data-duration": formatSeconds(seconds)})
 }
 
+// change replaces a byte range with text; an empty range inserts.
+type change struct {
+	span
+	text string
+}
+
 // setAttrs replaces or adds attribute values on one element and returns the
 // file. Values are quoted; an attribute the element lacks is added before the
 // tag's closing bracket.
 func setAttrs(src string, el *element, values map[string]string) (string, error) {
-	type change struct {
-		span
-		text string
-	}
+	return applyChanges(src, attrChanges(src, el, values))
+}
+
+// attrChanges is what writing double-quoted values onto an element changes.
+func attrChanges(src string, el *element, values map[string]string) []change {
+	return attrChangesQuoted(src, el, values, `"`)
+}
+
+// attrChangesQuoted is attrChanges with a choice of quotes, for a value that
+// already holds quotes of its own.
+func attrChangesQuoted(src string, el *element, values map[string]string, quote string) []change {
 	var changes []change
 	for name, value := range values {
 		if a, ok := el.attr(name); ok {
-			quote := `"`
-			if a.Quoted && a.ValueAt.Start > 0 && src[a.ValueAt.Start-1] == '\'' {
-				quote = "'"
+			q := quote
+			if quote == `"` && a.Quoted && a.ValueAt.Start > 0 && src[a.ValueAt.Start-1] == '\'' {
+				// Keep the file's own style for ordinary edits.
+				q = "'"
 			}
-			quoted := quote + value + quote
+			quoted := q + value + q
 			if a.Quoted {
 				changes = append(changes, change{span{a.ValueAt.Start - 1, a.ValueAt.End + 1}, quoted})
 			} else {
@@ -68,9 +82,15 @@ func setAttrs(src string, el *element, values map[string]string) (string, error)
 		if insertAt > 0 && src[insertAt-1] == '/' {
 			insertAt--
 		}
-		changes = append(changes, change{span{insertAt, insertAt}, " " + name + `="` + value + `"`})
+		changes = append(changes, change{span{insertAt, insertAt}, " " + name + "=" + quote + value + quote})
 	}
-	sort.Slice(changes, func(i, j int) bool { return changes[i].Start > changes[j].Start })
+	return changes
+}
+
+// applyChanges writes changes into a file, from its end so earlier offsets
+// stay where they were.
+func applyChanges(src string, changes []change) (string, error) {
+	sort.SliceStable(changes, func(i, j int) bool { return changes[i].Start > changes[j].Start })
 	out := src
 	for _, c := range changes {
 		if c.Start < 0 || c.End > len(out) || c.Start > c.End {

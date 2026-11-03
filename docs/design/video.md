@@ -113,12 +113,59 @@ message, a fix and a line.
 | `negative_z_index` | warning | a negative level can hide an element behind its parent |
 | `root_path_missing_in_preview` | warning | a path from the server root, which the project does not serve |
 | `invalid_parent_traversal_in_asset_path` | error | a `../` path that leaves the project |
+| `invalid_composition_variables_declaration` | error | the declarations are not JSON, or an entry has no id, type, label or matching default |
+| `unloadable_media_variable_default` | error | a media variable defaults to a URL the runtime refuses |
+| `unknown_variable_binding` | warning | `data-var-text`/`data-var-src` names a variable this file does not declare |
 
 The check does not port the variables, captions, fonts, textures, shaders,
 slideshow, contrast and layout groups, nor the project-level probes that open
 media files to read their lengths: those need the linter's own parsers and
 media probing. A finding in a scene the editor cannot parse is reported at
 that file's first line.
+
+## Variables
+
+A composition can expose values a template keeps stable while its content
+changes. The plugin reads the declarations, edits the values, keeps them and
+shows them in the preview:
+
+- `data-composition-variables` on the `<html>` of a full document, or on a
+  template's composition root, declares `id`, `type`, `label`, `default` and
+  optional `options`, `min`, `max`, `unit`, `maxLength` and `description`. The
+  types are `string`, `number`, `color`, `boolean`, `enum`, `font` and `image`;
+  an entry whose default does not match its type is dropped, as the platform
+  drops it, and the check reports it.
+- `data-var-text="id"` replaces an element's own text; `data-var-src="id"` sets
+  `src` on an image, video, audio or source element, for a safe URL only, and
+  every scalar (and a font value's family) becomes the `--id` custom property on
+  its composition root, so `var(--accent)` responds to a change.
+- A scene's host can pin values with `data-variable-values`; they win over the
+  user's, as they do in the platform.
+
+The sidebar's **Vars** tab lists the focused composition's declarations with a
+control per type: a color well, a switch, a select for an enum, and a text field
+for text, numbers, fonts and image paths. A value the user changed is kept in the
+plugin's `values-v1` setting by project folder, so it survives a restart, and a
+reset button puts a variable back to its declared default. A pinned variable says
+so.
+
+The runtime merges a composition's defaults with the user's values, then the
+scene's pinned values, writes the CSS custom properties, the bound text and the
+bound sources, and seeks the frame again after a change. It also defines
+`window.__hyperframes.getVariables()`, which a scene's scripts can read, and
+`window.__hfVariables`. The root page's own scripts run before the runtime is
+injected, so only scripts that run when a scene mounts can rely on
+`getVariables()`.
+
+**Rendering values.** `hyperframes render --variables` reaches a document's own
+bindings, but a mounted scene reads its text and sources from the host's
+`data-variable-values`, not from `--variables`. So when the user changed any
+value, the render runs in a staging folder: a temporary folder that links every
+file of the project and holds the project's `index.html` with the user's values
+written onto each scene host (a value the host pinned still wins), and the CLI
+command also passes `--variables` for the root document. The render therefore
+shows what the preview showed, and the project's files are not touched. Without
+values, the CLI runs in the project itself.
 
 ## The preview
 
@@ -222,7 +269,8 @@ tied to a navigation scope the plugin replaces when the open project changes:
 | tick | `ticking` | one frame per turn while playing |
 | timing write | `editing` | rewrites a clip's timing, then reloads |
 | add scene | `adding` | writes a scene file and its host |
-| render | `rendering` | runs the CLI |
+| render | `rendering` | stages the project with the user's values and runs the CLI |
+| variable change | `apply` | sets one value in the page |
 | discovery | `scanning` | lists the folder's projects for the header menu |
 
 Closing the editor, changing conversation or switching project closes the web
@@ -244,14 +292,19 @@ and timing resolution. `video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
 on another conversation, seeks from the ruler, drags a root clip and a clip
 inside a scene, starts a new video, sends the brief and survives a window with
-no web pages.
+no web pages. `variables_test.go` pins declaration parsing, the merge order, the
+panel, keeping and resetting a value, the check's variable rules, the render
+arguments, the CLI's progress lines and the staging folder.
 
 ## Not there yet
 
 The timeline edits one composition at a time, so a scene's clips are reached by
 opening the scene, not by expanding its host in place. A scene's scripts must be
 inline: the root page loads its own scripts, but the runtime does not fetch a
-`<script src>` inside a scene's template. Variables and their bindings, captions,
+`<script src>` inside a scene's template. The panel edits variable values, not
+the declarations: changing a declaration is a source edit for the agent, and a
+font or image declared as a typed object is edited by its family name or URL.
+`--variables-file`, batch rows and strict variables are not used. Captions,
 snapshot review, audio preview, linked clips, keyframes, undo, and cloud or
 distributed rendering are not ported. A render is local and synchronous from the
 editor's point of view.

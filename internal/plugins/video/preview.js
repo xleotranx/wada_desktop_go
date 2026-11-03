@@ -16,6 +16,8 @@
     fps: 30,
     comps: [],
     errors: [],
+    declared: {},
+    overrides: {},
   };
 
   const num = (raw, fallback) => {
@@ -56,6 +58,66 @@
     if (!Number.isFinite(magnitude)) return null;
     return { id, offset: text[op] === "-" ? -magnitude : magnitude };
   }
+
+  const isScalar = (value) => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+  // cssValue keeps a value from closing the declaration it is written into.
+  const cssValue = (value) => String(value).replace(/[;{}<>]/g, "").replace(/[\r\n]/g, " ");
+
+  // safeURL is the scheme allowlist of a media variable: relative, http(s),
+  // blob, and image data URIs.
+  function safeURL(raw) {
+    const url = String(raw).replace(/[\u0000-\u0020]/g, "");
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+    if (!scheme) return true;
+    const proto = scheme[1].toLowerCase();
+    if (proto === "https" || proto === "http" || proto === "blob") return true;
+    return proto === "data" && /^data:image\//i.test(url);
+  }
+
+  // setOwnText replaces an element's own text and keeps its child elements,
+  // as HyperFrames binds a text variable.
+  function setOwnText(el, value) {
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType === 3) el.removeChild(node);
+    }
+    el.appendChild(document.createTextNode(String(value)));
+  }
+
+  const nearestComp = (el) => {
+    const parent = el.parentElement;
+    return parent ? parent.closest("[data-composition-id]") : null;
+  };
+
+  const mergedValues = (declared, overrides, mount) => Object.assign({}, declared, overrides, mount);
+
+  // applyVariables writes a composition's values: a CSS custom property for
+  // every scalar, its bound text and its bound sources.
+  function applyVariables(comp) {
+    const root = comp.el;
+    if (!root || !comp.values) return;
+    for (const [id, value] of Object.entries(comp.values)) {
+      if (!isScalar(value)) continue;
+      root.style.setProperty(`--${id}`, cssValue(value));
+      if (!comp.window) document.documentElement.style.setProperty(`--${id}`, cssValue(value));
+    }
+    for (const el of root.querySelectorAll("[data-var-text]")) {
+      if (nearestComp(el) !== root) continue;
+      const id = el.getAttribute("data-var-text");
+      if (id && Object.prototype.hasOwnProperty.call(comp.values, id)) setOwnText(el, comp.values[id]);
+    }
+    for (const el of root.querySelectorAll("[data-var-src]")) {
+      if (nearestComp(el) !== root) continue;
+      const id = el.getAttribute("data-var-src");
+      if (!id || !Object.prototype.hasOwnProperty.call(comp.values, id)) continue;
+      if (!/^(IMG|VIDEO|AUDIO|SOURCE)$/.test(el.tagName)) continue;
+      const value = comp.values[id];
+      if (!isScalar(value) || !safeURL(value)) continue;
+      el.setAttribute("src", String(value));
+    }
+  }
+
+  const globalVariables = () => Object.assign({}, state.declared, state.overrides);
 
   const timelineOf = (id) => {
     const tl = window.__timelines && window.__timelines[id];
@@ -176,7 +238,7 @@
 
   // mountScene writes a scene file's markup into its host and runs the
   // scene's scripts, the way the HyperFrames runtime mounts a sub-composition.
-  function mountScene(scene) {
+  function mountScene(scene, values) {
     const host = document.getElementById(scene.hostId);
     if (!host) {
       record(`The scene's host #${scene.hostId} is missing.`);
@@ -203,6 +265,7 @@
     for (const script of Array.from(fragment.querySelectorAll("script"))) script.remove();
     host.appendChild(fragment);
     const mounted = host.querySelector("[data-composition-id]") || root;
+    applyVariables({ el: mounted, values });
     for (const code of scripts) runScript(code);
     return mounted;
   }
@@ -227,6 +290,13 @@
     state.fps = num(payload.fps, 30);
     state.duration = num(payload.duration, 0);
     state.comps = [];
+    state.declared = payload.declared || {};
+    state.overrides = payload.variables || {};
+    window.__hyperframes = window.__hyperframes || {};
+    if (typeof window.__hyperframes.getVariables !== "function") {
+      window.__hyperframes.getVariables = globalVariables;
+    }
+    window.__hfVariables = globalVariables();
     const rootEl = document.querySelector(`[data-composition-id="${payload.rootId}"]`);
     if (!rootEl) {
       record(`The composition root #${payload.rootId} is missing.`);
@@ -234,9 +304,20 @@
       window.__videoReady = true;
       return info();
     }
-    const comps = [{ id: payload.rootId, el: rootEl, window: null, playbackStart: 0, rate: 1 }];
+    const comps = [{
+      id: payload.rootId,
+      el: rootEl,
+      window: null,
+      playbackStart: 0,
+      rate: 1,
+      declared: state.declared,
+      mount: {},
+    }];
+    comps[0].values = mergedValues(comps[0].declared, state.overrides, {});
     for (const scene of payload.scenes || []) {
-      const mounted = mountScene(scene);
+      const declared = scene.declared || {};
+      const mount = scene.mount || {};
+      const mounted = mountScene(scene, mergedValues(declared, state.overrides, mount));
       if (!mounted) continue;
       comps.push({
         id: scene.compId || mounted.getAttribute("data-composition-id") || "",
@@ -244,6 +325,8 @@
         window: { start: num(scene.start, 0), duration: Math.max(0, num(scene.duration, 0)) },
         playbackStart: num(scene.playbackStart, 0),
         rate: Math.max(0.01, num(scene.rate, 1)),
+        declared,
+        mount,
       });
     }
     // Compositions written inline in the root keep their own local time too.
@@ -259,9 +342,13 @@
         },
         playbackStart: num(el.getAttribute("data-playback-start"), 0),
         rate: Math.max(0.01, num(el.getAttribute("data-playback-rate"), 1)),
+        declared: {},
+        mount: {},
       });
     }
     for (const comp of comps) {
+      comp.values = mergedValues(comp.declared, state.overrides, comp.mount);
+      applyVariables(comp);
       const ids = idsOf(comp.el);
       comp.clips = clipsOf(comp.el, ids);
       for (const clip of comp.clips) {
@@ -322,6 +409,21 @@
     seek(t) {
       if (!state.mounted) return state.time;
       return apply(t);
+    },
+    setVariable(id, value) {
+      if (!id) return null;
+      if (value === null || value === undefined) delete state.overrides[id];
+      else state.overrides[id] = value;
+      window.__hfVariables = globalVariables();
+      for (const comp of state.comps) {
+        comp.values = mergedValues(comp.declared, state.overrides, comp.mount);
+        applyVariables(comp);
+      }
+      if (state.mounted) apply(state.time);
+      return info();
+    },
+    variables() {
+      return globalVariables();
     },
     info,
     gsap: gsapHere,

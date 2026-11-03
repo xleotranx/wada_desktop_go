@@ -1,6 +1,7 @@
 package video
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"path"
@@ -20,6 +21,7 @@ type Composition struct {
 	DeclaredSeconds float64 // the root's data-duration, 0 when it has none
 	HasDuration     bool
 	Clips           []*Clip
+	Variables       []variable
 	root            *element
 	src             string
 	registered      []string // composition ids the file registers a timeline for
@@ -42,7 +44,8 @@ type Clip struct {
 	Mount         string // the composition a scene mounts
 	Label         string
 	Line          int
-	CompositionID string // data-composition-id, on the root and on scene hosts
+	CompositionID string         // data-composition-id, on the root and on scene hosts
+	MountValues   map[string]any // data-variable-values of a scene host
 	at            span
 	resolved      bool // the start is known: a number, or a reference to a known clip
 }
@@ -119,6 +122,7 @@ func parseComposition(dir, rel, src string) (*Composition, error) {
 		c.DeclaredSeconds = parseNumber(a.Value, 0)
 		c.HasDuration = c.DeclaredSeconds > 0
 	}
+	c.Variables = declaredVariables(doc)
 	c.registered = registeredTimelines(src)
 	c.readClips()
 	return c, nil
@@ -178,6 +182,12 @@ func (c *Composition) clip(n *element) *Clip {
 		at:            n.Opening,
 		HasDuration:   n.has("data-duration"),
 		CompositionID: n.value("data-composition-id"),
+	}
+	if raw := strings.TrimSpace(n.value("data-variable-values")); raw != "" {
+		var values map[string]any
+		if err := json.Unmarshal([]byte(raw), &values); err == nil {
+			cl.MountValues = values
+		}
 	}
 	if cl.ID == "" {
 		cl.ID = n.value("data-hf-id")

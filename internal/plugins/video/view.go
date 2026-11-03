@@ -243,6 +243,7 @@ func (p *Plugin) side(c *ui.Context, pal native.Palette) {
 		ui.Row(c).FillWidth().Height(38).Shrink(0).Padding(0, 6, 0, 10).AlignItems(ui.Center).Gap(2).Children(func() {
 			p.panelTab(c, pal, "Scenes", scenesPanel)
 			p.panelTab(c, pal, "Clip", clipPanel)
+			p.panelTab(c, pal, "Vars", varsPanel)
 			p.panelTab(c, pal, "Check", checkPanel)
 		})
 		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
@@ -251,6 +252,8 @@ func (p *Plugin) side(c *ui.Context, pal native.Palette) {
 			p.scenesView(c, pal)
 		case clipPanel:
 			p.clipPanel(c, pal)
+		case varsPanel:
+			p.variablesView(c, pal)
 		case checkPanel:
 			p.checkPanel(c, pal)
 		}
@@ -377,6 +380,65 @@ func (p *Plugin) detail(c *ui.Context, pal native.Palette, name, value string) {
 	})
 }
 
+// variablesView edits the values the focused composition declares.
+func (p *Plugin) variablesView(c *ui.Context, pal native.Palette) {
+	ui.Scroll(c.Key("variables")).Fill().Children(func() {
+		ui.Column(c).FillWidth().Padding(10, 8).Gap(10).Children(func() {
+			if comp := p.comp(); comp != nil {
+				ui.Text(c, "Declared in "+comp.File).FontSize(10).TextColor(pal.Faint).SingleLine().Ellipsis("…")
+			}
+			if len(p.editors) == 0 {
+				ui.Text(c, "This composition declares no variables.").FontSize(11.5).TextColor(pal.Faint).MaxLines(3)
+				ui.Text(c, "A template declares them with data-composition-variables on its root.").FontSize(10.5).
+					TextColor(pal.Faint).MaxLines(4)
+				return
+			}
+			for _, e := range p.editors {
+				p.variableRow(c, pal, e)
+			}
+		})
+	})
+}
+
+// variableRow is one variable: its name, its type, its control and a way back
+// to the declared default.
+func (p *Plugin) variableRow(c *ui.Context, pal native.Palette, e *variableEditor) {
+	ui.Column(c).FillWidth().Gap(3).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(4).Children(func() {
+			ui.Text(c, e.label()).FontSize(11.5).TextColor(pal.Text).SingleLine().Ellipsis("…").MinWidth(0)
+			ui.Box(c).Grow(1)
+			if p.overridden(e.ID) {
+				b := ui.ButtonBase(c.Key("reset-"+e.ID)).Label("Reset "+e.label()).Tooltip("Back to the declared default").
+					Size(18, 18).Radius(4).Center().Shrink(0).Cursor(ui.CursorPointer)
+				if b.Hovered() {
+					b.Background(pal.Hover)
+				}
+				b.OnClick(func() { p.ctx.Post(func() { p.resetVariable(e) }) })
+				b.Children(func() { ui.Icon(c, lucide.RotateCcw()).FontSize(10).TextColor(pal.Faint) })
+			}
+		})
+		ui.Text(c, variableSummary(e.variable)).FontSize(9.5).TextColor(pal.Faint).SingleLine()
+		key := c.Key("var-" + e.ID)
+		switch e.Type {
+		case "color":
+			ui.ColorWell(key, &e.color).Label(e.label()).OnChange(func() { p.setVariable(e.ID, hexString(e.color)) })
+		case "boolean":
+			ui.Switch(key, &e.on).Label(e.label()).OnChange(func() { p.setVariable(e.ID, e.changed()) })
+		case "enum":
+			ui.Select(key, &e.text, e.Options).FillWidth().Label(e.label()).OnChange(func() { p.setVariable(e.ID, e.changed()) })
+		default:
+			ui.TextInput(key, &e.text).FillWidth().Label(e.label()).OnChange(func() {
+				if v := e.changed(); v != nil {
+					p.setVariable(e.ID, v)
+				}
+			})
+		}
+		if p.pinned(e.ID) {
+			ui.Text(c, "The scene pins this value.").FontSize(9.5).TextColor(pal.Warning).SingleLine()
+		}
+	})
+}
+
 // checkPanel lists what the check found.
 func (p *Plugin) checkPanel(c *ui.Context, pal native.Palette) {
 	ui.Scroll(c.Key("check-list")).Fill().Children(func() {
@@ -462,10 +524,17 @@ func (p *Plugin) renderStatus(c *ui.Context, pal native.Palette) {
 	ui.Column(c).FillWidth().Padding(8, 10).Gap(3).Children(func() {
 		switch {
 		case p.rendering.Running():
-			ui.Text(c, "Rendering the video…").FontSize(11.5).TextColor(pal.Text).SingleLine()
-			if n := len(p.renderLog); n > 0 {
-				ui.Text(c, p.renderLog[n-1]).FontSize(10).TextColor(pal.Faint).MaxLines(2)
+			label := "Rendering the video…"
+			if p.renderPct > 0 {
+				label = fmt.Sprintf("Rendering the video… %d%%", p.renderPct)
 			}
+			ui.Text(c, label).FontSize(11.5).TextColor(pal.Text).SingleLine()
+			fill := float32(sideWidth-20) * float32(p.renderPct) / 100
+			ui.Box(c).FillWidth().Height(4).Radius(2).Background(pal.Hairline).Children(func() {
+				if fill > 0 {
+					ui.Box(c).Absolute().Left(0).Top(0).Width(fill).Height(4).Radius(2).Background(pal.Link)
+				}
+			})
 		case p.renderErr != "":
 			ui.Text(c, "The render failed").FontSize(11.5).TextColor(pal.Danger).SingleLine()
 			ui.Text(c, p.renderErr).FontSize(10).TextColor(pal.Muted).MaxLines(4)

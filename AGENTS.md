@@ -1,9 +1,11 @@
 # AGENTS.md — wada_desktop_go
 
-A native MyGo desktop AI chat app. Everything is a plugin on a small kernel; all UI
-is Go, with Onevra components and theme. PiG is the embedded coding-agent backend.
-This is development software with no users: replace internal APIs directly and
-remove obsolete paths. Use PiG's pinned public Go SDK; keep its types inside the
+Wada Cowork: a native MyGo desktop workspace where a team of agents does a job —
+reads a folder's documents, plans, works and has the result reviewed — beside the
+chat that started it. Everything is a plugin on a small kernel; all UI is Go, with
+Onevra components and theme. PiG is the embedded agent backend. This is
+development software with no users: replace internal APIs directly and remove
+obsolete paths. Use PiG's pinned public Go SDK; keep its types inside the
 backend plugin.
 
 ## Source map
@@ -20,7 +22,7 @@ backend plugin.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
+  slots, work panel sections and hiding the panel, new chat sections, drawers, selection actions, file drops, completions), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
@@ -31,11 +33,13 @@ backend plugin.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `design` (design mode for
   conversations: a canvas beside a design whose artboards are the HTML files the agent writes, with comments, notes, tweaks,
-  presenting and a brief that tells the agent how to write for it), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
+  presenting and a brief that tells the agent how to write for it), `documents` (Word, PowerPoint, Excel, PDF and more read as
+  Markdown in the app through anydoc's embedded WebAssembly build, with a Sources section in the work panel), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
   `workspace.db`, needing no chat), `folderpicker` (Open Folder… and the new chat's folder
   in the composer), `tabs` (open chats and pages as tabs across the title
-  strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
+  strip, one folder's space at a time, with the space switcher and the tab menus), `jobs` (a goal, a folder's documents read through the reader, a plan the user approves, one
+  child agent doing the work, a reviewer judging the file against the plan's criteria, a Jobs page and title-strip entry, kept in `jobs.db`), `workflow` (the engine
   that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,
   such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
@@ -45,7 +49,8 @@ backend plugin.
 
 Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
-[shell and built-in plugins](docs/design/shell-and-plugins.md). Keep them in step with the code.
+[shell and built-in plugins](docs/design/shell-and-plugins.md),
+[documents](docs/design/documents.md), [jobs](docs/design/jobs.md). Keep them in step with the code.
 
 Before nontrivial UI work, read [.agents/skills/mygo-maintenance/SKILL.md](.agents/skills/mygo-maintenance/SKILL.md).
 Check APIs against the pinned module with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`,
@@ -112,7 +117,7 @@ Settings live in `settings.db` (schema 1) under `$WADA_DATA_DIR`, or else
 `~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
 `wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
 conversations the app started live beside it in `workspace.db` (schema 1). Workflow tasks, queued inputs and review reports live in
-`workflow.db` (schema 1). A
+`workflow.db` (schema 1); jobs live in `jobs.db` (schema 1). A
 database of another schema is refused, not migrated; delete it explicitly to start
 over. Conversations' messages belong to PiG's JSONL transcripts in `pig/sessions/`;
 Wada's session metadata is in `pig/metadata/`, and provider credentials and

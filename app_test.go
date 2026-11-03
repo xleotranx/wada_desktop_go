@@ -401,11 +401,11 @@ func TestTheModePickerRunsWorkflowInsideNewAndExistingChat(t *testing.T) {
 	}
 }
 
-// TestWadaKeepsItsDataAndMenus pins where Wada's data lives, which a new name
-// would quietly leave behind, and gives every command's menu a place in the
-// menu bar.
+// TestWadaKeepsItsDataAndMenus pins where Wada Cowork's data lives, which a new
+// name would quietly leave behind, and gives every command's menu a place in
+// the menu bar.
 func TestWadaKeepsItsDataAndMenus(t *testing.T) {
-	if wada.Name != "Wada" || wada.Folder != "wada-desktop-go" || wada.Env != "WADA" {
+	if wada.Name != "Wada Cowork" || wada.Folder != "wada-desktop-go" || wada.Env != "WADA" {
 		t.Fatalf("app %+v", wada)
 	}
 	ap := startApp(t)

@@ -76,6 +76,10 @@ var (
 	// Work sections fill the work panel beside a stored conversation, top to
 	// bottom by Order, such as its usage or the files it changed.
 	Work = kernel.NewPoint[WorkSection]("chat.work")
+	// Home sections sit under the starting points of a chat with nothing in
+	// it yet, such as the jobs that are waiting, so a feature can be seen
+	// before a conversation exists.
+	Home = kernel.NewPoint[HomeSection]("chat.home")
 	// HideWork entries hide the work panel while one of them reports true,
 	// such as a drawer that wants the room; the user's choice to show it
 	// stays as it is. They run on the UI thread while drawing and only read
@@ -102,6 +106,14 @@ type SelectionAction struct {
 type Selection struct {
 	Conversation Conversation
 	Text         string // the selected words; paragraphs on lines of their own
+}
+
+// HomeSection is one block under the starting points of an empty new chat.
+// Shown and Render run on the UI thread while drawing, so they only read
+// state.
+type HomeSection struct {
+	Shown  func() bool
+	Render func(c *ui.Context)
 }
 
 // WorkSection is one section of the work panel. Shown and Render run on the

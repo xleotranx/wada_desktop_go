@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "resources" / "licenses"
 TARGETS = ("darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64")
 LEGAL = ("LICENSE*", "NOTICE*", "COPYING*", "COPYRIGHT*", "AUTHORS*", "OFL*", "PATENTS*", "THIRD_PARTY_NOTICES*")
+# VENDORED are files shipped inside the app rather than Go modules: name,
+# version and the license file kept beside them.
+VENDORED = (
+    ("anydoc (WebAssembly build)", "0.2.4", "internal/plugins/documents/ANYDOC-LICENSE"),
+)
 EXTRA = {
     "github.com/MichaelKinsy/PiG": ("LICENSES/*", "third_party/*/LICENSE*", "third_party/*/NOTICE*"),
     "github.com/egoist/mygo": ("internal/shader/LICENSE", "plugins/*/LICENSE"),
@@ -52,6 +57,12 @@ def generate():
             notices.append({"file": relative, "sha256": hashlib.sha256(data).hexdigest()})
             text.append(f"\n--- {relative} ---\n{data.decode('utf-8').rstrip()}\n")
         records.append({"module": module, "version": version, "notices": notices})
+    for name, version, relative in VENDORED:
+        path = Path(relative)
+        data = (ROOT / relative).read_bytes()
+        text.append(f"\n{'=' * 72}\n{name} {version}\n\n--- {path.name} ---\n{data.decode('utf-8').rstrip()}\n")
+        records.append({"module": name, "version": version,
+                        "notices": [{"file": path.name, "sha256": hashlib.sha256(data).hexdigest()}]})
     inventory = {"targets": TARGETS, "modules": records}
     generated = {"DEPENDENCIES.txt": "".join(text), "inventory.json": json.dumps(inventory, indent=2) + "\n"}
     pig = modules["github.com/MichaelKinsy/PiG"][1]

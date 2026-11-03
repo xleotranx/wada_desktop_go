@@ -54,6 +54,17 @@ func (p *Plugin) header(c *ui.Context, pal native.Palette) {
 		if p.project != nil {
 			p.projectMenu(c, pal)
 		}
+		if p.scene != nil {
+			ui.Icon(c, lucide.ChevronRight()).FontSize(12).TextColor(pal.Faint).Shrink(0)
+			ui.Text(c, p.scene.Comp.ID).FontSize(12).TextColor(pal.Text).SingleLine().Shrink(0)
+			b := ui.ButtonBase(c.Key("back")).Label("Back to the main composition").Tooltip("Back to the main composition").
+				Size(22, 22).Radius(5).Center().Shrink(0).Cursor(ui.CursorPointer)
+			if b.Hovered() {
+				b.Background(pal.Hover)
+			}
+			b.OnClick(func() { p.ctx.Post(p.unfocus) })
+			b.Children(func() { ui.Icon(c, lucide.CornerUpLeft()).FontSize(11).TextColor(pal.Muted) })
+		}
 		ui.Box(c).Grow(1)
 		p.checkChip(c, pal)
 		p.renderButton(c, pal)
@@ -195,9 +206,9 @@ func (p *Plugin) stageView(c *ui.Context, pal native.Palette) {
 func (p *Plugin) transport(c *ui.Context, pal native.Palette) {
 	ui.Row(c).FillWidth().Height(40).Shrink(0).Padding(0, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 		p.playButton(c, pal)
-		ui.Text(c, timecode(p.playhead)).FontSize(12).TextColor(pal.Text).FontFeatures("tnum").SingleLine().Shrink(0)
-		ui.Text(c, "/ "+timecode(p.duration())).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum").SingleLine().Shrink(0)
-		ui.Text(c, "f "+strconv.Itoa(int(p.playhead*p.fps()+0.5))).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
+		ui.Text(c, timecode(p.displayTime())).FontSize(12).TextColor(pal.Text).FontFeatures("tnum").SingleLine().Shrink(0)
+		ui.Text(c, "/ "+timecode(p.displayDuration())).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum").SingleLine().Shrink(0)
+		ui.Text(c, "f "+strconv.Itoa(int(p.displayTime()*p.fps()+0.5))).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").
 			SingleLine().Shrink(0)
 		ui.Box(c).Grow(1)
 		if p.project != nil {
@@ -270,16 +281,18 @@ func (p *Plugin) scenesView(c *ui.Context, pal native.Palette) {
 	ui.Row(c).FillWidth().Height(32).Shrink(0).Padding(0, 10).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, "Scenes").FontSize(11).TextColor(pal.Faint).SingleLine().Shrink(0)
 		ui.Box(c).Grow(1)
-		b := ui.ButtonBase(c.Key("add-scene")).Label("Add scene").Height(22).Padding(0, 6).Radius(5).
-			AlignItems(ui.Center).Shrink(0).Disabled(p.adding.Running()).Cursor(ui.CursorPointer)
-		if b.Hovered() {
-			b.Background(pal.Hover)
+		if p.scene == nil {
+			b := ui.ButtonBase(c.Key("add-scene")).Label("Add scene").Height(22).Padding(0, 6).Radius(5).
+				AlignItems(ui.Center).Shrink(0).Disabled(p.adding.Running()).Cursor(ui.CursorPointer)
+			if b.Hovered() {
+				b.Background(pal.Hover)
+			}
+			b.OnClick(p.newScene)
+			b.Children(func() {
+				ui.Icon(c, lucide.Plus()).FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, "Add scene").FontSize(11).TextColor(pal.Text).SingleLine()
+			})
 		}
-		b.OnClick(p.newScene)
-		b.Children(func() {
-			ui.Icon(c, lucide.Plus()).FontSize(11).TextColor(pal.Muted)
-			ui.Text(c, "Add scene").FontSize(11).TextColor(pal.Text).SingleLine()
-		})
 	})
 	ui.Scroll(c.Key("scenes")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(6, 8).Gap(2).Children(func() {
@@ -297,10 +310,10 @@ func (p *Plugin) scenesView(c *ui.Context, pal native.Palette) {
 // sceneRow is one scene of the sidebar.
 func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 	host := s.Host
-	selected := host != nil && p.selected == host.ID
-	b := ui.ButtonBase(c.Key("scene-"+host.ID)).Label(host.Label).Height(40).FillWidth().Radius(6).
-		Padding(6, 8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-	if selected {
+	focused := p.scene != nil && p.scene.Host != nil && p.scene.Host.ID == host.ID
+	b := ui.ButtonBase(c.Key("scene-"+host.ID)).Label("Edit "+host.Label).Tooltip("Edit the clips of "+host.Label).
+		Height(40).FillWidth().Radius(6).Padding(6, 8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	if focused {
 		b.Background(pal.Selected)
 	} else if b.Hovered() {
 		b.Background(pal.Hover)
@@ -309,7 +322,7 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 		p.ctx.Post(func() {
 			p.selected = host.ID
 			p.panel = clipPanel
-			p.seek(host.Start)
+			p.focusOn(s)
 		})
 	})
 	b.Children(func() {
@@ -318,6 +331,11 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 			ui.Text(c, fmt.Sprintf("%s – %s", timecode(host.Start), timecode(host.End()))).FontSize(10.5).
 				TextColor(pal.Faint).FontFeatures("tnum").SingleLine()
 		})
+		if focused {
+			ui.Icon(c, lucide.CornerDownRight()).FontSize(11).TextColor(pal.Link).Shrink(0)
+		} else {
+			ui.Icon(c, lucide.ChevronRight()).FontSize(11).TextColor(pal.Faint).Shrink(0)
+		}
 	})
 }
 

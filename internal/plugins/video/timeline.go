@@ -2,6 +2,7 @@ package video
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"sort"
@@ -51,13 +52,113 @@ type row struct {
 	clips []*Clip
 }
 
-// rows groups the project's clips by track, in time order.
+// comp is the composition the timeline edits: the focused scene, or the
+// project's root.
+func (p *Plugin) comp() *Composition {
+	if p.scene != nil && p.scene.Comp != nil {
+		return p.scene.Comp
+	}
+	if p.project != nil {
+		return p.project.Root
+	}
+	return nil
+}
+
+// sceneLength is a scene's own length: its root's data-duration, else the end
+// of its last clip.
+func sceneLength(s *Scene) float64 {
+	if s == nil || s.Comp == nil {
+		return 0
+	}
+	if s.Comp.HasDuration && s.Comp.DeclaredSeconds > 0 {
+		return s.Comp.DeclaredSeconds
+	}
+	end := 0.0
+	for _, c := range s.Comp.Clips {
+		end = math.Max(end, c.End())
+	}
+	return end
+}
+
+// localAt maps a time in the film to the focused scene's own time.
+func (p *Plugin) localAt(root float64) float64 {
+	s := p.scene
+	if s == nil || s.Host == nil {
+		return root
+	}
+	rate := s.Rate
+	if rate <= 0 {
+		rate = 1
+	}
+	return s.PlaybackStart + (root-s.Host.Start)*rate
+}
+
+// rootAt maps the focused scene's own time back to the film's.
+func (p *Plugin) rootAt(local float64) float64 {
+	s := p.scene
+	if s == nil || s.Host == nil {
+		return local
+	}
+	rate := s.Rate
+	if rate <= 0 {
+		rate = 1
+	}
+	return s.Host.Start + (local-s.PlaybackStart)/rate
+}
+
+// seekLocal shows the frame at a time of what the timeline draws.
+func (p *Plugin) seekLocal(t float64) { p.seek(p.rootAt(t)) }
+
+// startOfSpan is where the timeline's time 0 sits in the film.
+func (p *Plugin) startOfSpan() float64 { return p.rootAt(0) }
+
+// displayTime is the playhead as the transport shows it: the scene's own
+// time when one is focused, the film's otherwise.
+func (p *Plugin) displayTime() float64 {
+	if p.scene == nil {
+		return p.playhead
+	}
+	return math.Max(0, math.Min(p.localAt(p.playhead), p.span()))
+}
+
+// displayDuration is the length the transport shows.
+func (p *Plugin) displayDuration() float64 { return p.span() }
+
+// playLimit is where playback stops: the scene's end when one is focused.
+func (p *Plugin) playLimit() float64 {
+	if p.scene != nil {
+		return p.rootAt(p.span())
+	}
+	return p.duration()
+}
+
+// localNow is the playhead in the timeline's time, clamped to what it draws.
+func (p *Plugin) localNow() float64 {
+	local, ok := p.localPlayhead()
+	if !ok {
+		return p.span()
+	}
+	return local
+}
+
+// localPlayhead is the playhead in the timeline's time, and whether it is
+// inside what the timeline draws.
+func (p *Plugin) localPlayhead() (float64, bool) {
+	if p.scene == nil {
+		return p.playhead, true
+	}
+	local := p.localAt(p.playhead)
+	return local, local >= -1e-6 && local <= p.span()+1e-6
+}
+
+// rows groups the composition's clips by track, in time order.
 func (p *Plugin) rows() []row {
-	if p.project == nil || p.project.Root == nil {
+	comp := p.comp()
+	if comp == nil {
 		return nil
 	}
 	byTrack := map[int][]*Clip{}
-	for _, c := range p.project.Root.Clips {
+	for _, c := range comp.Clips {
 		byTrack[c.Track] = append(byTrack[c.Track], c)
 	}
 	tracks := make([]int, 0, len(byTrack))
@@ -84,8 +185,13 @@ func (p *Plugin) timelineHeight() float32 {
 	return min(h, timelineMaxH)
 }
 
-// span is the time the timeline draws.
+// span is the time the timeline draws: the scene's length, or the film's.
 func (p *Plugin) span() float64 {
+	if p.scene != nil {
+		if d := sceneLength(p.scene); d > 0 {
+			return d
+		}
+	}
 	if d := p.duration(); d > 0 {
 		return d
 	}
@@ -144,13 +250,19 @@ func (p *Plugin) timelineView(c *ui.Context, pal native.Palette) {
 	w := p.timeline.Bounds(c).W
 	p.tlWidth = w
 	ui.Box(c.Key("timeline")).FillWidth().Height(p.timelineHeight()).Shrink(0).Clip().
-		Background(pal.PanelBg).Bind(&p.timeline).Label("Timeline").FocusBind(&p.focus, true).
+		Background(pal.PanelBg).Bind(&p.timeline).Label("Timeline").FocusBind(&p.keys, true).
 		HandleInput(p.timelineInput).Cursor(ui.CursorPointer).
 		Draw(func(painter *ui.Painter, r ui.Rect) {
 			p.drawRuler(painter, r, pal)
 		}).Children(func() {
 		if w <= 2*timelinePad {
 			return
+		}
+		span := p.span()
+		step := tickStep(float64(w - 2*timelinePad))
+		for t := 0.0; t <= span+1e-9; t += step {
+			ui.Text(c, tickLabel(t)).FontSize(9.5).TextColor(pal.Faint).FontFeatures("tnum").SingleLine().
+				Absolute().Left(p.xOf(t, w) + 3).Top(2).Width(64).PassThrough()
 		}
 		for i, row := range rows {
 			y, h := clipBand(i)
@@ -186,6 +298,14 @@ func (p *Plugin) drawRuler(painter *ui.Painter, r ui.Rect, pal native.Palette) {
 	painter.Fill(ui.Rect{X: 0, Y: rulerHeight - 1, W: w, H: 1}, pal.Hairline, 0)
 }
 
+// tickLabel writes a ruler tick's time: seconds, or minutes and seconds.
+func tickLabel(t float64) string {
+	if t < 60 {
+		return strconv.FormatFloat(t, 'f', -1, 64) + "s"
+	}
+	return fmt.Sprintf("%d:%02ds", int(t)/60, int(t)%60)
+}
+
 // tickStep is the seconds between ruler ticks, so ticks stay readable.
 func tickStep(pixelWidth float64) float64 {
 	if pixelWidth <= 0 {
@@ -204,10 +324,14 @@ func tickStep(pixelWidth float64) float64 {
 
 // playheadX is where the playhead sits, or -1 while it is off the timeline.
 func (p *Plugin) playheadX(w float32) float32 {
-	if p.duration() <= 0 {
+	if p.span() <= 0 {
 		return -1
 	}
-	return p.xOf(p.playhead, w)
+	local, ok := p.localPlayhead()
+	if !ok {
+		return -1
+	}
+	return p.xOf(local, w)
 }
 
 // clipView is one clip's bar: its label, its selection and its edges.
@@ -255,7 +379,7 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		}
 		if ev.Y < rulerHeight {
 			p.drag = dragState{kind: dragScrub}
-			p.seek(p.tOf(ev.X, w))
+			p.seekLocal(p.tOf(ev.X, w))
 			return true
 		}
 		if clip, edge := p.clipAt(ev.X, ev.Y, w); clip != nil {
@@ -275,7 +399,7 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		}
 		p.selected = ""
 		p.drag = dragState{kind: dragScrub}
-		p.seek(p.tOf(ev.X, w))
+		p.seekLocal(p.tOf(ev.X, w))
 		return true
 	case ui.InputPointerMove:
 		if p.drag.kind == dragNone {
@@ -294,7 +418,7 @@ func (p *Plugin) timelineInput(ev ui.InputEvent) bool {
 		case dragNone:
 			return false
 		case dragScrub:
-			p.seek(p.tOf(ev.X, w))
+			p.seekLocal(p.tOf(ev.X, w))
 		case dragMove:
 			// A clip may move past the film's end: the root's length grows to
 			// hold it when the drag is written.
@@ -363,10 +487,10 @@ func (p *Plugin) clipAt(x, y float32, w float32) (*Clip, dragKind) {
 // the keyboard.
 var transportKeys = map[ui.Key]func(*Plugin){
 	ui.KeySpace: func(p *Plugin) { p.togglePlay() },
-	ui.KeyLeft:  func(p *Plugin) { p.seek(p.playhead - 1/p.fps()) },
-	ui.KeyRight: func(p *Plugin) { p.seek(p.playhead + 1/p.fps()) },
-	ui.KeyHome:  func(p *Plugin) { p.seek(0) },
-	ui.KeyEnd:   func(p *Plugin) { p.seek(p.duration()) },
+	ui.KeyLeft:  func(p *Plugin) { p.seekLocal(p.localNow() - 1/p.fps()) },
+	ui.KeyRight: func(p *Plugin) { p.seekLocal(p.localNow() + 1/p.fps()) },
+	ui.KeyHome:  func(p *Plugin) { p.seekLocal(0) },
+	ui.KeyEnd:   func(p *Plugin) { p.seekLocal(p.span()) },
 }
 
 // key drives the transport while the timeline has the keyboard.

@@ -164,27 +164,35 @@ space, the arrow keys, Home and End move the playhead while paused.
 
 ## The timeline
 
-The timeline draws the root composition's clips, one row per `data-track-index`,
-in time order, with a ruler that picks a tick step for the room, a playhead and
-each clip's label. It is native: the ruler, playhead, rows and hover state are
-painted into one box that takes the pointer.
+The timeline draws one composition's clips, one row per `data-track-index`, in
+time order, with a ruler that picks a tick step for the room, a playhead and each
+clip's label. It is native: the ruler, playhead, rows and hover state are painted
+into one box that takes the pointer.
+
+It edits the root composition, or a scene the user opened from the sidebar. The
+focused scene's own time is what the timeline draws: its playhead is the scene's
+local time, the transport shows that time and the scene's length, and playback
+stops at the scene's end. The header carries the scene's name with a button back
+to the main composition, and a drag on the root timeline moves or trims a scene's
+window there.
 
 - A click on the ruler or empty space scrubs. A click on a clip selects it.
 - Dragging a clip's middle moves it, rounded to a frame. Dragging an edge trims
   that edge, keeping the other one still.
-- Releasing writes the clip's `data-start` and `data-duration` into its file,
-  through `setClipTiming`, which replaces only those values. When the clip now
+- Releasing writes the clip's `data-start` and `data-duration` into its own file,
+  through `setClipTiming`, which replaces only those values. When a root clip now
   ends past the root's declared `data-duration`, the root's length grows to the
-  clip's end, as the HyperFrames editor does; the host's window is what the
-  scene's own length shows through.
+  clip's end, as the HyperFrames editor does; a clip inside a scene is bounded by
+  the scene's own length, and the scene's window by the host's timing.
 - The project is read again after the write, so the timeline shows what the file
-  says, not what the drag showed.
+  says, not what the drag showed. The scene focus survives the reload while the
+  scene is still there.
 
 The sidebar has three tabs: **Scenes**, the compositions the root mounts, in
-order, with their windows and an **Add scene** button that writes a four-second
-scene and mounts it at the end; **Clip**, the selected clip's file, element,
-start, duration, end and track; and **Check**, the findings, whose row selects the
-clip it names.
+order, with their windows; clicking one opens its clips on the timeline, and
+**Add scene** (in the root's view) writes a four-second scene and mounts it at the
+end; **Clip**, the selected clip's file, element, start, duration, end and track;
+and **Check**, the findings, whose row selects the clip it names.
 
 ## Rendering
 
@@ -234,13 +242,14 @@ and that a new project is clean. `edit_test.go` pins surgical timing writes and
 scene creation. `project_test.go` pins discovery, opening with a missing scene
 and timing resolution. `video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
-on another conversation, writes a dragged clip, starts a new video, sends the
-brief and survives a window with no web pages.
+on another conversation, seeks from the ruler, drags a root clip and a clip
+inside a scene, starts a new video, sends the brief and survives a window with
+no web pages.
 
 ## Not there yet
 
-The timeline shows and edits the root composition, not the inside of a scene:
-the scene's window can be moved and trimmed there, and its clips are edited in
-its own file. Variables and their bindings, captions, snapshot review, audio
-preview, linked clips, keyframes, undo, and cloud or distributed rendering are
-not ported. A render is local and synchronous from the editor's point of view.
+The timeline edits one composition at a time, so a scene's clips are reached by
+opening the scene, not by expanding its host in place. Variables and their
+bindings, captions, snapshot review, audio preview, linked clips, keyframes,
+undo, and cloud or distributed rendering are not ported. A render is local and
+synchronous from the editor's point of view.

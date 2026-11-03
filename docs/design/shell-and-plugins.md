@@ -823,14 +823,16 @@ is laid out at the composition's size and scaled to the stage. The transport has
 **Play**, the timecode, the frame number and the video's size and frame rate;
 playback is Go asking for a frame every 33 ms, not the page playing itself.
 
-The timeline is native and draws the root composition's clips, one row per
-`data-track-index`, with a ruler, the playhead and each clip's label. A click
-scrubs or selects, a drag moves a clip and an edge drag trims it; the release
-writes the timing into the file, replaces only the values it changed, grows the
-root's `data-duration` when the clip now ends past it, and reads the project
-again. The sidebar lists the scenes (with **Add scene**, which writes a four
-second scene and mounts it at the end), the selected clip and the check's
-findings, each of which selects the clip it names.
+The timeline is native and draws one composition's clips, one row per
+`data-track-index`, with a ruler, the playhead and each clip's label. It edits
+the root, or a scene opened from the sidebar, whose own time it draws and whose
+own playhead the transport shows; the header goes back to the main composition.
+A click scrubs or selects, a drag moves a clip and an edge drag trims it; the
+release writes the timing into the clip's file, replaces only the values it
+changed, grows the root's `data-duration` when a root clip now ends past it, and
+reads the project again. The sidebar lists the scenes (with **Add scene**, which
+writes a four second scene and mounts it at the end), the selected clip and the
+check's findings, each of which selects the clip it names.
 
 **Render** runs the official HyperFrames CLI in the project folder and writes
 `renders/<title>.mp4`: `npx --yes hyperframes render --output …`. It is disabled

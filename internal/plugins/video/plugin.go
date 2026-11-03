@@ -67,6 +67,7 @@ type Plugin struct {
 	project *Project
 	check   check
 	loadErr string
+	scene   *Scene // the scene the timeline edits; nil for the root
 
 	web      shell.WebView
 	webDir   string    // the folder the page shows
@@ -88,7 +89,7 @@ type Plugin struct {
 	timeline ui.Handle
 	tlWidth  float32 // the timeline's width as last drawn
 	zoom     float64
-	focus    bool  // the timeline has the keyboard
+	keys     bool  // the timeline has the keyboard
 	found    []ref // the conversation folder's projects, read with the project
 
 	loading   kernel.Task
@@ -159,6 +160,7 @@ func (p *Plugin) close() {
 	p.webDir, p.webMTime = "", time.Time{}
 	p.info, p.webErr = previewInfo{}, ""
 	p.project, p.check, p.loadErr = nil, check{}, ""
+	p.scene = nil
 	p.found = nil
 	p.dir, p.playhead = "", 0
 }
@@ -175,6 +177,7 @@ func (p *Plugin) follow(folder, dir string) {
 	p.seeking.Cancel()
 	p.stopPlaying()
 	p.selected, p.drag = "", dragState{}
+	p.scene = nil
 	p.folder, p.dir = folder, dir
 	p.project, p.check, p.loadErr = nil, check{}, ""
 	p.playhead = 0
@@ -218,6 +221,7 @@ func (p *Plugin) load() {
 		}
 		p.loadErr = ""
 		p.project, p.check, p.found = l.project, l.check, l.found
+		p.pruneFocus()
 		p.pruneSelection()
 		p.mount()
 	})
@@ -298,6 +302,41 @@ func (p *Plugin) reload() {
 	p.loading.Cancel()
 	p.mounting.Cancel()
 	p.load()
+}
+
+// pruneFocus puts the timeline back on the root when its scene is gone.
+func (p *Plugin) pruneFocus() {
+	if p.scene == nil || p.project == nil {
+		p.scene = nil
+		return
+	}
+	for _, s := range p.project.Scenes {
+		if s.Host != nil && p.scene.Host != nil && s.Host.ID == p.scene.Host.ID {
+			p.scene = s
+			return
+		}
+	}
+	p.scene = nil
+}
+
+// focusOn edits one scene's clips on the timeline instead of the root's.
+func (p *Plugin) focusOn(s *Scene) {
+	if s == nil || s.Comp == nil {
+		return
+	}
+	p.scene = s
+	p.selected = ""
+	p.drag = dragState{}
+	if s.Host != nil {
+		p.seek(s.Host.Start)
+	}
+}
+
+// unfocus puts the timeline back on the root composition.
+func (p *Plugin) unfocus() {
+	p.scene = nil
+	p.selected = ""
+	p.drag = dragState{}
 }
 
 // pruneSelection forgets a clip the project no longer has.
@@ -401,8 +440,8 @@ func (p *Plugin) togglePlay() {
 	if p.project == nil || p.web == nil || p.webErr != "" || p.duration() <= 0 {
 		return
 	}
-	if p.playhead >= p.duration() {
-		p.playhead = 0
+	if p.playhead >= p.playLimit() || p.playhead < p.startOfSpan() {
+		p.playhead = p.startOfSpan()
 	}
 	p.playing = true
 	p.playAt = time.Now()
@@ -426,9 +465,9 @@ func (p *Plugin) tick() {
 		return
 	}
 	at := p.playhead + time.Since(p.playAt).Seconds()
-	if at >= p.duration() {
+	if limit := p.playLimit(); at >= limit {
 		p.playing = false
-		p.playhead = p.duration()
+		p.playhead = limit
 		p.seek(p.playhead)
 		p.ctx.Post(func() {})
 		return

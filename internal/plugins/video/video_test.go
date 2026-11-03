@@ -315,3 +315,60 @@ func TestDraggingAClipOnTheTimeline(t *testing.T) {
 		t.Fatalf("the root did not grow: %s", html)
 	}
 }
+
+// TestTheTimelineEditsAScene edits a clip inside a scene: the scene's own
+// time is what the timeline draws, and its file is what a drag writes.
+func TestTheTimelineEditsAScene(t *testing.T) {
+	f := start(t)
+	dir := filepath.Join(f.dir, "videos", "video-1")
+	f.open(t, dir)
+	if len(f.p.project.Scenes) != 1 {
+		t.Fatalf("scenes = %d", len(f.p.project.Scenes))
+	}
+	f.p.focusOn(f.p.project.Scenes[0])
+	if got := f.p.span(); got != 8 {
+		t.Fatalf("span = %v", got)
+	}
+	if rows := f.p.rows(); len(rows) != 1 || len(rows[0].clips) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Fill().MinHeight(0).Children(func() {
+			ui.Box(c).Grow(1).MinWidth(0)
+			f.p.drawer(c)
+		})
+	}, 1400, 900)
+	tt.Frame()
+	f.h.Flush()
+	tt.Frame()
+	if !tt.HasText("scene-01") {
+		t.Fatalf("the breadcrumb is missing; texts = %v", tt.Texts())
+	}
+	rect, ok := tt.Find("Timeline")
+	if !ok {
+		t.Fatal("timeline missing")
+	}
+	y := rect.Y + rulerHeight + rowHeight/2
+	tt.Press(rect.X+timelinePad+30, y)
+	tt.Move(rect.X+timelinePad+30+91, y)
+	tt.Release(rect.X+timelinePad+30+91, y)
+	f.h.Flush()
+	scene, err := os.ReadFile(filepath.Join(dir, "compositions", "scene-01.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(scene), `data-start="1"`) {
+		t.Fatalf("scene = %s", scene)
+	}
+	index, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `data-start="0"`) {
+		t.Fatalf("the root moved: %s", index)
+	}
+	f.p.unfocus()
+	if f.p.span() != 8 || len(f.p.rows()) != 1 {
+		t.Fatalf("root = %v span", f.p.span())
+	}
+}

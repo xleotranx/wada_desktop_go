@@ -277,8 +277,9 @@ func sceneTemplate(id, title string, length float64) string {
     </style>
     <h1 id="` + id + `-title" class="clip title" data-start="0" data-duration="` + formatSeconds(length) + `" data-track-index="0">` + title + `</h1>
     <script>
+      // The title starts visible, so a new project's first frame is not blank.
       const tl = gsap.timeline({ paused: true });
-      tl.fromTo("#` + id + `-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0);
+      tl.fromTo("#` + id + `-title", { y: 40 }, { y: 0, duration: 0.6, ease: "power3.out" }, 0);
       window.__timelines["` + id + `"] = tl;
     </script>
   </section>

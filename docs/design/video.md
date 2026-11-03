@@ -218,7 +218,10 @@ render is the reference.
 The page never plays itself and never reports time: Go drives the playhead. A
 tick asks the page for the frame after a 33 ms wait, posts a draw with the time
 it answered, and schedules the next tick; **Play** therefore costs one `Eval`
-and one frame every 33 ms while it runs. The transport's button, the timeline and
+and one frame every 33 ms while it runs. The clock runs on wall time from where
+playback started, not from the last tick, so a slow frame drops instead of
+stalling the film; seeking while playing starts the clock again from the new
+playhead. The transport's button, the timeline and
 space, the arrow keys, Home and End move the playhead while paused.
 
 ## The timeline

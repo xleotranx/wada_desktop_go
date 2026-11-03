@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
@@ -645,5 +646,32 @@ func TestTheStoryboardCapturesFrames(t *testing.T) {
 	tt.Frame()
 	if len(f.p.shots) != storyFrames {
 		t.Fatal("closing dropped the frames")
+	}
+}
+
+// TestPlaybackAdvancesTheClock keeps the preview's clock running with wall
+// time from where playback started, not from the last tick.
+func TestPlaybackAdvancesTheClock(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	f.p.playhead = 7.5 // play the last half second, so the test is quick
+	f.p.togglePlay()
+	if !f.p.playing {
+		t.Fatal("playback did not start")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && f.p.playhead < 7.6 {
+		time.Sleep(10 * time.Millisecond)
+		f.h.Flush()
+	}
+	f.p.stopPlaying()
+	if f.p.playhead < 7.6 {
+		t.Fatalf("playhead = %v", f.p.playhead)
+	}
+	if f.p.playing {
+		t.Fatal("playback did not stop")
+	}
+	if f.ran("__video.seek") == 0 {
+		t.Fatal("the page was never seeked")
 	}
 }

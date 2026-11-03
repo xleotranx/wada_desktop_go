@@ -93,7 +93,8 @@ type Plugin struct {
 
 	playhead float64
 	playing  bool
-	playAt   time.Time
+	playAt   time.Time // when playback started
+	playBase float64   // the playhead playback started from
 	ticking  kernel.Task
 
 	selected string
@@ -524,6 +525,9 @@ func (p *Plugin) seek(t float64) {
 		t = d
 	}
 	p.playhead = t
+	if p.playing {
+		p.playBase, p.playAt = t, time.Now()
+	}
 	if p.web == nil || p.webErr != "" {
 		return
 	}
@@ -578,6 +582,7 @@ func (p *Plugin) togglePlay() {
 		p.playhead = p.startOfSpan()
 	}
 	p.playing = true
+	p.playBase = p.playhead
 	p.playAt = time.Now()
 	p.tick()
 }
@@ -598,7 +603,7 @@ func (p *Plugin) tick() {
 	if !p.playing || p.web == nil {
 		return
 	}
-	at := p.playhead + time.Since(p.playAt).Seconds()
+	at := p.playBase + time.Since(p.playAt).Seconds()
 	if limit := p.playLimit(); at >= limit {
 		p.playing = false
 		p.playhead = limit
@@ -614,6 +619,9 @@ func (p *Plugin) tick() {
 			return 0, ctx.Err()
 		case <-time.After(33 * time.Millisecond):
 		}
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		if _, err := web.Eval(ctx, seekScript(at)); err != nil {
 			return 0, err
 		}
@@ -624,7 +632,6 @@ func (p *Plugin) tick() {
 			p.webErr = err.Error()
 			return
 		}
-		p.playAt = time.Now()
 		p.ctx.Post(func() {})
 		p.tick()
 	})

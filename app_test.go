@@ -309,8 +309,8 @@ func completeWorkflow(a *plugintest.Agent, req agent.Send) {
 func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
 	a := startApp(t)
 	a.agent.OnSend = func(req agent.Send) { completeWorkflow(a.agent, req) }
-	a.command("flows.plan-code-review")
-	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, code, review") {
+	a.command("flows.plan-work-review")
+	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, work, review") {
 		t.Fatalf("command did not select composer: %q", a.tt.Texts())
 	}
 	if err := a.tt.Click("Compose"); err != nil {
@@ -321,7 +321,7 @@ func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
 	if err := a.tt.Click("Send"); err != nil {
 		t.Fatal(err)
 	}
-	a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
+	a.until("review completion", func() bool { return a.tt.HasText("Plan, work, review · Passed") })
 	children := a.agent.SpawnRequests()
 	if len(children) != 1 {
 		t.Fatalf("children %+v", children)
@@ -357,14 +357,14 @@ func TestTheModePickerRunsWorkflowInsideNewAndExistingChat(t *testing.T) {
 				t.Fatal(err)
 			}
 			a.settle()
-			if err := a.tt.Click("Plan, code, review"); err != nil {
+			if err := a.tt.Click("Plan, work, review"); err != nil {
 				t.Fatal(err)
 			}
 			a.settle()
 			if err := a.tt.Click("Send"); err != nil {
 				t.Fatal(err)
 			}
-			a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
+			a.until("review completion", func() bool { return a.tt.HasText("Plan, work, review · Passed") })
 			ctl, _ := kernel.Use(a.shell.Kernel, chatcontract.ControllerKey)
 			current := ctl.Current()
 			if existing && current.Session != "s2" {
@@ -461,7 +461,7 @@ func TestFollowupCanBeQueuedAndRemovedWhilePlanRuns(t *testing.T) {
 	a := startApp(t)
 	a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
 	a.agent.OnSend = func(req agent.Send) {}
-	a.command("flows.plan-code-review")
+	a.command("flows.plan-work-review")
 	if err := a.tt.Click("Compose"); err != nil {
 		t.Fatal(err)
 	}

@@ -487,7 +487,7 @@ func (p *Plugin) sendAway(id agent.SessionID, d chat.Draft) {
 	backend := p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions, Project: d.Project})
 	}, func(_ agent.SendDisposition, err error) {
 		switch {
 		case err == nil:
@@ -508,7 +508,7 @@ func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
 	seq, backend := p.sendSeq, p.agent
 	var task kernel.Task
 	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions, Project: d.Project})
 	}, func(disposition agent.SendDisposition, err error) {
 		finish := func() {
 			if p.sendSeq == seq {

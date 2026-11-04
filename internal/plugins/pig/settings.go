@@ -30,7 +30,7 @@ type providerForm struct {
 }
 
 func (p *Plugin) contributeSettings(c *kernel.Context) {
-	kernel.Contribute(c, settings.Sections, "pig.agent", 10, settings.Section{Title: "PiG", Description: "The embedded coding agent. Wada owns its configuration and conversations.", Render: p.agentSection})
+	kernel.Contribute(c, settings.Sections, "pig.agent", 10, settings.Section{Title: "PiG", Description: "The assistant runtime. Wada owns its configuration and conversations.", Render: p.agentSection})
 	kernel.Contribute(c, settings.Sections, "pig.providers", 11, settings.Section{Title: "Providers", Description: "Connect the model providers PiG uses. Credentials belong to Wada.", Render: p.providersSection})
 	c.OnDispose(func() {
 		if p.providers.scope != nil {

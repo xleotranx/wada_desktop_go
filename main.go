@@ -3,6 +3,7 @@ package main
 import (
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/cowork"
 	"wada-desktop-go/internal/plugins/design"
 	"wada-desktop-go/internal/plugins/documents"
 	"wada-desktop-go/internal/plugins/explore"
@@ -21,6 +22,7 @@ import (
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/video"
+	"wada-desktop-go/internal/plugins/videocomponents"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 
@@ -42,6 +44,7 @@ var wada = shell.App{
 // main is the composition: the plugins this build installs, in order.
 func main() {
 	shell.Run(wada, append([]kernel.Factory{
+		cowork.New,
 		pig.New,
 		chat.New,
 		models.New,
@@ -57,11 +60,12 @@ func main() {
 		tabs.New,         // open chats as tabs across the window; replaces the sidebar
 		explore.New,      // read-only side chats in a drawer, from selected text
 		design.New,       // a canvas of the agent's web pages: comments, notes, tweaks, present
-		video.New,        // HyperFrames videos: stage, timeline, checks, render
-		documents.New,    // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
-		jobs.New,         // reads a folder, works on a goal, keeps the brief, in jobs.db
-		workflow.New,     // owns conversational tasks and fresh reviewer children
-		flows.New,        // plan, code, review, from the composer or command palette
+		video.New,
+		videocomponents.New, // HyperFrames videos: stage, timeline, checks, render
+		documents.New,       // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
+		jobs.New,            // reads a folder, works on a goal, keeps the brief, in jobs.db
+		workflow.New,        // owns conversational tasks and fresh reviewer children
+		flows.New,           // plan, code, review, from the composer or command palette
 		palette.New,
 		notifications.New,
 		inspector.New,

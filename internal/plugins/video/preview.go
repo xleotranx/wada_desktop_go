@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -18,6 +17,7 @@ var previewJS string
 // previewPayload is what the page needs to show a project: its root, and the
 // scenes it mounts, whose files the page cannot read itself.
 type previewPayload struct {
+	Timelines []string       `json:"timelines,omitempty"` // timelines declared by the source
 	RootID    string         `json:"rootId"`
 	FPS       float64        `json:"fps"`
 	Duration  float64        `json:"duration"`
@@ -66,7 +66,7 @@ func defaultsOf(variables []variable) map[string]any {
 // payload reads what the preview page needs from the project's files.
 func payload(p *Project, values map[string]any) previewPayload {
 	out := previewPayload{RootID: p.Root.ID, FPS: p.FPS, Duration: p.Duration(),
-		Variables: values, Declared: defaultsOf(p.Root.Variables)}
+		Variables: values, Declared: defaultsOf(p.Root.Variables), Timelines: append([]string(nil), p.Root.registered...)}
 	if out.RootID == "" {
 		out.RootID = "main"
 	}
@@ -88,9 +88,8 @@ func payload(p *Project, values map[string]any) previewPayload {
 		if out.RootID == s.Host.ID {
 			continue
 		}
-		if data, err := os.ReadFile(filepath.Join(p.Dir, filepath.FromSlash(s.Comp.File))); err == nil {
-			sec.HTML = string(data)
-		}
+		sec.HTML = s.Comp.src
+		out.Timelines = append(out.Timelines, s.Comp.registered...)
 		out.Scenes = append(out.Scenes, sec)
 	}
 	return out
@@ -117,17 +116,21 @@ func jsonString(s string) string {
 	return string(data)
 }
 
-// variableScript sets one variable in the page.
-func variableScript(id string, value any) string {
-	data, err := json.Marshal(value)
+// variablesScript applies an entire override snapshot so rapid field changes
+// can replace background jobs without dropping earlier edits.
+func variablesScript(values map[string]any) string {
+	data, err := json.Marshal(values)
 	if err != nil {
 		return "return null;"
 	}
-	return "return window.__video ? window.__video.setVariable(" + jsonString(id) + ", " + string(data) + ") : null;"
+	return "return window.__video ? window.__video.setVariables(" + string(data) + ") : null;"
 }
 
 // seekScript shows the frame at t.
-func seekScript(t float64) string {
+func seekScript(t float64, end ...float64) string {
+	if len(end) > 0 {
+		return fmt.Sprintf("return window.__video ? window.__video.seek(%g, %g) : null;", t, end[0])
+	}
 	return fmt.Sprintf("return window.__video ? window.__video.seek(%g) : null;", t)
 }
 
@@ -136,8 +139,12 @@ func seekScript(t float64) string {
 // and a page still loading the last file answers no.
 func waitReady(ctx context.Context, web shell.WebView, path string, deadline time.Duration) error {
 	until := time.Now().Add(deadline)
-	check := fmt.Sprintf("return document.readyState === 'complete' && location.pathname.endsWith(%s) && !!document.querySelector('[data-composition-id]');",
-		jsonString(filepath.Base(path)))
+	pathname := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" {
+		pathname = "/" + pathname
+	}
+	check := fmt.Sprintf("return document.readyState === 'complete' && decodeURIComponent(location.pathname) === %s && !!document.querySelector('[data-composition-id]');",
+		jsonString(pathname))
 	var last error
 	for {
 		ready, err := web.Eval(ctx, check)

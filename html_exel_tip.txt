@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+
+<html data-resolution="landscape">
+<head>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+    #root {
+      --bg: #FFFFFF;
+      --fg: #1B2A21;
+      --surface: #EEF6F1;
+      --muted: #5B6B62;
+      --accent: #217346;
+      --accent_2: #2E9E5B;
+      background: var(--bg);
+      font-family: "Inter", system-ui, sans-serif, sans-serif;
+    }
+    /* The sliding card defaults to the palette bg so it's a solid surface; a scene's
+       own `#scene_NN .hf-tx { background }` rule (id+class — higher specificity)
+       overrides this. The host stays transparent so it never covers the outgoing
+       scene mid-push — only the cards move. */
+    .hf-tx { background-color: var(--bg); }
+  </style>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+</head>
+<body>
+<div data-composition-id="root" data-duration="24.24" data-height="1080" data-start="0" data-width="1920" id="root" style="position:relative; width:1920px; height:1080px; overflow:hidden;">
+<div id="scene_01" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_01 .grid-bg {
+        position:absolute; left:0; top:0; width:1920px; height:1080px;
+        background-image:
+          linear-gradient(to right, rgba(33,115,70,0.10) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(33,115,70,0.10) 1px, transparent 1px);
+        background-size:80px 80px;
+      }#scene_01 .cell {
+        position:absolute; width:80px; height:80px; background:#217346; opacity:0;
+      }#scene_01 .logo {
+        position:absolute; left:50%; top:130px; width:120px; height:120px;
+        margin-left:-60px; object-fit:contain;
+      }#scene_01 .headline {
+        position:absolute; left:0; top:330px; width:1920px; height:160px;
+        display:flex; justify-content:center; align-items:center; gap:28px;
+        font-family:"Inter", system-ui, sans-serif; font-weight:800;
+        font-size:112px; line-height:1; color:#1B2A21; letter-spacing:-2px;
+        white-space:nowrap;
+      }#scene_01 .headline .w { display:inline-block; }#scene_01 .headline .green { color:#217346; }#scene_01 .rule {
+        position:absolute; left:50%; top:530px; width:480px; height:8px; margin-left:-240px;
+        background:#2E9E5B; border-radius:4px; transform-origin:50% 50%;
+      }#scene_01 .sub {
+        position:absolute; left:0; top:580px; width:1920px; text-align:center;
+        font-family:"JetBrains Mono", monospace; font-size:28px; color:#5B6B62;
+        letter-spacing:4px; text-transform:uppercase;
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<div class="grid-bg-wrap" style="position:absolute;inset:0;">
+<div class="grid-bg"></div>
+<div id="cells" style="position:absolute;inset:0;"></div>
+</div>
+<img alt="Microsoft Excel logo" class="logo" src="https://gen-os-static.s3.us-east-2.amazonaws.com/astral_assets/asset_scout/d32318741fbc59c695059553df1d2890457641c0c2317dcd6707b6bb29cbca0e.png"/>
+<div class="headline">
+<span class="w green" id="w0">4</span>
+<span class="w" id="w1">Excel</span>
+<span class="w" id="w2">Tricks</span>
+<span class="w" id="w3">in</span>
+<span class="w" id="w4">30</span>
+<span class="w" id="w5">Seconds</span>
+</div>
+<div class="rule"></div>
+<div class="sub">Excel shortcuts &amp; tips</div>
+</div>
+</div>
+<div id="scene_02" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_02 .scene-root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: #FFFFFF;
+        background-image:
+          linear-gradient(#E3EEE8 1px, transparent 1px),
+          linear-gradient(90deg, #E3EEE8 1px, transparent 1px);
+        background-size: 64px 64px;
+        font-family: "Inter", system-ui, sans-serif;
+        color: #1B2A21;
+      }#scene_02 /* Spreadsheet mockup */
+      .sheet {
+        position: absolute;
+        left: 1000px;
+        top: 260px;
+        width: 760px;
+        height: 424px;
+        background: #FFFFFF;
+        border: 2px solid #C9D9CF;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 24px 48px rgba(27, 42, 33, 0.14);
+      }#scene_02 .letters, #scene_02 .grid, #scene_02 .hlabels {
+        position: absolute;
+        left: 0;
+        width: 760px;
+        display: grid;
+        grid-template-columns: repeat(4, 190px);
+      }#scene_02 .letters {
+        top: 0;
+        height: 40px;
+        background: #F3F6F4;
+        border-bottom: 1px solid #C9D9CF;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
+        color: #5B6B62;
+      }#scene_02 .letters div {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid #DDE7E1;
+      }#scene_02 .grid {
+        top: 40px;
+        height: 384px;
+        grid-auto-rows: 64px;
+        z-index: 1;
+      }#scene_02 .grid div {
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        font-size: 22px;
+        font-weight: 400;
+        color: #1B2A21;
+        border-right: 1px solid #E3EAE6;
+        border-bottom: 1px solid #E3EAE6;
+        white-space: nowrap;
+      }#scene_02 .band {
+        position: absolute;
+        left: 0;
+        width: 760px;
+        height: 64px;
+        background: #EEF6F1;
+        z-index: 0;
+        opacity: 0;
+      }#scene_02 .hbar {
+        position: absolute;
+        left: 0;
+        top: 40px;
+        width: 760px;
+        height: 64px;
+        background: #217346;
+        transform-origin: 0% 50%;
+        transform: scaleX(0);
+        z-index: 2;
+      }#scene_02 .hlabels {
+        top: 40px;
+        height: 64px;
+        grid-auto-rows: 64px;
+        z-index: 3;
+        opacity: 0;
+      }#scene_02 .hlabels div {
+        position: relative;
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        font-size: 22px;
+        font-weight: 700;
+        color: #FFFFFF;
+      }#scene_02 .fa {
+        position: absolute;
+        right: 14px;
+        top: 50%;
+        margin-top: -12px;
+        font-size: 18px;
+        color: #FFFFFF;
+        opacity: 0;
+      }#scene_02 /* Keycaps */
+      .keycap {
+        position: absolute;
+        top: 430px;
+        width: 170px;
+        height: 170px;
+        border-radius: 28px;
+        background: linear-gradient(180deg, #FFFFFF 0%, #EEF6F1 100%);
+        border: 2px solid #C9D9CF;
+        box-shadow: 0 12px 0 #9DB7A8, 0 22px 34px rgba(27, 42, 33, 0.22);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        color: #1B2A21;
+        opacity: 0;
+      }#scene_02 .keycap.ctrl { left: 170px; font-size: 44px; }#scene_02 .keycap.t { left: 440px; font-size: 110px; }#scene_02 .plus {
+        position: absolute;
+        left: 372px;
+        top: 490px;
+        width: 56px;
+        text-align: center;
+        font-size: 64px;
+        font-weight: 800;
+        color: #5B6B62;
+        line-height: 1;
+        opacity: 0;
+      }#scene_02 .ripple {
+        position: absolute;
+        left: 350px;
+        top: 445px;
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        border: 5px solid #2E9E5B;
+        opacity: 0;
+        transform: scale(0.2);
+      }#scene_02 .badge {
+        position: absolute;
+        left: 330px;
+        top: 215px;
+        width: 150px;
+        height: 150px;
+        object-fit: contain;
+        opacity: 0;
+      }#scene_02 .pill {
+        position: absolute;
+        left: 1000px;
+        top: 720px;
+        height: 56px;
+        padding: 0 28px;
+        border-radius: 28px;
+        background: #217346;
+        color: #FFFFFF;
+        font-size: 26px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        opacity: 0;
+      }#scene_02 .kicker {
+        position: absolute;
+        left: 170px;
+        top: 250px;
+        font-size: 28px;
+        font-weight: 600;
+        color: #5B6B62;
+        letter-spacing: 0.02em;
+        opacity: 0;
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<!-- Spreadsheet mockup -->
+<div class="sheet">
+<div class="letters">
+<div>A</div><div>B</div><div>C</div><div>D</div>
+</div>
+<div class="grid">
+<div>Region</div><div>Product</div><div>Units</div><div>Revenue</div>
+<div>North</div><div>Widget</div><div>120</div><div>$3,600</div>
+<div>South</div><div>Gadget</div><div>85</div><div>$2,550</div>
+<div>East</div><div>Widget</div><div>142</div><div>$4,260</div>
+<div>West</div><div>Gizmo</div><div>64</div><div>$1,920</div>
+<div>North</div><div>Gizmo</div><div>98</div><div>$2,940</div>
+</div>
+<div class="band b0" style="top:104px"></div>
+<div class="band b2" style="top:232px"></div>
+<div class="band b4" style="top:360px"></div>
+<div class="hbar"></div>
+<div class="hlabels">
+<div>Region<span class="fa">▾</span></div>
+<div>Product<span class="fa">▾</span></div>
+<div>Units<span class="fa">▾</span></div>
+<div>Revenue<span class="fa">▾</span></div>
+</div>
+</div>
+<div class="kicker">Raw sales data</div>
+<!-- Table icon badge -->
+<img alt="" class="badge" src="https://gen-os-static.s3.us-east-2.amazonaws.com/astral_assets/asset_scout/2f00c6b10b9d394d21f1f052277042657ca76368411b02202113646714eeab51.png"/>
+<!-- Keycaps -->
+<div class="keycap ctrl">Ctrl</div>
+<div class="plus">+</div>
+<div class="keycap t">T</div>
+<div class="ripple"></div>
+<div class="pill">
+<span>✓</span> Smart Table
+    </div>
+</div>
+</div>
+<div id="scene_03" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_03 .hf-tx {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: #FFFFFF;
+        background-image:
+          linear-gradient(to right, #EEF6F1 1px, transparent 1px),
+          linear-gradient(to bottom, #EEF6F1 1px, transparent 1px);
+        background-size: 64px 64px;
+        font-family: "Inter", system-ui, sans-serif;
+        color: #1B2A21;
+      }#scene_03 #formula {
+        position: absolute;
+        left: 460px;
+        top: 150px;
+        width: 1000px;
+        height: 84px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 0 28px;
+        box-sizing: border-box;
+        background: #FFFFFF;
+        border: 2px solid #217346;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(33, 115, 70, 0.12);
+      }#scene_03 #formula .fx {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 30px;
+        color: #FFFFFF;
+        background: #217346;
+        border-radius: 6px;
+        padding: 6px 14px;
+      }#scene_03 #formula-text {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 600;
+        font-size: 36px;
+        color: #1B2A21;
+        white-space: pre;
+      }#scene_03 #caret {
+        display: inline-block;
+        width: 3px;
+        height: 42px;
+        background: #217346;
+        margin-left: 2px;
+      }#scene_03 #table {
+        position: absolute;
+        left: 560px;
+        top: 320px;
+        width: 800px;
+      }#scene_03 .thead, #scene_03 .row {
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        width: 800px;
+        padding: 0 28px;
+      }#scene_03 .thead {
+        height: 64px;
+        background: #217346;
+        color: #FFFFFF;
+        border-radius: 10px 10px 0 0;
+        font-weight: 700;
+        font-size: 26px;
+      }#scene_03 .row {
+        height: 62px;
+        background: #FFFFFF;
+        border-bottom: 1px solid #D5E6DC;
+        font-size: 28px;
+        font-weight: 400;
+      }#scene_03 .c-id { width: 200px; font-family: "JetBrains Mono", monospace; font-weight: 600; }#scene_03 .c-name { width: 360px; }#scene_03 .c-price { width: 240px; text-align: right; font-family: "JetBrains Mono", monospace; font-weight: 600; }#scene_03 .thead .c-price { text-align: right; }#scene_03 #spot {
+        position: absolute;
+        left: 552px;
+        top: 578px;
+        width: 816px;
+        height: 78px;
+        box-sizing: border-box;
+        border: 4px solid #2E9E5B;
+        border-radius: 12px;
+        box-shadow: 0 0 0 6px rgba(46, 158, 91, 0.18);
+        opacity: 0;
+      }#scene_03 #mag {
+        position: absolute;
+        left: 370px;
+        top: 335px;
+        width: 170px;
+        height: 170px;
+        opacity: 0;
+      }#scene_03 #mag img {
+        width: 170px;
+        height: auto;
+        display: block;
+      }#scene_03 #result {
+        position: absolute;
+        left: 830px;
+        top: 800px;
+        width: 260px;
+        height: 64px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #217346;
+        color: #FFFFFF;
+        border-radius: 12px;
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 36px;
+        opacity: 0;
+        box-shadow: 0 10px 28px rgba(33, 115, 70, 0.25);
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<div class="" id="formula">
+<span class="fx">fx</span>
+<span id="formula-text"></span><span id="caret"></span>
+</div>
+<div class="" id="table">
+<div class="thead">
+<span class="c-id">ID</span>
+<span class="c-name">Name</span>
+<span class="c-price">Price</span>
+</div>
+<div class="row" id="row1"><span class="c-id">1001</span><span class="c-name cell">Notebook</span><span class="c-price cell">$12.00</span></div>
+<div class="row" id="row2"><span class="c-id">1002</span><span class="c-name cell">Pen Set</span><span class="c-price cell">$8.50</span></div>
+<div class="row" id="row3"><span class="c-id">1003</span><span class="c-name cell">Desk Lamp</span><span class="c-price cell">$19.99</span></div>
+<div class="row" id="row4"><span class="c-id cell">1004</span><span class="c-name cell">Stapler</span><span class="c-price cell">$24.50</span></div>
+<div class="row" id="row5"><span class="c-id">1005</span><span class="c-name cell">Planner</span><span class="c-price cell">$15.75</span></div>
+<div class="row" id="row6"><span class="c-id">1006</span><span class="c-name cell">Calculator</span><span class="c-price cell">$18.25</span></div>
+</div>
+<div class="" id="spot"></div>
+<div class="" id="mag">
+<img alt="magnifying glass" src="https://gen-os-static.s3.us-east-2.amazonaws.com/astral_assets/asset_scout/52c21533963f53f6efe1094138256ba4f72252cd48031c3e4383afb71935392c.png"/>
+</div>
+<div class="" id="result">$24.50</div>
+</div>
+</div>
+<div id="scene_04" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_04 .hf-tx {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #FFFFFF;
+        font-family: "Inter", system-ui, sans-serif;
+        color: #1B2A21;
+      }#scene_04 .hf-tx .grid-bg {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(#E3EEE7 1px, transparent 1px),
+          linear-gradient(90deg, #E3EEE7 1px, transparent 1px);
+        background-size: 80px 80px;
+        opacity: 0.7;
+      }#scene_04 .hf-tx .heading {
+        position: absolute;
+        left: 180px;
+        top: 250px;
+        font-size: 48px;
+        font-weight: 700;
+        color: #1B2A21;
+        letter-spacing: -0.01em;
+      }#scene_04 .hf-tx .keys {
+        position: absolute;
+        left: 180px;
+        top: 390px;
+        display: flex;
+        align-items: center;
+        gap: 36px;
+      }#scene_04 .hf-tx .keycap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        background: #EEF6F1;
+        border: 3px solid #B9D6C4;
+        border-bottom: 14px solid #8FBBA0;
+        border-radius: 28px;
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: 64px;
+        font-weight: 700;
+        color: #1B2A21;
+        box-sizing: border-box;
+      }#scene_04 .hf-tx .key-alt { width: 260px; }#scene_04 .hf-tx .key-eq { width: 200px; }#scene_04 .hf-tx .plus {
+        font-size: 72px;
+        font-weight: 600;
+        color: #5B6B62;
+      }#scene_04 .hf-tx .ripple {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 140px;
+        height: 140px;
+        margin-left: -70px;
+        margin-top: -70px;
+        border: 5px solid #2E9E5B;
+        border-radius: 50%;
+        box-sizing: border-box;
+        opacity: 0;
+      }#scene_04 .hf-tx .key-caption {
+        position: absolute;
+        left: 180px;
+        top: 650px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 28px;
+        color: #5B6B62;
+      }#scene_04 .hf-tx .sheet {
+        position: absolute;
+        left: 1010px;
+        top: 200px;
+        width: 460px;
+        height: 580px;
+        background: #FFFFFF;
+        border: 2px solid #C9D9CF;
+        border-radius: 12px;
+        box-sizing: border-box;
+        box-shadow: 0 18px 40px rgba(27, 42, 33, 0.10);
+        overflow: hidden;
+      }#scene_04 .hf-tx .row {
+        display: grid;
+        grid-template-columns: 64px 1fr;
+        height: 84px;
+        border-bottom: 1px solid #D5E3DA;
+        box-sizing: border-box;
+      }#scene_04 .hf-tx .row.head {
+        height: 56px;
+        background: #EEF6F1;
+        font-size: 24px;
+        font-weight: 600;
+        color: #5B6B62;
+        align-items: center;
+      }#scene_04 .hf-tx .gutter {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid #D5E3DA;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 24px;
+        color: #5B6B62;
+      }#scene_04 .hf-tx .cell {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 0 32px;
+        font-size: 40px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        color: #1B2A21;
+      }#scene_04 .hf-tx .row.head .cell {
+        justify-content: center;
+        padding: 0;
+      }#scene_04 .hf-tx .row.total {
+        height: 96px;
+        border-bottom: none;
+        background: #EEF6F1;
+      }#scene_04 .hf-tx .row.total .cell {
+        justify-content: space-between;
+      }#scene_04 .hf-tx .sum-tag {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 22px;
+        font-weight: 600;
+        color: #FFFFFF;
+        background: #217346;
+        padding: 6px 14px;
+        border-radius: 8px;
+      }#scene_04 .hf-tx .total-val {
+        font-size: 52px;
+        font-weight: 800;
+        color: #217346;
+        font-variant-numeric: tabular-nums;
+      }#scene_04 .hf-tx .select-box {
+        position: absolute;
+        left: 1076px;
+        top: 258px;
+        width: 392px;
+        height: 420px;
+        border: 4px solid #217346;
+        background: rgba(46, 158, 91, 0.08);
+        box-sizing: border-box;
+        transform-origin: top center;
+        opacity: 0;
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<div class="grid-bg"></div>
+<div class="heading">Sum a column instantly</div>
+<div class="keys">
+<div class="keycap key-alt" id="s4-alt">Alt</div>
+<div class="plus" id="s4-plus">+</div>
+<div class="keycap key-eq" id="s4-eq">
+        =
+        <div class="ripple" id="s4-ripple"></div>
+</div>
+</div>
+<div class="key-caption">AutoSum shortcut</div>
+<div class="sheet" id="s4-sheet">
+<div class="row head">
+<div class="gutter"></div>
+<div class="cell">A</div>
+</div>
+<div class="row r1"><div class="gutter">1</div><div class="cell">120</div></div>
+<div class="row r2"><div class="gutter">2</div><div class="cell">245</div></div>
+<div class="row r3"><div class="gutter">3</div><div class="cell">310</div></div>
+<div class="row r4"><div class="gutter">4</div><div class="cell">415</div></div>
+<div class="row r5"><div class="gutter">5</div><div class="cell">180</div></div>
+<div class="row total" id="s4-total">
+<div class="gutter" style="font-family:'JetBrains Mono',monospace;color:#5B6B62;">6</div>
+<div class="cell">
+<span class="sum-tag">SUM</span>
+<span class="total-val">1,270</span>
+</div>
+</div>
+</div>
+<div class="select-box" id="s4-select"></div>
+</div>
+</div>
+<div data-composition-id="scene_05" id="scene_05" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_05 .hf-tx .grid-bg {
+        position: absolute; inset: 0;
+        background-image:
+          linear-gradient(#EEF6F1 1px, transparent 1px),
+          linear-gradient(90deg, #EEF6F1 1px, transparent 1px);
+        background-size: 64px 64px;
+        opacity: 0.9;
+      }#scene_05 .hf-tx .abs { position: absolute; }#scene_05 .hf-tx .head {
+        left: 120px; top: 110px; font-size: 48px; font-weight: 700; color: #217346; letter-spacing: -0.5px;
+      }#scene_05 .hf-tx .editor {
+        left: 120px; top: 190px; width: 1000px; height: 620px;
+        background: #1B2A21; border-radius: 16px; overflow: hidden;
+        box-shadow: 0 24px 60px rgba(27,42,33,0.22);
+      }#scene_05 .hf-tx .titlebar {
+        position: absolute; left: 0; top: 0; width: 1000px; height: 56px; background: #243a2d;
+      }#scene_05 .hf-tx .dot {
+        position: absolute; top: 20px; width: 16px; height: 16px; border-radius: 8px;
+      }#scene_05 .hf-tx .tabname {
+        position: absolute; left: 150px; top: 14px;
+        font-family: 'JetBrains Mono', monospace; font-size: 24px; color: #A9B5AE;
+      }#scene_05 .hf-tx .gear {
+        position: absolute; right: 16px; top: 2px; width: 52px; height: 52px;
+        transform-origin: 50% 50%;
+      }#scene_05 .hf-tx .code {
+        position: absolute; left: 48px; top: 96px;
+        font-family: 'JetBrains Mono', monospace; font-size: 30px; line-height: 52px;
+        color: #FFFFFF; white-space: pre;
+      }#scene_05 .hf-tx .ln { display: block; clip-path: inset(0 100% 0 0); }#scene_05 .hf-tx .kw { color: #5FD28A; font-weight: 600; }#scene_05 .hf-tx .fn { color: #FFFFFF; }#scene_05 .hf-tx .run {
+        left: 1260px; top: 330px; width: 360px; height: 120px; border-radius: 60px;
+        background: #217346; color: #FFFFFF; font-size: 42px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; gap: 16px;
+        box-shadow: 0 16px 36px rgba(33,115,70,0.3);
+      }#scene_05 .hf-tx .ripple {
+        left: 1380px; top: 330px; width: 120px; height: 120px; border-radius: 60px;
+        border: 6px solid #2E9E5B; opacity: 0;
+      }#scene_05 .hf-tx .cursor { left: 1440px; top: 390px; width: 44px; height: 52px; }#scene_05 .hf-tx .track {
+        left: 1260px; top: 540px; width: 540px; height: 24px; border-radius: 12px;
+        background: #EEF6F1; border: 2px solid #D5E6DC; overflow: hidden;
+      }#scene_05 .hf-tx .fill {
+        position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+        background: #2E9E5B; transform-origin: 0% 50%; transform: scaleX(0);
+      }#scene_05 .hf-tx .check {
+        left: 1260px; top: 620px; width: 96px; height: 96px; border-radius: 48px;
+        background: #217346; display: flex; align-items: center; justify-content: center;
+        opacity: 0;
+      }#scene_05 .hf-tx .done {
+        left: 1384px; top: 636px; font-size: 56px; font-weight: 800; color: #1B2A21; opacity: 0;
+      }#scene_05 .hf-tx .badge {
+        right: 48px; bottom: 40px; height: 72px; display: flex; align-items: center; gap: 14px;
+      }#scene_05 .hf-tx .badge-mark {
+        width: 56px; height: 56px; border-radius: 14px; background: #217346; color: #FFFFFF;
+        display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800;
+      }#scene_05 .hf-tx .badge-text {
+        font-size: 32px; font-weight: 800; color: #1B2A21; letter-spacing: -0.3px;
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<div class="grid-bg"></div>
+<div class="abs head">One-click macro</div>
+<div class="abs editor">
+<div class="titlebar">
+<div class="dot" style="left:24px;background:#E5685A;"></div>
+<div class="dot" style="left:48px;background:#E8B64A;"></div>
+<div class="dot" style="left:72px;background:#5FD28A;"></div>
+<div class="tabname">Module1 - CleanData</div>
+</div>
+<img alt="gear" class="gear" src="https://gen-os-static.s3.us-east-2.amazonaws.com/astral_assets/asset_scout/0409a9aafa5e50d969e70c9dbb5b2262ed8899aad3c4520e8a277937d830d319.png"/>
+<div class="code">
+<span class="ln"><span class="kw">Sub</span> <span class="fn">CleanData()</span></span>
+<span class="ln"> <span class="fn">Rows(1).Font.Bold = </span><span class="kw">True</span></span>
+<span class="ln"> <span class="fn">Columns.AutoFit</span></span>
+<span class="ln"><span class="kw">End Sub</span></span>
+</div>
+</div>
+<div class="abs run" style="opacity:0;">
+<span>▶</span><span>Run</span>
+</div>
+<div class="abs ripple"></div>
+<svg class="abs cursor" style="opacity:0;" viewbox="0 0 44 52">
+<path d="M4 3 L4 40 L14 31 L21 47 L28 44 L21 28 L34 28 Z" fill="#1B2A21" stroke="#FFFFFF" stroke-linejoin="round" stroke-width="3"></path>
+</svg>
+<div class="abs track">
+<div class="fill"></div>
+</div>
+<div class="abs check">
+<svg height="52" viewbox="0 0 52 52" width="52">
+<path d="M12 27 L22 37 L40 16" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"></path>
+</svg>
+</div>
+<div class="abs done">Done</div>
+<div class="abs badge">
+<div class="badge-mark">E</div>
+<div class="badge-text">ExcelLand</div>
+</div>
+</div>
+</div>
+<div id="scene_06" style="position:absolute; top:0; left:0; width:1920px; height:1080px; overflow:hidden;">
+<style>#scene_06 .hf-tx .grid-bg {
+        position: absolute;
+        left: 0; top: 0; width: 1920px; height: 1080px;
+        background-color: #FFFFFF;
+        background-image:
+          linear-gradient(to right, rgba(33,115,70,0.12) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(33,115,70,0.12) 1px, transparent 1px);
+        background-size: 96px 96px;
+      }#scene_06 .hf-tx .stack {
+        position: absolute;
+        left: 0; top: 230px; width: 1920px; height: 400px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 28px;
+        text-align: center;
+        font-family: "Inter", system-ui, sans-serif;
+      }#scene_06 .hf-tx .line {
+        font-size: 72px; font-weight: 700; color: #1B2A21; line-height: 1.15;
+        letter-spacing: -0.5px;
+      }#scene_06 .hf-tx .line.handle {
+        font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 56px; color: #1B2A21;
+      }#scene_06 .hf-tx .line.slogan {
+        font-size: 56px; font-weight: 800; color: #217346;
+      }#scene_06 .hf-tx .badge {
+        position: absolute;
+        right: 48px; bottom: 40px;
+        display: flex; align-items: center; gap: 14px;
+        font-family: "Inter", system-ui, sans-serif;
+      }#scene_06 .hf-tx .badge-mark {
+        width: 64px; height: 64px; border-radius: 14px;
+        background: #217346; color: #FFFFFF;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 40px; font-weight: 800;
+      }#scene_06 .hf-tx .badge-text {
+        font-size: 32px; font-weight: 700; color: #1B2A21;
+      }</style>
+<div class="hf-tx" style="width:100%; height:100%;">
+<div class="grid-bg"></div>
+<div class="stack">
+<div class="line" id="s6-l1">Instagram: ExcelLand</div>
+<div class="line handle" id="s6-l2">ID: @ExcelLand251</div>
+<div class="line slogan" id="s6-l3">Learn Excel Smarter, Work Better</div>
+</div>
+<div class="badge" id="s6-badge">
+<div class="badge-mark">E</div>
+<div class="badge-text">ExcelLand</div>
+</div>
+</div>
+</div>
+<audio class="clip" data-duration="24.24" data-start="0" data-track-index="10" data-volume="1.0" id="voiceover" src="https://static.heygen.ai/astral_assets/generated_assets/1cbd96e5_18fc9137db7a486881e9d8eeb60c96fd.mp3"></audio>
+<audio data-duration="24.24" data-start="0" data-track-index="11" data-volume="0.2" id="bg-music" src="https://static.heygen.ai/astral_assets/generated_assets/5fb175be_b51925c3941b46ba87ab2ef3da2918e2.wav"></audio>
+<div data-composition-id="captions" id="captions" style="position:absolute; left:0; right:0; bottom:4%; z-index:100; pointer-events:none; text-align:center;">
+<div id="caption-stage" style="display:inline-block;"></div>
+</div>
+
+
+
+
+
+
+</div>
+<script>window.CAPTION_DATA = {
+  "scenes": {
+    "all": {
+      "start": 0.0,
+      "words": [
+        {
+          "text": "Want",
+          "start": 0.1,
+          "end": 0.22
+        },
+        {
+          "text": "to",
+          "start": 0.26,
+          "end": 0.32
+        },
+        {
+          "text": "work",
+          "start": 0.36,
+          "end": 0.54
+        },
+        {
+          "text": "faster",
+          "start": 0.58,
+          "end": 0.9
+        },
+        {
+          "text": "in",
+          "start": 0.94,
+          "end": 1.02
+        },
+        {
+          "text": "Excel?",
+          "start": 1.06,
+          "end": 1.48
+        },
+        {
+          "text": "Try",
+          "start": 2.22,
+          "end": 2.46
+        },
+        {
+          "text": "these",
+          "start": 2.5,
+          "end": 2.7
+        },
+        {
+          "text": "four",
+          "start": 2.74,
+          "end": 2.88
+        },
+        {
+          "text": "tricks.",
+          "start": 3.0,
+          "end": 3.4
+        },
+        {
+          "text": "Press",
+          "start": 3.74,
+          "end": 3.9
+        },
+        {
+          "text": "Control",
+          "start": 3.96,
+          "end": 4.26
+        },
+        {
+          "text": "plus",
+          "start": 4.34,
+          "end": 4.6
+        },
+        {
+          "text": "T",
+          "start": 4.66,
+          "end": 4.9
+        },
+        {
+          "text": "to",
+          "start": 4.94,
+          "end": 5.02
+        },
+        {
+          "text": "turn",
+          "start": 5.06,
+          "end": 5.24
+        },
+        {
+          "text": "your",
+          "start": 5.28,
+          "end": 5.4
+        },
+        {
+          "text": "data",
+          "start": 5.42,
+          "end": 5.7
+        },
+        {
+          "text": "into",
+          "start": 5.76,
+          "end": 5.94
+        },
+        {
+          "text": "a",
+          "start": 5.98,
+          "end": 6.06
+        },
+        {
+          "text": "Smart",
+          "start": 6.1,
+          "end": 6.3
+        },
+        {
+          "text": "Table.",
+          "start": 6.4,
+          "end": 6.76
+        },
+        {
+          "text": "Use",
+          "start": 7.48,
+          "end": 7.7
+        },
+        {
+          "text": "XLOOKUP",
+          "start": 7.9,
+          "end": 8.4
+        },
+        {
+          "text": "instead",
+          "start": 8.46,
+          "end": 8.76
+        },
+        {
+          "text": "of",
+          "start": 8.78,
+          "end": 8.92
+        },
+        {
+          "text": "VLOOKUP",
+          "start": 8.96,
+          "end": 9.58
+        },
+        {
+          "text": "to",
+          "start": 9.62,
+          "end": 9.72
+        },
+        {
+          "text": "find",
+          "start": 9.76,
+          "end": 10.04
+        },
+        {
+          "text": "any",
+          "start": 10.1,
+          "end": 10.3
+        },
+        {
+          "text": "value",
+          "start": 10.34,
+          "end": 10.64
+        },
+        {
+          "text": "in",
+          "start": 10.68,
+          "end": 10.8
+        },
+        {
+          "text": "seconds.",
+          "start": 10.86,
+          "end": 11.34
+        },
+        {
+          "text": "Press",
+          "start": 11.86,
+          "end": 12.08
+        },
+        {
+          "text": "Alt",
+          "start": 12.26,
+          "end": 12.48
+        },
+        {
+          "text": "plus",
+          "start": 12.78,
+          "end": 13.06
+        },
+        {
+          "text": "Equals",
+          "start": 13.12,
+          "end": 13.48
+        },
+        {
+          "text": "to",
+          "start": 13.52,
+          "end": 13.64
+        },
+        {
+          "text": "sum",
+          "start": 13.66,
+          "end": 13.78
+        },
+        {
+          "text": "a",
+          "start": 13.82,
+          "end": 13.88
+        },
+        {
+          "text": "column",
+          "start": 13.92,
+          "end": 14.3
+        },
+        {
+          "text": "instantly.",
+          "start": 14.36,
+          "end": 14.9
+        },
+        {
+          "text": "And",
+          "start": 15.6,
+          "end": 15.72
+        },
+        {
+          "text": "with",
+          "start": 15.76,
+          "end": 15.84
+        },
+        {
+          "text": "a",
+          "start": 15.86,
+          "end": 15.96
+        },
+        {
+          "text": "simple",
+          "start": 16.02,
+          "end": 16.28
+        },
+        {
+          "text": "VBA",
+          "start": 16.4,
+          "end": 16.86
+        },
+        {
+          "text": "macro,",
+          "start": 16.96,
+          "end": 17.38
+        },
+        {
+          "text": "automate",
+          "start": 17.84,
+          "end": 18.22
+        },
+        {
+          "text": "boring",
+          "start": 18.26,
+          "end": 18.58
+        },
+        {
+          "text": "tasks",
+          "start": 18.64,
+          "end": 19.04
+        },
+        {
+          "text": "in",
+          "start": 19.1,
+          "end": 19.2
+        },
+        {
+          "text": "one",
+          "start": 19.26,
+          "end": 19.38
+        },
+        {
+          "text": "click.",
+          "start": 19.48,
+          "end": 19.76
+        },
+        {
+          "text": "Learn",
+          "start": 20.3,
+          "end": 20.48
+        },
+        {
+          "text": "Excel",
+          "start": 20.52,
+          "end": 20.82
+        },
+        {
+          "text": "smarter,",
+          "start": 20.96,
+          "end": 21.3
+        },
+        {
+          "text": "work",
+          "start": 21.48,
+          "end": 21.7
+        },
+        {
+          "text": "better.",
+          "start": 21.74,
+          "end": 22.0
+        },
+        {
+          "text": "Follow",
+          "start": 22.4,
+          "end": 22.64
+        },
+        {
+          "text": "Excel",
+          "start": 22.7,
+          "end": 22.98
+        },
+        {
+          "text": "Land",
+          "start": 23.04,
+          "end": 23.3
+        },
+        {
+          "text": "on",
+          "start": 23.44,
+          "end": 23.54
+        },
+        {
+          "text": "Instagram",
+          "start": 23.58,
+          "end": 24.14
+        }
+      ]
+    }
+  },
+  "style": {
+    "font_display": "\"Inter\", system-ui, sans-serif",
+    "font_body": "\"Inter\", system-ui, sans-serif",
+    "fg": "#1B2A21",
+    "bg": "#FFFFFF",
+    "accent": "#217346",
+    "surface": "#EEF6F1"
+  },
+  "total_duration_s": 24.24
+};
+;
+(function () {
+        if (!window.CAPTION_DATA || !window.CAPTION_DATA.scenes) return;
+        var data = window.CAPTION_DATA;
+        var style = data.style || {};
+        var fontDisplay = style.font_display || '"Inter", system-ui, sans-serif';
+        var accent = style.accent || "#FE90E8";
+        var surface = style.surface || "#FFFFFF";
+        
+        
+        
+        
+        function _relLum(hex) {
+          var c = (hex || "").trim().replace(/^#/, "");
+          if (c.length === 3) c = c.replace(/(.)/g, "$1$1");
+          if (c.length !== 6) return null;
+          var ch = [0, 1, 2].map(function (i) {
+            var v = parseInt(c.substr(i * 2, 2), 16) / 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+          });
+          return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+        }
+        function _contrast(a, b) {
+          var la = _relLum(a), lb = _relLum(b);
+          if (la == null || lb == null) return 1;
+          return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+        }
+        function readableInk(bgHex) {
+          var passing = [style.fg, style.bg].filter(Boolean).filter(function (c) {
+            return _contrast(c, bgHex) >= 4.5;
+          });
+          if (passing.length) {
+            return passing.sort(function (a, b) { return _contrast(b, bgHex) - _contrast(a, bgHex); })[0];
+          }
+          return _contrast("#111111", bgHex) >= _contrast("#FFFFFF", bgHex) ? "#111111" : "#FFFFFF";
+        }
+        var ink = readableInk(surface);
+        var ALL = [];
+        Object.keys(data.scenes).forEach(function (sid) {
+          var s = data.scenes[sid] || {};
+          var offset = s.start || 0;
+          (s.words || []).forEach(function (w) {
+            ALL.push({ text: w.text, start: w.start + offset, end: w.end + offset });
+          });
+        });
+        var GROUPS = [];
+        var cur = [];
+        ALL.forEach(function (w, i) {
+          cur.push(w);
+          var nw = ALL[i + 1];
+          var pause = nw ? nw.start - w.end : 0;
+          var punc = /[,.:!?]$/.test(w.text);
+          if (cur.length >= 4 || !nw || punc || pause >= 0.35) {
+            GROUPS.push({ words: cur.slice(), start: cur[0].start, end: cur[cur.length - 1].end });
+            cur = [];
+          }
+        });
+        var stage = document.getElementById("caption-stage");
+        var tl = gsap.timeline({ paused: true });
+        GROUPS.forEach(function (g, gi) {
+          var pill = document.createElement("div");
+          pill.id = "cg-" + gi;
+          pill.style.cssText = [
+            "position:absolute; left:50%; transform:translateX(-50%); bottom:0;",
+            "padding:14px 28px; background:" + surface + ";",
+            "color:" + ink + ";",
+            "font:900 44px/1.2 " + fontDisplay + ";",
+            
+            
+            
+            "letter-spacing:0.5px; text-transform:uppercase; white-space:normal;",
+            "text-align:center; max-width:90%; box-sizing:border-box;",
+            "border:4px solid " + ink + ";",
+            "box-shadow:8px 8px 0 " + accent + ";",
+            "opacity:0;"
+          ].join(" ");
+          pill.textContent = g.words.map(function (w) { return w.text; }).join(" ");
+          stage.appendChild(pill);
+          var nextStart = GROUPS[gi + 1] ? GROUPS[gi + 1].start : (g.end + 0.4);
+          
+          
+          
+          
+          var gap = nextStart - g.end;
+          var visibleEnd = (gap > 0 && gap <= 0.8) ? nextStart : Math.min(nextStart, g.end + 0.3);
+          
+          
+          
+          tl.fromTo(pill, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "power1.out" }, g.start);
+          
+          
+          tl.to(pill, { opacity: 0, duration: 0.12, ease: "power1.in" }, Math.max(g.start + 0.15, visibleEnd));
+        });
+        window.__timelines = window.__timelines || {};
+        window.__timelines["captions"] = tl;
+      })();
+;
+window.__timelines = window.__timelines || {};
+      window.__sceneRegistrars = window.__sceneRegistrars || {};
+;
+window.__sceneRegistrars = window.__sceneRegistrars || {};
+      window.__sceneRegistrars['scene_04'] = function (__masterTl, __sceneOffset, __sceneScope) {
+        const __scope = function (sel) {
+          if (typeof sel !== 'string') return sel;
+          var compositionRoot = /^\s*\[\s*data-composition-id\s*=\s*(['"])[^'"]+\1\s*\]/i;
+          if (compositionRoot.test(sel)) return sel.replace(compositionRoot, __sceneScope);
+          var sceneSuffix = sel.indexOf(__sceneScope) === 0 ? sel.slice(__sceneScope.length) : null;
+          if (sceneSuffix !== null && (!sceneSuffix || /^[\s>+~.:#\[]/.test(sceneSuffix))) return sel;
+          return __sceneScope + ' ' + sel;
+        };
+        const __off = function (pos) {
+          var p = (pos == null) ? 0 : Number(pos);
+          if (!isFinite(p)) p = 0;
+          return __sceneOffset + p;
+        };
+        const __makeShim = function () {
+          var tl = {
+            fromTo: function (sel, from, to, pos) { __masterTl.fromTo(__scope(sel), from, to, __off(pos)); return tl; },
+            to: function (sel, vars, pos) { __masterTl.to(__scope(sel), vars, __off(pos)); return tl; },
+            from: function (sel, vars, pos) { __masterTl.from(__scope(sel), vars, __off(pos)); return tl; },
+            set: function (sel, vars, pos) { __masterTl.set(__scope(sel), vars, __off(pos)); return tl; },
+            add: function (child, pos) { __masterTl.add(child, __off(pos)); return tl; },
+            addLabel: function (label, pos) { __masterTl.addLabel(__sceneScope.replace(/[^a-zA-Z0-9]/g, '_') + '__' + label, __off(pos)); return tl; },
+            call: function (fn, params, pos) { __masterTl.call(fn, params, __off(pos)); return tl; },
+            duration: function () { return 0; },
+            time: function () { return 0; },
+            paused: function () { return true; },
+            play: function () { return tl; },
+            pause: function () { return tl; },
+            seek: function () { return tl; },
+            kill: function () { return tl; }
+          };
+          return tl;
+        };
+        const __gsapUtils = Object.assign(Object.create((window.gsap && window.gsap.utils) || null), {
+          toArray: function (value, scope, leaveStrings) {
+            if (!window.gsap || !window.gsap.utils || !window.gsap.utils.toArray) return [];
+            return window.gsap.utils.toArray(
+              typeof value === 'string' && scope == null ? __scope(value) : value,
+              typeof scope === 'string' ? __scope(scope) : scope,
+              leaveStrings
+            );
+          },
+          selector: function (scope) {
+            if (!window.gsap || !window.gsap.utils || !window.gsap.utils.selector) {
+              return function () { return []; };
+            }
+            return window.gsap.utils.selector(typeof scope === 'string' ? __scope(scope) : scope);
+          }
+        });
+        const gsap = Object.assign(Object.create(window.gsap || null), {
+          utils: __gsapUtils,
+          timeline: function (_opts) { return __makeShim(); },
+          to: function (sel, vars, pos) { return __masterTl.to(__scope(sel), vars, __off(pos)); },
+          from: function (sel, vars, pos) { return __masterTl.from(__scope(sel), vars, __off(pos)); },
+          fromTo: function (sel, from, to, pos) { return __masterTl.fromTo(__scope(sel), from, to, __off(pos)); },
+          set: function (sel, vars, pos) { return __masterTl.set(__scope(sel), vars, __off(pos)); }
+        });
+        try {
+window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      
+      tl.fromTo(".heading", { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 0.0);
+      tl.fromTo("#s4-alt", { y: -40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
+      tl.fromTo("#s4-plus", { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: "back.out(1.6)" }, 0.2);
+      tl.fromTo("#s4-eq", { y: -40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.25);
+      tl.fromTo(".key-caption", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.5);
+
+      
+      tl.fromTo("#s4-sheet", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.3);
+      tl.fromTo(".row.r1", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 0.6);
+      tl.fromTo(".row.r2", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 0.68);
+      tl.fromTo(".row.r3", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 0.76);
+      tl.fromTo(".row.r4", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 0.84);
+      tl.fromTo(".row.r5", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 0.92);
+
+      
+      tl.to("#s4-alt", { y: 10, duration: 0.08, ease: "power2.in" }, 1.0);
+      tl.to("#s4-alt", { y: 0, duration: 0.15, ease: "power2.out" }, 1.08);
+      tl.to("#s4-eq", { y: 10, duration: 0.08, ease: "power2.in" }, 1.1);
+      tl.to("#s4-eq", { y: 0, duration: 0.15, ease: "power2.out" }, 1.18);
+      tl.fromTo("#s4-ripple", { scale: 0.4, opacity: 0.9 }, { scale: 3, opacity: 0, duration: 0.7, ease: "power2.out" }, 1.15);
+
+      
+      tl.fromTo("#s4-select", { opacity: 0, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.9, ease: "power2.inOut" }, 1.4);
+
+      
+      tl.fromTo("#s4-total", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 2.4);
+      tl.fromTo(".sum-tag", { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.3, ease: "power2.out" }, 2.6);
+
+      window.__timelines["scene_04"] = tl;
+        } catch (__e) {
+          if (typeof console !== 'undefined' && console.error) console.error('[scene registrar scene_04]', __e);
+        }
+      };
+;
+window.__sceneRegistrars = window.__sceneRegistrars || {};
+      window.__sceneRegistrars['scene_05'] = function (__masterTl, __sceneOffset, __sceneScope) {
+        const __scope = function (sel) {
+          if (typeof sel !== 'string') return sel;
+          var compositionRoot = /^\s*\[\s*data-composition-id\s*=\s*(['"])[^'"]+\1\s*\]/i;
+          if (compositionRoot.test(sel)) return sel.replace(compositionRoot, __sceneScope);
+          var sceneSuffix = sel.indexOf(__sceneScope) === 0 ? sel.slice(__sceneScope.length) : null;
+          if (sceneSuffix !== null && (!sceneSuffix || /^[\s>+~.:#\[]/.test(sceneSuffix))) return sel;
+          return __sceneScope + ' ' + sel;
+        };
+        const __off = function (pos) {
+          var p = (pos == null) ? 0 : Number(pos);
+          if (!isFinite(p)) p = 0;
+          return __sceneOffset + p;
+        };
+        const __makeShim = function () {
+          var tl = {
+            fromTo: function (sel, from, to, pos) { __masterTl.fromTo(__scope(sel), from, to, __off(pos)); return tl; },
+            to: function (sel, vars, pos) { __masterTl.to(__scope(sel), vars, __off(pos)); return tl; },
+            from: function (sel, vars, pos) { __masterTl.from(__scope(sel), vars, __off(pos)); return tl; },
+            set: function (sel, vars, pos) { __masterTl.set(__scope(sel), vars, __off(pos)); return tl; },
+            add: function (child, pos) { __masterTl.add(child, __off(pos)); return tl; },
+            addLabel: function (label, pos) { __masterTl.addLabel(__sceneScope.replace(/[^a-zA-Z0-9]/g, '_') + '__' + label, __off(pos)); return tl; },
+            call: function (fn, params, pos) { __masterTl.call(fn, params, __off(pos)); return tl; },
+            duration: function () { return 0; },
+            time: function () { return 0; },
+            paused: function () { return true; },
+            play: function () { return tl; },
+            pause: function () { return tl; },
+            seek: function () { return tl; },
+            kill: function () { return tl; }
+          };
+          return tl;
+        };
+        const __gsapUtils = Object.assign(Object.create((window.gsap && window.gsap.utils) || null), {
+          toArray: function (value, scope, leaveStrings) {
+            if (!window.gsap || !window.gsap.utils || !window.gsap.utils.toArray) return [];
+            return window.gsap.utils.toArray(
+              typeof value === 'string' && scope == null ? __scope(value) : value,
+              typeof scope === 'string' ? __scope(scope) : scope,
+              leaveStrings
+            );
+          },
+          selector: function (scope) {
+            if (!window.gsap || !window.gsap.utils || !window.gsap.utils.selector) {
+              return function () { return []; };
+            }
+            return window.gsap.utils.selector(typeof scope === 'string' ? __scope(scope) : scope);
+          }
+        });
+        const gsap = Object.assign(Object.create(window.gsap || null), {
+          utils: __gsapUtils,
+          timeline: function (_opts) { return __makeShim(); },
+          to: function (sel, vars, pos) { return __masterTl.to(__scope(sel), vars, __off(pos)); },
+          from: function (sel, vars, pos) { return __masterTl.from(__scope(sel), vars, __off(pos)); },
+          fromTo: function (sel, from, to, pos) { return __masterTl.fromTo(__scope(sel), from, to, __off(pos)); },
+          set: function (sel, vars, pos) { return __masterTl.set(__scope(sel), vars, __off(pos)); }
+        });
+        try {
+window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const S = '[data-composition-id="scene_05"] ';
+
+      
+      tl.fromTo(S + '.head', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 0);
+      tl.fromTo(S + '.editor', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out' }, 0);
+
+      
+      tl.fromTo(S + '.gear', { rotation: 0 }, { rotation: 200, duration: 4.5, ease: 'none' }, 0.2);
+
+      
+      const lines = document.querySelectorAll(S + '.ln');
+      lines.forEach((el, i) => {
+        tl.fromTo(el, { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.5, ease: 'none' }, 0.4 + i * 0.45);
+      });
+
+      
+      tl.fromTo(S + '.run', { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 2.0);
+
+      
+      tl.fromTo(S + '.cursor', { opacity: 0, x: 260, y: 120 }, { opacity: 1, x: 0, y: 0, duration: 0.6, ease: 'power2.inOut' }, 2.5);
+
+      
+      tl.to(S + '.cursor', { scale: 0.85, duration: 0.08, ease: 'power2.in' }, 3.1);
+      tl.to(S + '.cursor', { scale: 1, duration: 0.12, ease: 'power2.out' }, 3.18);
+      tl.to(S + '.run', { scale: 0.94, duration: 0.1, ease: 'power2.in' }, 3.1);
+      tl.to(S + '.run', { scale: 1, duration: 0.15, ease: 'power2.out' }, 3.2);
+      tl.fromTo(S + '.ripple', { scale: 0.3, opacity: 0.8 }, { scale: 2.2, opacity: 0, duration: 0.5, ease: 'power2.out' }, 3.1);
+
+      
+      tl.fromTo(S + '.fill', { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: 'power2.inOut' }, 3.2);
+
+      
+      tl.fromTo(S + '.check', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(2)' }, 4.05);
+      tl.fromTo(S + '.done', { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.35, ease: 'power3.out' }, 4.2);
+
+      window.__timelines['scene_05'] = tl;
+        } catch (__e) {
+          if (typeof console !== 'undefined' && console.error) console.error('[scene registrar scene_05]', __e);
+        }
+      };
+;
+(function () {
+        var masterTl = gsap.timeline({ paused: true });
+        var starts = {"scene_01": 0.0, "scene_02": 3.74, "scene_03": 7.48, "scene_04": 12.26, "scene_05": 15.76, "scene_06": 20.52};
+        Object.keys(starts).forEach(function (sid) {
+          var reg = window.__sceneRegistrars[sid];
+          if (typeof reg === 'function') {
+            try { reg(masterTl, starts[sid], '#' + sid); }
+            catch (e) { if (typeof console !== 'undefined' && console.error) console.error('[master registrar]', sid, e); }
+          }
+        });
+        var tl = masterTl;
+        tl.set("#scene_01", { opacity: 1, zIndex: 1 }, 0);
+        tl.set("#scene_02", { opacity: 0, zIndex: 2 }, 0);
+        tl.set("#scene_03", { opacity: 0, zIndex: 3 }, 0);
+        tl.set("#scene_04", { opacity: 0, zIndex: 4 }, 0);
+        tl.set("#scene_05", { opacity: 0, zIndex: 5 }, 0);
+        tl.set("#scene_06", { opacity: 0, zIndex: 6 }, 0);
+        tl.set("#scene_02", { opacity: 1, zIndex: 2 }, 3.74);
+        tl.set("#scene_02 .hf-tx", { xPercent: 100 }, 3.74);
+        tl.to("#scene_01 .hf-tx", { xPercent: -100, duration: 0.5, ease: "power2.inOut" }, 3.74);
+        tl.to("#scene_02 .hf-tx", { xPercent: 0, duration: 0.5, ease: "power2.inOut" }, 3.74);
+        tl.set("#scene_01", { opacity: 0 }, 4.24);
+        tl.set("#scene_03", { opacity: 1, zIndex: 3 }, 7.48);
+        tl.set("#scene_03 .hf-tx", { xPercent: 100 }, 7.48);
+        tl.to("#scene_02 .hf-tx", { xPercent: -100, duration: 0.5, ease: "power2.inOut" }, 7.48);
+        tl.to("#scene_03 .hf-tx", { xPercent: 0, duration: 0.5, ease: "power2.inOut" }, 7.48);
+        tl.set("#scene_02", { opacity: 0 }, 7.98);
+        tl.set("#scene_04", { opacity: 1, zIndex: 4 }, 12.26);
+        tl.set("#scene_04 .hf-tx", { xPercent: 100 }, 12.26);
+        tl.to("#scene_03 .hf-tx", { xPercent: -100, duration: 0.5, ease: "power2.inOut" }, 12.26);
+        tl.to("#scene_04 .hf-tx", { xPercent: 0, duration: 0.5, ease: "power2.inOut" }, 12.26);
+        tl.set("#scene_03", { opacity: 0 }, 12.76);
+        tl.set("#scene_05", { opacity: 1, zIndex: 5 }, 15.76);
+        tl.set("#scene_05 .hf-tx", { xPercent: 100 }, 15.76);
+        tl.to("#scene_04 .hf-tx", { xPercent: -100, duration: 0.5, ease: "power2.inOut" }, 15.76);
+        tl.to("#scene_05 .hf-tx", { xPercent: 0, duration: 0.5, ease: "power2.inOut" }, 15.76);
+        tl.set("#scene_04", { opacity: 0 }, 16.26);
+        tl.set("#scene_06", { opacity: 1, zIndex: 6 }, 20.52);
+        tl.set("#scene_06 .hf-tx", { xPercent: 100 }, 20.52);
+        tl.to("#scene_05 .hf-tx", { xPercent: -100, duration: 0.5, ease: "power2.inOut" }, 20.52);
+        tl.to("#scene_06 .hf-tx", { xPercent: 0, duration: 0.5, ease: "power2.inOut" }, 20.52);
+        tl.set("#scene_05", { opacity: 0 }, 21.02);
+        masterTl.to({}, { duration: 24.24 }, 0);
+        window.__timelines["root"] = masterTl;
+        
+        
+        window.__hf = {
+          duration: 24.24,
+          seek: function (t) { masterTl.time(t); }
+        };
+      })();</script></body>
+</html>

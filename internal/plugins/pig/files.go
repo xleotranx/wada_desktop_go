@@ -111,10 +111,11 @@ func projectFiles(ctx context.Context, dir string) ([]string, error) {
 	return paths, err
 }
 func (p *Plugin) Find(ctx context.Context, dir, query string, limit int) ([]agent.FileEntry, error) {
-	if _, err := p.current(); err != nil {
+	e, err := p.current()
+	if err != nil {
 		return nil, err
 	}
-	root, err := directory(dir)
+	root, err := e.workDirectory(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +148,15 @@ func (p *Plugin) Find(ctx context.Context, dir, query string, limit int) ([]agen
 	return out[:min(limit, len(out))], nil
 }
 func (p *Plugin) Read(ctx context.Context, dir, path string) ([]byte, error) {
-	if _, err := p.current(); err != nil {
+	e, err := p.current()
+	if err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dir, err = e.workDirectory(dir)
+	if err != nil {
 		return nil, err
 	}
 	full, err := contained(dir, path)
@@ -175,17 +181,17 @@ func (p *Plugin) Skills(ctx context.Context, dir string) ([]agent.Skill, error) 
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	root, err := directory(dir)
+	root, err := e.workDirectory(dir)
 	if err != nil {
 		return nil, err
 	}
-	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: root, AgentDir: filepath.Join(e.root, "agent"), ModelRuntime: e.models})
+	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: root, AgentDir: filepath.Join(e.root, "agent"), ModelRuntime: e.models, ProjectTrusted: new(false)})
 	if err != nil {
 		return nil, err
 	}
 	defer svcs.Close()
 	var out []agent.Skill
-	loader := coding.NewDefaultResourceLoader(coding.DefaultResourceLoaderOptions{CWD: root, AgentDir: filepath.Join(e.root, "agent"), SettingsManager: svcs.SettingsManager()})
+	loader := coding.NewDefaultResourceLoader(coding.DefaultResourceLoaderOptions{CWD: root, AgentDir: filepath.Join(e.root, "agent"), SettingsManager: svcs.SettingsManager(), NoContextFiles: true, NoExtensions: true, NoThemes: true, NoPromptTemplates: true, NoSkills: true, AdditionalSkillPaths: []string{filepath.Join(root, ".agents", "skills"), filepath.Join(e.root, "agent", "skills")}})
 	defer loader.Close()
 	if err = loader.ReloadWith(ctx); err != nil {
 		return nil, err
@@ -194,4 +200,14 @@ func (p *Plugin) Skills(ctx context.Context, dir string) ([]agent.Skill, error) 
 		out = append(out, agent.Skill{ID: skill.FilePath, Name: skill.Name, Description: skill.Description})
 	}
 	return out, nil
+}
+
+func (e *engine) workDirectory(dir string) (string, error) {
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(e.root), "workspaces", "inbox")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	return directory(dir)
 }

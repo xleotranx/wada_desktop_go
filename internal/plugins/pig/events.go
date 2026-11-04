@@ -104,9 +104,19 @@ func (e *engine) onEvent(c *conversation, event pa.AgentEvent) {
 func commandOf(args json.RawMessage) string {
 	var v struct {
 		Command string `json:"command"`
+		Action  string `json:"action"`
+		Input   struct {
+			Path string `json:"path"`
+		} `json:"input"`
 	}
 	_ = json.Unmarshal(args, &v)
-	return v.Command
+	if v.Command != "" {
+		return v.Command
+	}
+	if v.Input.Path != "" {
+		return v.Action + " " + v.Input.Path
+	}
+	return v.Action
 }
 func modelRef(m *ai.Model) agent.ModelRef {
 	if m == nil {
@@ -229,14 +239,18 @@ func toolCommand(args ai.JsonObject) string { data, _ := json.Marshal(args); ret
 // finishTurn publishes settlement only after the worker has saved metadata and
 // released its admission slot, so an immediate next prompt can be admitted.
 func (e *engine) finishTurn(c *conversation, started, stopped bool, runErr, saveErr error) {
+	names := withoutTurnTools(c.session.ActiveToolNames())
 	c.turnMu.Lock()
 	var result json.RawMessage
 	if c.turn != nil {
 		result = c.turn.result
+		if c.turn.tools != nil {
+			names = c.turn.tools
+		}
 	}
 	c.turn = nil
 	c.turnMu.Unlock()
-	c.session.SetActiveToolsByName(withoutResult(c.session.ActiveToolNames()))
+	c.session.SetActiveToolsByName(names)
 	t := &c.translator
 	t.mu.Lock()
 	terminal := t.terminal

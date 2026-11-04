@@ -43,6 +43,7 @@ type conversation struct {
 	session    *coding.Session
 	services   *coding.AgentSessionServices
 	runtime    *coding.Runtime
+	loader     *coding.DefaultResourceLoader
 	cancel     context.CancelFunc
 	busy       bool
 	deleted    bool
@@ -67,7 +68,9 @@ type engine struct {
 	models        *coding.ModelRuntime
 	services      *coding.AgentSessionServices
 	events        chan agent.Event
+	instructions  string
 	modelsChanged func()
+	projectTool   func(context.Context, string) (agent.ProjectTool, error)
 	mu            sync.Mutex // protects records and pending requests
 	sessions      map[agent.SessionID]*conversation
 	approvals     map[agent.ApprovalID]*approvalWait
@@ -235,7 +238,7 @@ func (e *engine) openLocked(c *conversation) error {
 		e.touchLocked(c)
 		return nil
 	}
-	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: c.rec.Session.Directory, AgentDir: filepath.Join(e.root, "agent"), ModelRuntime: e.models})
+	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: c.rec.Session.Directory, AgentDir: filepath.Join(e.root, "agent"), ModelRuntime: e.models, ProjectTrusted: new(false)})
 	if err != nil {
 		return err
 	}
@@ -247,7 +250,31 @@ func (e *engine) openLocked(c *conversation) error {
 		return err
 	}
 	model := e.models.GetModel(c.rec.Session.Model.Provider, c.rec.Session.Model.ID)
-	opts := coding.SessionStartOptions{Model: model, ThinkingLevel: ai.ModelThinkingLevel(c.rec.Session.Model.Variant), SessionID: string(c.rec.Session.ID), SessionDir: filepath.Join(e.root, "sessions"), BeforeToolCall: []pa.BeforeToolCallHook{e.toolHook(c)}, ExtraTools: []pa.AgentTool{&resultTool{c: c}}}
+	prompt := e.instructions
+	if prompt == "" {
+		prompt = "You are Wada Cowork, an assistant for everyday work. Focus on the requested outcome and selected work folder."
+	}
+	loader := coding.NewDefaultResourceLoader(coding.DefaultResourceLoaderOptions{
+		CWD: c.rec.Session.Directory, AgentDir: filepath.Join(e.root, "agent"), SettingsManager: svcs.SettingsManager(),
+		SystemPrompt: &prompt, AppendSystemPrompt: []string{}, NoContextFiles: true, NoExtensions: true,
+		NoPromptTemplates: true, NoThemes: true, NoSkills: true,
+	})
+	if err := loader.ReloadWith(e.ctx); err != nil {
+		svcs.Close()
+		_ = rt.Close()
+		return err
+	}
+	tools := append(workspaceTools(e, c), &resultTool{c: c}, &projectTool{c: c, e: e})
+	opts := coding.SessionStartOptions{Model: model, ThinkingLevel: ai.ModelThinkingLevel(c.rec.Session.Model.Variant), SessionID: string(c.rec.Session.ID), SessionDir: filepath.Join(e.root, "sessions"),
+		SystemPrompt: prompt, ResourceLoader: loader, SkipBuiltinTools: true, SkipExtensionTools: true,
+		BeforeToolCall: []pa.BeforeToolCallHook{e.toolHook(c)}, ExtraTools: tools}
+
+	retainedLoader := false
+	defer func() {
+		if !retainedLoader {
+			loader.Close()
+		}
+	}()
 	var s *coding.Session
 	if c.rec.Path != "" {
 		if _, err = os.Stat(c.rec.Path); err == nil {
@@ -282,10 +309,11 @@ func (e *engine) openLocked(c *conversation) error {
 		svcs.Close()
 		return errors.New("the transcript belongs to another conversation")
 	}
-	s.SetActiveToolsByName(withoutResult(s.ActiveToolNames()))
+	s.SetActiveToolsByName(withoutTurnTools(s.ActiveToolNames()))
 	s.Agent().SetToolExecution(pa.ToolModeSequential)
 	c.rec.Path = s.Path()
-	c.session, c.services, c.runtime = s, svcs, rt
+	c.session, c.services, c.runtime, c.loader = s, svcs, rt, loader
+	retainedLoader = true
 	c.translator.session = agent.SessionID(s.ID())
 	s.DiscardEvents()
 	c.off = s.Subscribe(func(ev pa.AgentEvent) { e.onEvent(c, ev) })

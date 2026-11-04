@@ -23,7 +23,7 @@ func persistedFixture(t *testing.T, dir string) (*kerneltest.Harness, *Plugin, *
 	a.OnSend = func(req agent.Send) { sent <- req }
 	var p *Plugin
 	h := kerneltest.New(t, a.New, (&kittest.Host{Data: dir}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
-	if err := kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test", Plan: "plan", Code: "code", Route: "route", Review: "review", Final: "final", MaxReviews: 3}); err != nil {
+	if err := kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test", Plan: "plan", Work: "work", Route: "route", Review: "review", Final: "final", MaxReviews: 3}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)

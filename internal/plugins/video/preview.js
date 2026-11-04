@@ -14,6 +14,9 @@
     time: 0,
     duration: 0,
     fps: 30,
+    end: 0,
+    hidden: new Map(),
+    mounts: [],
     comps: [],
     errors: [],
     declared: {},
@@ -173,11 +176,39 @@
     return ids;
   }
 
+  // Preserve authored visibility separately from the preview's timing mask.
+  // Removing a mask must restore inline visibility and its priority exactly.
   const setHidden = (el, hidden) => {
     if (el === document.documentElement || el === document.body) return;
-    if (hidden) el.style.setProperty("visibility", "hidden", "important");
-    else el.style.removeProperty("visibility");
+    if (hidden) {
+      if (!state.hidden.has(el)) state.hidden.set(el, {
+        value: el.style.getPropertyValue("visibility"),
+        priority: el.style.getPropertyPriority("visibility"),
+      });
+      el.style.setProperty("visibility", "hidden", "important");
+    } else if (state.hidden.has(el)) {
+      const original = state.hidden.get(el);
+      if (original.value) el.style.setProperty("visibility", original.value, original.priority);
+      else el.style.removeProperty("visibility");
+      state.hidden.delete(el);
+    }
   };
+
+  // A reload may reuse the same document. Remove only nodes this runtime
+  // mounted, dispose their animations, and restore every timing mask before
+  // discovering authored visibility again. Root/inline timelines stay alive.
+  function unmountScenes() {
+    for (const el of Array.from(state.hidden.keys())) setHidden(el, false);
+    for (const mounted of state.mounts) {
+      const tl = mounted.timeline;
+      if (tl && typeof tl.revert === "function") tl.revert();
+      else if (tl && typeof tl.kill === "function") tl.kill();
+      if (window.__timelines && window.__timelines[mounted.id] === tl) delete window.__timelines[mounted.id];
+      for (const node of mounted.nodes) node.remove();
+    }
+    state.mounts = [];
+    for (const el of Array.from(state.hidden.keys())) setHidden(el, false);
+  }
 
   // mediaTime is where a media element's own time sits at composition time.
   function seekMedia(clip, local) {
@@ -201,13 +232,20 @@
 
   // apply shows the frame at t on every composition.
   function apply(t) {
+    // Remove timing masks before seeking animations. GSAP can animate
+    // visibility (autoAlpha); a hidden first frame is not authored permanence.
+    for (const el of Array.from(state.hidden.keys())) setHidden(el, false);
     state.time = clamp(t, 0, Math.max(0, state.duration));
+    // The transport may sit at the end, but there is no frame at that instant:
+    // clips have half-open windows. Hold the last frame of the film/focus span.
+    const frameTime = state.time >= state.end && state.end > 0
+      ? Math.max(0, state.end - 1 / state.fps) : state.time;
     for (const comp of state.comps) {
-      let local = state.time;
+      let local = frameTime;
       let active = true;
       if (comp.window) {
-        active = state.time >= comp.window.start && state.time < comp.window.start + comp.window.duration;
-        local = comp.playbackStart + (state.time - comp.window.start) * comp.rate;
+        active = frameTime >= comp.window.start && frameTime < comp.window.start + comp.window.duration;
+        local = comp.playbackStart + (frameTime - comp.window.start) * comp.rate;
       }
       if (comp.el && comp.window) setHidden(comp.el, !active);
       if (!active) {
@@ -225,11 +263,7 @@
       for (const clip of comp.clips) {
         const c = clip.timing;
         const visible = local >= c.start && local < c.start + c.duration;
-        if (clip.authoredHidden === undefined) {
-          clip.authoredHidden = getComputedStyle(clip.el).visibility === "hidden";
-        }
-        if (clip.authoredHidden) setHidden(clip.el, true);
-        else setHidden(clip.el, !visible);
+        setHidden(clip.el, !visible);
         if (clip.media && visible) seekMedia(clip, local);
       }
     }
@@ -263,10 +297,13 @@
     const fragment = document.createDocumentFragment();
     for (const child of Array.from(source.childNodes)) fragment.appendChild(document.importNode(child, true));
     for (const script of Array.from(fragment.querySelectorAll("script"))) script.remove();
+    const nodes = Array.from(fragment.childNodes);
     host.appendChild(fragment);
     const mounted = host.querySelector("[data-composition-id]") || root;
     applyVariables({ el: mounted, values });
     for (const code of scripts) runScript(code);
+    const id = scene.compId || mounted.getAttribute("data-composition-id");
+    state.mounts.push({ id, nodes, timeline: timelineOf(id) });
     return mounted;
   }
 
@@ -286,9 +323,11 @@
   }
 
   function mount(payload) {
+    unmountScenes();
     state.errors = [];
     state.fps = num(payload.fps, 30);
     state.duration = num(payload.duration, 0);
+    state.end = state.duration;
     state.comps = [];
     state.declared = payload.declared || {};
     state.overrides = payload.variables || {};
@@ -367,6 +406,10 @@
         state.duration = Math.max(state.duration, num(comps[0].el.getAttribute("data-duration"), 0));
       }
     }
+    state.end = state.duration;
+    for (const id of payload.timelines || []) {
+      if (!timelineOf(id)) record(`The animation timeline ${id} did not load. Check its scripts and assets.`);
+    }
     state.mounted = true;
     window.__videoReady = true;
     apply(0);
@@ -406,14 +449,13 @@
         return info();
       }
     },
-    seek(t) {
+    seek(t, end = state.duration) {
       if (!state.mounted) return state.time;
+      state.end = clamp(num(end, state.duration), 0, state.duration);
       return apply(t);
     },
-    setVariable(id, value) {
-      if (!id) return null;
-      if (value === null || value === undefined) delete state.overrides[id];
-      else state.overrides[id] = value;
+    setVariables(values) {
+      state.overrides = Object.assign({}, values || {});
       window.__hfVariables = globalVariables();
       for (const comp of state.comps) {
         comp.values = mergedValues(comp.declared, state.overrides, comp.mount);

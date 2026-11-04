@@ -68,12 +68,13 @@ type Plugin struct {
 	chat       chat.Controller
 	host       shell.Host
 
-	videos   []video
-	draft    bool   // the new chat on show was made with New Video
-	draftDir string // and this is its project's folder
-	making   kernel.Task
-	opening  string
-	starts   map[uint64]video // videos awaiting a session, by the source chat's DraftID
+	videos       []video
+	draft        bool   // the new chat on show was made with New Video
+	draftDir     string // and this is its project's folder
+	making       kernel.Task
+	opening      string
+	pickerFolder string
+	starts       map[uint64]video // videos awaiting a session, by the source chat's DraftID
 
 	open       bool   // the editor shows beside the conversation
 	folder     string // the conversation's folder
@@ -85,11 +86,11 @@ type Plugin struct {
 	loadErr    string
 	scene      *Scene // the scene the timeline edits; nil for the root
 
-	web      shell.WebView
-	webDir   string    // the folder the page shows
-	webMTime time.Time // the root's time when it loaded
-	info     previewInfo
-	webErr   string
+	web         shell.WebView
+	webDir      string // the folder the page shows
+	webRevision string // the project snapshot loaded into this page
+	info        previewInfo
+	webErr      string
 
 	playhead float64
 	playing  bool
@@ -112,19 +113,21 @@ type Plugin struct {
 	keys      bool  // the timeline has the keyboard
 	found     []ref // the conversation folder's projects, read with the project
 
-	loading    kernel.Task
-	mounting   kernel.Task
-	checking   kernel.Task
-	shooting   kernel.Task
-	seeking    kernel.Task
-	editing    kernel.Task
-	adding     kernel.Task
-	rendering  kernel.Task
-	renderLog  []string
-	renderOut  string
-	renderErr  string
-	renderPct  int
-	renderOpts renderOptions
+	agentReload bool // pending refresh may contain changes made by the agent
+	reloadAgain bool // an event arrived while a project read was in flight
+	loading     kernel.Task
+	mounting    kernel.Task
+	checking    kernel.Task
+	shooting    kernel.Task
+	seeking     kernel.Task
+	editing     kernel.Task
+	adding      kernel.Task
+	rendering   kernel.Task
+	renderLog   []string
+	renderOut   string
+	renderErr   string
+	renderPct   int
+	renderOpts  renderOptions
 
 	undo     []clipEdit // edits the timeline made, oldest first
 	redo     []clipEdit // edits undone, newest last
@@ -134,10 +137,11 @@ type Plugin struct {
 	shots    []shot     // the storyboard's frames
 	story    bool       // the frames show over the window
 
-	values  map[string]any            // the user's variable values for the open project
-	saved   map[string]map[string]any // and by project folder, kept in the settings
-	editors []*variableEditor
-	apply   kernel.Task
+	values        map[string]any            // the user's variable values for the open project
+	saved         map[string]map[string]any // and by project folder, kept in the settings
+	editors       []*variableEditor
+	pendingFields map[string]any // structured fields waiting for the current save/read
+	apply         kernel.Task
 }
 
 // New makes the plugin.
@@ -189,10 +193,12 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, agent.StatusChanged, func(agent.Status) { p.update(p.chat.Current()) })
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, workspace.Changed, func(struct{}) { p.forgetGone() })
+	kernel.Contribute(c, agent.ProjectTools, "video.project", 0, agent.ProjectTool{Kind: "video", Execute: videoProjectTool})
 	kernel.Transform(c, chat.Outgoing, 900, p.outgoing)
 	kernel.Contribute(c, chat.Drawers, "video.editor", 20, shell.View{Render: p.drawer})
 	kernel.Contribute(c, chat.HideWork, "video.editor", 0, func() bool { return p.open })
 	kernel.Contribute(c, shell.TitleBar, "video.new", 0, shell.View{Render: p.titleButton})
+	kernel.Contribute(c, shell.Overlays, "video.templates", 0, shell.View{Render: p.templatePicker})
 	kernel.Contribute(c, shell.Overlays, "video.storyboard", 0, shell.View{Render: p.storyView})
 	if err := kernel.Contribute(c, shell.Pages, PageID, 0, shell.Page{
 		Title: func() string { return "Video" }, Render: p.pageView}); err != nil {
@@ -212,16 +218,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 // close puts the editor away until another video conversation shows, as when
 // the window has no web pages.
 func (p *Plugin) close() {
-	p.stopPlaying()
+	p.releasePreview()
 	p.open = false
 	p.selected = ""
 	p.drag = dragState{}
-	if p.web != nil {
-		p.web.Close()
-		p.web = nil
-	}
-	p.webDir, p.webMTime = "", time.Time{}
-	p.info, p.webErr = previewInfo{}, ""
+	p.webErr = ""
 	p.project, p.check, p.quick, p.cliChecked, p.loadErr = nil, check{}, check{}, false, ""
 	p.scene = nil
 	p.found = nil
@@ -235,12 +236,16 @@ func (p *Plugin) follow(folder, dir string) {
 	if folder == p.folder && dir == p.dir {
 		return
 	}
+	p.releasePreview()
 	p.navigation.Dispose()
 	p.navigation = p.ctx.NewScope()
 	p.loading.Cancel()
 	p.mounting.Cancel()
 	p.seeking.Cancel()
 	p.rendering.Cancel()
+	p.editing.Cancel()
+	p.adding.Cancel()
+	p.checking.Cancel()
 	p.stopPlaying()
 	p.selected, p.drag = "", dragState{}
 	p.text, p.textBase, p.textFor = "", "", ""
@@ -249,15 +254,12 @@ func (p *Plugin) follow(folder, dir string) {
 	p.renderOut, p.renderErr, p.renderPct, p.renderLog = "", "", 0, nil
 	p.scene = nil
 	p.viewStart, p.viewZoom, p.tlScroll = 0, 1, 0
+	p.reloadAgain, p.agentReload = false, false
+	p.pendingFields = nil
 	p.folder, p.dir = folder, dir
 	p.project, p.check, p.loadErr = nil, check{}, ""
 	p.playhead = 0
-	if p.web != nil {
-		p.web.Close()
-		p.web = nil
-	}
-	p.webDir, p.webMTime = "", time.Time{}
-	p.info, p.webErr = previewInfo{}, ""
+	p.webErr = ""
 	if dir != "" {
 		p.load()
 	}
@@ -278,28 +280,50 @@ func (p *Plugin) load() {
 		return
 	}
 	kernel.Go(p.navigation, &p.loading, func(ctx context.Context) (loaded, error) {
+		if err := ctx.Err(); err != nil {
+			return loaded{}, err
+		}
 		project, err := openProject(dir)
 		if err != nil {
 			return loaded{}, err
 		}
 		return loaded{project: project, check: checkProject(project), found: discover(folder)}, nil
 	}, func(l loaded, err error) {
+		if p.reloadAgain {
+			p.reloadAgain = false
+			p.load()
+			return
+		}
 		if err != nil {
+			p.releasePreview()
 			p.project, p.loadErr = nil, err.Error()
 			p.check = check{}
 			p.host.Toast(ui.Toast{Title: "The video did not open", Description: err.Error(), Type: components.ToastError})
 			return
 		}
 		p.loadErr = ""
+		p.checking.Cancel()
+		if p.agentReload && p.project != nil && p.project.Revision != l.project.Revision {
+			p.undo, p.redo = nil, nil
+		}
+		p.agentReload = false
+		local := p.localAt(p.playhead)
 		p.project, p.check, p.quick, p.found = l.project, l.check, l.check, l.found
 		p.cliChecked = false
 		p.values = p.saved[p.dir]
+		if p.project.Document != nil {
+			p.values = p.project.Document.Overrides
+		}
 		p.pruneFocus()
+		if p.scene != nil {
+			p.playhead = p.rootAt(max(0, min(local, p.span())))
+		}
 		p.pruneSelection()
 		p.syncClipText()
 		p.clampView()
 		p.buildEditors()
 		p.mount()
+		p.flushStructuredFields()
 	})
 }
 
@@ -310,6 +334,9 @@ func (p *Plugin) mount() {
 	if project == nil {
 		return
 	}
+	if p.web != nil && (p.webDir != p.dir || p.webRevision != project.Revision || p.webErr != "") {
+		p.releasePreview()
+	}
 	if p.web == nil {
 		web, err := p.host.NewWebView()
 		if err != nil {
@@ -318,13 +345,16 @@ func (p *Plugin) mount() {
 			return
 		}
 		p.web = web
+		// Fit is a property of this native page, not just the stage bounds.
+		// A replacement page starts at 100%, even at the same window size.
+		p.zoom = 0
 	}
 	web, dir := p.web, p.dir
 	root := projectFile(p.dir, project.File)
-	mtime := projectTime(project)
-	if p.webDir != dir || !mtime.Equal(p.webMTime) {
-		p.webDir, p.webMTime = dir, mtime
+	if p.webDir != dir || p.webRevision != project.Revision {
+		p.webDir, p.webRevision = dir, project.Revision
 		if err := web.LoadFile(root); err != nil {
+			p.releasePreview()
 			p.webErr = err.Error()
 			return
 		}
@@ -348,24 +378,31 @@ func (p *Plugin) mount() {
 		}
 		return decodeInfo(result)
 	}, func(info previewInfo, err error) {
+		defer p.flushReload()
 		if err != nil {
 			p.webErr = err.Error()
 			return
 		}
 		p.info = info
+		// Navigation can reset the native page zoom after layout applied it.
+		// Restore the latest fit on the UI thread once the page is ready.
+		if p.zoom > 0 {
+			p.web.SetZoom(p.zoom)
+		}
 		p.seek(p.playhead)
 	})
 }
 
 // newScene appends a scene of four seconds to the project and shows it.
 func (p *Plugin) newScene() {
-	if p.project == nil || p.dir == "" || p.adding.Running() {
+	if p.project == nil || p.dir == "" || p.adding.Running() || p.editing.Running() || p.loading.Running() {
 		return
 	}
 	dir, project := p.dir, p.project
 	kernel.Go(p.navigation, &p.adding, func(ctx context.Context) (string, error) {
 		return addScene(dir, project, 4)
 	}, func(id string, err error) {
+		defer p.flushReload()
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The scene was not added", Description: err.Error(), Type: components.ToastError})
 			return
@@ -381,9 +418,46 @@ func (p *Plugin) newScene() {
 // reload reads the project again and shows its first frame back at the
 // playhead.
 func (p *Plugin) reload() {
-	p.loading.Cancel()
+	if p.loading.Running() || p.editing.Running() || p.adding.Running() {
+		// Structured projects generate files while being read. Never overlap
+		// those workers or discard the last notification of a write.
+		p.reloadAgain = true
+		return
+	}
+	p.reloadAgain = false
+	p.stopPlaying()
 	p.mounting.Cancel()
+	p.seeking.Cancel()
+	p.apply.Cancel()
+	p.shooting.Cancel()
 	p.load()
+}
+
+func (p *Plugin) flushReload() {
+	if p.reloadAgain {
+		p.reload()
+	} else {
+		p.flushStructuredFields()
+	}
+}
+
+// releasePreview stops every consumer before closing the native page. A new
+// revision gets its own document, so readiness cannot accept the old index.html
+// while an asynchronous navigation to the same URL is still pending.
+func (p *Plugin) releasePreview() {
+	p.stopPlaying()
+	p.mounting.Cancel()
+	p.seeking.Cancel()
+	p.apply.Cancel()
+	p.shooting.Cancel()
+	p.story, p.shots = false, nil
+	if p.web != nil {
+		p.web.Close()
+		p.web = nil
+	}
+	p.webDir, p.webRevision = "", ""
+	p.info = previewInfo{}
+	p.zoom = 0
 }
 
 // pruneFocus puts the timeline back on the root when its scene is gone.
@@ -481,21 +555,29 @@ func (p *Plugin) syncClipText() {
 // saveText writes the selected clip's words into its file and takes an undo
 // step for them.
 func (p *Plugin) saveText(c *Clip) {
+	if p.project != nil && p.project.Document != nil {
+		return
+	}
 	if c == nil || !c.TextEditable || p.dir == "" || c.ID != p.selected {
 		return
 	}
 	if p.text == c.Text {
 		return
 	}
-	p.rememberText(c)
+	if p.editing.Running() || p.adding.Running() || p.loading.Running() {
+		return
+	}
+	before := textEditOf(c)
 	dir, file, id, text := p.dir, c.File, c.ID, p.text
 	kernel.Go(p.navigation, &p.editing, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, writeClipText(dir, file, id, text)
 	}, func(_ struct{}, err error) {
+		defer p.flushReload()
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The words did not change", Description: err.Error(), Type: components.ToastError})
 			return
 		}
+		p.pushEdit(before)
 		p.textBase = text
 		p.textFor = id
 		p.reload()
@@ -534,7 +616,7 @@ func (p *Plugin) focusClip(id string) {
 		if c := clipIn(s.Comp, id); c != nil {
 			p.focusOn(s)
 			p.selectClip(id)
-			p.seek(c.Start)
+			p.seekLocal(c.Start)
 			return
 		}
 	}
@@ -568,12 +650,13 @@ func (p *Plugin) seek(t float64) {
 	if p.playing {
 		p.playBase, p.playAt = t, time.Now()
 	}
-	if p.web == nil || p.webErr != "" {
+	if p.web == nil || p.webErr != "" || p.mounting.Running() || p.shooting.Running() {
 		return
 	}
 	web := p.web
+	limit := p.playLimit()
 	kernel.Go(p.navigation, &p.seeking, func(ctx context.Context) (float64, error) {
-		result, err := web.Eval(ctx, seekScript(t))
+		result, err := web.Eval(ctx, seekScript(t, limit))
 		if err != nil {
 			return 0, err
 		}
@@ -615,7 +698,7 @@ func (p *Plugin) togglePlay() {
 		p.stopPlaying()
 		return
 	}
-	if p.project == nil || p.web == nil || p.webErr != "" || p.duration() <= 0 {
+	if p.project == nil || p.web == nil || p.webErr != "" || p.duration() <= 0 || p.loading.Running() || p.mounting.Running() || p.shooting.Running() {
 		return
 	}
 	if p.playhead >= p.playLimit() || p.playhead < p.startOfSpan() {
@@ -653,7 +736,7 @@ func (p *Plugin) tick() {
 	}
 	p.playhead = at
 	web := p.web
-	kernel.Go(p.ctx, &p.ticking, func(ctx context.Context) (float64, error) {
+	kernel.Go(p.navigation, &p.ticking, func(ctx context.Context) (float64, error) {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -710,11 +793,13 @@ func (p *Plugin) events(batch []agent.Event) {
 		}
 		switch e.Kind {
 		case agent.ToolFinished:
-			if e.Tool != nil && e.Tool.Kind != agent.ToolRead && e.Tool.Kind != agent.ToolSearch && e.Tool.Kind != agent.ToolFetch {
+			if e.Tool == nil || (e.Tool.Kind != agent.ToolRead && e.Tool.Kind != agent.ToolSearch && e.Tool.Kind != agent.ToolFetch) {
+				p.agentReload = true
 				p.reload()
 				return
 			}
 		case agent.TurnSucceeded, agent.TurnFailed, agent.TurnInterrupted:
+			p.agentReload = true
 			p.reload()
 			return
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,

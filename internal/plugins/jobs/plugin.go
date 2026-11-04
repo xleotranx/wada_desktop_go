@@ -180,7 +180,7 @@ func (p *Plugin) Remove(id string) error {
 	}
 	p.store.remove(id)
 	p.ctx.Invalidate()
-	dir := filepath.Join(job.Folder, ".wada", "jobs", job.ID)
+	dir := filepath.Join(job.Folder, "job-sources", job.ID)
 	kernel.Go(p.ctx, &p.settle, func(context.Context) (struct{}, error) {
 		return struct{}{}, os.RemoveAll(dir)
 	}, func(_ struct{}, err error) {

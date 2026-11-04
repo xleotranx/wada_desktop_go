@@ -37,6 +37,7 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 		if turn != nil {
 			policy = turn.policy
 		}
+		project := turn != nil && turn.project != nil
 		structured := turn != nil && len(turn.schema) > 0
 		requestID := ""
 		if turn != nil {
@@ -49,7 +50,23 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 		if name == resultToolName && structured {
 			return pa.ToolCallHookResult{}
 		}
+		if project && name != projectToolName {
+			return pa.ToolCallHookResult{Block: true, Reason: "This turn is scoped to the active project. Use the project tool; shell, global searches and app/session data are unavailable."}
+		}
+		if !project && name != resultToolName && !isWorkspaceTool(name) {
+			return pa.ToolCallHookResult{Block: true, Reason: "Use Wada's work-folder tools. Shell commands, coding tools and unrestricted filesystem access are unavailable."}
+		}
 		kind := toolKind(name)
+		if name == projectToolName {
+			var call struct {
+				Action string `json:"action"`
+			}
+			_ = json.Unmarshal(args, &call)
+			kind = agent.ToolRead
+			if call.Action == "update" || call.Action == "write" {
+				kind = agent.ToolEdit
+			}
+		}
 		key := actionKey(name, args)
 		c.mu.Lock()
 		choice := permissionFor(c.rec.Mode, c.rec.Policy, kind)

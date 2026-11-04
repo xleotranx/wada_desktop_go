@@ -365,7 +365,11 @@ func (p *Plugin) timelineView(c *ui.Context, pal native.Palette) {
 				Absolute().Left(p.xOf(t, w) + 3).Top(2).Width(64).PassThrough()
 		}
 		if len(rows) == 0 {
-			ui.Text(c, "No clips in this composition. The agent writes them in its HTML file.").
+			message := "No clips in this composition. The agent writes them in its HTML file."
+			if p.project != nil && p.project.Document != nil && p.scene != nil {
+				message = "This scene uses reusable components. Edit its fields in Vars."
+			}
+			ui.Text(c, message).
 				FontSize(11).TextColor(pal.Faint).Absolute().Left(timelinePad + 6).Top(rulerHeight + 9).MaxLines(2).
 				PassThrough()
 		}
@@ -738,19 +742,24 @@ func (p *Plugin) key(ev ui.InputEvent) bool {
 // writeTiming saves a clip's timing and shows the project as written. A
 // negative track keeps the clip's lane.
 func (p *Plugin) writeTiming(id string, start, duration float64, track int) {
+	if p.editing.Running() || p.adding.Running() || p.loading.Running() {
+		return
+	}
 	clip, ok := p.clip(id)
 	if !ok || p.project == nil || p.dir == "" {
 		return
 	}
-	p.rememberTiming(editOf(clip))
+	before := p.timingEditOf(clip)
 	dir, file, project := p.dir, clip.File, p.project
 	kernel.Go(p.navigation, &p.editing, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, writeClipTiming(dir, file, project, id, start, duration, track)
 	}, func(_ struct{}, err error) {
+		defer p.flushReload()
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The clip did not change", Description: err.Error(), Type: components.ToastError})
 			return
 		}
+		p.pushEdit(before)
 		p.reload()
 	})
 }
@@ -771,7 +780,10 @@ func writeClipText(dir, file, id, text string) error {
 
 // writeClipTiming writes one clip's timing into its file, and extends the
 // root's duration when the clip now ends past it.
-func writeClipTiming(dir, file string, project *Project, id string, start, duration float64, track int) error {
+func writeClipTiming(dir, file string, project *Project, id string, start, duration float64, track int, rootDuration ...float64) error {
+	if handled, err := structuredTiming(dir, file, id, start, duration, track); handled {
+		return err
+	}
 	path := projectFile(dir, file)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -782,7 +794,12 @@ func writeClipTiming(dir, file string, project *Project, id string, start, durat
 		return err
 	}
 	if project.Root != nil && project.Root.HasDuration && file == project.File {
-		if end := start + duration; end > project.Root.DeclaredSeconds {
+		if len(rootDuration) > 0 && rootDuration[0] > 0 {
+			out, err = setRootDuration(out, project.Root.ID, rootDuration[0])
+			if err != nil {
+				return err
+			}
+		} else if end := start + duration; end > project.Root.DeclaredSeconds {
 			if extended, err := setRootDuration(out, project.Root.ID, end); err == nil {
 				out = extended
 			}

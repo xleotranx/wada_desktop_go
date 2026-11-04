@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	kit "wada-desktop-go/internal/contract/videokit"
 )
 
 // Composition is one HyperFrames HTML file: the project's root, or a scene it
@@ -66,12 +67,14 @@ type Scene struct {
 
 // Project is a folder with HyperFrames compositions in it.
 type Project struct {
-	Dir    string
-	File   string // the root composition, relative to Dir
-	Title  string
-	Root   *Composition
-	Scenes []*Scene
-	FPS    float64
+	Revision string        // files observed by the background project reader
+	Document *kit.Document // non-nil for generated component projects
+	Dir      string
+	File     string // the root composition, relative to Dir
+	Title    string
+	Root     *Composition
+	Scenes   []*Scene
+	FPS      float64
 }
 
 // Duration is the length of the whole video: the root's declared duration,

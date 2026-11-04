@@ -14,6 +14,7 @@ LEGAL = ("LICENSE*", "NOTICE*", "COPYING*", "COPYRIGHT*", "AUTHORS*", "OFL*", "P
 # VENDORED are files shipped inside the app rather than Go modules: name,
 # version and the license file kept beside them.
 VENDORED = (
+    ("GSAP (video animation runtime)", "3.15.0", "internal/plugins/videocomponents/GSAP-LICENSE"),
     ("anydoc (WebAssembly build)", "0.2.4", "internal/plugins/documents/ANYDOC-LICENSE"),
 )
 EXTRA = {

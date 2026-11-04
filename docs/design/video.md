@@ -31,20 +31,154 @@ A project is a folder with `index.html` and the compositions it mounts:
 
 **New Video** (File, ⇧⌘V), and the title strip's button, take the open
 conversation's folder, or else the folder whose tabs are on show, or else one
-the user picks; a worker makes the first `videos/video-N` not there yet with a
-scene and an empty root timeline, and a new chat opens in the conversation's
-folder beside it. The first message records the video; a new video left before
+the user picks. A starter chooser offers the installed collections' templates
+and **Start blank**. A worker makes the first `videos/video-N` not there yet,
+instantiates the starter or a blank scene, and opens a new chat in the
+conversation's folder beside it. The first message records the video; a new video left before
 its first message is a plain new chat. The conversation's chat history stays in
 the transcript; the video is files in the folder.
 
-The brief `video-editor.md` goes with the first message: it tells the agent the
-timing attributes, the scene layout, the deterministic-animation rules and that
-the editor writes `data-start` and `data-duration` into the files it reads.
+Every outgoing video message carries internal authoring instructions and a
+serializable `agent.ProjectScope` bound to the selected video directory. This
+includes the first message, existing conversations and project switches. These
+instructions stay separate from user attachments; no synthetic brief file is sent. The instructions keep the task on the user's requested content and
+leave editor debugging, app internals, conversation history and other projects
+outside the task.
+
+The video plugin contributes a worker-safe handler to `agent.ProjectTools`. PiG
+exposes the `project` tool during a scoped turn, with these actions:
+
+| Action | Behavior |
+| --- | --- |
+| `inspect` | Current scenes, overrides, component fields, compatible layouts and themes; implementation markup, motion and runtime assets are omitted. For HTML projects, returns the root and scene file paths. |
+| `update` | Updates `title`, `theme`, `scenes` and/or `overrides` in a component document. Preserves definitions, validates before saving, regenerates HTML and returns the quick check. |
+| `read` / `write` | Source files inside the selected HTML project. Writes to component projects are refused; they use `update`. |
+| `check` | Synchronizes generated output and returns the quick check, duration and scene count. |
+
+Source paths must be local, contain no hidden or traversal segments, and use
+HTML, CSS, JavaScript, JSON or SVG extensions. Existing symlinks and ancestors
+must resolve inside the selected video; reads and writes are limited to 2 MiB.
+The model cannot supply or switch the project directory. PiG hides general tools
+and blocks their invocation for the turn, including shell and filesystem searches
+even in Full Access mode. Its normal tools return when the turn settles.
+Preview refresh and rendering remain app actions; the tool does not install or
+launch a second editor or render CLI.
 
 A conversation opens the editor for the project recorded for it. The project
 menu in the header lists the folder's other projects (the folder itself when its
 `index.html` is a composition, and each folder under `videos/`) and switches to
 one; the choice is remembered for that conversation.
+
+## Reusable components
+
+`internal/contract/videokit` declares the collection contribution point and the
+structured document. `internal/plugins/videocomponents` contributes three
+collections: **Video foundations** (theme, visual primitives, title/takeaway and
+layouts), **Excel essentials** (spreadsheet, keyboard shortcut, formula/result
+and two starters), and **Excel actions & animation** (ten action demos and two
+more starters). The editor imports only the contract. More collection plugins
+contribute definitions through `videokit.Collections`; they do not import the
+editor or another collection plugin.
+
+The layers are theme tokens → shared CSS primitives → components → scene layouts
+→ starter sequences. A definition has an immutable `{id, version}` reference.
+Collections share a definition namespace, so an Excel starter can use the
+foundation title and layouts. Exact duplicate definitions, conflicting assets
+and incompatible animation runtimes are refused.
+
+A component declares its label, description, group, typed fields with defaults
+and limits, markup, scoped CSS and animation. Optional `layouts` references
+restrict where it fits; `defaultDuration` sets its suggested scene length.
+Numeric fields can declare `step`; a fractional range index is rejected rather
+than silently selecting no cells. Markup is a Go text template with
+`value` (escaped scalar), `binding` (instance-specific variable ID), `split`
+(bounded escaped list), `grid` (bounded escaped rows matching headers),
+`selected` (one-based numeric selection), `within` (a bounded inclusive range),
+`number` (a validated numeric field), `series` (escaped labels paired with bounded
+numeric values) and `inc` (one-based row labels) helpers. These are generic content
+primitives; the compiler has no Excel component IDs. Styles are flat rules,
+scoped to the scene or component; nested rules and `@` directives are refused.
+Motion uses a shared paused GSAP timeline, the component's `box`, its scene's
+`root`, and named second offsets: `cues.enter`, `action`, `reveal`, `exit`.
+Action and reveal fall at 18% and 58% of the scene's duration. Components author
+absolute seek-safe tweens, without a private clock.
+
+Each starter creates **video.json**, schema 1, with the title, theme reference,
+scenes, user overrides and a project snapshot. Scenes record IDs, titles, layout
+references, start/duration/track and component instances with authored inputs.
+Omitted inputs use component defaults. Overrides use `scene--part--field` keys
+and win over authored inputs. Native field controls and the agent edit this same
+document; overrides survive reopening without relying on app settings.
+
+The snapshot includes component definitions, layouts, themes, shared styles and
+UTF-8 assets. The foundation bundles GSAP 3.15.0 and its notice, copied into the
+project's assets; these starters need no remote images, fonts, scripts or AI
+request to preview. Collection updates or disabling the collection plugin do not
+change an existing project's definitions. There is no automatic component
+upgrade. The runtime's original license header remains intact and its notice
+is included in the application's third-party inventory.
+
+Opening or reloading a component project validates its document and compiles
+`index.html`, `compositions/<scene-id>.html` and assets. Files whose bytes match
+are not rewritten. Invalid references, values, IDs, layout capacity or content
+limits stop compilation before overwriting generated files. A save validates
+before atomically replacing the source; derived files are replaced individually
+and can be recovered from the source on the next load. Generated HTML edits are
+replaced on reload. Blank projects keep the direct HTML workflow.
+
+The starters are **One Excel tip · AutoSum** (20 seconds), **Excel tips roundup**
+(24 seconds), **Four daily Excel actions** (42 seconds), and **Lookup, highlight
+and chart** (32 seconds). They use the same components and the centered or
+side-by-side layout at 1920×1080, 30 fps. Components expose editable titles,
+explanations, platform labels, keycaps, table headers/rows/highlight, formulas
+and expected results. They illustrate results; they do not evaluate formulas.
+Tables support up to five columns and six rows, with `|` between cells and `;`
+between rows; shortcuts support up to four keycaps.
+
+**Add scene** groups the project's snapshotted components by purpose.
+**Add from installed library** offers definitions not yet in that snapshot.
+Selecting one imports that exact reference, its required missing layouts and
+nonconflicting assets, then appends a ready-to-use scene. Existing references,
+shared CSS, theme and scenes are retained. A conflicting runtime or asset is
+refused. Importable components carry their own scoped styles rather than
+requiring a change to the saved foundation.
+
+The collection contains the following components:
+
+| Group | Components | Animation |
+| --- | --- | --- |
+| Essentials | Title/takeaway, spreadsheet, shortcut, formula/result | Entrances, keypress, formula wipe, result reveal |
+| Data entry | Range selection, AutoFill | Cursor/click, range highlight, fill-handle drag |
+| Clean & organize | Flash Fill, filter, sort, duplicates, Text to Columns | Before/after reveal, filter dropdown, row reorder, duplicate fade |
+| Formulas | Lookup trace | Matching cells highlighted in order, result reveal |
+| Visualize | Conditional formatting, column chart | Data bars, threshold emphasis, staggered chart growth |
+
+Action/result components offer `wipe`, `slide` and `zoom` transitions as editable
+fields. A shared action/result builder keeps their content schema and motion
+consistent. Each of the ten detailed demos uses a centered full-width layout
+and an eight-second default, so adding one cannot squeeze its tables into half
+a frame. Before/after tables allow up to three columns and five rows; selection
+allows four columns and six rows. Numeric series pair up to five labels with
+finite percentages from 0–100; mismatched lists, invalid ranges and invalid
+animation choices are refused. These are authored illustrations, not an Excel
+calculation engine. Formula and before/after results must be supplied correctly.
+
+Clicking a scene opens its fields in **Vars**; Enter or **Save** applies text, while **Reset**
+removes the override. A scene's context menu duplicates, moves, removes, selects
+a layout, adds a component or swaps two components. Adding a second component
+chooses a layout with room; a full layout refuses another component. Duplicate,
+move and remove actions arrange the sequence contiguously and clear timing
+undo/redo. Duplication copies the scene's user overrides under its new ID.
+Structural actions and field saves serialize with timeline writes. Scene timing
+and lane drags update the JSON document and regenerate HTML; timing undo/redo
+uses the same document. Component motion is edited in its definition, not by
+rewriting generated clip text. A component scene with no editable timeline clips
+points to **Vars**, rather than asking the agent to write clips into HTML.
+
+A component project requires 1–100 scenes, valid unique instance IDs,
+nonnegative start/track, and scene durations of 3–120 seconds. A schema other than
+1 is refused. The supplied examples identify Excel for Windows; authors must
+verify formulas, expected results and platform-specific shortcuts.
 
 ## The composition model
 
@@ -157,13 +291,20 @@ shows them in the preview:
 The sidebar's **Vars** tab lists the focused composition's declarations with a
 control per type: a color well, a switch, a select for an enum, and a text field
 for text, numbers, fonts and image paths. A value the user changed is kept in the
-plugin's `values-v1` setting by project folder, so it survives a restart, and a
+plugin's `values-v1` setting by project folder for direct HTML projects (in
+`video.json` overrides for component projects), so it survives a restart, and a
 reset button puts a variable back to its declared default. A pinned variable says
-so.
+so. Controls retain their identity and unsaved drafts across unchanged reloads,
+and synchronize when the agent changes their saved value or declaration.
+Component field writes are serialized and retain the latest queued value per
+field while another write or project read is running.
 
 The runtime merges a composition's defaults with the user's values, then the
 scene's pinned values, writes the CSS custom properties, the bound text and the
-bound sources, and seeks the frame again after a change. It also defines
+bound sources, and seeks the frame again after a change. Browser updates carry
+the entire override snapshot, so replacing a pending update cannot lose a different
+field's preceding change. Reset removes the override, allowing each composition's
+own default to apply. It also defines
 `window.__hyperframes.getVariables()`, which a scene's scripts can read, and
 `window.__hfVariables`. The root page's own scripts run before the runtime is
 injected, so only scripts that run when a scene mounts can rely on
@@ -203,15 +344,39 @@ fetch them itself:
    `[start, start + duration)` get `visibility: hidden !important`, and media
    elements are set to their own time and paused.
 
+The transport may reach the exact end of the video or a focused scene. The
+preview samples one frame before that boundary while keeping the transport at
+the requested endpoint, so stopping playback or pressing End holds the last
+frame instead of hiding every scene.
+
+A reload can reuse the existing page when its files did not change. Before
+mounting scenes again, the runtime disposes the old scene timelines, removes
+only its mounted nodes, and restores every visibility property it masked,
+including its original priority. Each seek removes timing masks before seeking
+animations, then applies the new masks. This preserves authored visibility while
+allowing animations such as GSAP `autoAlpha` to reveal a clip after its opening
+frame. Repeated reloads neither duplicate scenes nor leave inactive scenes
+permanently hidden. Timelines declared
+by the source but missing at runtime are reported in the stage, independently
+of the source check.
+
 The preview never plays media: it scrubs. Sound is the render's. A composition
 with no paused timeline still shows its clips, just without animation. The
 runtime reports what it could not do; the stage shows the first such error.
 
-The stage holds one web page, created with `shell.Host.NewWebView`. It is loaded
-again when the project folder changes or when any of its files changed since it
-loaded, and the runtime is injected again. The page is laid out at the
+The stage holds one web page, created with `shell.Host.NewWebView`. A changed
+project gets a new native page after all consumers of the old page are cancelled.
+Readiness requires the full project file path, so an old document at the same
+URL cannot accept the new runtime before navigation finishes. A background
+revision tracks every input's name, size and modification time, plus the contents
+of HTML, CSS, JavaScript, JSON and SVG sources; additions and deletions count.
+Hidden files, `node_modules` and `renders` are excluded. Binary assets use metadata
+without rereading entire media files. Scene payloads use the source snapshot that
+produced their parsed timing, with no file reads during mounting on the UI thread. The page is laid out at the
 composition's own size and `SetZoom` fits it to the stage, so CSS pixels are the
-composition's pixels. WebKit may not set text under its minimum font size, so
+composition's pixels. The cached fit belongs to the current native page: a
+replacement page invalidates it, and a completed page load reapplies the latest
+fit even when the stage has not resized. WebKit may not set text under its minimum font size, so
 very small type can read larger in a reduced preview than in the render; the
 render is the reference.
 
@@ -251,11 +416,14 @@ window there.
   window is the host's timing.
 - The project is read again after the write, so the timeline shows what the file
   says, not what the drag showed. The scene focus survives the reload while the
-  scene is still there.
+  scene is still there; its local playhead follows a host whose start or rate changed.
 - Undo and redo put an edit back: the header's arrows, or ⌘Z and ⇧⌘Z while the
   timeline has the keyboard. They cover moves, trims, lane changes and a clip's
   words, not scene creation or variable values, and a new edit drops the redo
-  steps.
+  steps. History changes only after a successful write; failed saves and failed
+  undo/redo leave the stacks intact. Undoing a root move also restores the film
+  length it extended. An agent refresh that changes project inputs clears old
+  history so it cannot overwrite the agent's edits.
 
 The timeline fits the composition at first: scrolling pans the film, a
 horizontal gesture pans it too, and a pinch or ⌘-scroll zooms around the
@@ -274,7 +442,7 @@ track and words, which opens when a clip is clicked on the timeline; **Vars**,
 the focused composition's declarations, described above; and **Check**, the
 findings, whose row opens the clip's composition, selects it and moves the
 playhead to its start. A finding that names only a file leaves the check on show,
-with its file and line, since there is no clip to open. A clip whose words are
+with its file and line, since there is no clip to open. In direct HTML projects, a clip whose words are
 its own text (a title, a caption) can be rewritten there: Enter or **Save**
 writes the element's text and reloads, and undo takes the words back. Save waits
 for a change. An element whose words sit around other elements is read-only
@@ -293,7 +461,9 @@ The frames are the preview's own, so they show the user's variable values and
 the timeline's clip visibility without a render; playback pauses while they are
 taken, and the playhead returns to where it was. A capture is a page `Eval`
 seek and a `Capture`, both on a worker, and the PNG is decoded and built into a
-bitmap there too. Closing the storyboard cancels a capture still in flight.
+bitmap there too. Closing the storyboard cancels a capture still in flight and restores the
+playhead frame. Capture failures also restore that frame. Each sample uses the
+focused scene's end boundary, so the final sample holds that scene's last frame.
 
 ## The full-window page
 
@@ -356,21 +526,46 @@ conversation that is not a video.
 
 The editor follows the agent: after a tool that may change files (anything but a
 read, search or fetch) and when a turn ends, it reads the project again and
-reloads the page if its files changed.
+replaces the native page if its inputs changed. Reload notifications are coalesced
+while a project read or editor mutation runs; a notification arriving during a
+read schedules one subsequent read. Project generation therefore never overlaps
+another editor read or write. Loading pauses playback and cancels seeks and
+storyboard capture. Invalid projects close the stale preview and recover on the
+next successful refresh. Findings inside a scene seek its local clip time mapped
+back to the film's clock.
 
 ## Tests
 
+`lifecycle_test.go` covers completion-driven refreshes of root/scene HTML,
+styles, scripts and media, preserved source timestamps, added/deleted inputs,
+coalesced notifications, save/read serialization, failed writes, root-length
+undo/redo, agent history invalidation, finding time mapping, storyboard failure,
+closed-page cancellation, field refresh, queued component saves and invalid
+project recovery. `render_unix_test.go` exercises the actual command invocation
+with a local CLI double for success, failure logs and missing output.
 `html_test.go` pins the scanner's offsets, comments, raw text and unclosed
 markup. `composition_test.go` pins the start grammar and reference resolution.
 `check_test.go` pins the check against a project that breaks each group of rules,
 and that a new project is clean. `edit_test.go` pins surgical timing writes and
 scene creation. `project_test.go` pins discovery, opening with a missing scene
-and timing resolution. `video_test.go` also pins the storyboard's nine frames and the overlay.
+and timing resolution. `preview_runtime_test.go` executes the embedded JavaScript against parsed project
+trees using a small DOM double and Node.js, when available. It covers scene
+visibility through a seven-scene sequence, terminal and focused end frames,
+repeated mounts, authored visibility and missing animation timelines. It does
+not replace browser rendering checks.
+`excel_components_test.go` compiles and seeks every component, validates numeric
+series and selection bounds, checks layout restrictions and animation options,
+and imports a new demo into an older snapshot without changing its saved
+components. `structured_test.go` verifies all starters against the quick check, stable
+regeneration, escaped content, durable field overrides and reset, scene timing
+undo/redo, validation failures preserving saved files, native component editing
+and the starter chooser's lifetime. `video_test.go` also pins the storyboard's
+nine frames and the overlay.
 `cli_check_test.go` pins the CLI report's conversion and the panel's way to it.
 `video_test.go` runs the plugin on `kerneltest` with a
 fake page: it opens the editor beside a video conversation, draws it, closes it
 on another conversation, seeks from the ruler, drags a root clip and a clip
-inside a scene, starts a new video, sends the brief and survives a window with
+inside a scene, starts a new video, supplies authoring context and survives a window with
 no web pages. `variables_test.go` pins declaration parsing, the merge order, the
 panel, keeping and resetting a value, the check's variable rules, the render
 arguments, the CLI's progress lines and the staging folder. `ui_test.go` pins
@@ -391,3 +586,10 @@ font or image declared as a typed object is edited by its family name or URL.
 snapshot review, audio preview, linked clips, keyframes, and cloud or
 distributed rendering are not ported. A render is local and synchronous from the
 editor's point of view.
+
+Component projects currently support landscape layouts only, flat CSS, built-in
+collections, explicit imports of installed components and a text representation
+of table data. There is no catalog download,
+component upgrade UI, mixed custom-HTML scene inside a component document,
+narration generation or automatic formula evaluation. Use a blank HTML project
+for unrestricted custom compositions.

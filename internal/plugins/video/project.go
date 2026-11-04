@@ -1,7 +1,10 @@
 package video
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -98,6 +101,10 @@ func titleOf(src string) string {
 // A scene file that is missing or cannot be read still opens: the check says
 // so, and the timeline shows its window.
 func openProject(dir string) (*Project, error) {
+	document, err := syncDocument(dir)
+	if err != nil {
+		return nil, err
+	}
 	src, err := os.ReadFile(filepath.Join(dir, "index.html"))
 	if err != nil {
 		return nil, err
@@ -106,7 +113,7 @@ func openProject(dir string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Project{Dir: dir, File: "index.html", Root: root, FPS: root.FPS}
+	p := &Project{Document: document, Dir: dir, File: "index.html", Root: root, FPS: root.FPS}
 	if root.root == nil {
 		return nil, ErrNotAComposition
 	}
@@ -147,7 +154,8 @@ func openProject(dir string) (*Project, error) {
 		scene.Comp = comp
 		p.Scenes = append(p.Scenes, scene)
 	}
-	return p, nil
+	p.Revision, err = projectRevision(dir)
+	return p, err
 }
 
 // hostAttr reads an attribute of the element a clip was read from.
@@ -290,29 +298,60 @@ func sceneTemplate(id, title string, length float64) string {
 // projectFile is a project-relative path as a path on disk.
 func projectFile(dir, rel string) string { return filepath.Join(dir, filepath.FromSlash(rel)) }
 
-// fileTime is a file's modification time, or the zero time when it is not
-// there.
-func fileTime(path string) time.Time {
-	if info, err := os.Stat(path); err == nil {
-		return info.ModTime()
+// projectRevision tracks each input independently, including additions and
+// deletions. Source contents catch atomic writes that preserve file timestamps;
+// large binary assets use size and mtime without rereading entire videos.
+func projectRevision(dir string) (string, error) {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
 	}
-	return time.Time{}
-}
-
-// projectTime is when the project last changed: its root, or a scene it
-// mounts.
-func projectTime(p *Project) time.Time {
-	if p == nil {
-		return time.Time{}
-	}
-	latest := fileTime(projectFile(p.Dir, p.File))
-	for _, s := range p.Scenes {
-		if s.Comp == nil {
-			continue
+	h := sha256.New()
+	err = filepath.WalkDir(dir, func(file string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if at := fileTime(projectFile(p.Dir, s.Comp.File)); at.After(latest) {
-			latest = at
+		name := entry.Name()
+		if entry.IsDir() {
+			if file != dir && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "renders") {
+				return filepath.SkipDir
+			}
+			return nil
 		}
+		if strings.HasPrefix(name, ".") {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(file)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, resolved)
+			if err != nil || !filepath.IsLocal(rel) {
+				return fmt.Errorf("project symlink %q leaves the video folder", name)
+			}
+		}
+		rel, err := filepath.Rel(dir, file)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(file)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
+		switch strings.ToLower(filepath.Ext(file)) {
+		case ".html", ".css", ".js", ".json", ".svg":
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			h.Write(data)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
-	return latest
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }

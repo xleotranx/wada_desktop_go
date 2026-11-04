@@ -1,9 +1,10 @@
 # Wada Cowork
 
-A native desktop workspace where a team of agents does a job and hands back a
-file. Point it at a folder, say what you want, and it reads the documents,
-plans, waits for your approval, does the work, and has a second agent judge the
-result against the plan before you see it. Built with Go, MyGo and Onevra; PiG
+A native desktop assistant for everyday work: understand documents, organize
+information, draft reports and correspondence, compare data, plan work and create
+useful deliverables. Choose a work folder and say what outcome you need. For
+larger tasks, Jobs reads the relevant documents, proposes a plan for approval,
+does the work and has an independent agent review the result. Built with Go, MyGo and Onevra; PiG
 runs the agents inside the app, so no separate agent executable is required.
 Chat and controls are native, and the design canvas uses embedded WebViews to
 preview local HTML.
@@ -66,7 +67,7 @@ chats (⌘K) to find any chat the app started (its own record, in SQLite), folde
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
 conversation with its context, session or uncommitted Git changes with expandable diffs, and cost;
 model, effort and mode pickers; file and image attachments; workflows such as plan,
-code, review in the current chat; desktop notifications for conversations in the background; settings
+work, review in the current chat; desktop notifications for conversations in the background; settings
 for appearance, tabs, PiG, providers, notifications, and turning plugins
 on and off.
 
@@ -81,9 +82,17 @@ choose **Use annotated image**. The marked PNG goes with your next message;
 the source file stays unchanged. Images are limited to 16 megapixels and 16,384
 pixels per side, in addition to the attachment byte limits.
 
-The composer offers **Ask before write** (the default) and **Full access**. Ask mode
-allows reads and searches and asks before edits, shell commands, web access and
-unknown tools. Workflow planning and review deny edits even in Full access; reviewer
+Ordinary chats use work-folder tools: list files, read and search documents, write
+or revise text deliverables, verify arithmetic and read a known source URL. Office
+and PDF reading uses the embedded document reader. Shell commands and unrestricted
+coding tools are unavailable. Wada does not automatically load repository agent
+instructions; skills are included when explicitly selected. Without a selected
+folder, new conversations use a dedicated Inbox rather than the user's home folder.
+
+The composer offers **Ask before changes** (the default) and **Work independently**.
+Ask mode permits reads and searches, and asks before edits or web-page requests.
+Independent mode performs those operations within the selected work folder.
+Workflow planning and review deny edits in either mode; reviewer
 children retain their fixed policies. Questions do not restart the workflow, while
 related changes receive another independent review. Queued follow-ups are handled
 after the active turn. Tasks and queues persist in `workflow.db`; interrupted work
@@ -100,7 +109,8 @@ requires explicit resume.
 | `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
 | `main.go` | Wada's name, window and menus, and the plugins this build installs |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `chat`, `tabs`, `workspace`, `workflow` |
-| `internal/plugins/pig` | Embedded PiG SDK, sessions, permissions, providers and coding tools |
+| `internal/plugins/cowork` | Everyday-work instructions, folder-contained document tools, arithmetic and URL reading |
+| `internal/plugins/pig` | Embedded PiG SDK, assistant sessions, permissions and providers |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
 | `internal/plugins/modes` | Access mode and one-task workflow selection |
@@ -162,7 +172,7 @@ Production settings and app records live under
 
 Treat these directories as sensitive. Messages, attachments and tool results sent
 to a model go to your chosen provider. Do not include credentials or private
-conversation content in issues or screenshots. **Ask before write** is a tool
+conversation content in issues or screenshots. **Ask before changes** is a tool
 permission policy, not an operating-system sandbox. See [SECURITY.md](SECURITY.md).
 
 For experiments and captures, isolate the app's data:

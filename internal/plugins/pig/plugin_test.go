@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wada-desktop-go/internal/plugins/cowork"
 	"wada-desktop-go/internal/plugintest"
 
 	pa "github.com/MichaelKinsy/PiG/agent"
@@ -59,7 +60,7 @@ func startPig(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plug
 	t.Setenv("HOME", t.TempDir())
 	var p *Plugin
 	host := &kittest.Host{Data: t.TempDir()}
-	h := kerneltest.New(t, append([]kernel.Factory{host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })}, extra...)...)
+	h := kerneltest.New(t, append([]kernel.Factory{host.New, cowork.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} })}, extra...)...)
 	waitFor(t, h, "ready", func() bool { return p.Status().State == agent.Ready })
 	e, err := p.current()
 	if err != nil {
@@ -191,7 +192,7 @@ func TestToolApprovalAndSessionChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "note.txt", "content": "updated\n"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "note.txt", "content": "updated\n"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
 	var approval *agent.Approval
 	settled := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
@@ -227,11 +228,11 @@ func TestToolApprovalAndSessionChanges(t *testing.T) {
 		t.Fatalf("changes %+v", changes)
 	}
 }
-func TestShellTracksNewFilesInEmptyWorkspace(t *testing.T) {
+func TestDocumentToolTracksNewFilesInEmptyWorkspace(t *testing.T) {
 	h, p, faux := startPig(t)
 	dir := t.TempDir()
 	s := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "printf hello > created.txt"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "created.txt", "content": "hello"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
 	settled := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
 		for _, ev := range batch {
@@ -289,7 +290,7 @@ func TestStopReleasesApprovalAndDoesNotWrite(t *testing.T) {
 	h, p, faux := startPig(t)
 	dir := t.TempDir()
 	s := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "blocked.txt", "content": "bad"}, nil)}, StopReason: "toolUse"}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "blocked.txt", "content": "bad"}, nil)}, StopReason: "toolUse"}})
 	var approval *agent.Approval
 	stopped := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
@@ -418,8 +419,8 @@ func TestProjectInstructionsAndSkills(t *testing.T) {
 	s := createChat(t, h, p, dir)
 	e, _ := p.current()
 	c, _ := e.get(s.ID)
-	if !strings.Contains(c.session.SystemPrompt(), "Repository-specific fixture instructions.") {
-		t.Fatal("repository instructions missing")
+	if strings.Contains(c.session.SystemPrompt(), "Repository-specific fixture instructions.") || !strings.Contains(c.session.SystemPrompt(), "Wada Cowork") {
+		t.Fatal("cowork identity was overridden by repository instructions")
 	}
 }
 
@@ -507,7 +508,7 @@ func TestMultipleWritesAndSeparateSessionChanges(t *testing.T) {
 	h, p, faux := startPig(t)
 	dir := t.TempDir()
 	s := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "nested/a.txt", "content": "A"}, nil), ai.FauxToolCall("write", map[string]any{"path": "nested/b.txt", "content": "B"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "nested/a.txt", "content": "A"}, nil), ai.FauxToolCall("write_document", map[string]any{"path": "nested/b.txt", "content": "B"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
 	done := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
 		for _, ev := range batch {
@@ -525,7 +526,7 @@ func TestMultipleWritesAndSeparateSessionChanges(t *testing.T) {
 		t.Fatalf("changes %+v", changes)
 	}
 	other := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "separate.txt", "content": "Other"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "separate.txt", "content": "Other"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
 	done = false
 	call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
 		return p.Send(ctx, agent.Send{Session: other.ID, Text: "Other file", Mode: modeFull})
@@ -543,7 +544,7 @@ func TestConcurrentApprovalsAndFixedChildPolicy(t *testing.T) {
 	a := createChat(t, h, p, dir)
 	b := createChat(t, h, p, dir)
 	write := func(path string) ai.FauxResponse {
-		return ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": path, "content": "written"}, nil)}, StopReason: "toolUse"}
+		return ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": path, "content": "written"}, nil)}, StopReason: "toolUse"}
 	}
 	done := ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}
 	faux.SetResponses([]ai.FauxResponseStep{write("a.txt"), write("b.txt"), done, done})
@@ -595,7 +596,7 @@ func TestConcurrentApprovalsAndFixedChildPolicy(t *testing.T) {
 func TestAlwaysApprovalIsScopedToExactConversationAction(t *testing.T) {
 	h, p, faux := startPig(t)
 	s := createChat(t, h, p, t.TempDir())
-	response := ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "same.txt", "content": "same"}, nil)}, StopReason: "toolUse"}
+	response := ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "same.txt", "content": "same"}, nil)}, StopReason: "toolUse"}
 	done := ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}
 	faux.SetResponses([]ai.FauxResponseStep{response, done, response, done})
 	requests, finished := 0, 0
@@ -651,7 +652,7 @@ func TestHandledReceiptDoesNotSettleIndependentRun(t *testing.T) {
 		t.Fatalf("events %+v", events)
 	}
 }
-func TestUnavailableSnapshotDoesNotBlockPermittedShell(t *testing.T) {
+func TestDocumentWritesDoNotScanUnrelatedLargeFiles(t *testing.T) {
 	h, p, faux := startPig(t)
 	dir := t.TempDir()
 	f, err := os.Create(filepath.Join(dir, "large.bin"))
@@ -665,7 +666,7 @@ func TestUnavailableSnapshotDoesNotBlockPermittedShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := createChat(t, h, p, dir)
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "printf executed > done.txt"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "done.txt", "content": "executed"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}}})
 	done := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
 		for _, ev := range batch {
@@ -680,10 +681,10 @@ func TestUnavailableSnapshotDoesNotBlockPermittedShell(t *testing.T) {
 	waitFor(t, h, "permitted action", func() bool { return done })
 	content, err := os.ReadFile(filepath.Join(dir, "done.txt"))
 	if err != nil || string(content) != "executed" {
-		t.Fatalf("permitted shell did not execute: %v", err)
+		t.Fatalf("permitted document write did not execute: %v", err)
 	}
-	if _, err = p.Changes(t.Context(), s.ID); err == nil {
-		t.Fatal("incomplete tracking reported as a complete diff")
+	if changes, err := p.Changes(t.Context(), s.ID); err != nil || len(changes) != 1 {
+		t.Fatalf("targeted document tracking failed: %v / %v", changes, err)
 	}
 }
 

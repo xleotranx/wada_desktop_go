@@ -11,10 +11,10 @@ type Plugin struct{}
 
 func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "flows", Title: "Built-in workflows", Description: "Plan, code, review in the current conversation.", Requires: []kernel.Named{chat.ControllerKey}}
+	return kernel.Manifest{ID: "flows", Title: "Built-in workflows", Description: "Plan, work, review in the current conversation.", Requires: []kernel.Named{chat.ControllerKey}}
 }
 func (*Plugin) Setup(c *kernel.Context) error {
-	f := planCodeReview
+	f := planWorkReview
 	kernel.Contribute(c, wf.Definitions, f.ID, 0, f)
 	kernel.Contribute(c, chat.Workflows, f.ID, 0, chat.Workflow{Title: f.Title, Summary: f.Summary})
 	return kernel.Contribute(c, kernel.Commands, f.ID, 0, kernel.Command{Title: f.Title, Menu: "Agent", Run: func() {

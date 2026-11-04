@@ -21,6 +21,7 @@ type fileSnapshot struct {
 	Data   []byte
 }
 type mutationCapture struct {
+	root   string
 	id     string
 	before map[string]fileSnapshot
 	all    bool
@@ -92,8 +93,15 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 	c.mu.Lock()
 	root := c.rec.Session.Directory
 	c.mu.Unlock()
+	if name == projectToolName {
+		c.turnMu.Lock()
+		if c.turn != nil && c.turn.project != nil {
+			root = c.turn.project.Directory
+		}
+		c.turnMu.Unlock()
+	}
 	before := map[string]fileSnapshot{}
-	if name == "write" || name == "edit" {
+	if singleFileMutation(name) {
 		var arg struct {
 			Path string `json:"path"`
 		}
@@ -121,7 +129,7 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 		}
 	}
 	c.captureMu.Lock()
-	c.capture = &mutationCapture{id: id, before: before, all: name != "write" && name != "edit"}
+	c.capture = &mutationCapture{root: root, id: id, before: before, all: !singleFileMutation(name)}
 	c.captureMu.Unlock()
 	release = false
 	return nil
@@ -138,13 +146,32 @@ func (e *engine) finishMutation(c *conversation, id string) {
 	defer e.mutation.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	root := capture.root
+	if root == "" {
+		root = c.rec.Session.Directory
+	}
+	base, err := directory(c.rec.Session.Directory)
+	if err != nil {
+		c.rec.ChangesError = "Session changes are unavailable: invalid conversation root"
+		return
+	}
+	root, err = directory(root)
+	if err != nil {
+		c.rec.ChangesError = "Session changes are unavailable: invalid capture root"
+		return
+	}
+	prefix, err := filepath.Rel(base, root)
+	if err != nil || !filepath.IsLocal(prefix) {
+		c.rec.ChangesError = "Session changes are unavailable: invalid project root"
+		return
+	}
 	paths := map[string]bool{}
 	for path := range capture.before {
 		paths[path] = true
 	}
-	// Shell calls can create files that did not exist at admission.
+	// Project operations can create files that did not exist at admission.
 	if capture.all {
-		if files, err := projectFiles(e.ctx, c.rec.Session.Directory); err == nil {
+		if files, err := projectFiles(e.ctx, root); err == nil {
 			for _, path := range files {
 				if _, ok := capture.before[path]; !ok && capture.all {
 					paths[path] = true
@@ -157,7 +184,7 @@ func (e *engine) finishMutation(c *conversation, id string) {
 	}
 	for path := range paths {
 		before := capture.before[path]
-		after, err := snapshotFile(c.rec.Session.Directory, path)
+		after, err := snapshotFile(root, path)
 		if err != nil {
 			c.rec.ChangesError = "Session changes are unavailable: " + err.Error()
 			continue
@@ -165,8 +192,9 @@ func (e *engine) finishMutation(c *conversation, id string) {
 		if before.Exists == after.Exists && bytes.Equal(before.Data, after.Data) {
 			continue
 		}
-		if _, ok := c.rec.Baselines[path]; !ok {
-			c.rec.Baselines[path] = before
+		key := filepath.ToSlash(filepath.Join(prefix, filepath.FromSlash(path)))
+		if _, ok := c.rec.Baselines[key]; !ok {
+			c.rec.Baselines[key] = before
 		}
 	}
 	if err := e.saveLocked(c); err != nil {
@@ -253,4 +281,8 @@ func fileDiff(ctx context.Context, path string, before, after []byte) (string, i
 		}
 	}
 	return patch, added, removed, nil
+}
+
+func singleFileMutation(name string) bool {
+	return name == "write" || name == "edit" || name == "write_document" || name == "edit_document"
 }

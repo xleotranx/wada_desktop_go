@@ -14,10 +14,12 @@ import (
 const resultToolName = "submit_result"
 
 type turnState struct {
-	id     string
-	schema json.RawMessage
-	policy *agent.ToolPolicy
-	result json.RawMessage
+	id      string
+	project *agent.ProjectScope
+	tools   []string
+	schema  json.RawMessage
+	policy  *agent.ToolPolicy
+	result  json.RawMessage
 }
 
 type resultTool struct{ c *conversation }
@@ -51,6 +53,6 @@ func (t *resultTool) Execute(ctx context.Context, _ string, params json.RawMessa
 	turn.result = slices.Clone(validated)
 	return pa.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "Result recorded."}}, Terminate: true}, nil
 }
-func withoutResult(names []string) []string {
-	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return n == resultToolName })
+func withoutTurnTools(names []string) []string {
+	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return n == resultToolName || n == projectToolName })
 }

@@ -10,7 +10,7 @@ public Go SDK. PiG types never leave the plugin; the kit has no agent dependency
 |---|---|
 | `ServiceKey` | List/create/read/send/abort/rename/delete conversations and answer tool approvals |
 | `ModelsKey` | Model catalog, default model, per-session model and thinking level |
-| `ModesKey` | Ask before write and Full access |
+| `ModesKey` | Ask before changes and Work independently |
 | `ChildrenKey` | Independent conversations under a parent with fixed tool policies |
 | `InteractionsKey` | Confirmation, selection, input and editor questions; pending questions can be read again |
 | `FileTypesKey` | PNG, JPEG, GIF, WebP and text attachments |
@@ -30,7 +30,10 @@ the provider/model catalog. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 
-The plugin requires `shell.HostKey`. Its storage root is `<DataDir>/pig`:
+The plugin requires `shell.HostKey`. Ordinary chats use the cowork plugin's
+instructions and purpose-built work tools, not the SDK's coding defaults.
+New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
+conversation directories remain as recorded. Its backend storage root is `<DataDir>/pig`:
 
 - `agent/`: SDK configuration and provider credentials, including `auth.json`;
 - `sessions/`: SDK-owned JSONL transcripts;
@@ -115,9 +118,11 @@ it to cancel related task scopes. Approvals and interactions can name their actu
 
 ## Permissions and interactions
 
-The composer uses the existing remembered mode selection. **Ask before write** is
-the default: read/search tools run automatically; edit, shell, web and unknown tools
-ask first. **Full access** skips ordinary-chat approvals. Pre-tool hooks wait for a
+The composer uses the existing remembered mode selection. **Ask before changes**
+is the default: document reads, searches and calculations run automatically;
+file changes and source-URL requests ask first. **Work independently** skips
+individual approvals for those operations while retaining work-folder boundaries.
+Shell and legacy coding tools are unavailable in either mode. Pre-tool hooks wait for a
 matching session/request reply; stale, duplicate and invalid replies fail. Always
 grants apply only to that conversation and exact action. Stopping cancels waiters.
 
@@ -137,26 +142,53 @@ Secrets are entered in password fields, stored by the SDK under Wada's agent dir
 and excluded from ordinary settings and error diagnostics. SDK catalog notices
 refresh provider and composer model lists.
 
-PiG discovers project instructions and skills. Skill references are checked against
-the current project's catalog before their content is attached. Mentions use local
+Wada supplies the Cowork system prompt through the pinned SDK's public resource
+loader and SessionStartOptions. Built-in coding tools, automatic extensions,
+AGENTS.md/CLAUDE.md, project prompt templates and automatic skills are disabled.
+Project-local SDK settings are untrusted. The explicit skill picker discovers
+`.agents/skills` in the selected work folder and `pig/agent/skills`; selected skill
+references are checked against that catalog before their content is attached. Mentions use local
 file reads; absolute paths, traversal and symlinks leaving the project are refused.
 Git projects use Git's tracked/untracked, non-ignored file list. Other folders are
 walked excluding `.git`, `node_modules` and `.cache`.
 
+## Scoped project tools
+
+Feature plugins contribute stateless, worker-safe `ProjectTool` operations through
+`agent.ProjectTools`. A serializable `ProjectScope{Kind, Directory}` on `Send`
+binds the current turn to one contributed handler and a directory inside the
+conversation folder. `chat.Draft` carries the scope and internal `Instructions`
+through ordinary delivery, queues and workflow phases.
+
+PiG registers one SDK `project` bridge tool, resolving the matching contribution
+on the UI thread before calling its operation on the tool worker. Its arguments
+are `action` and `input`; the directory comes from the host request. A scoped
+turn exposes only this tool and, when needed, `submit_result`. The pre-tool hook
+also blocks every general tool, regardless of access mode, preventing shell,
+search or extension wrappers from bypassing the scope. Project `update` and
+`write` operations remain subject to edit permissions, including read-only
+review policies. Normal tools are restored before the terminal event.
+
+The video plugin implements inspect, update, source read/write and quick check.
+It owns path containment and validation. Other features can contribute their own
+handler kinds without exposing SDK types or importing another plugin.
+
 ## File changes
 
-Before write/edit calls, Wada records the target's current bytes. Before shell calls
-it snapshots project files, then compares them after execution to identify touched,
-created or deleted files. Mutating calls serialize across conversations for baseline
+Before document write/edit calls, Wada records the target's current bytes and
+compares them after execution to identify changes. General shell tools are not
+available to the assistant. Mutating calls serialize across conversations for baseline
 attribution; model streaming and reads remain independent. SDK tool batches execute
 sequentially so a later tool's approval/snapshot cannot block an earlier execution.
-Pre-existing edits form the baseline, rather than being counted as agent changes.
+Scoped project mutations snapshot only the selected project, then map baseline
+paths back to the conversation folder. Pre-existing edits form the baseline,
+rather than being counted as agent changes.
 Baselines persist across launches. The separate uncommitted Git view remains local.
 
-Snapshots accept regular files up to 8 MiB and shell workspaces up to 128 MiB;
+Snapshots accept regular files up to 8 MiB and project workspaces up to 128 MiB;
 a snapshot that exceeds these limits (or a walk of 25,000 files) marks session
 changes unavailable, while the permitted tool action can still execute. Git ignores apply
-to shell snapshots. Session diffs compare tracked baselines with the current files;
+to workspace snapshots. Session diffs compare tracked baselines with the current files;
 subsequent external edits to those same files are reflected too. This is change
 tracking, not filesystem isolation.
 

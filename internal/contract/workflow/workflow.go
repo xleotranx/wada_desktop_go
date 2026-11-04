@@ -10,6 +10,6 @@ var Definitions = kernel.NewPoint[Flow]("workflow.definitions")
 // Each phase returns a validated structured result. The engine owns transitions.
 type Flow struct {
 	ID, Title, Summary                    string
-	Plan, Code, Review, Fix, Route, Final string
+	Plan, Work, Review, Fix, Route, Final string
 	MaxReviews                            int
 }

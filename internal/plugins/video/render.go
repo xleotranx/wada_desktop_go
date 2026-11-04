@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,7 +100,7 @@ func progressOf(line string) int {
 // it. The CLI owns the render engine: the editor keeps the project, the
 // timeline and the preview.
 func (p *Plugin) render() {
-	if p.project == nil || p.dir == "" || p.rendering.Running() {
+	if p.project == nil || p.dir == "" || p.rendering.Running() || p.loading.Running() || p.editing.Running() || p.adding.Running() {
 		return
 	}
 	if p.check.Errors > 0 {
@@ -115,15 +116,15 @@ func (p *Plugin) render() {
 	dir := p.dir
 	opts := p.renderOpts
 	out := filepath.Join(dir, "renders", renderName(p.project.Title)+opts.extension())
-	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-		p.host.Toast(ui.Toast{Title: "The render folder was not made", Description: err.Error(), Type: components.ToastError})
-		return
-	}
 	p.renderLog, p.renderErr, p.renderOut, p.renderPct = nil, "", "", 0
 	dest := out
 	vars := p.variablesJSONFor()
 	values := maps.Clone(p.values)
+	navigation := p.navigation
 	kernel.Go(p.navigation, &p.rendering, func(ctx context.Context) ([]string, error) {
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return nil, err
+		}
 		stage, cleanup, err := renderDir(dir, values)
 		if err != nil {
 			return nil, err
@@ -134,7 +135,11 @@ func (p *Plugin) render() {
 		cmd.Env = append(os.Environ(), "PATH="+renderPath(npx))
 		tail := &commandOutput{onLine: func(line string) {
 			if pct := progressOf(line); pct >= 0 {
-				p.ctx.Post(func() { p.renderPct = pct })
+				navigation.Post(func() {
+					if ctx.Err() == nil {
+						p.renderPct = pct
+					}
+				})
 			}
 		}}
 		cmd.Stdout, cmd.Stderr = tail, tail
@@ -149,6 +154,9 @@ func (p *Plugin) render() {
 			}
 			return tail.tail(), err
 		}
+		if _, err := os.Stat(out); err != nil {
+			return tail.tail(), errors.New("the CLI finished but wrote no file at " + out)
+		}
 		return tail.tail(), nil
 	}, func(lines []string, err error) {
 		p.renderPct = 0
@@ -158,13 +166,9 @@ func (p *Plugin) render() {
 			p.host.Toast(ui.Toast{Title: "The video did not render", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		if _, statErr := os.Stat(out); statErr != nil {
-			p.renderErr = "The CLI finished but wrote no file at " + out
-			return
-		}
 		p.renderOut = out
 		p.host.Toast(ui.Toast{Title: "Rendered", Description: rel(p.dir, out), Type: components.ToastSuccess})
-		p.host.OpenURL("file://" + out)
+		p.host.OpenURL((&url.URL{Scheme: "file", Path: out}).String())
 	})
 }
 

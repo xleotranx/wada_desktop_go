@@ -88,7 +88,7 @@ func TestTaskSnapshotIncludesExistingAndUntrackedFiles(t *testing.T) {
 func TestTurnApprovalCarriesRequestIdentity(t *testing.T) {
 	h, p, faux := startPig(t)
 	s := createChat(t, h, p, t.TempDir())
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "pwd"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Checked.")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("read_url", map[string]any{"url": "https://example.com/source"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Checked.")}}})
 	var approval *agent.Event
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
 		for _, ev := range batch {
@@ -134,7 +134,7 @@ func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
 	}
 	faux.SetResponses([]ai.FauxResponseStep{
 		result("ready", "Plan with project context", false), result("ready", "Implemented and checked", false),
-		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "pwd"}, nil)}, StopReason: "toolUse"},
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("read_url", map[string]any{"url": "https://example.com/source"}, nil)}, StopReason: "toolUse"},
 		result("pass", "Independent review complete", true), result("ready", "Finished", false),
 	})
 	var approval *agent.Approval
@@ -145,7 +145,7 @@ func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
 			}
 		}
 	})
-	if err := delivery.Admit(chat.Draft{Session: s.ID, Directory: s.Directory, Model: s.Model, Mode: modeFull, Text: "Implement the fixture", Workflow: "flows.plan-code-review", Anchor: 1}); err != nil {
+	if err := delivery.Admit(chat.Draft{Session: s.ID, Directory: s.Directory, Model: s.Model, Mode: modeFull, Text: "Implement the fixture", Workflow: "flows.plan-work-review", Anchor: 1}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, h, "reviewer approval in parent chat", func() bool { return approval != nil })

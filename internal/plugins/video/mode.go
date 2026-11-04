@@ -98,17 +98,19 @@ func (p *Plugin) newVideo() {
 	if folder == "" {
 		p.ws.ChooseFolder(func(path string) {
 			if path != "" {
-				p.newVideoIn(path)
+				p.chooseVideoStarter(path)
 			}
 		})
 		return
 	}
-	p.newVideoIn(folder)
+	p.chooseVideoStarter(folder)
 }
 
 // newVideoIn makes the project's folder, videos/video-N, the first N free,
 // and opens a new chat beside its first, empty composition.
-func (p *Plugin) newVideoIn(folder string) {
+func (p *Plugin) newVideoIn(folder string) { p.makeVideo(folder, nil) }
+
+func (p *Plugin) makeVideo(folder string, create func(string) error) {
 	kernel.Go(p.ctx, &p.making, func(ctx context.Context) (string, error) {
 		base := filepath.Join(folder, videosDir)
 		if err := os.MkdirAll(base, 0o755); err != nil {
@@ -123,8 +125,15 @@ func (p *Plugin) newVideoIn(folder string) {
 			if err != nil {
 				return "", err
 			}
-			if _, err := newProject(dir, "Untitled video"); err != nil {
-				return "", err
+			var errCreate error
+			if create != nil {
+				errCreate = create(dir)
+			} else {
+				_, errCreate = newProject(dir, "Untitled video")
+			}
+			if errCreate != nil {
+				_ = os.RemoveAll(dir)
+				return "", errCreate
 			}
 			return dir, nil
 		}

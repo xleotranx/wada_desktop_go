@@ -76,8 +76,8 @@ func (e *engine) trimIdle() {
 
 func (c *conversation) closeResources() {
 	c.mu.Lock()
-	s, off, rt, svcs := c.session, c.off, c.runtime, c.services
-	c.session, c.off, c.runtime, c.services = nil, nil, nil, nil
+	s, off, rt, svcs, loader := c.session, c.off, c.runtime, c.services, c.loader
+	c.session, c.off, c.runtime, c.services, c.loader = nil, nil, nil, nil, nil
 	c.bound = false
 	c.mu.Unlock()
 	if off != nil {
@@ -88,6 +88,9 @@ func (c *conversation) closeResources() {
 	}
 	if rt != nil {
 		_ = rt.Close()
+	}
+	if loader != nil {
+		loader.Close()
 	}
 	if svcs != nil {
 		svcs.Close()

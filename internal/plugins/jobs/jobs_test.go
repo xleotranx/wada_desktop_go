@@ -89,7 +89,7 @@ func TestJobPlansThenWritesABrief(t *testing.T) {
 	if !ok || planning.State != jobs.Planning || planning.Sources != 1 || planning.Session != "child-1" {
 		t.Fatalf("planning job %+v", planning)
 	}
-	pack := filepath.Join(dir, ".wada", "jobs", job.ID, "sources", "memo.docx.md")
+	pack := filepath.Join(dir, "job-sources", job.ID, "sources", "memo.docx.md")
 	if _, err := os.Stat(pack); err != nil {
 		t.Fatalf("source pack: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestFinishedJobNotifiesOnce(t *testing.T) {
 
 func TestRemoveForgetsAJobAndItsPack(t *testing.T) {
 	h, p, _, _, dir := start(t)
-	pack := filepath.Join(dir, ".wada", "jobs", "job-old")
+	pack := filepath.Join(dir, "job-sources", "job-old")
 	if err := os.MkdirAll(filepath.Join(pack, "sources"), 0o700); err != nil {
 		t.Fatal(err)
 	}

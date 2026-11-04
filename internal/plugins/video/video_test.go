@@ -15,6 +15,7 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/workspace"
+	"wada-desktop-go/internal/plugins/videocomponents"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -52,7 +53,7 @@ func start(t *testing.T) *fixture {
 		return &kittest.WebView{EvalFunc: f.eval, PNG: bitmap.Bytes()}
 	}}
 	f.ws = &plugintest.Workspace{Convs: []workspace.Conversation{{ID: "s", Folder: f.dir}}}
-	f.h = kerneltest.New(t, f.agent.New, f.ws.New, f.chat.New, f.host.New,
+	f.h = kerneltest.New(t, f.agent.New, f.ws.New, f.chat.New, f.host.New, videocomponents.New,
 		kerneltest.Keep(&f.p, func() *Plugin { return &Plugin{} }))
 	f.chat.Open(agent.Session{ID: "s", Directory: f.dir})
 	return f
@@ -212,9 +213,9 @@ func TestNewVideoMakesAProject(t *testing.T) {
 	}
 }
 
-// TestTheBriefGoesWithTheFirstMessage tells the agent how the editor reads
-// the project.
-func TestTheBriefGoesWithTheFirstMessage(t *testing.T) {
+// TestVideoInstructionsGoWithTheFirstMessage keeps host context separate
+// from user attachments and records the new session.
+func TestVideoInstructionsGoWithTheFirstMessage(t *testing.T) {
 	f := start(t)
 	f.chat.Open(agent.Session{ID: "", Directory: f.dir})
 	f.p.newVideoIn(f.dir)
@@ -227,11 +228,11 @@ func TestTheBriefGoesWithTheFirstMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Files) != 1 || out.Files[0].Name != briefName {
+	if len(out.Files) != 0 || out.Project == nil {
 		t.Fatalf("files = %+v", out.Files)
 	}
-	if !strings.Contains(string(out.Files[0].Data), "data-composition-id") {
-		t.Fatalf("brief = %s", out.Files[0].Data)
+	if !strings.Contains(out.Instructions, "data-composition-id") {
+		t.Fatalf("instructions = %s", out.Instructions)
 	}
 	if commit == nil {
 		t.Fatal("the brief's commit is missing")

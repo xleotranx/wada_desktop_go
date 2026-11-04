@@ -29,7 +29,7 @@ type phaseResult struct {
 type task struct {
 	Initial                                                     chat.Draft
 	References                                                  []agent.File
-	ID, Flow, Brief, Plan, Code, Phase, State, Outcome, Summary string
+	ID, Flow, Brief, Plan, Work, Phase, State, Outcome, Summary string
 	Model                                                       agent.ModelRef
 	Mode                                                        string
 	Anchor, Round                                               int
@@ -119,11 +119,11 @@ func (p *Plugin) advance(l *lane) {
 				p.fail(l, errors.New("the workflow definition is unavailable"))
 				return
 			}
-			req := agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: f.Route + "\nReviewed task:\n" + t.Brief, Policy: &readOnly, ResultSchema: routeSchema}
+			req := agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: withContext(d.Instructions, f.Route+"\nReviewed task:\n"+t.Brief), Project: d.Project, Policy: &readOnly, ResultSchema: routeSchema}
 			p.execute(l, &operation{TaskID: t.ID, Phase: "route", Draft: d, Request: req})
 			return
 		}
-		p.execute(l, &operation{Phase: "ordinary", Draft: d, Request: agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills}})
+		p.execute(l, &operation{Phase: "ordinary", Draft: d, Request: agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions, Project: d.Project}})
 		return
 	}
 	t := l.task()
@@ -150,8 +150,8 @@ func (p *Plugin) prepare(t *task, op *operation, f wf.Flow, l *lane) {
 		req.Internal = false
 		req.Policy = &readOnly
 		req.Instructions = f.Plan
-	case "code":
-		req.Instructions = f.Code
+	case "work":
+		req.Instructions = f.Work
 		req.Text += "\nPlan:\n" + t.Plan
 	case "fix":
 		req.Instructions = f.Fix
@@ -164,16 +164,18 @@ func (p *Plugin) prepare(t *task, op *operation, f wf.Flow, l *lane) {
 		req.Policy = &readOnly
 		req.ResultSchema = reviewSchema
 		req.Instructions = f.Review
-		req.Text = "Requirements:\n" + t.Brief + "\nPlan:\n" + t.Plan + "\nImplementation and checks:\n" + t.Code
+		req.Text = "Requirements:\n" + t.Brief + "\nPlan:\n" + t.Plan + "\nDeliverable and checks:\n" + t.Work
 		data, _ := json.Marshal(t.Findings)
 		req.Text += "\nPrevious findings:\n" + string(data)
 	case "final":
 		req.Policy = &readOnly
 		req.Instructions = f.Final
-		req.Text += "\nOutcome: " + t.Outcome + "\nImplementation and checks:\n" + t.Code + "\nReview:\n" + t.Summary
+		req.Text += "\nOutcome: " + t.Outcome + "\nDeliverable and checks:\n" + t.Work + "\nReview:\n" + t.Summary
 		data, _ := json.Marshal(t.Findings)
 		req.Text += "\nUnresolved findings:\n" + string(data)
 	}
+	req.Project = t.Initial.Project
+	req.Instructions = withContext(t.Initial.Instructions, req.Instructions)
 	op.Request = req
 }
 func (p *Plugin) execute(l *lane, op *operation) {
@@ -372,7 +374,7 @@ func (p *Plugin) completed(l *lane, op *operation, result phaseResult) {
 			t.Outcome = ""
 			t.Findings = nil
 			if t.Phase != "plan" {
-				t.Phase = "code"
+				t.Phase = "work"
 			}
 			t.State = "running"
 			if op.Draft.Mode != "" {
@@ -386,7 +388,7 @@ func (p *Plugin) completed(l *lane, op *operation, result phaseResult) {
 				t.State = "paused"
 			}
 			l.Associated = ""
-			req := agent.Send{Session: l.Session, Mode: op.Draft.Mode, Text: op.Draft.Text, Files: op.Draft.Files, Skills: op.Draft.Skills, Internal: true, Instructions: "Handle this as an ordinary task. Earlier workflow instructions do not apply."}
+			req := agent.Send{Session: l.Session, Mode: op.Draft.Mode, Text: op.Draft.Text, Files: op.Draft.Files, Skills: op.Draft.Skills, Internal: true, Project: op.Draft.Project, Instructions: withContext(op.Draft.Instructions, "Handle this as an ordinary task. Earlier workflow instructions do not apply.")}
 			p.execute(l, &operation{Phase: "ordinary", Request: req, Draft: op.Draft})
 			return
 		}
@@ -405,9 +407,9 @@ func (p *Plugin) completed(l *lane, op *operation, result phaseResult) {
 	switch op.Phase {
 	case "plan":
 		t.Plan = result.Summary
-		t.Phase = "code"
-	case "code", "fix":
-		t.Code = result.Summary
+		t.Phase = "work"
+	case "work", "fix":
+		t.Work = result.Summary
 		t.Phase = "review"
 	case "review":
 		t.Round++
@@ -490,4 +492,11 @@ func (p *Plugin) events(batch []agent.Event) {
 			}
 		}
 	}
+}
+
+func withContext(context, instructions string) string {
+	if context == "" {
+		return instructions
+	}
+	return context + "\n" + instructions
 }

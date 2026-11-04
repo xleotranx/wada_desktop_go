@@ -21,19 +21,21 @@ backend plugin.
 - `main.go`: composition only — Wada's `shell.App` and the plugins this build installs.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
+  `videokit` (reusable video collections and structured projects),
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
   slots, work panel sections and hiding the panel, new chat sections, drawers, selection actions, file drops, completions), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement).
-- `internal/plugins/*`: every feature. `pig` (embedded backend), `chat` (conversation
+- `internal/plugins/*`: every feature. `cowork` (everyday-work instructions and tools for work documents, arithmetic and source URLs), `pig` (embedded backend), `chat` (conversation
   page), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `design` (design mode for
   conversations: a canvas beside a design whose artboards are the HTML files the agent writes, with comments, notes, tweaks,
-  presenting and a brief that tells the agent how to write for it), `video` (HyperFrames videos: a stage and a
+  presenting and a brief that tells the agent how to write for it), `videocomponents` (shared video design primitives, layouts and Excel tutorial components),
+  `video` (HyperFrames videos: a stage and a
   timeline beside the chat, the project's checks, scene and clip timing written into the HTML, and a render
   through the HyperFrames CLI), `documents` (Word, PowerPoint, Excel, PDF and more read as
   Markdown in the app through anydoc's embedded WebAssembly build, with a Sources section in the work panel), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
@@ -43,7 +45,7 @@ backend plugin.
   strip, one folder's space at a time, with the space switcher and the tab menus), `jobs` (a goal, a folder's documents read through the reader, a plan the user approves, one
   child agent doing the work, a reviewer judging the file against the plan's criteria, a Jobs page and title-strip entry, kept in `jobs.db`), `workflow` (the engine
   that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,
-  such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
+  such as plan → work → review), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),

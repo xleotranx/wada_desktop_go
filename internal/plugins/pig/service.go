@@ -25,7 +25,7 @@ func (p *Plugin) Modes(context.Context) ([]agent.Mode, error) {
 	if _, err := p.current(); err != nil {
 		return nil, err
 	}
-	return []agent.Mode{{ID: modeAsk, Name: "Ask before write", Description: "Ask before edits, shell commands, web access, and unknown tools."}, {ID: modeFull, Name: "Full access", Description: "Run ordinary chat tools without approval."}}, nil
+	return []agent.Mode{{ID: modeAsk, Name: "Ask before changes", Description: "Read work documents freely; ask before changing files or reading web pages."}, {ID: modeFull, Name: "Work independently", Description: "Read and update files in the selected work folder and read source URLs without individual approvals."}}, nil
 }
 func validMode(mode string) bool { return mode == "" || mode == modeAsk || mode == modeFull }
 func (p *Plugin) Create(ctx context.Context, req agent.CreateSession) (agent.Session, error) {
@@ -57,7 +57,10 @@ func (e *engine) create(ctx context.Context, req agent.CreateSession, parent age
 	}
 	dir := req.Directory
 	if dir == "" {
-		dir, _ = os.UserHomeDir()
+		dir = filepath.Join(filepath.Dir(e.root), "workspaces", "inbox")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return agent.Session{}, err
+		}
 	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -191,6 +194,36 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 		}
 		req.ResultSchema = slices.Clone(req.ResultSchema)
 	}
+	if req.Project != nil {
+		project := *req.Project
+		if project.Kind == "" || project.Directory == "" {
+			return 0, fmt.Errorf("%w: invalid project scope", agent.ErrNotSent)
+		}
+		c.mu.Lock()
+		base := c.rec.Session.Directory
+		c.mu.Unlock()
+		base, err := directory(base)
+		if err != nil {
+			return 0, fmt.Errorf("%w: invalid conversation folder", agent.ErrNotSent)
+		}
+		project.Directory, err = directory(project.Directory)
+		if err != nil {
+			return 0, fmt.Errorf("%w: invalid project folder", agent.ErrNotSent)
+		}
+		info, err := os.Stat(project.Directory)
+		if err != nil || !info.IsDir() {
+			return 0, fmt.Errorf("%w: project must be a directory", agent.ErrNotSent)
+		}
+		rel, err := filepath.Rel(base, project.Directory)
+		if err != nil || project.Kind == "" {
+			return 0, fmt.Errorf("%w: invalid project scope", agent.ErrNotSent)
+		}
+		project.Directory, err = contained(base, rel)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s", agent.ErrNotSent, err)
+		}
+		req.Project = &project
+	}
 	if req.Policy != nil {
 		copy := agent.ToolPolicy{Allow: slices.Clone(req.Policy.Allow), Deny: slices.Clone(req.Policy.Deny)}
 		req.Policy = &copy
@@ -267,7 +300,7 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 	c.cancel = cancel
 	c.busy = true
 	c.turnMu.Lock()
-	c.turn = &turnState{id: req.ID, schema: slices.Clone(req.ResultSchema), policy: req.Policy}
+	c.turn = &turnState{id: req.ID, schema: slices.Clone(req.ResultSchema), policy: req.Policy, project: req.Project}
 	c.turnMu.Unlock()
 	c.lifetime.RLock()
 	s := c.session
@@ -302,7 +335,13 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 			default:
 			}
 		}}
-		names := withoutResult(s.ActiveToolNames())
+		names := withoutTurnTools(s.ActiveToolNames())
+		c.turnMu.Lock()
+		c.turn.tools = slices.Clone(names)
+		c.turnMu.Unlock()
+		if req.Project != nil {
+			names = []string{projectToolName}
+		}
 		if len(req.ResultSchema) > 0 {
 			names = append(names, resultToolName)
 		}

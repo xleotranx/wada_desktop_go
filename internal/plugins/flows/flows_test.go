@@ -20,11 +20,11 @@ func TestContributesConversationWorkflowAndCommand(t *testing.T) {
 	var selected string
 	kernel.On(h, chat.WorkflowSelected, func(id string) { selected = id })
 	for _, c := range kernel.Items(h, kernel.Commands) {
-		if c.ID == "flows.plan-code-review" {
+		if c.ID == "flows.plan-work-review" {
 			c.Value.Run()
 		}
 	}
-	if selected != "flows.plan-code-review" {
+	if selected != "flows.plan-work-review" {
 		t.Fatalf("selection %q", selected)
 	}
 }

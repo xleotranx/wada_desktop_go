@@ -49,6 +49,7 @@ linters:
           list-mode: strict
           allow:
             - "$gostd"
+            - "golang.org/x/net/html"
             - "github.com/egoist/mygo"
             - "github.com/oneo-me/onevra/source"
             - "github.com/xleotranx/wada-kit/kernel"

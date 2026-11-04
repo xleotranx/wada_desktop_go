@@ -125,7 +125,7 @@ func TestRetentionPressurePreservesTurnWaitingForApproval(t *testing.T) {
 	dir := t.TempDir()
 	s := createChat(t, h, p, dir)
 	faux.SetResponses([]ai.FauxResponseStep{
-		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "approved.txt", "content": "written after approval"}, nil)}, StopReason: "toolUse"},
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write_document", map[string]any{"path": "approved.txt", "content": "written after approval"}, nil)}, StopReason: "toolUse"},
 		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Done")}},
 	})
 	var approval *agent.Approval

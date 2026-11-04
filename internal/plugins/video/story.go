@@ -26,14 +26,17 @@ type shot struct {
 // takeStoryboard captures frames across what the timeline draws, evenly
 // spaced, from the page the editor already shows: the preview's own frames.
 func (p *Plugin) takeStoryboard() {
-	if p.project == nil || p.web == nil || p.webErr != "" || p.shooting.Running() {
+	if p.project == nil || p.web == nil || p.webErr != "" || p.shooting.Running() || p.mounting.Running() || p.loading.Running() {
 		return
 	}
 	span := p.span()
 	if span <= 0 {
 		return
 	}
+	p.stopPlaying()
+	p.seeking.Cancel()
 	web := p.web
+	limit := p.playLimit()
 	times := make([]float64, storyFrames)
 	for i := range times {
 		times[i] = p.rootAt(span * float64(i) / float64(storyFrames-1))
@@ -45,7 +48,7 @@ func (p *Plugin) takeStoryboard() {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if _, err := web.Eval(ctx, seekScript(t)); err != nil {
+			if _, err := web.Eval(ctx, seekScript(t, limit)); err != nil {
 				return nil, err
 			}
 			png, err := web.Capture()
@@ -60,6 +63,7 @@ func (p *Plugin) takeStoryboard() {
 		}
 		return out, nil
 	}, func(shots []shot, err error) {
+		p.seek(at)
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "The storyboard was not captured", Description: err.Error(), Type: components.ToastError})
 			return
@@ -74,6 +78,7 @@ func (p *Plugin) takeStoryboard() {
 func (p *Plugin) closeStoryboard() {
 	p.story = false
 	p.shooting.Cancel()
+	p.seek(p.playhead)
 }
 
 // storyView is the storyboard over the window: one frame per moment, each a

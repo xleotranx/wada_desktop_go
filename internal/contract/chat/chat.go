@@ -211,16 +211,18 @@ type Unsent struct {
 
 // Draft is one message on its way out.
 type Draft struct {
-	Workflow  string          // selected for this submitted task only
-	Anchor    int             // one-based visible user message for transcript activities
-	DraftID   uint64          // the source new chat's identity; zero for stored conversations
-	Session   agent.SessionID // empty starts a new conversation
-	Directory string          // the chat's working folder
-	Model     agent.ModelRef  // for a new conversation; zero for the default
-	Mode      string          // mode for this message; empty keeps the backend's choice
-	Text      string
-	Files     []agent.File     // sent with the message
-	Skills    []agent.SkillRef // attached to the message
+	Project      *agent.ProjectScope
+	Instructions string          // internal per-turn context supplied by feature plugins
+	Workflow     string          // selected for this submitted task only
+	Anchor       int             // one-based visible user message for transcript activities
+	DraftID      uint64          // the source new chat's identity; zero for stored conversations
+	Session      agent.SessionID // empty starts a new conversation
+	Directory    string          // the chat's working folder
+	Model        agent.ModelRef  // for a new conversation; zero for the default
+	Mode         string          // mode for this message; empty keeps the backend's choice
+	Text         string
+	Files        []agent.File     // sent with the message
+	Skills       []agent.SkillRef // attached to the message
 }
 
 // Controller navigates the chat view. Call it on the UI thread.

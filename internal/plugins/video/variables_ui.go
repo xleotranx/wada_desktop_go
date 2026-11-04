@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 // value the composition shows.
 type variableEditor struct {
 	variable
+	value any // effective saved value when this control was last synchronized
 	text  string
 	on    bool
 	num   float64
@@ -37,6 +39,9 @@ func (p *Plugin) buildEditors() {
 	for _, v := range declarations {
 		if e, ok := existing[v.ID]; ok && e.sameShape(v) {
 			e.variable = v
+			if value := p.valueFor(v); !reflect.DeepEqual(e.value, value) {
+				e.sync(value)
+			}
 			next = append(next, e)
 			continue
 		}
@@ -49,6 +54,11 @@ func (p *Plugin) buildEditors() {
 
 // valueFor is the value a variable has now: the user's, or its default.
 func (p *Plugin) valueFor(v variable) any {
+	if p.scene != nil && p.scene.Host != nil {
+		if value, ok := p.scene.Host.MountValues[v.ID]; ok {
+			return value
+		}
+	}
 	if value, ok := p.values[v.ID]; ok {
 		return value
 	}
@@ -57,6 +67,7 @@ func (p *Plugin) valueFor(v variable) any {
 
 // sync sets an editor's control from a value.
 func (e *variableEditor) sync(value any) {
+	e.value = value
 	e.text = e.defaultString()
 	if value != nil {
 		if s, ok := scalarValue(value); ok {
@@ -90,7 +101,7 @@ func (e *variableEditor) changed() any {
 		return hexString(e.color)
 	case "number":
 		n, err := strconv.ParseFloat(strings.TrimSpace(e.text), 64)
-		if err != nil {
+		if err != nil || !finite(n) {
 			return nil
 		}
 		if e.Min != nil && n < *e.Min {
@@ -109,11 +120,16 @@ func (e *variableEditor) changed() any {
 // setVariable keeps a value for the open project, shows it in the page and
 // remembers it for the next time.
 func (p *Plugin) setVariable(id string, value any) {
+	if p.project != nil && p.project.Document != nil {
+		p.saveStructuredField(id, value)
+		return
+	}
 	if p.dir == "" {
 		return
 	}
 	if value == nil {
 		p.clearVariable(id)
+		p.applyVariables()
 		return
 	}
 	if p.values == nil {
@@ -121,7 +137,7 @@ func (p *Plugin) setVariable(id string, value any) {
 	}
 	p.values[id] = value
 	p.persistValues()
-	p.applyVariable(id, value)
+	p.applyVariables()
 }
 
 // clearVariable forgets the user's value for a variable.
@@ -148,12 +164,16 @@ func (p *Plugin) persistValues() {
 
 // resetVariable puts a variable back to its declared default.
 func (p *Plugin) resetVariable(e *variableEditor) {
+	if e != nil && p.project != nil && p.project.Document != nil {
+		p.saveStructuredField(e.ID, nil)
+		return
+	}
 	if e == nil {
 		return
 	}
 	p.clearVariable(e.ID)
-	e.sync(e.Default)
-	p.applyVariable(e.ID, e.Default)
+	e.sync(p.valueFor(e.variable))
+	p.applyVariables()
 }
 
 // overridden reports that the user gave a variable a value.
@@ -171,17 +191,26 @@ func (p *Plugin) pinned(id string) bool {
 	return ok
 }
 
-// applyVariable shows one value in the preview page.
-func (p *Plugin) applyVariable(id string, value any) {
-	if p.web == nil || p.webErr != "" {
+// applyVariables shows the saved override snapshot in the preview page.
+func (p *Plugin) applyVariables() {
+	if p.web == nil || p.webErr != "" || p.mounting.Running() {
+		if p.mounting.Running() {
+			p.reloadAgain = true
+		}
 		return
 	}
 	web := p.web
-	script := variableScript(id, value)
+	// Send the full snapshot: replacing this job must not lose a different
+	// field's preceding change before the browser applied it.
+	script := variablesScript(p.values)
 	kernel.Go(p.navigation, &p.apply, func(ctx context.Context) (struct{}, error) {
 		_, err := web.Eval(ctx, script)
 		return struct{}{}, err
-	}, func(struct{}, error) {})
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.webErr = err.Error()
+		}
+	})
 }
 
 // variablesJSONFor is the project's values as the render CLI takes them.

@@ -31,7 +31,7 @@ type Plugin struct {
 
 func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "pig", Title: "PiG", Description: "Embedded coding agent, with Wada-owned credentials and conversations.",
+	return kernel.Manifest{ID: "pig", Title: "PiG", Description: "Embedded assistant runtime, with Wada-owned credentials and conversations.",
 		Requires: []kernel.Named{shell.HostKey}, Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.ChildrenKey, agent.SnapshotsKey, agent.FilesKey, agent.SkillsKey, agent.FileTypesKey, agent.ImagesKey, agent.RewindKey, agent.ChangesKey, agent.InteractionsKey}}
 }
 func (p *Plugin) Setup(c *kernel.Context) error {
@@ -79,6 +79,13 @@ func (p *Plugin) Restart() {
 	p.drop()
 	p.run = p.ctx.NewScope()
 	run := p.run
+	profile := "You are Wada Cowork, a practical assistant for everyday work. Use only the selected work folder and the tools provided by Wada."
+	for _, entry := range kernel.Items(p.ctx, agent.ProjectTools) {
+		if entry.Value.Kind == "cowork" && entry.Value.Instructions != "" {
+			profile = entry.Value.Instructions
+			break
+		}
+	}
 	root := filepath.Join(p.host.DataDir(), "pig")
 	st := agent.Status{State: agent.Connecting, Attempt: attempts.Add(1), Endpoint: "Embedded PiG", Version: version, Origin: "pig " + root}
 	p.setStatus(st)
@@ -93,6 +100,8 @@ func (p *Plugin) Restart() {
 			return
 		}
 		defer e.close()
+		e.instructions = profile
+		e.projectTool = projectResolver(p.ctx, run)
 		e.modelsChanged = func() { run.Post(func() { kernel.Emit(p.ctx, agent.ModelsChanged, struct{}{}); p.loadProviders() }) }
 		off := e.models.SetChangeListener(e.modelsChanged)
 		defer off()

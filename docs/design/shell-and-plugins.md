@@ -514,13 +514,13 @@ contributes `workflow.Definitions`, composer choices, and Agent-menu commands.
 backend child sessions and task snapshots; it owns transitions and knows no built-in
 flow's prompt text. Plugins communicate through contracts and kernel registrations.
 
-**Plan, code, review** is a one-task selection. The ordinary conversation is the
-main agent throughout planning, implementation, fixes, and final reporting. Planning
-is read-only and proceeds to implementation automatically unless clarification is
+**Plan, work, review** is a one-task selection. The ordinary conversation is the
+main agent throughout planning, work, fixes, and final reporting. Planning
+is read-only and proceeds to work automatically unless clarification is
 needed. Each independent review creates a fresh child under that main session,
 inheriting the task's model and effort. Reviewers receive requirements, reference
-attachments, plan, implementation/check evidence, earlier findings and task-start
-changes, and inspect the actual project. They never inherit the main history.
+attachments, plan, deliverable/check evidence, earlier findings and task-start
+changes, and inspect the deliverable and its sources. They never inherit the main history.
 
 A task snapshot contains project files before work begins, including pre-existing
 edits and untracked, non-ignored files. Comparisons against that snapshot identify
@@ -528,7 +528,7 @@ additions, modifications and deletions. Snapshot limits or read failures fail th
 phase explicitly; they are not treated as an empty diff. This attribution does not
 isolate concurrent external edits.
 
-Each phase requests a structured result through the backend. Planning, coding and
+Each phase requests a structured result through the backend. Planning, work and
 fixes return ready or blocked with a summary; routing returns answer, continue,
 new_task or resume; reviewers return pass, issues or incomplete with file, severity
 and evidence for each finding. Missing, invalid or contradictory results fail the

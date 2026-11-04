@@ -275,7 +275,7 @@ func (p *Plugin) collect(job jobs.Job) {
 // writeSources keeps the converted documents beside the job, so the
 // participant reads files instead of a prompt full of text.
 func (p *Plugin) writeSources(job jobs.Job, res documents.Result) (string, []sourceFile, error) {
-	dir := filepath.Join(job.Folder, ".wada", "jobs", job.ID, "sources")
+	dir := filepath.Join(job.Folder, "job-sources", job.ID, "sources")
 	var pack []sourceFile
 	for _, src := range res.Sources {
 		if !src.Converted() {
@@ -315,7 +315,7 @@ func jobPolicy() agent.ToolPolicy {
 func reviewPrompt(job jobs.Job, path string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are reviewing work on a job. The user asked:\n\n%s\n\n", job.Goal)
-	fmt.Fprintf(&b, "Read the deliverable: %s\n\n", path)
+	fmt.Fprintf(&b, "Read the deliverable: %s\n\n", filepath.Base(path))
 	b.WriteString("Judge it against the acceptance criteria:\n\n")
 	if job.Plan != nil {
 		for _, criterion := range job.Plan.Criteria {
@@ -343,7 +343,11 @@ func fixPrompt(job jobs.Job) string {
 func planPrompt(job jobs.Job, res documents.Result, dir string, pack []sourceFile) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are planning a job before doing any of it. The user wants:\n\n%s\n\n", job.Goal)
-	writeSources(&b, res, dir, pack)
+	sourceDir, err := filepath.Rel(job.Folder, dir)
+	if err != nil {
+		sourceDir = dir
+	}
+	writeSources(&b, res, sourceDir, pack)
 	b.WriteString("Do not start the work yet. Read only what you need to plan well, then submit a plan:\n\n")
 	b.WriteString("- steps, in order, at most six; each says what it does and where\n")
 	fmt.Fprintf(&b, "- deliverable, the file you will write in the job's folder, such as %s\n", briefName)

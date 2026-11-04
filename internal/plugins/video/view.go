@@ -422,7 +422,11 @@ func (p *Plugin) scenesView(c *ui.Context, pal native.Palette) {
 		if b.Hovered() {
 			b.Background(pal.Hover)
 		}
-		b.OnClick(p.newScene)
+		if p.project != nil && p.project.Document != nil {
+			b.Menu(p.componentMenu)
+		} else {
+			b.OnClick(p.newScene)
+		}
 		b.Children(func() {
 			ui.Icon(c, lucide.Plus()).FontSize(11).TextColor(pal.Muted)
 			ui.Text(c, "Add scene").FontSize(11).TextColor(pal.Text).SingleLine()
@@ -452,6 +456,10 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 	} else if b.Hovered() {
 		b.Background(pal.Hover)
 	}
+	if p.project != nil && p.project.Document != nil {
+		b.Tooltip("Edit content. Right-click for layout, components and scene actions.")
+		b.ContextMenu(func(m *ui.Menu) { p.sceneActions(m, host.ID) })
+	}
 	b.OnClick(func() {
 		id := host.ID
 		p.ctx.Post(func() {
@@ -460,6 +468,9 @@ func (p *Plugin) sceneRow(c *ui.Context, pal native.Palette, s *Scene) {
 			// project may have been read again since the click: find the
 			// scene there by name.
 			p.focusSceneByID(id)
+			if p.project != nil && p.project.Document != nil {
+				p.panel = varsPanel
+			}
 		})
 	})
 	b.Children(func() {
@@ -500,7 +511,7 @@ func (p *Plugin) clipPanel(c *ui.Context, pal native.Palette) {
 			if clip.StartExpr != "" && clip.StartExpr != formatSeconds(clip.Start) {
 				p.detail(c, pal, "Written as", clip.StartExpr)
 			}
-			if clip.TextEditable {
+			if clip.TextEditable && (p.project == nil || p.project.Document == nil) {
 				ui.Text(c, "Words").FontSize(10.5).TextColor(pal.Faint).SingleLine()
 				ui.TextInput(c.Key("clip-text-"+clip.ID), &p.text).FillWidth().Label("The clip's words").
 					OnSubmit(func() { p.saveText(clip) })
@@ -549,10 +560,17 @@ func (p *Plugin) detail(c *ui.Context, pal native.Palette, name, value string) {
 func (p *Plugin) variablesView(c *ui.Context, pal native.Palette) {
 	ui.Scroll(c.Key("variables")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 8).Gap(10).Children(func() {
-			if comp := p.comp(); comp != nil {
+			if comp := p.comp(); comp != nil && (p.project == nil || p.project.Document == nil) {
 				ui.Text(c, "Declared in "+comp.File).FontSize(10).TextColor(pal.Faint).SingleLine().Ellipsis("…")
 			}
+			if p.project != nil && p.project.Document != nil {
+				ui.Text(c, "Select a scene, then edit its fields here. Press Enter or Save to apply text.").FontSize(11).TextColor(pal.Muted).MaxLines(4)
+			}
 			if len(p.editors) == 0 {
+				if p.project != nil && p.project.Document != nil {
+					ui.Text(c, "Choose a scene in Scenes to customize it.").FontSize(11.5).TextColor(pal.Muted).MaxLines(3)
+					return
+				}
 				ui.Text(c, "This composition declares no variables.").FontSize(11.5).TextColor(pal.Faint).MaxLines(3)
 				ui.Text(c, "A template declares them with data-composition-variables on its root.").FontSize(10.5).
 					TextColor(pal.Faint).MaxLines(4)
@@ -592,11 +610,18 @@ func (p *Plugin) variableRow(c *ui.Context, pal native.Palette, e *variableEdito
 		case "enum":
 			ui.Select(key, &e.text, e.Options).FillWidth().Label(e.label()).OnChange(func() { p.setVariable(e.ID, e.changed()) })
 		default:
-			ui.TextInput(key, &e.text).FillWidth().Label(e.label()).OnChange(func() {
+			save := func() {
 				if v := e.changed(); v != nil {
 					p.setVariable(e.ID, v)
 				}
-			})
+			}
+			input := ui.TextInput(key, &e.text).FillWidth().Label(e.label())
+			if p.project != nil && p.project.Document != nil {
+				input.OnSubmit(save)
+				ui.Button(c.Key("save-"+e.ID), "Save").Label("Save " + e.label()).Disabled(p.editing.Running() || p.adding.Running()).OnClick(save)
+			} else {
+				input.OnChange(save)
+			}
 		}
 		if p.pinned(e.ID) {
 			ui.Text(c, "The scene pins this value.").FontSize(9.5).TextColor(pal.Warning).SingleLine()

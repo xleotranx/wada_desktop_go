@@ -38,13 +38,13 @@ func toolKind(name string) agent.ToolKind {
 	switch name {
 	case "bash", "shell":
 		return agent.ToolShell
-	case "read":
+	case "read", "read_document", "calculate":
 		return agent.ToolRead
-	case "grep", "find", "ls":
+	case "grep", "find", "ls", "list_files", "search_documents":
 		return agent.ToolSearch
-	case "write", "edit", "apply_patch":
+	case "write", "edit", "apply_patch", "write_document", "edit_document":
 		return agent.ToolEdit
-	case "fetch", "web", "web_search":
+	case "fetch", "web", "web_search", "read_url":
 		return agent.ToolFetch
 	default:
 		return agent.ToolOther

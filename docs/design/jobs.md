@@ -17,7 +17,7 @@ its plan.
 1. ingests the folder through `documents.Reader`, so the documents are Markdown
    before the participant exists;
 2. writes each converted document to
-   `<folder>/.wada/jobs/<id>/sources/<name>.md`;
+   `<folder>/job-sources/<id>/sources/<name>.md`;
 3. spawns one child through `agent.Children` — named `reader`, working in the
    folder — and returns it with the planning prompt.
 
@@ -86,7 +86,7 @@ Editing lives only on the page, where there is room for fields.
 
 ## Removing
 
-`Remove` forgets a settled job and deletes `<folder>/.wada/jobs/<id>`, the source
+`Remove` forgets a settled job and deletes `<folder>/job-sources/<id>`, the source
 pack and whatever the plan read. What the job wrote in the folder stays: only
 derived data goes. An active job is refused until it is stopped, and the store
 deletes its row through the same queue that writes jobs, so a remove and an

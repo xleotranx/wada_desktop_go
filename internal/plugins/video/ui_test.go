@@ -466,3 +466,57 @@ func TestAClipStopsHoveringWhenThePointerLeaves(t *testing.T) {
 		t.Fatalf("hover back = %q", f.p.hover)
 	}
 }
+
+// A fresh native page starts at 100%, even when the previous project's stage
+// used precisely the same dimensions. The cached fit belongs to that page.
+func TestPreviewFitsAfterSwitchingProjectsAtTheSameSize(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	tt := drawerTester(f, 1440, 820)
+	settle(t, f, tt)
+	first := f.host.WebViews[len(f.host.WebViews)-1]
+	expected := first.Zoom
+	if expected <= 0 || expected >= 1 {
+		t.Fatalf("expected a scaled preview, got %g", expected)
+	}
+	dir := filepath.Join(f.dir, "videos", "video-2")
+	if _, err := newProject(dir, "Another video"); err != nil {
+		t.Fatal(err)
+	}
+	f.open(t, dir)
+	settle(t, f, tt)
+	second := f.host.WebViews[len(f.host.WebViews)-1]
+	if second == first || !first.Closed {
+		t.Fatal("project switch did not replace the native page")
+	}
+	if second.Zoom != expected {
+		t.Fatalf("new page kept its default zoom: got %g, want %g", second.Zoom, expected)
+	}
+}
+
+func TestPreviewFitIsRestoredAfterPageLoad(t *testing.T) {
+	f := start(t)
+	f.open(t, filepath.Join(f.dir, "videos", "video-1"))
+	tt := drawerTester(f, 1440, 820)
+	settle(t, f, tt)
+	web := f.host.WebViews[len(f.host.WebViews)-1]
+	expected := web.Zoom
+	web.Zoom = 1 // A native navigation reset, without a change to the stage bounds.
+	f.p.reload()
+	f.h.Flush()
+	tt.Frame()
+	if web.Zoom != expected {
+		t.Fatalf("page load lost its fit: got %g, want %g", web.Zoom, expected)
+	}
+}
+
+func TestComponentSceneTimelineExplainsItsControls(t *testing.T) {
+	f, dir, _ := structuredProject(t)
+	f.open(t, dir)
+	f.p.focusOn(f.p.project.Scenes[1])
+	tt := drawerTester(f, 1440, 820)
+	settle(t, f, tt)
+	if !tt.HasText("This scene uses reusable components. Edit its fields in Vars.") {
+		t.Fatal("component scene directs the user to generated HTML instead of its controls")
+	}
+}

@@ -23,7 +23,7 @@ func fixture(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, cha
 	a.OnSend = func(req agent.Send) { sent <- req }
 	var p *Plugin
 	h := kerneltest.New(t, a.New, (&kittest.Host{}).New, (&plugintest.Chat{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
-	kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test", Title: "Test flow", Plan: "plan", Code: "code", Review: "review", Fix: "fix", Route: "route", Final: "final", MaxReviews: 3})
+	kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test", Title: "Test flow", Plan: "plan", Work: "work", Review: "review", Fix: "fix", Route: "route", Final: "final", MaxReviews: 3})
 	return h, p, a, sent
 }
 func next(t *testing.T, h *kerneltest.Harness, sent chan agent.Send) agent.Send {
@@ -103,17 +103,17 @@ func TestQueueQuestionsAndRelatedChanges(t *testing.T) {
 	}
 	finish(h, a, question, `{"action":"answer","summary":"because"}`)
 	code := next(t, h, sent)
-	if code.Instructions != "code" {
+	if code.Instructions != "work" {
 		t.Fatalf("did not continue: %+v", code)
 	}
-	finish(h, a, code, `{"status":"ready","summary":"code"}`)
+	finish(h, a, code, `{"status":"ready","summary":"work"}`)
 	review := next(t, h, sent)
 	_ = p.Admit(chat.Draft{Session: "main", Text: "fix edge case"})
 	finish(h, a, review, `{"status":"pass","summary":"good","findings":[]}`)
 	route := next(t, h, sent)
 	finish(h, a, route, `{"action":"continue","summary":"handle edge case"}`)
 	changed := next(t, h, sent)
-	if changed.Instructions != "code" || p.lanes["main"].task().Round != 0 {
+	if changed.Instructions != "work" || p.lanes["main"].task().Round != 0 {
 		t.Fatal("related change did not start a new review cycle")
 	}
 }
@@ -133,7 +133,7 @@ func TestReviewLimitAndIncompleteAreExplicit(t *testing.T) {
 			h, p, a, sent := fixture(t)
 			_ = p.Admit(chat.Draft{Session: "main", Directory: t.TempDir(), Workflow: kernel.HostPrefix + "test", Text: "implement"})
 			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"plan"}`)
-			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"code"}`)
+			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"work"}`)
 			reviews := 1
 			if status == "issues" {
 				reviews = 3
@@ -182,7 +182,7 @@ func TestUnrelatedTaskPausesThenResumeUsesMain(t *testing.T) {
 	}
 	p.resume(l, l.task())
 	resumed := next(t, h, sent)
-	if resumed.Session != "main" || resumed.Instructions != "code" {
+	if resumed.Session != "main" || resumed.Instructions != "work" {
 		t.Fatalf("resume %+v", resumed)
 	}
 }
@@ -220,7 +220,7 @@ func TestFailureNeverRetriesAndPartialSpawnIsRetained(t *testing.T) {
 	}
 	_ = p.Admit(chat.Draft{Session: "main", Directory: t.TempDir(), Workflow: kernel.HostPrefix + "test", Text: "implement"})
 	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"plan"}`)
-	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"code"}`)
+	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"work"}`)
 	h.Flush()
 	l := p.lanes["main"]
 	if l.Pending.Request.Session != "partial-reviewer" || l.task().State != "failed" {
@@ -241,7 +241,7 @@ func TestReviewerQuestionsAndPermissionsUseRealOwner(t *testing.T) {
 	h, p, a, sent := fixture(t)
 	_ = p.Admit(chat.Draft{Session: "main", Directory: t.TempDir(), Workflow: kernel.HostPrefix + "test", Text: "implement"})
 	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"plan"}`)
-	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"code"}`)
+	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"work"}`)
 	review := next(t, h, sent)
 	var incoming []agent.Event
 	kernel.On(h, chat.Incoming, func(batch []agent.Event) { incoming = append(incoming, batch...) })
@@ -265,7 +265,7 @@ func TestDeletionAndDisposalAbortChild(t *testing.T) {
 			h, p, a, sent := fixture(t)
 			_ = p.Admit(chat.Draft{Session: "main", Directory: t.TempDir(), Workflow: kernel.HostPrefix + "test", Text: "implement"})
 			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"plan"}`)
-			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"code"}`)
+			finish(h, a, next(t, h, sent), `{"status":"ready","summary":"work"}`)
 			req := next(t, h, sent)
 			if dispose {
 				if err := h.Disable("workflow"); err != nil {
@@ -296,5 +296,37 @@ func TestContradictoryReviewResultsCannotPass(t *testing.T) {
 		if _, err := decodeResult(&operation{Phase: "review"}, json.RawMessage(raw)); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
+	}
+}
+
+func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
+	h, p, a, sent := fixture(t)
+	scope := &agent.ProjectScope{Kind: "video", Directory: "/video/project"}
+	d := chat.Draft{Session: "main", Directory: t.TempDir(), Text: "Make two tips", Instructions: "Use only the selected video.", Project: scope}
+	if err := p.Admit(d); err != nil {
+		t.Fatal(err)
+	}
+	ordinary := next(t, h, sent)
+	if ordinary.Project == nil || *ordinary.Project != *scope || ordinary.Instructions != d.Instructions {
+		t.Fatal("ordinary delivery dropped project context")
+	}
+	finish(h, a, ordinary, "")
+	d.Workflow = kernel.HostPrefix + "test"
+	if err := p.Admit(d); err != nil {
+		t.Fatal(err)
+	}
+	plan := next(t, h, sent)
+	if plan.Project == nil || *plan.Project != *scope || plan.Instructions != "Use only the selected video.\nplan" {
+		t.Fatalf("plan lost scope: %+v", plan)
+	}
+	finish(h, a, plan, `{"status":"ready","summary":"plan"}`)
+	code := next(t, h, sent)
+	if code.Project == nil || *code.Project != *scope || code.Instructions != "Use only the selected video.\nwork" {
+		t.Fatal("code lost scope")
+	}
+	finish(h, a, code, `{"status":"ready","summary":"created"}`)
+	review := next(t, h, sent)
+	if review.Project == nil || *review.Project != *scope || review.Policy == nil {
+		t.Fatal("review child lost project scope or read-only policy")
 	}
 }

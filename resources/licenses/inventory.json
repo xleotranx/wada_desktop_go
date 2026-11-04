@@ -248,7 +248,7 @@
     },
     {
       "module": "github.com/egoist/mygo",
-      "version": "v0.7.1",
+      "version": "v0.7.4",
       "notices": [
         {
           "file": "LICENSE",
@@ -384,7 +384,7 @@
     },
     {
       "module": "github.com/xleotranx/wada-kit",
-      "version": "v0.1.1",
+      "version": "v0.2.0",
       "notices": [
         {
           "file": "LICENSE",

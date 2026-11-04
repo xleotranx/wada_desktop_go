@@ -8,7 +8,7 @@ Declared in `internal/contract/chat`, `internal/contract/tabs`,
 
 The window, its settings store, the settings page and plugin diagnostics come from
 the independently versioned kit (`github.com/xleotranx/wada-kit`, pinned in
-`go.mod`); see its [shell note](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/shell.md)
+`go.mod`); see its [shell note](https://github.com/xleotranx/wada-kit/blob/v0.2.0/docs/shell.md)
 and [dependency maintenance](kit-dependency.md). Wada's `main.go` runs it as:
 
 - Name `Wada`, data folder `wada-desktop-go` (`wada-desktop-go-dev` for a

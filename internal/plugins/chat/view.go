@@ -616,7 +616,7 @@ func (p *Plugin) composerFooter(c *ui.Context, accessories, trailing []kernel.En
 			kernel.Invoke(p.ctx, e, func(v shell.View) { v.Render(c) })
 		}
 	}
-	ui.Row(c).Key("settings").Bind(&p.footer).FillWidth().MinWidth(0).MinHeight(32).Wrap().Shrink(0).Padding(4, 0, 0, 0).AlignItems(ui.Center).Gap(6).
+	ui.Row(c.Key("settings")).Bind(&p.footer).FillWidth().MinWidth(0).MinHeight(32).Wrap().Shrink(0).Padding(4, 0, 0, 0).AlignItems(ui.Center).Gap(6).
 		DrawOver(func(_ *ui.Painter, bounds ui.Rect) {
 			// Geometry is committed after building. Rebuild once when the new
 			// layout crosses the breakpoint, including when a drawer opens.

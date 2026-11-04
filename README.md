@@ -127,7 +127,7 @@ requires explicit resume.
 | `internal/plugins/flows` | The app's flows, such as plan, code, review |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
 
-Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.1.1/docs/shell.md),
+Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.2.0/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.2.0/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
 [shell and built-in plugins](docs/design/shell-and-plugins.md).
 

@@ -32,6 +32,8 @@ type Plugin struct {
 func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "pig", Title: "PiG", Description: "Embedded assistant runtime, with Wada-owned credentials and conversations.",
+		// Runtime recovery is explicit; a failure must not replay initialization.
+		Restart:  &kernel.Restart{},
 		Requires: []kernel.Named{shell.HostKey}, Provides: []kernel.Named{agent.ServiceKey, agent.ModelsKey, agent.ModesKey, agent.ChildrenKey, agent.SnapshotsKey, agent.FilesKey, agent.SkillsKey, agent.FileTypesKey, agent.ImagesKey, agent.RewindKey, agent.ChangesKey, agent.InteractionsKey}}
 }
 func (p *Plugin) Setup(c *kernel.Context) error {

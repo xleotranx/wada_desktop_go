@@ -2,8 +2,21 @@
 
 Wada consumes `github.com/xleotranx/wada-kit` as a tagged Go module. The kit is
 maintained in its [own repository](https://github.com/xleotranx/wada-kit), with its
-own CI, tests, docs and releases. Wada owns its app contracts, feature plugins,
-PiG backend, storage, branding and packaging. The kit never imports Wada.
+own local checks, tests, docs and releases. Wada owns its app contracts, feature
+plugins, PiG backend, storage, branding and packaging. The kit never imports Wada.
+
+## Adopted release
+
+Wada pins wada-kit v0.2.0 with MyGo v0.7.4 and Onevra v0.2026.13. The shell
+leaves automatic plugin restart disabled, and the PiG backend explicitly opts
+out even if a host configures a default. Backend recovery stays explicit; failed
+create/send/reply/rename/delete operations are not automatically retried.
+
+Shutdown cancels plugin lifetimes before UI disposal. SDK cleanup stays in its
+tracked worker; UI resources close in OnDispose, and navigation work stays in
+child scopes. Cleanup does not depend on events or pipelines from disposed scopes.
+Settings schemas and app data paths are unchanged by this upgrade. See the kit's
+[v0.2 upgrade guide](https://github.com/xleotranx/wada-kit/blob/v0.2.0/docs/upgrading-v0.2.md).
 
 ## Reproducible builds
 
@@ -35,7 +48,8 @@ than copied source or edits under the module cache.
    then run `GOWORK=off go mod tidy`.
 3. Update the versioned kit documentation links in `README.md`, `AGENTS.md` and
    `docs/design/shell-and-plugins.md` to the adopted tag.
-4. Run `GOWORK=off make check` and `GOWORK=off go build ./...`, then commit the
+4. Run `make licenses` to refresh notices for the selected module graph.
+5. Run `GOWORK=off make check` and `GOWORK=off go build ./...`, then commit the
    dependency, checks and documentation together. CI also runs with workspaces off.
 
 App and kit releases are independent. During kit v0, breaking changes use a minor

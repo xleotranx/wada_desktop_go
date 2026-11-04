@@ -6,9 +6,10 @@ tool github.com/egoist/mygo/cmd/mygo
 
 require (
 	github.com/MichaelKinsy/PiG v0.5.3
-	github.com/egoist/mygo v0.7.1
+	github.com/egoist/mygo v0.7.4
 	github.com/oneo-me/onevra/source v0.2026.13
-	github.com/xleotranx/wada-kit v0.1.1
+	github.com/xleotranx/wada-kit v0.2.0
+	golang.org/x/net v0.62.0
 )
 
 require (
@@ -38,7 +39,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/image v0.47.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect

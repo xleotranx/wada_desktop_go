@@ -3551,7 +3551,7 @@ github.com/ebitengine/purego v0.11.1
    limitations under the License.
 
 ========================================================================
-github.com/egoist/mygo v0.7.1
+github.com/egoist/mygo v0.7.4
 
 --- LICENSE ---
 MIT License
@@ -4572,7 +4572,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
-github.com/xleotranx/wada-kit v0.1.1
+github.com/xleotranx/wada-kit v0.2.0
 
 --- LICENSE ---
 MIT License

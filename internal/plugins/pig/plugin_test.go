@@ -440,6 +440,8 @@ func TestAPIKeyLoginUsesWadaStorageAndUpdatesModels(t *testing.T) {
 	if err := e.models.RegisterNativeProvider(provider); err != nil {
 		t.Fatal(err)
 	}
+	modelsChanged := false
+	kernel.On(h, agent.ModelsChanged, func(struct{}) { modelsChanged = true })
 	p.login("wada-test", ai.CredentialAPIKey)
 	waitFor(t, h, "login prompt", func() bool { return p.providers.reply != nil })
 	if !p.providers.secret {
@@ -447,6 +449,9 @@ func TestAPIKeyLoginUsesWadaStorageAndUpdatesModels(t *testing.T) {
 	}
 	p.answerLogin("fixture-api-key")
 	waitFor(t, h, "login finished", func() bool { return p.providers.selected == "" })
+	if !modelsChanged {
+		t.Fatal("a connected provider did not refresh the model catalog")
+	}
 	cred, err := e.services.Credentials().Read(t.Context(), "wada-test")
 	if err != nil || cred == nil || cred.Key != "fixture-api-key" {
 		t.Fatalf("credential not saved: %v", err)

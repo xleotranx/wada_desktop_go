@@ -1013,3 +1013,25 @@ func TestAskingWithoutAFolderOpensTheComposer(t *testing.T) {
 		t.Fatal("the composer does not show for the Inbox")
 	}
 }
+
+func TestARequirementStandsBeforeTheChat(t *testing.T) {
+	required := &extension{setup: func(c *kernel.Context) error {
+		return kernel.Contribute(c, chat.Requirements, "extension.required", 0, chat.Requirement{
+			Needed: func() bool { return true },
+			Render: func(c *ui.Context) { ui.Text(c, "Connect a provider") },
+		})
+	}}
+	_, p, _, _ := start(t, required.New)
+	p.NewChat("")
+	tt := ui.NewTester(p.view, 1000, 800)
+	tt.Frame()
+	if !tt.HasText("Connect a provider") {
+		t.Fatalf("requirement missing: %q", tt.Texts())
+	}
+	if tt.HasText("Choose a work folder") {
+		t.Fatalf("the folder gate shows under a requirement: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Compose"); ok {
+		t.Fatal("the composer shows under a requirement")
+	}
+}

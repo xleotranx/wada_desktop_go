@@ -304,3 +304,13 @@ func TestModelChecklistSelectionSurvivesCollapseAndSearch(t *testing.T) {
 		t.Fatal("clearing search lost the collapsed state")
 	}
 }
+
+func TestASingleModelIsChosenForNewChats(t *testing.T) {
+	h, p, a, _, _ := start(t, kerneltest.NewStore())
+	a.Catalog = []agent.Model{{Ref: alpha, Name: "Alpha"}}
+	kernel.Emit(h, agent.ModelsChanged, struct{}{})
+	h.Flush()
+	if p.newModel.Get() != alpha {
+		t.Fatalf("the only model was not chosen: %+v", p.newModel.Get())
+	}
+}

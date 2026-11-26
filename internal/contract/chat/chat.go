@@ -68,6 +68,11 @@ var (
 	// Starters draw the starting points under the composer of an empty new
 	// chat. Each draws its own column; the chat adds the composer's hint.
 	Starters = kernel.NewPoint[shell.View]("chat.starters")
+	// Requirements stand in front of an empty new chat while something is
+	// missing, such as a connected provider. The first Needed entry draws in
+	// place of the folder gate and composer. Needed and Render run on the UI
+	// thread while drawing and only read state.
+	Requirements = kernel.NewPoint[Requirement]("chat.requirements")
 	// Workflows are one-task behaviors listed after the access modes.
 	Workflows = kernel.NewPoint[Workflow]("chat.workflows")
 	// ReviewedWork names the workflow the new chat's document starters select
@@ -109,6 +114,13 @@ type SelectionAction struct {
 type Selection struct {
 	Conversation Conversation
 	Text         string // the selected words; paragraphs on lines of their own
+}
+
+// Requirement is one thing a new chat needs before it can start, such as a
+// connected provider.
+type Requirement struct {
+	Needed func() bool
+	Render func(*ui.Context)
 }
 
 // WorkSection is one section of the work panel. Shown and Render run on the

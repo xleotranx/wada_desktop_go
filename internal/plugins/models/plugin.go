@@ -132,6 +132,11 @@ func (p *Plugin) reload() {
 			return
 		}
 		p.catalog, p.fallback, p.loaded = cat.models, cat.fallback, true
+		if len(cat.models) == 1 && p.newModel.Get().IsZero() {
+			// A provider with a single model has no choice to make; name it
+			// instead of showing "Default model".
+			p.newModel.Set(cat.models[0].Ref)
+		}
 	})
 }
 

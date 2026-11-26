@@ -12,6 +12,7 @@ import (
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/chat"
 )
 
 const version = "0.5.3"
@@ -54,6 +55,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	c.OnDispose(p.drop)
 	kernel.Contribute(c, kernel.Commands, "pig.restart", 0, kernel.Command{Title: "Restart PiG", Menu: "Agent", Run: p.Restart})
 	p.contributeSettings(c)
+	kernel.Contribute(c, chat.Requirements, "pig.provider-setup", 0, chat.Requirement{
+		Needed: p.providerNeeded,
+		Render: p.providerSetup,
+	})
 	p.Restart()
 	return nil
 }
@@ -75,6 +80,8 @@ func (p *Plugin) Restart() {
 	p.cancelLogin()
 	p.providers.load.Cancel()
 	p.providers.list = nil
+	p.providers.loaded = false
+	p.providers.err = ""
 	if p.run != nil {
 		p.run.Dispose()
 	}

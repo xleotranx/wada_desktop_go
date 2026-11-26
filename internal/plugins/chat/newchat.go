@@ -18,6 +18,27 @@ func (p *Plugin) folderGate() bool {
 	return p.conv.Session == "" && p.conv.Directory == "" && !p.inbox && p.draft == ""
 }
 
+// requirement draws the first setup a new chat needs before it can start,
+// such as a connected provider.
+func (p *Plugin) requirement(c *ui.Context) bool {
+	for _, e := range kernel.Items(p.ctx, chat.Requirements) {
+		needed, render := false, false
+		kernel.Invoke(p.ctx, e, func(r chat.Requirement) {
+			needed = r.Needed == nil || r.Needed()
+			render = r.Render != nil
+		})
+		if !needed || !render {
+			continue
+		}
+		c.Key(e.ID)
+		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
+			kernel.Invoke(p.ctx, e, func(r chat.Requirement) { r.Render(c) })
+		})
+		return true
+	}
+	return false
+}
+
 // askWithoutFolder opens the composer for a chat with no folder. The backend
 // answers in its Inbox, with no folder of the user's to read or write.
 func (p *Plugin) askWithoutFolder() {

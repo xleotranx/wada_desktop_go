@@ -11,6 +11,9 @@
   plan, work, review flow.
 - Workflow phases complete with models that answer in text: a clearer
   `submit_result` instruction, and a validated fenced JSON result as fallback.
+- A first run with no connected provider opens **Connect a model provider** using
+  the same provider search, list and login as Settings. The setup gives way to the
+  folder gate when a provider connects, and a single model is chosen automatically.
 - Screenshot annotation and a local HTML design canvas.
 - Independently versioned MIT-licensed wada-kit core and shell.
 - Source publication documentation, third-party license inventory and CI checks.

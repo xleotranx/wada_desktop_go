@@ -9,6 +9,8 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
+	"wada-desktop-go/internal/contract/agent"
+
 	"github.com/xleotranx/wada-kit/contract/settings"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/native"
@@ -20,6 +22,7 @@ type providerItem struct {
 }
 type providerForm struct {
 	list                                  []providerItem
+	loaded                                bool
 	query, selected, answer, message, err string
 	busy, secret                          bool
 	prompt                                string
@@ -78,11 +81,15 @@ func (p *Plugin) loadProviders() {
 		})
 		return list, nil
 	}, func(list []providerItem, err error) {
+		p.providers.loaded = true
 		if err != nil {
 			p.providers.err = "Could not load providers"
+			p.ctx.Invalidate()
 			return
 		}
+		p.providers.err = ""
 		p.providers.list = list
+		p.ctx.Invalidate()
 	})
 }
 func (p *Plugin) providersSection(c *ui.Context) {
@@ -228,6 +235,9 @@ func (p *Plugin) login(id string, kind ai.AuthType) {
 			p.providers.busy = false
 			if err != nil && !errors.Is(err, context.Canceled) {
 				p.providers.err = "The provider could not be connected. Check your credentials and try again."
+			}
+			if err == nil {
+				kernel.Emit(p.ctx, agent.ModelsChanged, struct{}{})
 			}
 			p.cancelLogin()
 			p.loadProviders()

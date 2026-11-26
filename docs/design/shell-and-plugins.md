@@ -33,6 +33,11 @@ Conversation settings section with the work panel's switch.
   composer: **Open a work folder** asks the workspace for one, and **Ask without a
   folder** opens the composer in the backend's Inbox. Once the transcript has rows the composer sits at the foot of
   the page; it keeps its place in the tree, so it keeps its focus as it moves.
+- A `chat.Requirements` entry stands in front of an empty new chat while something
+  is missing. PiG contributes one while no provider is connected: its setup reuses
+  the provider search, list and login form from Settings → Providers and draws in
+  place of the folder gate and composer. When a provider connects, the provider
+  list reloads, the models catalog reloads and the folder gate appears.
 
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
   send or reply started for the previous conversation can't land in the next one.
@@ -354,7 +359,9 @@ notifications plugins contribute their own sections.
 
 `internal/plugins/models` requires `agent.ModelsKey` (so it is Blocked for a backend
 without a catalog). It adds the model and its reasoning effort (when the model has
-variants) as one group to `chat.ComposerPrimary`. The group stays visible together
+variants) as one group to `chat.ComposerPrimary`. A catalog with exactly one model
+chooses it for new conversations, so the composer names the model instead of
+"Default model". The group stays visible together
 in both new and existing conversations. It reads the catalog when a new connection
 attempt is ready and again on `agent.ModelsChanged`, which the backend emits for its
 own provider changes and for the server's catalog notices. A new conversation starts

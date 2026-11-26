@@ -1,7 +1,7 @@
 # Agent contract
 
 `internal/contract/agent` declares Wada's backend-neutral services and events.
-`internal/plugins/pig` is their implementation, embedding PiG v0.5.3 through its
+`internal/plugins/pig` is their implementation, embedding PiG v0.8.0 through its
 public Go SDK. PiG types never leave the plugin; the kit has no agent dependency.
 
 ## Capabilities

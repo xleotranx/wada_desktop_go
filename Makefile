@@ -34,7 +34,7 @@ licenses-check:
 	python3 -I scripts/licenses.py --check
 
 audit:
-	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+	go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
 # Scan only publishable commit history; local app data is not an input.
 secrets:

@@ -11,6 +11,7 @@ import (
 
 	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	_ "github.com/MichaelKinsy/PiG/ai/all"
 	"github.com/MichaelKinsy/PiG/coding"
 	"wada-desktop-go/internal/contract/agent"
 )

@@ -7,7 +7,7 @@ plugins, PiG backend, storage, branding and packaging. The kit never imports Wad
 
 ## Adopted release
 
-Wada pins wada-kit v0.2.0 with MyGo v0.7.4 and Onevra v0.2026.13. The shell
+Wada pins wada-kit v0.3.1 with MyGo v0.10.0 and Onevra v0.2026.19. The shell
 leaves automatic plugin restart disabled, and the PiG backend explicitly opts
 out even if a host configures a default. Backend recovery stays explicit; failed
 create/send/reply/rename/delete operations are not automatically retried.
@@ -16,7 +16,7 @@ Shutdown cancels plugin lifetimes before UI disposal. SDK cleanup stays in its
 tracked worker; UI resources close in OnDispose, and navigation work stays in
 child scopes. Cleanup does not depend on events or pipelines from disposed scopes.
 Settings schemas and app data paths are unchanged by this upgrade. See the kit's
-[v0.2 upgrade guide](https://github.com/xleotranx/wada-kit/blob/v0.2.0/docs/upgrading-v0.2.md).
+[changelog](https://github.com/xleotranx/wada-kit/blob/v0.3.1/CHANGELOG.md).
 
 ## Reproducible builds
 

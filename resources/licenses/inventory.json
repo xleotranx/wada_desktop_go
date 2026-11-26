@@ -8,7 +8,7 @@
   "modules": [
     {
       "module": "Go standard library",
-      "version": "go1.27.3",
+      "version": "go1.27.4",
       "notices": [
         {
           "file": "LICENSE",
@@ -42,7 +42,7 @@
     },
     {
       "module": "github.com/MichaelKinsy/PiG",
-      "version": "v0.5.3",
+      "version": "v0.8.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -51,6 +51,10 @@
         {
           "file": "LICENSES/Apache-2.0.txt",
           "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        },
+        {
+          "file": "LICENSES/BSD-2-Clause.txt",
+          "sha256": "f258623e5dd9255571f76948ff164c237a96b38f62a9d0608f4a6189bb533996"
         },
         {
           "file": "LICENSES/BSD-3-Clause.txt",
@@ -65,6 +69,10 @@
           "sha256": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744"
         },
         {
+          "file": "LICENSES/IJG.txt",
+          "sha256": "7658542977bfdced9e1059a6c934ce4281de76d103b831007b825917dc62511a"
+        },
+        {
           "file": "LICENSES/ISC.txt",
           "sha256": "d7804e42cf9190c1daf25869ff286a56eecc9622ab1c40abc5b0ad6fe8f5c6d1"
         },
@@ -77,6 +85,10 @@
           "sha256": "3bd4cad890d003085b2da25a3585c156d6e7c153825fc2e68b161c0873aadb1e"
         },
         {
+          "file": "LICENSES/LicenseRef-PngSuite.txt",
+          "sha256": "6bc27728bf5c78643ec2dfae80f8ed0716ceb1ab9e51a1140131063ceaf6a4e7"
+        },
+        {
           "file": "LICENSES/MIT.txt",
           "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
         },
@@ -85,16 +97,20 @@
           "sha256": "d496e339111512456bdf9b035cbaea904d9fb3da8f7a2766a109213bee65a7f2"
         },
         {
+          "file": "LICENSES/SunPro.txt",
+          "sha256": "f5ab1c2763182c84a0b991a82d57b4176df0d109ca5d485d8446585696b26894"
+        },
+        {
           "file": "LICENSES/Unicode-3.0.txt",
           "sha256": "bfb121a2aaa8fa3d77f3429ae2aaed879cc53cacad6fbe42a2513043b80fcb9a"
         },
         {
           "file": "NOTICE",
-          "sha256": "96c44828b2e0d6b2d40790647cdf63cf3793590c848bb391ce1afece65bc6a68"
+          "sha256": "5f40e53b1083376c157032cea4b1775f57058c59afda17588f5443069c4a1189"
         },
         {
           "file": "THIRD_PARTY_NOTICES.md",
-          "sha256": "939cae668821e11534ac1088d481e35b43f69bffdb3597e717f985fe24c46716"
+          "sha256": "45f58b4b529e11e0266ca384da7cfc766be17f968b34fb648cebda0c616f94d5"
         },
         {
           "file": "third_party/awssdk/LICENSE.txt",
@@ -103,6 +119,10 @@
         {
           "file": "third_party/awssdk/NOTICE.txt",
           "sha256": "a6e830174d62dafad3a718384772ea1f4c0e27989f050932dc442a5e3ddad080"
+        },
+        {
+          "file": "third_party/collate/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
         },
         {
           "file": "third_party/goldmark/LICENSE",
@@ -115,12 +135,16 @@
         {
           "file": "third_party/semver/LICENSE.txt",
           "sha256": "2db9097f7b3750c1c9426996d21fe443d339131fb758c2167d2d5fabe8e6cbf9"
+        },
+        {
+          "file": "third_party/sqlite/LICENSE",
+          "sha256": "c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822"
         }
       ]
     },
     {
       "module": "github.com/MichaelKinsy/PiG/extensions/sdk",
-      "version": "v0.5.3",
+      "version": "v0.8.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -130,7 +154,7 @@
     },
     {
       "module": "github.com/Microsoft/go-winio",
-      "version": "v0.6.2",
+      "version": "v0.6.4",
       "notices": [
         {
           "file": "LICENSE",
@@ -238,7 +262,7 @@
     },
     {
       "module": "github.com/ebitengine/purego",
-      "version": "v0.11.1",
+      "version": "v0.11.3",
       "notices": [
         {
           "file": "LICENSE",
@@ -248,7 +272,7 @@
     },
     {
       "module": "github.com/egoist/mygo",
-      "version": "v0.7.4",
+      "version": "v0.10.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -322,7 +346,7 @@
     },
     {
       "module": "github.com/gorilla/websocket",
-      "version": "v1.5.3",
+      "version": "v1.5.4-0.20240701034025-d67f41855da4",
       "notices": [
         {
           "file": "AUTHORS",
@@ -336,7 +360,7 @@
     },
     {
       "module": "github.com/klauspost/compress",
-      "version": "v1.19.2",
+      "version": "v1.20.3",
       "notices": [
         {
           "file": "LICENSE",
@@ -366,7 +390,7 @@
     },
     {
       "module": "github.com/oneo-me/onevra/source",
-      "version": "v0.2026.13",
+      "version": "v0.2026.19",
       "notices": [
         {
           "file": "LICENSE",
@@ -384,7 +408,7 @@
     },
     {
       "module": "github.com/xleotranx/wada-kit",
-      "version": "v0.2.0",
+      "version": "v0.3.1",
       "notices": [
         {
           "file": "LICENSE",
@@ -394,7 +418,7 @@
     },
     {
       "module": "go.yaml.in/yaml/v3",
-      "version": "v3.0.4",
+      "version": "v3.0.5",
       "notices": [
         {
           "file": "LICENSE",
@@ -408,7 +432,7 @@
     },
     {
       "module": "golang.org/x/image",
-      "version": "v0.47.0",
+      "version": "v0.48.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -422,7 +446,7 @@
     },
     {
       "module": "golang.org/x/mod",
-      "version": "v0.41.0",
+      "version": "v0.42.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -436,7 +460,7 @@
     },
     {
       "module": "golang.org/x/net",
-      "version": "v0.62.0",
+      "version": "v0.63.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -460,7 +484,7 @@
     },
     {
       "module": "golang.org/x/sys",
-      "version": "v0.49.0",
+      "version": "v0.50.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -474,7 +498,7 @@
     },
     {
       "module": "golang.org/x/term",
-      "version": "v0.47.0",
+      "version": "v0.48.0",
       "notices": [
         {
           "file": "LICENSE",
@@ -488,7 +512,7 @@
     },
     {
       "module": "golang.org/x/text",
-      "version": "v0.43.0",
+      "version": "v0.44.0",
       "notices": [
         {
           "file": "LICENSE",

@@ -109,12 +109,10 @@ func TestTurnApprovalCarriesRequestIdentity(t *testing.T) {
 }
 
 func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
-	// Resolve the native dependency before startPig isolates HOME and its cache.
-	library, err := sqlite.LibraryPath()
-	if err != nil {
+	// Load the native SQLite module before startPig isolates HOME and its cache.
+	if err := sqlite.Load(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MYGO_SQLITE_LIBRARY", library)
 	for _, proxy := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"} {
 		t.Setenv(proxy, "http://127.0.0.1:1")
 	}

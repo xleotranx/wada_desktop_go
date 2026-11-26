@@ -2,12 +2,11 @@
 
 A native desktop assistant for everyday work: understand documents, organize
 information, draft reports and correspondence, compare data, plan work and create
-useful deliverables. Choose a work folder and say what outcome you need. For
-larger tasks, Jobs reads the relevant documents, proposes a plan for approval,
-does the work and has an independent agent review the result. Built with Go, MyGo and Onevra; PiG
+useful deliverables. Choose a work folder and say what outcome you need. Workflows
+plan, work and review inside the conversation, and a design canvas previews the
+agent's HTML artboards beside the chat. Built with Go, MyGo and Onevra; PiG
 runs the agents inside the app, so no separate agent executable is required.
-Chat and controls are native, and the design canvas uses embedded WebViews to
-preview local HTML.
+Chat and controls are native; embedded WebViews preview local HTML.
 
 ![Wada's native desktop chat interface](docs/images/new_dekstop.png)
 
@@ -49,17 +48,6 @@ For local kit work and version upgrades, see
 [kit dependency maintenance](docs/design/kit-dependency.md).
 
 ## Features
-
-**Jobs** — the app's front door. Type what you want on the Jobs page (⌘J), pick
-the folder, and **Start job**: the app converts the folder's Word, PowerPoint,
-Excel, OpenDocument, RTF, EPUB, CSV and PDF files to Markdown in-process (anydoc
-compiled to WebAssembly — no service, no upload), the agent returns a plan you
-can edit, step by step, before anything runs. The work turn writes the file the
-plan names; a reviewer with read-only tools judges it against the plan's
-criteria and either passes it or sends one round of defects back. The result, the
-reviewer's findings and the deliverables are on the page, in `jobs.db`, and in
-your folder. A plan that is ready or a job that settled raises a desktop notice
-that opens straight to it.
 
 Chat with streaming markdown, tool calls, approvals and stop; open chats and Settings as tabs across the title strip, one folder's space at a time with a
 switcher for the others, each tab showing whether its conversation is working, waiting for you or unread; All

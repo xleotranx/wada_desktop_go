@@ -50,8 +50,8 @@ path or the model reading rendered page images; neither is here yet.
 `documents.sources` is a `chat.Work` section listing the last folder read: one
 row per file, its format and length, or why it was skipped. `documents.ingest`
 reads the open conversation's folder in the background through `kernel.Go` and
-emits `documents.Ingested`. The reader service is `documents.ReaderKey`, for
-the job engine to ingest a folder before planning.
+emits `documents.Ingested`. The reader service is `documents.ReaderKey`; cowork
+resolves it on the UI thread to read Office and PDF documents on a tool worker.
 
 ## Checking it
 

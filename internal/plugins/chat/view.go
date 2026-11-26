@@ -71,7 +71,6 @@ func (p *Plugin) page(c *ui.Context, pal native.Palette, blank bool) {
 		bottom.Children(func() {
 			if blank {
 				p.suggestions(c, pal)
-				p.home(c)
 			}
 		})
 	})
@@ -117,25 +116,6 @@ func (p *Plugin) greeting(c *ui.Context, pal native.Palette) {
 			ui.Text(c, detail).FontSize(13).TextColor(pal.Muted).SingleLine().Ellipsis("…")
 		})
 	})
-}
-
-// home renders what other plugins put under the starting points, such as the
-// jobs waiting on the user.
-func (p *Plugin) home(c *ui.Context) {
-	for _, e := range kernel.Items(p.ctx, chat.Home) {
-		shown := e.Value.Render != nil
-		if shown && e.Value.Shown != nil {
-			kernel.Invoke(p.ctx, e, func(s chat.HomeSection) { shown = s.Shown() })
-		}
-		if !shown {
-			continue
-		}
-		ui.Column(c.Key("home:"+e.ID)).FillWidth().AlignItems(ui.Center).Padding(0, 24, 10, 24).Children(func() {
-			ui.Column(c).MaxWidth(onechat.ContentWidth).FillWidth().Children(func() {
-				kernel.Invoke(p.ctx, e, func(s chat.HomeSection) { s.Render(c) })
-			})
-		})
-	}
 }
 
 // suggestions are starting points under the composer of an empty new chat;

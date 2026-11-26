@@ -51,14 +51,13 @@ PiG exposes these tools for ordinary turns and blocks legacy shell/coding tools
 in its pre-tool hook, including in independent mode. A specialized `ProjectScope`,
 when a feature contributes one, replaces the ordinary toolset with that project's
 handler. Read-only child policies still block document writes and edits.
-Permissions are shown as **Ask before changes** and **Work independently**; both retain folder
-boundaries. Internal mode IDs remain `ask` and `full` in saved preferences.
+Permissions are shown as **Ask before changes** and **Work independently**; both
+retain folder boundaries. Internal mode IDs remain `ask` and `full` in saved
+preferences.
 
 The built-in reviewed workflow is **Plan, work, review**. Its work phase creates
 the requested deliverable; the reviewer checks evidence, facts, calculations,
-requirements and readability. Jobs keep converted source copies under
-`job-sources/<job-id>/sources`, accessible through the same work-folder tools,
-while their app metadata stays private.
+requirements and readability.
 
 ## Verification
 

@@ -10,7 +10,6 @@ import (
 	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/folderpicker"
-	"wada-desktop-go/internal/plugins/jobs"
 	"wada-desktop-go/internal/plugins/markup"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
@@ -36,7 +35,7 @@ import (
 var wada = shell.App{
 	Name: "Wada Cowork", Folder: "wada-desktop-go", Env: "WADA",
 	Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
-	Menus: []string{"File", "Chat", "Jobs", "View", "Agent", "Help"},
+	Menus: []string{"File", "Chat", "View", "Agent", "Help"},
 }
 
 // main is the composition: the plugins this build installs, in order.
@@ -59,7 +58,6 @@ func main() {
 		explore.New,      // read-only side chats in a drawer, from selected text
 		design.New,       // a canvas of the agent's web pages: comments, notes, tweaks, present
 		documents.New,    // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
-		jobs.New,         // reads a folder, works on a goal, keeps the brief, in jobs.db
 		workflow.New,     // owns conversational tasks and fresh reviewer children
 		flows.New,        // plan, code, review, from the composer or command palette
 		palette.New,

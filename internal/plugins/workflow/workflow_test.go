@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,6 +17,8 @@ import (
 	"wada-desktop-go/internal/contract/chat"
 	wf "wada-desktop-go/internal/contract/workflow"
 	"wada-desktop-go/internal/plugintest"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func fixture(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, chan agent.Send) {
@@ -328,5 +333,65 @@ func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
 	review := next(t, h, sent)
 	if review.Project == nil || *review.Project != *scope || review.Policy == nil {
 		t.Fatal("review child lost project scope or read-only policy")
+	}
+}
+
+func TestTheCardOpensTheDeliverableAndItsSourceFolder(t *testing.T) {
+	a := plugintest.NewAgent()
+	sent := make(chan agent.Send, 30)
+	a.OnSend = func(req agent.Send) { sent <- req }
+	host := &kittest.Host{}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, host.New, (&plugintest.Chat{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test", Title: "Test flow", Plan: "plan", Work: "work", Review: "review", Fix: "fix", Route: "route", Final: "final", MaxReviews: 3})
+	dir := t.TempDir()
+	a.Changed["main"] = []agent.FileChange{{Path: "report.md", Status: agent.FileAdded, Added: 8}}
+	if err := p.Admit(chat.Draft{Session: "main", Directory: dir, Workflow: kernel.HostPrefix + "test", Text: "write", Anchor: 1}); err != nil {
+		t.Fatal(err)
+	}
+	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"plan"}`)
+	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"work"}`)
+	finish(h, a, next(t, h, sent), `{"status":"pass","summary":"reviewed","findings":[]}`)
+	finish(h, a, next(t, h, sent), `{"status":"ready","summary":"finished"}`)
+	task := p.lanes["main"].task()
+	if len(task.Changes) != 1 || task.Changes[0].Path != "report.md" {
+		t.Fatalf("task changes %+v", task.Changes)
+	}
+	items := p.activities("main")
+	if len(items) != 1 {
+		t.Fatalf("activities %+v", items)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { items[0].Render(c) }, 700, 500)
+	tt.Frame()
+	for _, want := range []string{"Deliverable", "report.md", "Open", "Sources"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %q: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("Open"); err != nil {
+		t.Fatalf("open: %v in %q", err, tt.Texts())
+	}
+	wantFile := (&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(dir, "report.md"))}).String()
+	if !slices.Contains(host.Opened, wantFile) {
+		t.Fatalf("opened %q, want %q", host.Opened, wantFile)
+	}
+	if err := tt.Click("Reveal"); err != nil {
+		t.Fatalf("reveal: %v in %q", err, tt.Texts())
+	}
+	wantDir := (&url.URL{Scheme: "file", Path: filepath.ToSlash(dir)}).String()
+	if !slices.Contains(host.Opened, wantDir) {
+		t.Fatalf("revealed %q, want %q", host.Opened, wantDir)
+	}
+}
+
+func TestAPathOutsideTheFolderIsNotOpened(t *testing.T) {
+	a := plugintest.NewAgent()
+	host := &kittest.Host{}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, host.New, (&plugintest.Chat{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	kernel.Contribute(h, wf.Definitions, kernel.HostPrefix+"test", 0, wf.Flow{ID: kernel.HostPrefix + "test"})
+	p.openPath(t.TempDir(), "../outside.md")
+	if len(host.Opened) != 0 || len(host.Toasts) != 1 {
+		t.Fatalf("opened %q, toasts %q", host.Opened, host.Toasts)
 	}
 }

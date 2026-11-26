@@ -108,8 +108,9 @@ Conversation settings section with the work panel's switch.
   `DrawerBg` at its end: each `chat.Work` section whose `Shown` holds (or has none),
   in order, its title over what it renders. The panel shows while at least one
   section does, the `work-panel` setting is on and no `chat.HideWork` entry reports
-  true; ⌘B turns the setting over, and a plugin that hides the panel leaves the
-  setting as it is.
+  true; the setting starts off so a stored conversation opens on the transcript,
+  ⌘B or Conversation settings turns it on, and a plugin that hides the panel leaves
+  the setting as it is.
   `Controller.WorkShown` reports it, so a plugin can step aside in the composer.
 - `chat.Drawers` entries are drawn at the page's right edge, after the work panel.
   Each draws its own column, with its width and border, or nothing while closed.
@@ -581,8 +582,12 @@ the requirements and start another implementation/review cycle with a fresh budg
 Unrelated work pauses the old task and clears its automatic review association;
 that message is handled as ordinary chat. Resume explicitly restores the paused task.
 
-Tasks appear as transcript activities anchored to their initiating message. Details
-expand phase summaries, review findings, check evidence and finding dispositions.
+Tasks appear as transcript activities anchored to their initiating message. A task
+card shows the files its review's task-start diff found, each with **Open**, and a
+**Sources** row naming the work folder and any reference attachments with **Reveal**;
+the reviewer's summary stays above the card. Details expand the request, plan, work
+summary, phase results, review findings, check evidence and finding dispositions. The
+card is the deliverable, so the work panel is not needed to find it.
 Approvals and questions from a reviewer appear in the main chat and replies target
 the real child; they are not dismissed. Reviewers have no top-level tabs or chats.
 The queue shows removable pending inputs. Stop aborts the active session and cancels

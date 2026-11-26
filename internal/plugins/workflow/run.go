@@ -34,6 +34,7 @@ type task struct {
 	Mode                                                        string
 	Anchor, Round                                               int
 	Baseline                                                    agent.Snapshot
+	Changes                                                     []agent.FileChange
 	Findings                                                    []finding
 	Reports                                                     []phaseResult
 }
@@ -79,6 +80,7 @@ func (l *lane) saved() savedLane {
 	s.Tasks = nil
 	for _, t := range l.Tasks {
 		copy := *t
+		copy.Changes = slices.Clone(t.Changes)
 		copy.Findings = slices.Clone(t.Findings)
 		copy.Reports = slices.Clone(t.Reports)
 		s.Tasks = append(s.Tasks, &copy)
@@ -255,6 +257,9 @@ func (p *Plugin) execute(l *lane, op *operation) {
 			if op.Request.Session == "" {
 				p.fail(l, errors.New("the reviewer was created without an ID"))
 				return
+			}
+			if t != nil {
+				t.Changes = slices.Clone(out.Changes)
 			}
 			data, _ := json.Marshal(out.Changes)
 			// Rebuild this part on explicit retry rather than appending duplicate patches.

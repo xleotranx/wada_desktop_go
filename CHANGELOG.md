@@ -14,6 +14,11 @@
 - A first run with no connected provider opens **Connect a model provider** using
   the same provider search, list and login as Settings. The setup gives way to the
   folder gate when a provider connects, and a single model is chosen automatically.
+- A task ends with a deliverable card: the files changed since the task started,
+  each with **Open**, and a **Sources** row for the work folder and references with
+  **Reveal**. Details expand the request, plan, work and review findings.
+- The work panel starts hidden so a stored conversation opens on the transcript;
+  ⌘B or Conversation settings shows it.
 - Screenshot annotation and a local HTML design canvas.
 - Independently versioned MIT-licensed wada-kit core and shell.
 - Source publication documentation, third-party license inventory and CI checks.

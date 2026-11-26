@@ -34,6 +34,7 @@ func TestWorkPanelShowsBesideAStoredConversation(t *testing.T) {
 	w := &workPlugin{}
 	h, p, _, _ := start(t, w.New)
 	h.Flush()
+	p.workOn.Set(true)
 	tt := ui.NewTester(p.view, 1100, 700)
 	tt.Frame()
 	if p.WorkShown() || tt.HasText("Always") {
@@ -84,6 +85,7 @@ func TestALoadThatWorksReplacesTheNoteOfOneThatFailed(t *testing.T) {
 func TestAPluginHidesTheWorkPanelWithoutTurningItOff(t *testing.T) {
 	w := &workPlugin{}
 	h, p, _, _ := start(t, w.New)
+	p.workOn.Set(true)
 	p.Open(agent.Session{ID: "s1", Title: "One"})
 	h.Flush()
 	tt := ui.NewTester(p.view, 1100, 700)
@@ -97,5 +99,15 @@ func TestAPluginHidesTheWorkPanelWithoutTurningItOff(t *testing.T) {
 	tt.Frame()
 	if !p.WorkShown() || !tt.HasText("always body") {
 		t.Fatalf("the panel did not come back: %q", tt.Texts())
+	}
+}
+
+func TestStoredConversationsStartWithoutTheWorkPanel(t *testing.T) {
+	w := &workPlugin{}
+	h, p, _, _ := start(t, w.New)
+	p.Open(agent.Session{ID: "s1", Title: "One"})
+	h.Flush()
+	if p.workOn.Get() || p.WorkShown() {
+		t.Fatalf("the work panel starts on: setting %v, panel %v", p.workOn.Get(), p.WorkShown())
 	}
 }

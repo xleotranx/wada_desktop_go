@@ -29,7 +29,8 @@ type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
 	host  shell.Host
-	// workOn is whether the work panel shows beside a stored conversation.
+	// workOn is whether the work panel shows beside a stored conversation. It
+	// starts off so a stored conversation opens on the transcript.
 	workOn *kernel.Setting[bool]
 
 	conv            chat.Conversation
@@ -87,7 +88,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.workOn = kernel.NewSetting(c, "work-panel", true)
+	p.workOn = kernel.NewSetting(c, "work-panel", false)
 	p.comp = newCompletion()
 	p.attempt = p.agent.Status().Attempt
 	p.switchTo(chat.Conversation{})

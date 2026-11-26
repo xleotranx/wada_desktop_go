@@ -447,6 +447,7 @@ func TestWadaKeepsItsDataAndMenus(t *testing.T) {
 
 func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	a := startApp(t)
+	a.command("chat.work")
 	a.agent.Stored["s1"] = []agent.Message{{ID: "a1", Role: agent.RoleAssistant,
 		Tokens: agent.Tokens{Input: 1000, Output: 200},
 		Parts: []agent.Part{{Kind: agent.PartTool, Tool: &agent.Tool{

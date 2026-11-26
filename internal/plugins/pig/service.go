@@ -398,7 +398,7 @@ func promptContent(req agent.Send) (string, []ai.ImageContent, error) {
 		text += "\n\n<turn_instructions>\nThese instructions apply only to this turn, not to later messages.\n" + req.Instructions + "\n</turn_instructions>"
 	}
 	if len(req.ResultSchema) > 0 {
-		text += "\nBefore ending this turn, call submit_result exactly once with the requested structured result. Write any user-facing explanation before calling it."
+		text += "\nBefore ending this turn, call submit_result exactly once with the requested structured result. Write any user-facing explanation before calling it. Do not end with text alone: if the tool cannot be called, end your reply with a single fenced json block containing exactly the requested object."
 	}
 	var images []ai.ImageContent
 	for _, f := range req.Files {

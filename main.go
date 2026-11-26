@@ -18,6 +18,7 @@ import (
 	"wada-desktop-go/internal/plugins/palette"
 	"wada-desktop-go/internal/plugins/pig"
 	"wada-desktop-go/internal/plugins/skills"
+	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workflow"
@@ -60,6 +61,7 @@ func main() {
 		documents.New,    // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
 		workflow.New,     // owns conversational tasks and fresh reviewer children
 		flows.New,        // plan, code, review, from the composer or command palette
+		starters.New,     // the new chat's folder starters
 		palette.New,
 		notifications.New,
 		inspector.New,

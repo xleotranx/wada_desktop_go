@@ -3,6 +3,7 @@ package pig
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	pa "github.com/MichaelKinsy/PiG/agent"
@@ -41,4 +42,19 @@ func TestTurnPolicyCannotBeBypassedByFullAccess(t *testing.T) {
 		t.Fatal("tool ran after result submission")
 	}
 	var _ pa.AgentTool = &resultTool{c: c}
+}
+
+func TestResultFromTextFindsTheLastValidBlock(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["ready"]},"summary":{"type":"string"}},"required":["status","summary"],"additionalProperties":false}`)
+	text := "Here is the plan.\n\n```json\n{\"status\":\"wrong\"}\n```\n\nFixed:\n```json\n{\"status\":\"ready\",\"summary\":\"planned\"}\n```"
+	got, ok := resultFromText(text, schema)
+	if !ok || !strings.Contains(string(got), "planned") {
+		t.Fatalf("result %q ok=%v", got, ok)
+	}
+	if _, ok := resultFromText("no result here", schema); ok {
+		t.Fatal("found a result in prose")
+	}
+	if _, ok := resultFromText("```json\n{\"status\":\"wrong\"}\n```", schema); ok {
+		t.Fatal("accepted an invalid block")
+	}
 }

@@ -46,6 +46,10 @@ func (p *Plugin) view(c *ui.Context) {
 
 // page is the conversation itself, beside the work panel.
 func (p *Plugin) page(c *ui.Context, pal native.Palette, blank bool) {
+	if blank && p.folderGate() {
+		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() { p.folderGateView(c, pal) })
+		return
+	}
 	ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 		top := ui.Column(c).FillWidth().Grow(1).MinHeight(0)
 		if blank {
@@ -70,7 +74,7 @@ func (p *Plugin) page(c *ui.Context, pal native.Palette, blank bool) {
 		}
 		bottom.Children(func() {
 			if blank {
-				p.suggestions(c, pal)
+				p.starterView(c, pal)
 			}
 		})
 	})
@@ -110,53 +114,13 @@ func (p *Plugin) greeting(c *ui.Context, pal native.Palette) {
 			title, detail = "This conversation is empty", "Send a message to pick it up."
 		case p.conv.Directory != "":
 			detail = "Working in " + native.Tilde(p.conv.Directory)
+		case p.inbox:
+			detail = "No folder selected. Wada answers in its Inbox, without your work files."
 		}
 		ui.Column(c).AlignItems(ui.Center).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(24).FontWeight(600).TextColor(pal.Text)
 			ui.Text(c, detail).FontSize(13).TextColor(pal.Muted).SingleLine().Ellipsis("…")
 		})
-	})
-}
-
-// suggestions are starting points under the composer of an empty new chat;
-// one fills the draft for the user to finish or send.
-var suggestions = []struct {
-	label  string
-	icon   func() *ui.SVG
-	prompt string
-}{
-	{"Explain this project", lucide.BookOpen, "Give me a tour of this project: what it does, how it is laid out and where to start reading."},
-	{"Find a bug", lucide.Bug, "Look for a bug in "},
-	{"Write tests", lucide.FlaskConical, "Write tests for "},
-	{"Review changes", lucide.GitPullRequest, "Review my uncommitted changes for bugs and anything unclear."},
-}
-
-func (p *Plugin) suggestions(c *ui.Context, pal native.Palette) {
-	ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(18).Padding(14, 24, 24, 24).Children(func() {
-		if p.conv.Session == "" {
-			ui.Row(c).Wrap().Justify(ui.Center).Gap(8).MaxWidth(onechat.ContentWidth).Children(func() {
-				for i, s := range suggestions {
-					c.Key(i)
-					b := ui.ButtonBase(c).Label(s.label).Height(32).Radius(16).Padding(0, 13).Center().Gap(7).
-						Border(1, pal.Hairline).Cursor(ui.CursorPointer)
-					if b.Hovered() {
-						b.Background(pal.Hover)
-					}
-					b.OnClick(func() { p.draft, p.focus = s.prompt, true })
-					b.Children(func() {
-						ui.Icon(c, s.icon()).FontSize(13).TextColor(pal.Muted)
-						ui.Text(c, s.label).FontSize(12.5).TextColor(pal.Text).SingleLine()
-					})
-				}
-			})
-		}
-		hint := "Enter sends  ·  Shift+Enter adds a line"
-		for _, e := range kernel.Items(p.ctx, chat.Completions) {
-			if e.Value.Hint != "" {
-				hint += "  ·  " + string(e.Value.Trigger) + " " + e.Value.Hint
-			}
-		}
-		ui.Text(c, hint).FontSize(11.5).TextColor(pal.Faint)
 	})
 }
 

@@ -10,6 +10,7 @@ import (
 
 func TestComposerFooterAcrossWindowWidths(t *testing.T) {
 	a := startApp(t)
+	a.newChatIn("app")
 	for _, width := range []int{1200, 700, 460, 1200} {
 		a.tt.SetSize(width, 700)
 		a.tt.Frame()
@@ -47,6 +48,7 @@ func TestComposerFooterAcrossWindowWidths(t *testing.T) {
 
 func TestComposerKeepsModelAndReasoningTogetherWhenNarrow(t *testing.T) {
 	a := startApp(t)
+	a.newChatIn("app")
 	ref := agent.ModelRef{Provider: "test", ID: "sonnet", Variant: "medium"}
 	a.agent.Catalog = []agent.Model{{Ref: ref, Name: "Claude Sonnet 4.5", Variants: []string{"low", "medium", "high"}}}
 	a.agent.Default = ref

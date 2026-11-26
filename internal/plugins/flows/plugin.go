@@ -17,6 +17,7 @@ func (*Plugin) Setup(c *kernel.Context) error {
 	f := planWorkReview
 	kernel.Contribute(c, wf.Definitions, f.ID, 0, f)
 	kernel.Contribute(c, chat.Workflows, f.ID, 0, chat.Workflow{Title: f.Title, Summary: f.Summary})
+	kernel.Contribute(c, chat.ReviewedWork, f.ID, 0, chat.Workflow{Title: f.Title, Summary: f.Summary})
 	return kernel.Contribute(c, kernel.Commands, f.ID, 0, kernel.Command{Title: f.Title, Menu: "Agent", Run: func() {
 		kernel.Emit(c, chat.WorkflowSelected, f.ID)
 		ctl := kernel.Require(c, chat.ControllerKey)

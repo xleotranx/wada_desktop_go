@@ -22,13 +22,14 @@ keep its types inside the backend plugin.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
+  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement).
 - `internal/plugins/*`: every feature. `cowork` (everyday-work instructions and tools for work documents, arithmetic and source URLs), `pig` (embedded backend), `chat` (conversation
-  page), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
+  page, which asks for a work folder before the composer), `starters` (the new chat's folder
+  starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `design` (design mode for

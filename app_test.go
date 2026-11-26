@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"wada-desktop-go/internal/plugins/models"
 	"wada-desktop-go/internal/plugins/modes"
 	"wada-desktop-go/internal/plugins/palette"
+	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workflow"
@@ -89,7 +91,7 @@ func startApp(t *testing.T) *app {
 	}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a.New, files.New, chat.New, models.New, modes.New, usage.New, filechanges.New, attachments.New, markup.New, mentions.New,
-		workspace.New, folderpicker.New, tabs.New, explore.New, workflow.New, flows.New, palette.New, inspector.New, settings.New)
+		workspace.New, folderpicker.New, tabs.New, explore.New, workflow.New, flows.New, starters.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,8 +308,35 @@ func completeWorkflow(a *plugintest.Agent, req agent.Send) {
 		agent.Event{Kind: agent.TextEnded, Session: req.Session, RequestID: req.ID, Text: &agent.TextEvent{Message: agent.MessageID(req.ID), Text: "Implemented and checked."}},
 		agent.Event{Kind: agent.TurnSucceeded, Session: req.Session, RequestID: req.ID, Result: json.RawMessage(result)})
 }
+func TestAReviewedDocumentStarterSelectsPlanWorkReview(t *testing.T) {
+	a := startApp(t)
+	dir := t.TempDir()
+	for _, name := range []string{"report.docx", "notes.pdf"} {
+		if err := os.WriteFile(path.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctl, _ := kernel.Use(a.shell.Kernel, chatcontract.ControllerKey)
+	ctl.NewChat(dir)
+	a.settle()
+	if !a.tt.HasText("Summarize these documents") {
+		t.Fatalf("starters missing: %q", a.tt.Texts())
+	}
+	if err := a.tt.Click("Summarize these documents"); err != nil {
+		t.Fatal(err)
+	}
+	a.settle()
+	if !a.tt.HasText("Plan, work, review") {
+		t.Fatalf("the workflow was not selected: %q", a.tt.Texts())
+	}
+	if !strings.HasPrefix(ctl.DraftText(), "Read the documents in this folder") {
+		t.Fatalf("draft %q", ctl.DraftText())
+	}
+}
+
 func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
 	a := startApp(t)
+	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
 	a.agent.OnSend = func(req agent.Send) { completeWorkflow(a.agent, req) }
 	a.command("flows.plan-work-review")
 	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, work, review") {

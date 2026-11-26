@@ -315,7 +315,7 @@ func (p *Plugin) abortUnknown(l *lane, op *operation, cause error) {
 func decodeResult(op *operation, raw json.RawMessage) (phaseResult, error) {
 	var r phaseResult
 	if len(raw) == 0 {
-		return r, errors.New("the agent returned no structured result")
+		return r, errors.New("the agent did not return the structured result this workflow needs; try again, or run the request as a chat")
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return r, fmt.Errorf("invalid structured result: %w", err)

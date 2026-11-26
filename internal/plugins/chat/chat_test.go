@@ -915,6 +915,7 @@ func TestComposerFooterKeepsControlsOutsideInputAndOverflowsAtNarrowWidths(t *te
 		}})
 	}}
 	_, p, _, _ := start(t, controls.New)
+	p.NewChat(t.TempDir())
 	for _, width := range []float32{360, 900} {
 		tt := ui.NewTester(p.view, int(width), 600)
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
@@ -950,12 +951,14 @@ func TestTheComposerHintNamesOnlyActiveCompletions(t *testing.T) {
 		return kernel.Contribute(c, chat.Completions, "extension.files", 0, chat.Completion{Trigger: '@', Hint: "mentions a file"})
 	}}
 	_, p, _, _ := start(t)
+	p.NewChat(t.TempDir())
 	tt := ui.NewTester(p.view, 1000, 800)
 	tt.Frame()
 	if !tt.HasText("Enter sends  ·  Shift+Enter adds a line") {
 		t.Fatalf("hint %q", tt.Texts())
 	}
 	_, p, _, _ = start(t, hinted.New)
+	p.NewChat(t.TempDir())
 	tt = ui.NewTester(p.view, 1000, 800)
 	tt.Frame()
 	if !tt.HasText("Enter sends  ·  Shift+Enter adds a line  ·  @ mentions a file") {
@@ -968,3 +971,45 @@ type extension struct{ setup func(*kernel.Context) error }
 func (f *extension) New() kernel.Plugin            { return f }
 func (*extension) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "extension"} }
 func (e *extension) Setup(c *kernel.Context) error { return e.setup(c) }
+
+func TestANewChatWithoutAFolderAsksForOne(t *testing.T) {
+	dir := t.TempDir()
+	ws := &plugintest.Workspace{Chosen: dir}
+	_, p, _, _ := start(t, ws.New)
+	p.NewChat("")
+	tt := ui.NewTester(p.view, 1000, 800)
+	tt.Frame()
+	if !tt.HasText("Choose a work folder") {
+		t.Fatalf("gate missing: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Compose"); ok {
+		t.Fatal("the composer shows before a folder")
+	}
+	if err := tt.Click("Open a work folder"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if p.conv.Directory != dir {
+		t.Fatalf("folder %q", p.conv.Directory)
+	}
+	if _, ok := tt.Find("Compose"); !ok {
+		t.Fatal("the composer does not show after a folder")
+	}
+}
+
+func TestAskingWithoutAFolderOpensTheComposer(t *testing.T) {
+	_, p, _, _ := start(t)
+	p.NewChat("")
+	tt := ui.NewTester(p.view, 1000, 800)
+	tt.Frame()
+	if err := tt.Click("Ask without a folder"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !p.inbox {
+		t.Fatal("the chat did not choose the Inbox")
+	}
+	if _, ok := tt.Find("Compose"); !ok {
+		t.Fatal("the composer does not show for the Inbox")
+	}
+}

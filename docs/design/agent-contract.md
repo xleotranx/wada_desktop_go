@@ -101,7 +101,10 @@ Wada preserves the original user text and attachment names for display.
 questions. `TurnSucceeded.Result` carries an optional validated JSON result.
 `Send.ResultSchema` activates the reserved host `submit_result` SDK tool for that
 turn. It validates its arguments, accepts one result, blocks later tool execution,
-and terminates the tool batch. The tool and result state are cleared at settlement.
+and terminates the tool batch. The prompt tells the model not to end with text
+alone; a model that still answers in text may end with one fenced JSON block, which
+PiG validates the same way and uses when no tool result was submitted. The tool and
+result state are cleared at settlement.
 `Send.Instructions` are scoped to the current prompt. `Send.Internal` keeps generated
 continuation prompts out of visible user history; the model still sees them.
 

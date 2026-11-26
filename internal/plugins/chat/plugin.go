@@ -56,11 +56,13 @@ type Plugin struct {
 	comp            completion
 	sel             selectionState
 	list            ui.ListState
-	expanded        map[uint64]bool // tool calls opened to their detail
-	worked          map[uint64]bool // turns' folded work opened, by its first row
-	md              markdown.Options
-	mdTheme         markdown.Theme
-	frameDue        bool // the last frame asked for one to show more of an arriving answer
+	// inbox is the user's choice to work without a folder in this new chat.
+	inbox    bool
+	expanded map[uint64]bool // tool calls opened to their detail
+	worked   map[uint64]bool // turns' folded work opened, by its first row
+	md       markdown.Options
+	mdTheme  markdown.Theme
+	frameDue bool // the last frame asked for one to show more of an arriving answer
 	// waitMark and waitSince are where the wait at the foot of a turn in
 	// flight began: the conversation, its count of events, and when.
 	waitMark  waitMark
@@ -158,10 +160,16 @@ func (p *Plugin) SetDirectory(directory string) {
 		return
 	}
 	p.conv.Directory = directory
+	p.inbox = directory == ""
 	kernel.Emit(p.ctx, chat.Changed, p.conv)
+	p.ctx.Invalidate()
 }
 
 func (p *Plugin) SetDraft(text string) {
+	if text != "" && p.conv.Session == "" && p.conv.Directory == "" {
+		// Text in a new chat with no folder means the user chose the Inbox.
+		p.inbox = true
+	}
 	p.draft, p.replacing, p.replacingFiles, p.focus = text, false, false, true
 }
 
@@ -196,6 +204,7 @@ func (p *Plugin) switchTo(conv chat.Conversation) {
 		conv.DraftID = p.nextDraft
 	}
 	p.conv, p.sending, p.draft = conv, false, ""
+	p.inbox = false
 	p.replacing, p.replacingFiles = false, false
 	p.comp, p.sel = newCompletion(), selectionState{}
 	p.t.reset()

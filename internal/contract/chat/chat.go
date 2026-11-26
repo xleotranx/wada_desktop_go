@@ -65,8 +65,15 @@ var (
 	// file after "@". The composer owns the draft, the caret and the keys;
 	// a contribution only says what to offer and what a choice becomes.
 	Completions = kernel.NewPoint[Completion]("chat.completions")
+	// Starters draw the starting points under the composer of an empty new
+	// chat. Each draws its own column; the chat adds the composer's hint.
+	Starters = kernel.NewPoint[shell.View]("chat.starters")
 	// Workflows are one-task behaviors listed after the access modes.
-	Workflows        = kernel.NewPoint[Workflow]("chat.workflows")
+	Workflows = kernel.NewPoint[Workflow]("chat.workflows")
+	// ReviewedWork names the workflow the new chat's document starters select
+	// for work that should be planned, produced and reviewed. The entry ID is
+	// the workflow's ID; the starters pick the first when one is installed.
+	ReviewedWork     = kernel.NewPoint[Workflow]("chat.reviewed-work")
 	WorkflowSelected = kernel.NewTopic[string]("chat.workflow-selected")
 	Incoming         = kernel.NewTopic[[]agent.Event]("chat.incoming") // external child approvals/questions shown in their parent
 	DeliveryKey      = kernel.NewKey[Delivery]("chat.delivery")

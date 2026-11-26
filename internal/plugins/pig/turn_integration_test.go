@@ -172,3 +172,27 @@ func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
 		t.Fatalf("top-level sessions %+v", sessions)
 	}
 }
+
+func TestStructuredResultFallsBackToFencedText(t *testing.T) {
+	h, p, faux := startPig(t)
+	s := createChat(t, h, p, t.TempDir())
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{
+		Content: []ai.FauxContentBlock{ai.FauxText("The plan.\n\n```json\n{\"status\":\"ready\",\"summary\":\"planned from text\"}\n```")},
+	}})
+	var terminal *agent.Event
+	kernel.On(h, agent.Events, func(batch []agent.Event) {
+		for _, ev := range batch {
+			if ev.Session == s.ID && ev.Kind == agent.TurnSucceeded {
+				copy := ev
+				terminal = &copy
+			}
+		}
+	})
+	call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
+		return p.Send(ctx, agent.Send{ID: "fallback-request", Session: s.ID, Text: "Do the task", ResultSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"},"summary":{"type":"string"}},"required":["status","summary"]}`)})
+	})
+	waitFor(t, h, "structured turn", func() bool { return terminal != nil })
+	if !strings.Contains(string(terminal.Result), "planned from text") {
+		t.Fatalf("terminal %+v", terminal)
+	}
+}

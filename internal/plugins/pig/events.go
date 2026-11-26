@@ -236,20 +236,50 @@ func actionKey(name string, args json.RawMessage) string {
 
 func toolCommand(args ai.JsonObject) string { data, _ := json.Marshal(args); return commandOf(data) }
 
+// lastAssistantText is the final answer of the turn, without its reasoning or
+// tool calls, for a result the model wrote instead of submitting.
+func lastAssistantText(c *conversation) string {
+	messages := storedMessages(c)
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role != agent.RoleAssistant {
+			continue
+		}
+		var text strings.Builder
+		for _, part := range m.Parts {
+			if part.Kind == agent.PartText {
+				text.WriteString(part.Text)
+			}
+		}
+		return text.String()
+	}
+	return ""
+}
+
 // finishTurn publishes settlement only after the worker has saved metadata and
 // released its admission slot, so an immediate next prompt can be admitted.
 func (e *engine) finishTurn(c *conversation, started, stopped bool, runErr, saveErr error) {
 	names := withoutTurnTools(c.session.ActiveToolNames())
 	c.turnMu.Lock()
-	var result json.RawMessage
+	var result, schema json.RawMessage
 	if c.turn != nil {
-		result = c.turn.result
+		result, schema = c.turn.result, c.turn.schema
 		if c.turn.tools != nil {
 			names = c.turn.tools
 		}
 	}
 	c.turn = nil
 	c.turnMu.Unlock()
+	if len(result) == 0 && len(schema) > 0 {
+		// A model may explain the result without calling submit_result. The
+		// turn's fallback asks for a fenced json block; take the last one that
+		// fits the schema.
+		if text := lastAssistantText(c); text != "" {
+			if parsed, ok := resultFromText(text, schema); ok {
+				result = parsed
+			}
+		}
+	}
 	c.session.SetActiveToolsByName(names)
 	t := &c.translator
 	t.mu.Lock()

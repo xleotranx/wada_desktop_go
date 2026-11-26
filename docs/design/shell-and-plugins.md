@@ -28,9 +28,11 @@ provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
 Conversation settings section with the work panel's switch.
 
 - A chat with nothing in it yet centers the composer between a greeting (with the
-  chosen folder) and, for a new chat, starter suggestions that fill the draft. Once
-  the transcript has rows the composer sits at the foot of the page; it keeps its
-  place in the tree, so it keeps its focus as it moves.
+  chosen folder) and, for a new chat, the `chat.Starters` views. A new chat with no
+  folder, no draft and no Inbox choice shows the folder gate instead of the
+  composer: **Open a work folder** asks the workspace for one, and **Ask without a
+  folder** opens the composer in the backend's Inbox. Once the transcript has rows the composer sits at the foot of
+  the page; it keeps its place in the tree, so it keeps its focus as it moves.
 
 - Each open conversation has its own kernel scope. Switching disposes it, so a load,
   send or reply started for the previous conversation can't land in the next one.
@@ -158,6 +160,28 @@ Conversation settings section with the work panel's switch.
   `chat.Started`, and a toast says the original was kept. A failed read or rewind
   sends nothing: it is noted and the conversation read again.
 - User messages show the files that went with them as chips.
+
+## New chat starters
+
+`internal/plugins/starters` requires `chat.ControllerKey` and contributes the
+`chat.Starters` view. On `chat.Changed` it reads the new chat's folder off the UI
+thread; a stored conversation or a chat without a folder clears the read. Only the
+latest read lands, and only while the same new chat still shows that folder. A
+folder that cannot be read says so under the composer.
+
+The read counts the folder's top-level files, skipping hidden files, directories and
+symlinks. Documents are the formats the reader handles as work documents (Office,
+PDF, CSV/TSV, text and Markdown, RTF, OpenDocument and EPUB); code is a source extension or a
+project marker such as `go.mod`, `package.json` or `Cargo.toml`. A folder with a
+marker, or with at least as many code files as documents, gets code starters;
+documents otherwise; an empty or unrecognized folder gets a folder starter. The
+first three names of the chosen kind show above the list, with the rest counted.
+
+Document starters are **reviewed** when a `chat.ReviewedWork` entry exists: the view
+says "Reviewed work", and choosing one emits `chat.WorkflowSelected` with that
+entry's ID before filling the draft. Another starter clears the selection. Code and
+folder starters never claim a review. The starter fills the composer; the user
+sends it.
 
 ## All chats
 
@@ -509,7 +533,8 @@ clicking it opens that conversation. Its settings section turns each kind off.
 ## Workflows
 
 The **Workflow engine** plugin provides `chat.DeliveryKey`; **Built-in workflows**
-contributes `workflow.Definitions`, composer choices, and Agent-menu commands.
+contributes `workflow.Definitions`, composer choices, Agent-menu commands and the
+flow to `chat.ReviewedWork` for the new chat's reviewed document starters.
 `workflow.Flow` contains phase instructions and the review limit. The engine requires
 backend child sessions and task snapshots; it owns transitions and knows no built-in
 flow's prompt text. Plugins communicate through contracts and kernel registrations.
@@ -528,7 +553,9 @@ additions, modifications and deletions. Snapshot limits or read failures fail th
 phase explicitly; they are not treated as an empty diff. This attribution does not
 isolate concurrent external edits.
 
-Each phase requests a structured result through the backend. Planning, work and
+Each phase requests a structured result through the backend. The model calls the
+host's `submit_result` tool; a model that answers in text may end with a fenced JSON
+block, which the backend validates and accepts instead. Planning, work and
 fixes return ready or blocked with a summary; routing returns answer, continue,
 new_task or resume; reviewers return pass, issues or incomplete with file, severity
 and evidence for each finding. Missing, invalid or contradictory results fail the

@@ -3,17 +3,22 @@
 package plugintest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path"
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
+	attachment "wada-desktop-go/internal/contract/attachments"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/kernel"
 )
 
@@ -540,4 +545,82 @@ func (a *Agent) Snapshot(ctx context.Context, id agent.SessionID) (agent.Snapsho
 }
 func (a *Agent) Diff(ctx context.Context, id agent.SessionID, before agent.Snapshot) ([]agent.FileChange, error) {
 	return a.Changes(ctx, id)
+}
+
+// Send runs the chat.Outgoing pipeline as the chat does, committing what it accepts.
+func Send(o kernel.Owner, d chat.Draft) (chat.Draft, error) {
+	out, commit, err := kernel.Run(o, chat.Outgoing, d)
+	if err == nil {
+		commit()
+	}
+	return out, err
+}
+
+// Outgoing runs Send and fails the test if any transform rejects the draft.
+func Outgoing(t *testing.T, o kernel.Owner, d chat.Draft) chat.Draft {
+	t.Helper()
+	out, err := Send(o, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Tabs provides tabs.ServiceKey over fixed test state.
+type Tabs struct {
+	List    []tabs.Tab
+	Current tabs.Tab
+}
+
+func (t *Tabs) New() kernel.Plugin { return t }
+func (*Tabs) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "fake-tabs", Provides: []kernel.Named{tabs.ServiceKey}}
+}
+func (t *Tabs) Setup(c *kernel.Context) error {
+	return kernel.Provide[tabs.Service](c, tabs.ServiceKey, t)
+}
+func (t *Tabs) Tabs() []tabs.Tab {
+	if len(t.List) > 0 {
+		return t.List
+	}
+	if t.Current.ID != "" {
+		return []tabs.Tab{t.Current}
+	}
+	return nil
+}
+func (t *Tabs) Active() (tabs.Tab, bool) { return t.Current, t.Current.ID != "" }
+func (t *Tabs) Select(string)            {}
+func (t *Tabs) Close(string)             {}
+func (t *Tabs) Move(string, int)         {}
+func (t *Tabs) Space() string            { return t.Current.Folder }
+
+// Images provides attachment.ServiceKey in memory for tests.
+type Images struct {
+	Attached []agent.File
+	Current  attachment.Image
+	Details  []attachment.Detail
+	Replaced int
+}
+
+func (f *Images) New() kernel.Plugin { return f }
+func (*Images) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "fake-images", Provides: []kernel.Named{attachment.ServiceKey}}
+}
+func (f *Images) Setup(c *kernel.Context) error {
+	return kernel.Provide[attachment.Service](c, attachment.ServiceKey, f)
+}
+func (f *Images) Snapshot(id uint64) (attachment.Image, bool) {
+	return f.Current, id == f.Current.ID && id != 0
+}
+func (f *Images) Attach(file agent.File, _ *ui.Bitmap) (uint64, error) {
+	f.Attached = append(f.Attached, file)
+	f.Current = attachment.Image{ID: f.Current.ID + 1, Revision: 1, File: file}
+	return f.Current.ID, nil
+}
+func (f *Images) Replace(_ attachment.Image, file agent.File, _ *ui.Bitmap, notes string, details []attachment.Detail) error {
+	file.Data = bytes.Clone(file.Data)
+	f.Current.File, f.Current.Notes, f.Details = file, notes, details
+	f.Current.Revision++
+	f.Replaced++
+	return nil
 }

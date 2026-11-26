@@ -89,7 +89,7 @@ func TestEverySkillTheTextNamesGoesWithTheMessage(t *testing.T) {
 	c := completion(h)
 	c.Query("", true)
 	h.Flush()
-	d, err := send(h, chat.Draft{Text: "Cut a release with /git-release, then let /code-review look."})
+	d, err := plugintest.Send(h, chat.Draft{Text: "Cut a release with /git-release, then let /code-review look."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestEverySkillTheTextNamesGoesWithTheMessage(t *testing.T) {
 		t.Fatalf("text changed: %q", d.Text)
 	}
 	// A skill removed from the text is not attached.
-	d, err = send(h, chat.Draft{Text: "Cut a release"})
+	d, err = plugintest.Send(h, chat.Draft{Text: "Cut a release"})
 	if err != nil || len(d.Skills) != 0 {
 		t.Fatalf("removed skill: %+v, %v", d.Skills, err)
 	}
@@ -122,7 +122,7 @@ func TestOnlyASlashWordAttachesASkill(t *testing.T) {
 		{"See https://example.com/git-release", false},
 		{"Use git-release", false},
 	} {
-		d, err := send(h, chat.Draft{Text: tc.text})
+		d, err := plugintest.Send(h, chat.Draft{Text: tc.text})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -168,13 +168,4 @@ func TestAFailedLookupIsReportedOncePerWord(t *testing.T) {
 	if len(host.Toasts) != 2 {
 		t.Fatalf("a new word did not retry: %q", host.Toasts)
 	}
-}
-
-// send runs the outgoing pipeline as the chat does, committing what it accepts.
-func send(h *kerneltest.Harness, d chat.Draft) (chat.Draft, error) {
-	out, commit, err := kernel.Run(h, chat.Outgoing, d)
-	if err == nil {
-		commit()
-	}
-	return out, err
 }

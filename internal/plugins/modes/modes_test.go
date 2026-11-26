@@ -30,24 +30,6 @@ func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Factory) (*k
 	return h, p, a, c
 }
 
-// send runs the outgoing pipeline as the chat does, committing what it accepts.
-func send(h *kerneltest.Harness, d chat.Draft) (chat.Draft, error) {
-	out, commit, err := kernel.Run(h, chat.Outgoing, d)
-	if err == nil {
-		commit()
-	}
-	return out, err
-}
-
-func outgoing(t *testing.T, h *kerneltest.Harness, d chat.Draft) chat.Draft {
-	t.Helper()
-	out, err := send(h, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
 // picker draws the mode picker; click chooses in it, which applies once the
 // frame is done.
 func picker(p *Plugin) *ui.Tester {
@@ -76,21 +58,21 @@ func TestTheChosenModeGoesWithEveryMessage(t *testing.T) {
 	if !tt.HasText("Build") {
 		t.Fatalf("picker %q", tt.Texts())
 	}
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
 		t.Fatalf("nothing chosen yet, draft %+v", d)
 	}
 	click(t, h, tt, "Build", "Plan")
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "plan" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "plan" {
 		t.Fatalf("draft %+v", d)
 	}
-	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); d.Mode != "plan" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); d.Mode != "plan" {
 		t.Fatalf("existing conversation did not receive the mode: %+v", d)
 	}
 	h.Close()
 
 	// Remembered across launches.
 	h, _, _, _ = start(t, store)
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "plan" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "plan" {
 		t.Fatalf("after restart: %+v", d)
 	}
 }
@@ -151,17 +133,17 @@ func TestModesFollowAProviderThatComesAndGoes(t *testing.T) {
 		func() kernel.Plugin { return &modesOnly{backend: a} },
 		c.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
 		t.Fatalf("with modes: %+v", d)
 	}
 	h.Disable("modes-only")
 	h.Flush()
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "" {
 		t.Fatalf("modes outlived their provider: %+v", d)
 	}
 	h.Enable("modes-only")
 	h.Flush()
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
 		t.Fatalf("a provider enabled later was not noticed: %+v", d)
 	}
 }
@@ -191,7 +173,7 @@ func TestWorkflowSelectionKeepsAccessModeAndAllTransforms(t *testing.T) {
 	if p.selectedWorkflow != "" || !committed {
 		t.Fatal("selection did not reset at commit")
 	}
-	next := outgoing(t, h, chat.Draft{Text: "why?"})
+	next := plugintest.Outgoing(t, h, chat.Draft{Text: "why?"})
 	if next.Workflow != "" || next.Mode != "plan" {
 		t.Fatalf("next %+v", next)
 	}
@@ -219,7 +201,7 @@ func TestWorkflowSelectionClearsOnNavigationAndUnavailableChoiceRejects(t *testi
 		t.Fatal("selection survived navigation")
 	}
 	p.pick(workflowPrefix + "missing")
-	if _, err := send(h, chat.Draft{Text: "implement"}); err == nil {
+	if _, err := plugintest.Send(h, chat.Draft{Text: "implement"}); err == nil {
 		t.Fatal("missing workflow silently fell back")
 	}
 }

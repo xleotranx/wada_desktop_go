@@ -50,11 +50,7 @@ func labels(cs []chat.Candidate) []string {
 
 // send runs the outgoing pipeline as the chat does, committing what it accepts.
 func send(h *kerneltest.Harness, text string) (chat.Draft, error) {
-	out, commit, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: text})
-	if err == nil {
-		commit()
-	}
-	return out, err
+	return plugintest.Send(h, chat.Draft{Text: text})
 }
 
 func fileNames(d chat.Draft) []string {

@@ -13,6 +13,7 @@ import (
 	"wada-desktop-go/internal/contract/agent"
 	attachment "wada-desktop-go/internal/contract/attachments"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/contract/shell"
@@ -53,7 +54,7 @@ func TestDroppedFilesGoWithTheNextMessage(t *testing.T) {
 	h, p, host, dir := start(t)
 	drop(h, filepath.Join(dir, "shot.png"), filepath.Join(dir, "notes.txt"), filepath.Join(dir, "folder"),
 		filepath.Join(dir, "missing"), filepath.Join(dir, "notes.txt"))
-	if _, err := send(h, chat.Draft{Text: "early"}); err == nil {
+	if _, err := plugintest.Send(h, chat.Draft{Text: "early"}); err == nil {
 		t.Fatal("sent while files were being read")
 	}
 	h.Flush()
@@ -68,7 +69,7 @@ func TestDroppedFilesGoWithTheNextMessage(t *testing.T) {
 	if len(p.pending) != 2 {
 		t.Fatalf("a file was added twice: %q", names(p))
 	}
-	d, err := send(h, chat.Draft{Text: "look"})
+	d, err := plugintest.Send(h, chat.Draft{Text: "look"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,11 +90,11 @@ func TestFilesWaitWhenALaterTransformRejectsTheMessage(t *testing.T) {
 		}
 		return d, nil, nil
 	})
-	if _, err := send(h, chat.Draft{Text: "look"}); err == nil || !slices.Equal(names(p), []string{"notes.txt"}) {
+	if _, err := plugintest.Send(h, chat.Draft{Text: "look"}); err == nil || !slices.Equal(names(p), []string{"notes.txt"}) {
 		t.Fatalf("rejected send: %v, pending %q", err, names(p))
 	}
 	reject = false
-	if d, err := send(h, chat.Draft{Text: "look"}); err != nil || len(d.Files) != 1 || len(p.pending) != 0 {
+	if d, err := plugintest.Send(h, chat.Draft{Text: "look"}); err != nil || len(d.Files) != 1 || len(p.pending) != 0 {
 		t.Fatalf("accepted send: %+v, %v, pending %q", d.Files, err, names(p))
 	}
 }
@@ -284,7 +285,7 @@ func TestDetailsGoOutRightAfterTheirImageAndCountAsFiles(t *testing.T) {
 	if err := service.Replace(current, current.File, p.pending[0].thumb, "", many); err == nil {
 		t.Fatal("details past the message's file limit were taken")
 	}
-	d, err := send(h, chat.Draft{Text: "Look"})
+	d, err := plugintest.Send(h, chat.Draft{Text: "Look"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +321,7 @@ func TestAPluginCanAttachAnImageWithinTheLimits(t *testing.T) {
 	if _, err := service.Attach(agent.File{Name: "Screenshot.png", MIME: "image/png", Data: data}, thumb); err == nil {
 		t.Fatal("an eleventh file was attached")
 	}
-	if d, _ := send(h, chat.Draft{Text: "x"}); len(d.Files) != maxFiles {
+	if d, _ := plugintest.Send(h, chat.Draft{Text: "x"}); len(d.Files) != maxFiles {
 		t.Fatalf("sent %d files", len(d.Files))
 	}
 }
@@ -335,7 +336,7 @@ func TestImageNotesGoOutNamingTheirImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	earlier := agent.File{Name: "other.png", MIME: "image/png", Data: []byte{1}}
-	d, err := send(h, chat.Draft{Text: "Fix it", Files: []agent.File{earlier}})
+	d, err := plugintest.Send(h, chat.Draft{Text: "Fix it", Files: []agent.File{earlier}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,16 +348,7 @@ func TestImageNotesGoOutNamingTheirImage(t *testing.T) {
 	source, _ = service.Snapshot(p.pending[0].id)
 	service.Replace(source, source.File, p.pending[0].thumb, "note", nil)
 	p.remove(p.pending[0].path)
-	if d, _ := send(h, chat.Draft{Text: "Hi"}); d.Text != "Hi" {
+	if d, _ := plugintest.Send(h, chat.Draft{Text: "Hi"}); d.Text != "Hi" {
 		t.Fatalf("a removed image's notes went out: %q", d.Text)
 	}
-}
-
-// send runs the outgoing pipeline as the chat does, committing what it accepts.
-func send(h *kerneltest.Harness, d chat.Draft) (chat.Draft, error) {
-	out, commit, err := kernel.Run(h, chat.Outgoing, d)
-	if err == nil {
-		commit()
-	}
-	return out, err
 }

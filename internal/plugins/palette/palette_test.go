@@ -199,23 +199,6 @@ func TestShortcutLabels(t *testing.T) {
 	}
 }
 
-// openTabs stands in for the tabs plugin with a fixed list.
-type openTabs struct{ list []tabs.Tab }
-
-func (f *openTabs) New() kernel.Plugin { return f }
-func (*openTabs) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "tabs", Provides: []kernel.Named{tabs.ServiceKey}}
-}
-func (o *openTabs) Setup(c *kernel.Context) error {
-	return kernel.Provide[tabs.Service](c, tabs.ServiceKey, o)
-}
-func (o *openTabs) Tabs() []tabs.Tab         { return o.list }
-func (o *openTabs) Active() (tabs.Tab, bool) { return tabs.Tab{}, false }
-func (o *openTabs) Select(string)            {}
-func (o *openTabs) Close(string)             {}
-func (o *openTabs) Move(string, int)         {}
-func (o *openTabs) Space() string            { return "" }
-
 func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 	ws := &plugintest.Workspace{
 		FolderSet: []workspace.Folder{{Path: "/w/app"}, {Path: "/w/web"}},
@@ -225,7 +208,7 @@ func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 		}}
 	chat := &plugintest.Chat{}
 	var p *Plugin
-	open := &openTabs{list: []tabs.Tab{{ID: "chat:s2", Kind: tabs.Conversation, Session: "s2"}}}
+	open := &plugintest.Tabs{List: []tabs.Tab{{ID: "chat:s2", Kind: tabs.Conversation, Session: "s2"}}}
 	h := kerneltest.New(t, ws.New, chat.New, open.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	got := map[string]string{}

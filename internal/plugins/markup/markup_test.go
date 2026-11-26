@@ -26,34 +26,6 @@ import (
 
 const shotW, shotH = 400, 300
 
-type images struct {
-	current  attachment.Image
-	details  []attachment.Detail
-	replaced int
-}
-
-func (f *images) New() kernel.Plugin { return f }
-func (*images) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-images", Provides: []kernel.Named{attachment.ServiceKey}}
-}
-func (f *images) Setup(c *kernel.Context) error {
-	return kernel.Provide[attachment.Service](c, attachment.ServiceKey, f)
-}
-func (f *images) Snapshot(id uint64) (attachment.Image, bool) {
-	return f.current, id == f.current.ID && id != 0
-}
-func (f *images) Attach(file agent.File, _ *ui.Bitmap) (uint64, error) {
-	f.current = attachment.Image{ID: f.current.ID + 1, Revision: 1, File: file}
-	return f.current.ID, nil
-}
-func (f *images) Replace(source attachment.Image, file agent.File, _ *ui.Bitmap, notes string, details []attachment.Detail) error {
-	file.Data = bytes.Clone(file.Data)
-	f.current.File, f.current.Notes, f.details = file, notes, details
-	f.current.Revision++
-	f.replaced++
-	return nil
-}
-
 // screenshot is a light gray image with a gradient, so a changed pixel
 // anywhere shows.
 func screenshot(t *testing.T) []byte {
@@ -87,11 +59,11 @@ func (f *sizes) Fit(_ context.Context, model agent.ModelRef, file agent.File) (i
 	return config.Width / 2, config.Height / 2, err
 }
 
-func start(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *images, []byte, *plugintest.Chat) {
+func start(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Images, []byte, *plugintest.Chat) {
 	t.Helper()
 	ctl, host := &plugintest.Chat{}, &kittest.Host{}
 	data := screenshot(t)
-	files := &images{current: attachment.Image{ID: 1, Revision: 1, File: agent.File{Name: "screen.jpg", MIME: "image/png", Data: data}}}
+	files := &plugintest.Images{Current: attachment.Image{ID: 1, Revision: 1, File: agent.File{Name: "screen.jpg", MIME: "image/png", Data: data}}}
 	var p *Plugin
 	plugins := append([]kernel.Factory{files.New, ctl.New, host.New}, extra...)
 	h := kerneltest.New(t, append(plugins, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))...)
@@ -155,15 +127,15 @@ func TestAMarkedUpImageGoesWithNumberedNotesAndKeepsItsOtherPixels(t *testing.T)
 		t.Fatal(err)
 	}
 	h.Flush()
-	if p.open || files.replaced != 1 || files.current.File.MIME != "image/png" || files.current.File.Name != "screen.png" {
-		t.Fatalf("not replaced: open %v file %+v", p.open, files.current.File.Name)
+	if p.open || files.Replaced != 1 || files.Current.File.MIME != "image/png" || files.Current.File.Name != "screen.png" {
+		t.Fatalf("not replaced: open %v file %+v", p.open, files.Current.File.Name)
 	}
 	want := "I drew the numbered marks; they are not part of the image. Positions are x, y from 0 to 1000 across and down.\n" +
 		"1. Red box from (250, 250) to (750, 750): Move this panel"
-	if files.current.Notes != want {
-		t.Fatalf("notes %q", files.current.Notes)
+	if files.Current.Notes != want {
+		t.Fatalf("notes %q", files.Current.Notes)
 	}
-	got, source := decodePNG(t, files.current.File.Data), decodePNG(t, original)
+	got, source := decodePNG(t, files.Current.File.Data), decodePNG(t, original)
 	edge := color.NRGBAModel.Convert(got.At(200, 75)).(color.NRGBA)
 	if edge.R < 200 || edge.G > 90 {
 		t.Fatalf("the box's edge is not red: %+v", edge)
@@ -195,8 +167,8 @@ func TestMarkingUpAgainEditsTheOriginalAndRemovingEveryMarkRestoresIt(t *testing
 		t.Fatal(err)
 	}
 	h.Flush()
-	if !bytes.Equal(files.current.File.Data, original) || files.current.Notes != "" || files.current.File.Name != "screen.jpg" {
-		t.Fatalf("the original did not come back: notes %q", files.current.Notes)
+	if !bytes.Equal(files.Current.File.Data, original) || files.Current.Notes != "" || files.Current.File.Name != "screen.jpg" {
+		t.Fatalf("the original did not come back: notes %q", files.Current.Notes)
 	}
 	p.begin(1)
 	h.Flush()
@@ -324,14 +296,14 @@ func TestCancelAndNavigationDropAnExport(t *testing.T) {
 	p.apply(native.PaletteOf(&ui.Theme{}))
 	ctl.NewChat("/another-project")
 	h.Flush()
-	if p.open || files.replaced != 0 {
+	if p.open || files.Replaced != 0 {
 		t.Fatal("a stale export followed navigation")
 	}
 	tt, _ = editor(t, h, p)
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	h.Flush()
-	if p.open || files.replaced != 0 || p.decoded != nil || p.preview != nil || p.scope != nil {
+	if p.open || files.Replaced != 0 || p.decoded != nil || p.preview != nil || p.scope != nil {
 		t.Fatal("Escape kept the editor or changed the attachment")
 	}
 }
@@ -384,7 +356,7 @@ func TestPinsLinesAndHighlightsAreNumberedAndHiddenAreasBlackOutPixels(t *testin
 		t.Fatal(err)
 	}
 	h.Flush()
-	notes := files.current.Notes
+	notes := files.Current.Notes
 	for _, line := range []string{"1. Red pin at (200, 800): This icon is blurry", "2. Red freehand line spanning (100, 400) to (400, 450)",
 		"3. Yellow highlight from (500, 600) to (800, 900)", "Solid dark blocks hide parts of the image on purpose."} {
 		if !strings.Contains(notes, line) {
@@ -394,7 +366,7 @@ func TestPinsLinesAndHighlightsAreNumberedAndHiddenAreasBlackOutPixels(t *testin
 	if strings.Contains(notes, "(600, 100)") {
 		t.Fatal("the legend locates the hidden area")
 	}
-	got, source := decodePNG(t, files.current.File.Data), decodePNG(t, original)
+	got, source := decodePNG(t, files.Current.File.Data), decodePNG(t, original)
 	// Every pixel of the hidden area is the redaction color, edges included.
 	want := color.Color(color.NRGBA{R: pal.Redaction.R, G: pal.Redaction.G, B: pal.Redaction.B, A: 255})
 	for py := 30; py < 90; py++ {
@@ -463,10 +435,10 @@ func TestAScaledDownImageSendsSmallMarksAgainAtFullResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.Flush()
-	if len(files.details) != 1 || files.details[0].Name != "mark 1 at full resolution" || files.details[0].File.Name != "screen mark 1.png" {
-		t.Fatalf("details %+v", files.details)
+	if len(files.Details) != 1 || files.Details[0].Name != "mark 1 at full resolution" || files.Details[0].File.Name != "screen mark 1.png" {
+		t.Fatalf("details %+v", files.Details)
 	}
-	part := decodePNG(t, files.details[0].File.Data)
+	part := decodePNG(t, files.Details[0].File.Data)
 	if part.Bounds().Dx() != p.kept[1].marks[0].detailRect(shotW, shotH).Dx() || part.Bounds().Dx() != 148 {
 		t.Fatalf("the detail is %v", part.Bounds())
 	}
@@ -496,8 +468,8 @@ func TestDetailsTurnOnPerMarkWithUndo(t *testing.T) {
 	tt.Frame()
 	tt.Click("Use marked-up image")
 	h.Flush()
-	if len(files.details) != 1 {
-		t.Fatalf("details %d", len(files.details))
+	if len(files.Details) != 1 {
+		t.Fatalf("details %d", len(files.Details))
 	}
 }
 
@@ -536,10 +508,10 @@ func TestDecodeRefusesOversizedOrInvalidImagesBeforeAllocatingPixels(t *testing.
 	}
 }
 
-func startCapturing(t *testing.T, capture captureFunc) (*kerneltest.Harness, *Plugin, *images, *kittest.Host) {
+func startCapturing(t *testing.T, capture captureFunc) (*kerneltest.Harness, *Plugin, *plugintest.Images, *kittest.Host) {
 	t.Helper()
 	ctl, host := &plugintest.Chat{}, &kittest.Host{}
-	files := &images{}
+	files := &plugintest.Images{}
 	var p *Plugin
 	h := kerneltest.New(t, files.New, ctl.New, host.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{capture: capture} }))
 	return h, p, files, host
@@ -572,8 +544,8 @@ func TestACapturedScreenshotIsAttachedAndOpensInTheEditor(t *testing.T) {
 	if !hiddenDuring || host.Hidden {
 		t.Fatalf("hidden during %v, after %v", hiddenDuring, host.Hidden)
 	}
-	if files.current.ID != 1 || files.current.File.Name != "Screenshot.png" || !bytes.Equal(files.current.File.Data, data) {
-		t.Fatalf("attached %+v", files.current.File.Name)
+	if files.Current.ID != 1 || files.Current.File.Name != "Screenshot.png" || !bytes.Equal(files.Current.File.Data, data) {
+		t.Fatalf("attached %+v", files.Current.File.Name)
 	}
 	if !p.open || p.source.ID != 1 {
 		t.Fatal("the editor did not open on the screenshot")
@@ -584,8 +556,8 @@ func TestACapturedScreenshotIsAttachedAndOpensInTheEditor(t *testing.T) {
 	}
 	runCommand(t, h, "markup.capture")
 	h.Flush()
-	if files.current.File.Name != "Screenshot 2.png" {
-		t.Fatalf("second screenshot %q", files.current.File.Name)
+	if files.Current.File.Name != "Screenshot 2.png" {
+		t.Fatalf("second screenshot %q", files.Current.File.Name)
 	}
 }
 
@@ -603,13 +575,13 @@ func TestACancelledOrFailedCaptureBringsTheWindowBackAndAttachesNothing(t *testi
 	h, p, files, host := startCapturing(t, func(context.Context) ([]byte, error) { return nil, fail })
 	runCommand(t, h, "markup.capture")
 	h.Flush()
-	if host.Hidden || files.current.ID != 0 || p.open || len(host.Toasts) != 0 {
+	if host.Hidden || files.Current.ID != 0 || p.open || len(host.Toasts) != 0 {
 		t.Fatal("Escape during the capture attached or reported something")
 	}
 	fail = errors.New("no permission")
 	runCommand(t, h, "markup.capture")
 	h.Flush()
-	if host.Hidden || files.current.ID != 0 || len(host.Toasts) != 1 || host.Toasts[0] != "The screenshot was not taken" {
+	if host.Hidden || files.Current.ID != 0 || len(host.Toasts) != 1 || host.Toasts[0] != "The screenshot was not taken" {
 		t.Fatalf("toasts %q hidden %v", host.Toasts, host.Hidden)
 	}
 }

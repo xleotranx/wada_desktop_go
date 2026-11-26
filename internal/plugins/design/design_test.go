@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
-	attachment "wada-desktop-go/internal/contract/attachments"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
@@ -26,24 +25,6 @@ import (
 	"github.com/xleotranx/wada-kit/kittest"
 )
 
-type images struct{ attached []agent.File }
-
-func (f *images) New() kernel.Plugin { return f }
-func (*images) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-images", Provides: []kernel.Named{attachment.ServiceKey}}
-}
-func (f *images) Setup(c *kernel.Context) error {
-	return kernel.Provide[attachment.Service](c, attachment.ServiceKey, f)
-}
-func (f *images) Snapshot(uint64) (attachment.Image, bool) { return attachment.Image{}, false }
-func (f *images) Attach(file agent.File, _ *ui.Bitmap) (uint64, error) {
-	f.attached = append(f.attached, file)
-	return uint64(len(f.attached)), nil
-}
-func (f *images) Replace(attachment.Image, agent.File, *ui.Bitmap, string, []attachment.Detail) error {
-	return nil
-}
-
 type fixture struct {
 	h      *kerneltest.Harness
 	agent  *plugintest.Agent
@@ -51,7 +32,7 @@ type fixture struct {
 	p      *Plugin
 	chat   *plugintest.Chat
 	host   *kittest.Host
-	images *images
+	images *plugintest.Images
 	dir    string
 
 	mu     sync.Mutex
@@ -65,7 +46,7 @@ func start(t *testing.T, files ...string) *fixture { return startWith(t, nil, fi
 
 func startWith(t *testing.T, extra []kernel.Factory, files ...string) *fixture {
 	t.Helper()
-	f := &fixture{chat: &plugintest.Chat{}, images: &images{}, dir: t.TempDir(), agent: plugintest.NewAgent()}
+	f := &fixture{chat: &plugintest.Chat{}, images: &plugintest.Images{}, dir: t.TempDir(), agent: plugintest.NewAgent()}
 	var bitmap bytes.Buffer
 	if err := png.Encode(&bitmap, image.NewNRGBA(image.Rect(0, 0, 32, 20))); err != nil {
 		t.Fatal(err)
@@ -542,8 +523,8 @@ func TestASnapshotGoesWithTheNextMessage(t *testing.T) {
 	f.h.Flush()
 	f.p.snapshot(path)
 	f.h.Flush()
-	if len(f.images.attached) != 2 || f.images.attached[0].Name != "Design.png" || f.images.attached[1].Name != "Design 2.png" {
-		t.Fatalf("attached %+v", f.images.attached)
+	if len(f.images.Attached) != 2 || f.images.Attached[0].Name != "Design.png" || f.images.Attached[1].Name != "Design 2.png" {
+		t.Fatalf("attached %+v", f.images.Attached)
 	}
 }
 
@@ -805,25 +786,8 @@ func TestEachNewDesignStartsEmptyInAFolderOfItsOwn(t *testing.T) {
 	}
 }
 
-// fakeTabs is the tabs service with one tab on show.
-type fakeTabs struct{ active tabs.Tab }
-
-func (f *fakeTabs) New() kernel.Plugin { return f }
-func (*fakeTabs) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-tabs", Provides: []kernel.Named{tabs.ServiceKey}}
-}
-func (f *fakeTabs) Setup(c *kernel.Context) error {
-	return kernel.Provide[tabs.Service](c, tabs.ServiceKey, f)
-}
-func (f *fakeTabs) Tabs() []tabs.Tab         { return []tabs.Tab{f.active} }
-func (f *fakeTabs) Active() (tabs.Tab, bool) { return f.active, f.active.ID != "" }
-func (f *fakeTabs) Select(string)            {}
-func (f *fakeTabs) Close(string)             {}
-func (f *fakeTabs) Move(string, int)         {}
-func (f *fakeTabs) Space() string            { return f.active.Folder }
-
 func TestDesignTabsShowAsDesigns(t *testing.T) {
-	tb := &fakeTabs{}
+	tb := &plugintest.Tabs{}
 	f := startWith(t, []kernel.Factory{tb.New}, "a.html")
 	looks := kernel.Items(f.h, tabs.Looks)
 	if len(looks) != 1 || looks[0].Value.Draft != "New design" || looks[0].Value.Name != "Design" {
@@ -836,7 +800,7 @@ func TestDesignTabsShowAsDesigns(t *testing.T) {
 	}
 	f.p.newDesign()
 	f.h.Flush()
-	tb.active = draft
+	tb.Current = draft
 	if !applies(draft) || applies(tabs.Tab{ID: "d2", Kind: tabs.Draft, Folder: f.dir}) {
 		t.Fatal("only the new design on show is one")
 	}

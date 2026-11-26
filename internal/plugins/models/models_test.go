@@ -41,15 +41,6 @@ func startWith(t *testing.T, cfg kerneltest.Config, extra ...kernel.Factory) (*k
 	return h, p, a, c, host
 }
 
-func outgoing(t *testing.T, h *kerneltest.Harness, d chat.Draft) chat.Draft {
-	t.Helper()
-	out, err := send(h, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
 func TestNewChatUsesTheChosenModel(t *testing.T) {
 	store := kerneltest.NewStore()
 	h, p, _, _, _ := start(t, store)
@@ -58,7 +49,7 @@ func TestNewChatUsesTheChosenModel(t *testing.T) {
 	if !tt.HasText("Alpha") || tt.HasText("Default effort") {
 		t.Fatalf("pickers %q", tt.Texts())
 	}
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() {
 		t.Fatalf("nothing chosen yet, draft %+v", d)
 	}
 	for _, click := range []string{"Alpha", "Beta"} {
@@ -67,10 +58,10 @@ func TestNewChatUsesTheChosenModel(t *testing.T) {
 		}
 		tt.Frame()
 	}
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); d.Model != beta {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Model != beta {
 		t.Fatalf("draft %+v", d)
 	}
-	if d := outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); !d.Model.IsZero() {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Session: "s1", Text: "hi"}); !d.Model.IsZero() {
 		t.Fatalf("an existing conversation was given the new chat's model: %+v", d)
 	}
 	h.Close()
@@ -83,7 +74,7 @@ func TestNewChatUsesTheChosenModel(t *testing.T) {
 	a.Catalog = a.Catalog[:1]
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
 	h.Flush()
-	if d := outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() {
+	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); !d.Model.IsZero() {
 		t.Fatalf("draft with a dropped model: %+v", d)
 	}
 }
@@ -312,13 +303,4 @@ func TestModelChecklistSelectionSurvivesCollapseAndSearch(t *testing.T) {
 	if tt.HasText("Beta") {
 		t.Fatal("clearing search lost the collapsed state")
 	}
-}
-
-// send runs the outgoing pipeline as the chat does, committing what it accepts.
-func send(h *kerneltest.Harness, d chat.Draft) (chat.Draft, error) {
-	out, commit, err := kernel.Run(h, chat.Outgoing, d)
-	if err == nil {
-		commit()
-	}
-	return out, err
 }

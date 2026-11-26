@@ -301,8 +301,8 @@ func TestContradictoryReviewResultsCannotPass(t *testing.T) {
 
 func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
 	h, p, a, sent := fixture(t)
-	scope := &agent.ProjectScope{Kind: "video", Directory: "/video/project"}
-	d := chat.Draft{Session: "main", Directory: t.TempDir(), Text: "Make two tips", Instructions: "Use only the selected video.", Project: scope}
+	scope := &agent.ProjectScope{Kind: "project", Directory: "/work/project"}
+	d := chat.Draft{Session: "main", Directory: t.TempDir(), Text: "Make the report", Instructions: "Use only the selected project.", Project: scope}
 	if err := p.Admit(d); err != nil {
 		t.Fatal(err)
 	}
@@ -316,12 +316,12 @@ func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := next(t, h, sent)
-	if plan.Project == nil || *plan.Project != *scope || plan.Instructions != "Use only the selected video.\nplan" {
+	if plan.Project == nil || *plan.Project != *scope || plan.Instructions != "Use only the selected project.\nplan" {
 		t.Fatalf("plan lost scope: %+v", plan)
 	}
 	finish(h, a, plan, `{"status":"ready","summary":"plan"}`)
 	code := next(t, h, sent)
-	if code.Project == nil || *code.Project != *scope || code.Instructions != "Use only the selected video.\nwork" {
+	if code.Project == nil || *code.Project != *scope || code.Instructions != "Use only the selected project.\nwork" {
 		t.Fatal("code lost scope")
 	}
 	finish(h, a, code, `{"status":"ready","summary":"created"}`)

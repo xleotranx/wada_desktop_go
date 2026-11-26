@@ -49,9 +49,9 @@ work; new folderless conversations use its Inbox instead of the user's home.
 
 PiG exposes these tools for ordinary turns and blocks legacy shell/coding tools
 in its pre-tool hook, including in independent mode. A specialized `ProjectScope`,
-such as video authoring, replaces the ordinary toolset with that project's handler.
-Read-only child policies still block document writes and edits. Permissions are
-shown as **Ask before changes** and **Work independently**; both retain folder
+when a feature contributes one, replaces the ordinary toolset with that project's
+handler. Read-only child policies still block document writes and edits.
+Permissions are shown as **Ask before changes** and **Work independently**; both retain folder
 boundaries. Internal mode IDs remain `ask` and `full` in saved preferences.
 
 The built-in reviewed workflow is **Plan, work, review**. Its work phase creates

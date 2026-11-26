@@ -15,7 +15,7 @@ import (
 
 func TestProjectTurnBlocksGeneralToolsEvenInFullAccess(t *testing.T) {
 	c := &conversation{rec: record{Mode: modeFull}, allowed: map[string]bool{}}
-	c.turn = &turnState{project: &agent.ProjectScope{Kind: "video", Directory: t.TempDir()}}
+	c.turn = &turnState{project: &agent.ProjectScope{Kind: "project", Directory: t.TempDir()}}
 	e := &engine{ctx: context.Background()}
 	for _, name := range []string{"bash", "read", "grep", "find", "ls", "write", "edit", "fetch", "codemode", "unknown"} {
 		if got := e.toolHook(c)(t.Context(), name, name, json.RawMessage(`{}`)); !got.Block {
@@ -34,7 +34,7 @@ func TestProjectTurnBlocksGeneralToolsEvenInFullAccess(t *testing.T) {
 func TestProjectToolThroughPinnedSDKAndOrdinaryToolRestoration(t *testing.T) {
 	h, p, faux := startPig(t)
 	root := t.TempDir()
-	dir := filepath.Join(root, "videos", "one")
+	dir := filepath.Join(root, "projects", "one")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestProjectToolThroughPinnedSDKAndOrdinaryToolRestoration(t *testing.T) {
 	}
 	s := createChat(t, h, p, root)
 	calls := 0
-	if err := kernel.Contribute(h, agent.ProjectTools, "app.video", 0, agent.ProjectTool{Kind: "video", Execute: func(_ context.Context, bound, action string, input json.RawMessage) (string, error) {
+	if err := kernel.Contribute(h, agent.ProjectTools, "app.project", 0, agent.ProjectTool{Kind: "project", Execute: func(_ context.Context, bound, action string, input json.RawMessage) (string, error) {
 		if bound != dir || action != "inspect" {
 			t.Errorf("wrong bound scope %s/%s", bound, action)
 		}
@@ -58,7 +58,7 @@ func TestProjectToolThroughPinnedSDKAndOrdinaryToolRestoration(t *testing.T) {
 	ordinary := slices.Clone(c.session.ActiveToolNames())
 	faux.SetResponses([]ai.FauxResponseStep{
 		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall(projectToolName, map[string]any{"action": "inspect"}, nil)}, StopReason: "toolUse"},
-		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Created the video.")}},
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Created the file.")}},
 	})
 	terminal := false
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
@@ -69,7 +69,7 @@ func TestProjectToolThroughPinnedSDKAndOrdinaryToolRestoration(t *testing.T) {
 		}
 	})
 	call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
-		return p.Send(ctx, agent.Send{Session: s.ID, Mode: modeFull, Text: "Create two tips", Project: &agent.ProjectScope{Kind: "video", Directory: dir}})
+		return p.Send(ctx, agent.Send{Session: s.ID, Mode: modeFull, Text: "Create two tips", Project: &agent.ProjectScope{Kind: "project", Directory: dir}})
 	})
 	waitFor(t, h, "project completion", func() bool { return terminal })
 	if calls != 1 {
@@ -87,7 +87,7 @@ func TestProjectScopeCannotLeaveConversationFolder(t *testing.T) {
 	h, p, _ := startPig(t)
 	s := createChat(t, h, p, t.TempDir())
 	call(t, h, func(ctx context.Context) (struct{}, error) {
-		if _, err := p.Send(ctx, agent.Send{Session: s.ID, Text: "Create video", Project: &agent.ProjectScope{Kind: "video", Directory: t.TempDir()}}); err == nil {
+		if _, err := p.Send(ctx, agent.Send{Session: s.ID, Text: "Create the file", Project: &agent.ProjectScope{Kind: "project", Directory: t.TempDir()}}); err == nil {
 			t.Error("outside project scope accepted")
 		}
 		return struct{}{}, nil
@@ -97,7 +97,7 @@ func TestProjectScopeCannotLeaveConversationFolder(t *testing.T) {
 func TestProjectMutationTrackingStaysInsideItsScope(t *testing.T) {
 	h, p, _ := startPig(t)
 	root := t.TempDir()
-	dir := filepath.Join(root, "videos", "one")
+	dir := filepath.Join(root, "projects", "one")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestProjectMutationTrackingStaysInsideItsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This sibling would exceed the tracker file limit if the project mutation
-	// scanned the full conversation folder instead of the bound video.
+	// scanned the full conversation folder instead of the bound project.
 	sibling, err := os.Create(filepath.Join(root, "unrelated.bin"))
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestProjectMutationTrackingStaysInsideItsScope(t *testing.T) {
 	s := createChat(t, h, p, root)
 	e, _ := p.current()
 	c, _ := e.get(s.ID)
-	c.turn = &turnState{project: &agent.ProjectScope{Kind: "video", Directory: dir}}
+	c.turn = &turnState{project: &agent.ProjectScope{Kind: "project", Directory: dir}}
 	if err := e.beginMutation(t.Context(), c, "update", projectToolName, json.RawMessage(`{"action":"update"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestProjectMutationTrackingStaysInsideItsScope(t *testing.T) {
 	if c.rec.ChangesError != "" {
 		t.Fatal(c.rec.ChangesError)
 	}
-	if len(c.rec.Baselines) != 1 || string(c.rec.Baselines["videos/one/index.html"].Data) != "before" {
+	if len(c.rec.Baselines) != 1 || string(c.rec.Baselines["projects/one/index.html"].Data) != "before" {
 		t.Fatalf("incorrect baseline %v", c.rec.Baselines)
 	}
 	c.turn = nil

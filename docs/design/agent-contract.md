@@ -169,9 +169,10 @@ search or extension wrappers from bypassing the scope. Project `update` and
 `write` operations remain subject to edit permissions, including read-only
 review policies. Normal tools are restored before the terminal event.
 
-The video plugin implements inspect, update, source read/write and quick check.
-It owns path containment and validation. Other features can contribute their own
-handler kinds without exposing SDK types or importing another plugin.
+The cowork plugin implements the `cowork` kind: list, read, search, write,
+update, calculate and URL reads. It owns path containment and validation. Other
+features can contribute their own handler kinds without exposing SDK types or
+importing another plugin.
 
 ## File changes
 

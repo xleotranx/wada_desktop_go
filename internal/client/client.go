@@ -522,3 +522,27 @@ func (c *Client) FetchTimeline(ctx context.Context, req protocol.TimelineFetchRe
 	var out protocol.TimelineFetchResponse
 	return out, c.Call(ctx, protocol.MethodTimelineFetch, req, &out)
 }
+
+func (c *Client) Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error) {
+	var out []protocol.HarnessInfo
+	return out, c.Call(ctx, protocol.MethodHarnessesList, nil, &out)
+}
+
+func (c *Client) Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error) {
+	var out []protocol.WorkerInfo
+	return out, c.Call(ctx, protocol.MethodWorkersList, protocol.WorkersListRequest{ParentSession: parentSession}, &out)
+}
+
+func (c *Client) ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error) {
+	var out []protocol.WorktreeInfo
+	return out, c.Call(ctx, protocol.MethodWorktreesList, protocol.WorktreesListRequest{Directory: dir}, &out)
+}
+
+func (c *Client) CreateWorktree(ctx context.Context, req protocol.WorktreeCreateRequest) (protocol.WorktreeInfo, error) {
+	var out protocol.WorktreeInfo
+	return out, c.Call(ctx, protocol.MethodWorktreeCreate, req, &out)
+}
+
+func (c *Client) RemoveWorktree(ctx context.Context, req protocol.WorktreeRemoveRequest) error {
+	return c.Call(ctx, protocol.MethodWorktreeRemove, req, nil)
+}

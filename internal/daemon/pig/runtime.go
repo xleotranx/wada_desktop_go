@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding"
 	"wada-desktop-go/internal/protocol"
 )
@@ -30,6 +31,7 @@ type Options struct {
 	Root         string
 	Instructions string
 	ProjectTools map[string]ProjectTool
+	ChiefTools   func(contextFn func() (sessionID, dir string)) []pa.AgentTool
 }
 
 // Runtime owns a headless PiG engine and its lifecycle.
@@ -66,8 +68,9 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	if opts.Instructions != "" {
 		e.instructions = opts.Instructions
 	} else {
-		e.instructions = "You are Wada, a focused software engineering assistant. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder."
+		e.instructions = "You are Wada, a focused software engineering assistant and Chief Agent. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder. For multi-part or parallel engineering tasks, you can also create isolated Git worktrees and spawn/supervise external CLI worker agents (such as Claude Code, Codex, or ACP harnesses) via your orchestration tools."
 	}
+	e.chiefTools = opts.ChiefTools
 	if len(opts.ProjectTools) > 0 {
 		tools := opts.ProjectTools
 		e.projectTool = func(_ context.Context, kind string) (ProjectTool, error) {

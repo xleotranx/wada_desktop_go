@@ -37,6 +37,12 @@ const (
 	MethodProviderLoginCancel = "agent.provider.login.cancel"
 	MethodProviderLogout      = "agent.provider.logout"
 
+	MethodHarnessesList  = "agent.harnesses.list"
+	MethodWorkersList    = "agent.workers.list"
+	MethodWorktreesList  = "worktree.list"
+	MethodWorktreeCreate = "worktree.create"
+	MethodWorktreeRemove = "worktree.remove"
+
 	MethodInteractionsPending = "agent.interactions.pending"
 	MethodInteractionsAnswer  = "agent.interactions.answer"
 
@@ -57,6 +63,8 @@ type (
 	InteractionKind string
 	ProviderAuthType      string
 	ProviderAuthEventKind string
+	HarnessKind           string
+	WorkerStatus          string
 )
 
 const (
@@ -117,6 +125,23 @@ const (
 	EventSessionDeleted       EventKind = "session_deleted"
 	EventModelsChanged        EventKind = "models_changed"
 	EventProviderAuth         EventKind = "provider_auth"
+	EventWorkerUpdated        EventKind = "worker_updated"
+)
+
+const (
+	HarnessEmbedded HarnessKind = "embedded"
+	HarnessACP      HarnessKind = "acp"
+	HarnessClaude   HarnessKind = "claude"
+	HarnessCodex    HarnessKind = "codex"
+)
+
+const (
+	WorkerIdle            WorkerStatus = "idle"
+	WorkerRunning         WorkerStatus = "running"
+	WorkerWaitingApproval WorkerStatus = "waiting_approval"
+	WorkerCompleted       WorkerStatus = "completed"
+	WorkerFailed          WorkerStatus = "failed"
+	WorkerStopped         WorkerStatus = "stopped"
 )
 
 const (
@@ -179,6 +204,7 @@ type Session struct {
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Directory string   `json:"directory"`
+	Provider  string   `json:"provider,omitempty"`
 	Updated   int64    `json:"updated"`
 	Model     ModelRef `json:"model"`
 	Cost      float64  `json:"cost,omitempty"`
@@ -199,6 +225,7 @@ type CreateSessionRequest struct {
 	IdempotencyKey string   `json:"idempotencyKey,omitempty"`
 	Title          string   `json:"title,omitempty"`
 	Directory      string   `json:"directory,omitempty"`
+	Provider       string   `json:"provider,omitempty"`
 	Model          ModelRef `json:"model"`
 	Mode           string   `json:"mode,omitempty"`
 }
@@ -359,6 +386,58 @@ type ProviderLogoutRequest struct {
 	ProviderID string `json:"providerId"`
 }
 
+type HarnessInfo struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Kind        HarnessKind `json:"kind"`
+	Binary      string      `json:"binary,omitempty"`
+	Available   bool        `json:"available"`
+	Description string      `json:"description,omitempty"`
+}
+
+type WorkerInfo struct {
+	ID            string       `json:"id"`
+	ParentSession string       `json:"parentSession,omitempty"`
+	Provider      string       `json:"provider"`
+	Name          string       `json:"name"`
+	Directory     string       `json:"directory"`
+	Branch        string       `json:"branch,omitempty"`
+	WorktreePath  string       `json:"worktreePath,omitempty"`
+	Mode          string       `json:"mode,omitempty"`
+	Status        WorkerStatus `json:"status"`
+	LastError     string       `json:"lastError,omitempty"`
+	Updated       int64        `json:"updated"`
+}
+
+type WorkersListRequest struct {
+	ParentSession string `json:"parentSession,omitempty"`
+}
+
+type WorktreeInfo struct {
+	RepoRoot   string `json:"repoRoot"`
+	Path       string `json:"path"`
+	Branch     string `json:"branch,omitempty"`
+	HeadCommit string `json:"headCommit,omitempty"`
+	IsMain     bool   `json:"isMain,omitempty"`
+	Dirty      bool   `json:"dirty,omitempty"`
+}
+
+type WorktreesListRequest struct {
+	Directory string `json:"directory"`
+}
+
+type WorktreeCreateRequest struct {
+	Directory string `json:"directory"`
+	Name      string `json:"name"`
+	BaseRef   string `json:"baseRef,omitempty"`
+}
+
+type WorktreeRemoveRequest struct {
+	Directory string `json:"directory"`
+	Path      string `json:"path"`
+	Force     bool   `json:"force,omitempty"`
+}
+
 type SkillsListRequest struct {
 	Directory string `json:"directory,omitempty"`
 }
@@ -486,6 +565,7 @@ type Event struct {
 	Approval     *Approval          `json:"approval,omitempty"`
 	Interaction  *Interaction       `json:"interaction,omitempty"`
 	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
+	Worker       *WorkerInfo        `json:"worker,omitempty"`
 	Model        ModelRef           `json:"model"`
 	Title       string          `json:"title,omitempty"`
 	Error       string          `json:"error,omitempty"`

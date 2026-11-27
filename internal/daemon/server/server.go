@@ -66,6 +66,16 @@ type Backend interface {
 	AnswerInteraction(ctx context.Context, req protocol.InteractionAnswer) error
 }
 
+// OrchestrationBackend is optionally implemented by Backends that support
+// external CLI harnesses, supervised workers, and Git worktrees.
+type OrchestrationBackend interface {
+	Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error)
+	Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error)
+	ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error)
+	CreateWorktree(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error)
+	RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error
+}
+
 // Config configures a wadad Server.
 type Config struct {
 	DataDir        string
@@ -865,6 +875,73 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, invalidErr(err)
 		}
 		if err := s.cfg.Backend.AnswerInteraction(ctx, req); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodHarnessesList:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		list, err := orch.Harnesses(ctx)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodWorkersList:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorkersListRequest
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &req); err != nil {
+				return nil, invalidErr(err)
+			}
+		}
+		list, err := orch.Workers(ctx, req.ParentSession)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodWorktreesList:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorktreesListRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		list, err := orch.ListWorktrees(ctx, req.Directory)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodWorktreeCreate:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorktreeCreateRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		wt, err := orch.CreateWorktree(ctx, req.Directory, req.Name, req.BaseRef)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return wt, nil
+	case protocol.MethodWorktreeRemove:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorktreeRemoveRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := orch.RemoveWorktree(ctx, req.Directory, req.Path, req.Force); err != nil {
 			return nil, internalErr(err)
 		}
 		return map[string]bool{"ok": true}, nil

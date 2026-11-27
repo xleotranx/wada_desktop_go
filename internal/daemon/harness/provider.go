@@ -1,0 +1,137 @@
+package harness
+
+import (
+	"context"
+	"os/exec"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+
+	"wada-desktop-go/internal/protocol"
+)
+
+// SessionOptions configures a launched external CLI harness session.
+type SessionOptions struct {
+	SessionID string
+	Directory string
+	Mode      string
+	Command   string
+	Args      []string
+	Env       []string
+}
+
+// Session is an active conversation backed by an external coding CLI process.
+type Session interface {
+	Send(ctx context.Context, text string) error
+	Abort(ctx context.Context) error
+	Reply(ctx context.Context, approvalID string, decision protocol.Decision) error
+	Events() <-chan protocol.Event
+	Close() error
+}
+
+// Provider launches Sessions for one external CLI harness flavor.
+type Provider interface {
+	Info() protocol.HarnessInfo
+	Start(ctx context.Context, opts SessionOptions) (Session, error)
+}
+
+// Registry tracks available external CLI harnesses.
+type Registry struct {
+	mu        sync.RWMutex
+	providers map[string]Provider
+}
+
+// NewRegistry creates an empty harness Registry.
+func NewRegistry() *Registry {
+	return &Registry{providers: map[string]Provider{}}
+}
+
+// DefaultRegistry returns a Registry populated with built-in adapters
+// (Claude Code, Codex, and ACP presets).
+func DefaultRegistry() *Registry {
+	r := NewRegistry()
+	r.Register(NewClaudeProvider(ClaudeConfig{
+		ID:          "claude",
+		Name:        "Claude Code",
+		Binary:      "claude",
+		Description: "Anthropic Claude Code CLI (stream-json harness).",
+	}))
+	r.Register(NewCodexProvider(CodexConfig{
+		ID:          "codex",
+		Name:        "Codex",
+		Binary:      "codex",
+		Description: "OpenAI Codex CLI (exec JSON harness).",
+	}))
+	r.Register(NewACPProvider(ACPConfig{
+		ID:          "opencode",
+		Name:        "OpenCode (ACP)",
+		Binary:      "opencode",
+		Args:        []string{"acp"},
+		Description: "OpenCode ACP stdio harness.",
+	}))
+	r.Register(NewACPProvider(ACPConfig{
+		ID:          "gemini",
+		Name:        "Gemini CLI (ACP)",
+		Binary:      "gemini",
+		Args:        []string{"--experimental-acp"},
+		Description: "Gemini CLI ACP stdio harness.",
+	}))
+	return r
+}
+
+func (r *Registry) Register(p Provider) {
+	if p == nil {
+		return
+	}
+	info := p.Info()
+	if info.ID == "" {
+		return
+	}
+	r.mu.Lock()
+	r.providers[info.ID] = p
+	r.mu.Unlock()
+}
+
+func (r *Registry) Get(id string) (Provider, bool) {
+	r.mu.RLock()
+	p, ok := r.providers[id]
+	r.mu.RUnlock()
+	return p, ok
+}
+
+func (r *Registry) List() []protocol.HarnessInfo {
+	r.mu.RLock()
+	out := make([]protocol.HarnessInfo, 0, len(r.providers))
+	for _, p := range r.providers {
+		info := p.Info()
+		if info.Binary != "" {
+			_, err := exec.LookPath(info.Binary)
+			info.Available = err == nil
+		}
+		out = append(out, info)
+	}
+	r.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func normalizeToolKind(name string) protocol.ToolKind {
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case slices.Contains([]string{"bash", "shell", "execute", "run_command", "command_execution"}, n):
+		return protocol.ToolShell
+	case slices.Contains([]string{"read", "read_file", "view_file"}, n):
+		return protocol.ToolRead
+	case slices.Contains([]string{"glob", "grep", "find", "ls", "search", "find_files"}, n):
+		return protocol.ToolSearch
+	case slices.Contains([]string{"edit", "write", "write_file", "edit_file", "apply_patch", "file_change", "multiedit"}, n):
+		return protocol.ToolEdit
+	case slices.Contains([]string{"fetch", "webfetch", "web_fetch", "websearch", "web_search"}, n):
+		return protocol.ToolFetch
+	default:
+		return protocol.ToolOther
+	}
+}

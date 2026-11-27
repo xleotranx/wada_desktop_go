@@ -75,6 +75,7 @@ type engine struct {
 	instructions  string
 	modelsChanged func()
 	projectTool   func(context.Context, string) (ProjectTool, error)
+	chiefTools    func(contextFn func() (sessionID, dir string)) []pa.AgentTool
 	mu            sync.Mutex
 	sessions      map[string]*conversation
 	approvals     map[string]*approvalWait
@@ -329,6 +330,13 @@ func (e *engine) openLocked(c *conversation) error {
 		return err
 	}
 	tools := []pa.AgentTool{&resultTool{c: c}, &projectTool{c: c, e: e}}
+	if c.rec.Parent == "" && e.chiefTools != nil {
+		tools = append(tools, e.chiefTools(func() (string, string) {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			return c.rec.Session.ID, c.rec.Session.Directory
+		})...)
+	}
 	opts := coding.SessionStartOptions{
 		Model: model, ThinkingLevel: ai.ModelThinkingLevel(c.rec.Session.Model.Variant),
 		SessionID: c.rec.Session.ID, SessionDir: filepath.Join(e.root, "sessions"),

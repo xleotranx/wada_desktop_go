@@ -42,10 +42,14 @@ func toolKind(name string) protocol.ToolKind {
 		return protocol.ToolRead
 	case "grep", "find", "ls":
 		return protocol.ToolSearch
-	case "write", "edit", "apply_patch":
+	case "write", "edit", "apply_patch", "create_worktree":
 		return protocol.ToolEdit
 	case "fetch", "web", "web_search":
 		return protocol.ToolFetch
+	case "list_providers", "list_worktrees", "wait_agent", "inspect_agent_diff", "stop_agent":
+		return protocol.ToolRead
+	case "spawn_agent", "send_agent":
+		return protocol.ToolOther
 	default:
 		return protocol.ToolOther
 	}

@@ -1,0 +1,133 @@
+package worktree
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"wada-desktop-go/internal/protocol"
+)
+
+func initTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "wada@example.com")
+	runGit(t, dir, "config", "user.name", "Wada Test")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "init")
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
+	}
+	return dir
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
+	}
+}
+
+func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
+	repo := initTestRepo(t)
+	outside := t.TempDir()
+	secretOutside := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secretOutside, []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Gitignored local env + .worktreeinclude with an invalid escape rule that must be ignored.
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".env.local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".env.local"), []byte("LOCAL=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".worktreeinclude"), []byte("# comment\n.env.local\n../escape\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", ".gitignore", ".worktreeinclude")
+	runGit(t, repo, "commit", "-m", "add include")
+
+	mgr := New(t.TempDir())
+	wtA, err := mgr.Create(t.Context(), repo, "feature-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wtB, err := mgr.Create(t.Context(), repo, "feature-b", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if envBytes, err := os.ReadFile(filepath.Join(wtA.Path, ".env.local")); err != nil || string(envBytes) != "LOCAL=1\n" {
+		t.Fatalf("expected .env.local copied into worktree A, got %q err=%v", string(envBytes), err)
+	}
+
+	if err := os.WriteFile(filepath.Join(wtA.Path, "main.go"), []byte("package main\n\nfunc main() { println(\"A\") }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtB.Path, "b_only.txt"), []byte("hello B\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	diffA, err := mgr.Diff(t.Context(), wtA.Path)
+	if err != nil || len(diffA) != 1 || diffA[0].Path != "main.go" || diffA[0].Status != protocol.FileModified {
+		t.Fatalf("diffA = %+v, err=%v", diffA, err)
+	}
+	diffB, err := mgr.Diff(t.Context(), wtB.Path)
+	if err != nil || len(diffB) != 1 || diffB[0].Path != "b_only.txt" || diffB[0].Status != protocol.FileAdded || !strings.Contains(diffB[0].Patch, "+hello B") {
+		t.Fatalf("diffB = %+v, err=%v", diffB, err)
+	}
+
+	list, err := mgr.List(t.Context(), repo)
+	if err != nil || len(list) != 3 {
+		t.Fatalf("expected 3 worktrees, got %+v, err=%v", list, err)
+	}
+
+	if err := mgr.Remove(t.Context(), repo, repo, true); err == nil {
+		t.Fatal("expected main checkout removal to be refused")
+	}
+	if err := mgr.Remove(t.Context(), repo, wtA.Path, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Remove(t.Context(), repo, wtB.Path, true); err != nil {
+		t.Fatal(err)
+	}
+	listAfter, err := mgr.List(t.Context(), repo)
+	if err != nil || len(listAfter) != 1 {
+		t.Fatalf("expected only main worktree after removals, got %+v, err=%v", listAfter, err)
+	}
+}
+
+func TestTrustStorePersistence(t *testing.T) {
+	ts := NewTrustStore(t.TempDir())
+	ok, err := ts.IsTrusted("/tmp/repo", "hash1")
+	if err != nil || ok {
+		t.Fatalf("initial IsTrusted = %v, %v", ok, err)
+	}
+	if err := ts.Trust("/tmp/repo", "hash1"); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = ts.IsTrusted("/tmp/repo", "hash1")
+	if err != nil || !ok {
+		t.Fatalf("after Trust IsTrusted = %v, %v", ok, err)
+	}
+	ok, err = ts.IsTrusted("/tmp/repo", "hash2")
+	if err != nil || ok {
+		t.Fatalf("mismatched hash = %v, %v", ok, err)
+	}
+	if err := ts.Revoke("/tmp/repo"); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = ts.IsTrusted("/tmp/repo", "hash1")
+	if err != nil || ok {
+		t.Fatalf("after Revoke = %v, %v", ok, err)
+	}
+}

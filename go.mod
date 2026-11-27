@@ -12,6 +12,7 @@ require (
 	github.com/oneo-me/onevra/source v0.2026.19
 	github.com/xleotranx/wada-kit v0.3.1
 	golang.org/x/crypto v0.59.0
+	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.63.0
 )
 
@@ -49,7 +50,6 @@ require (
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	modernc.org/libc v1.80.1 // indirect

@@ -41,6 +41,10 @@ func main() {
 	switch args[0] {
 	case "daemon":
 		err = runDaemonCmd(ctx, c, args[1:])
+	case "providers":
+		err = runProviders(ctx, c)
+	case "workers":
+		err = runWorkers(ctx, c, args[1:])
 	case "ls":
 		err = runList(ctx, c, args[1:])
 	case "run":
@@ -75,8 +79,10 @@ func usage() {
 Commands:
   daemon status          Show connected wadad status
   daemon stop            Stop the running wadad daemon
+  providers              List embedded and external coding-agent harnesses
+  workers [--parent ID]  List managed external harness workers
   ls [--dir DIR]         List sessions
-  run [--dir DIR] [--mode ask|full] <prompt>
+  run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>
                          Create a session, stream output, and handle approvals
   logs <session-id>      Print stored conversation messages
   abort <session-id>     Abort a running turn
@@ -117,6 +123,37 @@ func runDaemonCmd(ctx context.Context, c *client.Client, args []string) error {
 	default:
 		return fmt.Errorf("unknown daemon command %q", args[0])
 	}
+}
+
+func runProviders(ctx context.Context, c *client.Client) error {
+	list, err := c.Harnesses(ctx)
+	if err != nil {
+		return err
+	}
+	for _, h := range list {
+		avail := "unavailable"
+		if h.Available {
+			avail = "available"
+		}
+		fmt.Printf("%s\t%s\t%s\t%s\n", h.ID, h.Kind, avail, h.Name)
+	}
+	return nil
+}
+
+func runWorkers(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("workers", flag.ContinueOnError)
+	parent := fs.String("parent", "", "Filter by parent session ID")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	list, err := c.Workers(ctx, *parent)
+	if err != nil {
+		return err
+	}
+	for _, w := range list {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", w.ID, w.Provider, w.Status, w.Directory, w.Name)
+	}
+	return nil
 }
 
 func runList(ctx context.Context, c *client.Client, args []string) error {
@@ -168,13 +205,14 @@ func runLogs(ctx context.Context, c *client.Client, args []string) error {
 func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "Workspace directory")
+	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG)")
 	mode := fs.String("mode", "ask", "Access mode: ask or full")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("usage: wada run [--dir DIR] [--mode ask|full] <prompt>")
+		return fmt.Errorf("usage: wada run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>")
 	}
 	absDir, err := filepath.Abs(*dir)
 	if err != nil {
@@ -183,6 +221,7 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 	sess, err := c.Create(ctx, protocol.CreateSessionRequest{
 		IdempotencyKey: "cli_" + uuid.NewString(),
 		Directory:      absDir,
+		Provider:       *provider,
 		Mode:           *mode,
 	})
 	if err != nil {
@@ -248,7 +287,7 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-			protocol.EventProviderAuth:
+			protocol.EventProviderAuth, protocol.EventWorkerUpdated:
 		}
 	}
 	return nil

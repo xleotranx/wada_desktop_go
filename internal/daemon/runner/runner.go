@@ -15,9 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	pa "github.com/MichaelKinsy/PiG/agent"
 	"golang.org/x/crypto/bcrypt"
+	"wada-desktop-go/internal/daemon/harness"
+	"wada-desktop-go/internal/daemon/orchestrator"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/server"
+	"wada-desktop-go/internal/daemon/worktree"
 )
 
 // Version identifies this wadad build to attaching clients.
@@ -66,16 +70,39 @@ func Run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	rt, err := pig.New(ctx, pig.Options{Root: filepath.Join(*dataDir, "pig")})
+	wtMgr := worktree.New(*dataDir)
+	reg := harness.DefaultRegistry()
+
+	var orch *orchestrator.Orchestrator
+	rt, err := pig.New(ctx, pig.Options{
+		Root: filepath.Join(*dataDir, "pig"),
+		ChiefTools: func(getCtx func() (string, string)) []pa.AgentTool {
+			if orch == nil {
+				return nil
+			}
+			return orch.ChiefTools(getCtx)
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("wadad: start PiG runtime: %w", err)
+	}
+
+	orch, err = orchestrator.New(ctx, orchestrator.Options{
+		DataDir:   *dataDir,
+		PiG:       rt,
+		Worktrees: wtMgr,
+		Registry:  reg,
+	})
+	if err != nil {
+		_ = rt.Close()
+		return fmt.Errorf("wadad: start orchestrator: %w", err)
 	}
 
 	var pwHash []byte
 	if *password != "" {
 		pwHash, err = bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
 		if err != nil {
-			_ = rt.Close()
+			_ = orch.Close()
 			return fmt.Errorf("wadad: hash password: %w", err)
 		}
 	}
@@ -92,17 +119,17 @@ func Run(args []string) error {
 		PasswordHash:   pwHash,
 		Hostnames:      extraHosts,
 		DesktopManaged: *desktopManaged,
-		Backend:        rt,
+		Backend:        orch,
 		OnShutdown:     stop,
 	})
 	if err != nil {
-		_ = rt.Close()
+		_ = orch.Close()
 		return fmt.Errorf("wadad: init server: %w", err)
 	}
 
 	addr, err := srv.Start()
 	if err != nil {
-		_ = rt.Close()
+		_ = orch.Close()
 		return fmt.Errorf("wadad: listen %s: %w", listenAddr, err)
 	}
 	log.Printf("wadad %s listening on %s (serverId=%s, dataDir=%s, managed=%v)", Version, addr, srv.ServerID(), *dataDir, *desktopManaged)

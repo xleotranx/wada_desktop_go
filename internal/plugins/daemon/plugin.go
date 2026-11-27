@@ -60,6 +60,9 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.RewindKey,
 			agent.ChangesKey,
 			agent.InteractionsKey,
+			agent.HarnessesKey,
+			agent.WorkersKey,
+			agent.WorktreesKey,
 		},
 	}
 }
@@ -79,6 +82,9 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Rewinder](c, agent.RewindKey, p)
 	kernel.Provide[agent.Changes](c, agent.ChangesKey, p)
 	kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p)
+	kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p)
+	kernel.Provide[agent.Workers](c, agent.WorkersKey, p)
+	kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p)
 	c.OnDispose(p.drop)
 	kernel.Contribute(c, kernel.Commands, "daemon.restart", 0, kernel.Command{
 		Title: "Restart Daemon",
@@ -355,25 +361,30 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 		case protocol.EventProviderAuth:
 			authEv := ev.ProviderAuth
 			run.Post(func() { p.handleProviderAuth(authEv) })
+		case protocol.EventWorkerUpdated:
+			if ev.Worker != nil {
+				w := fromProtoWorker(*ev.Worker)
+				run.Post(func() { kernel.Emit(p.ctx, agent.WorkerUpdated, w) })
+			}
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventWorkerUpdated:
+			protocol.EventModelChanged, protocol.EventSessionRenamed:
 		}
 	}
 
 	isControl := func(kind protocol.EventKind) bool {
 		switch kind {
-		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth:
+		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth, protocol.EventWorkerUpdated:
 			return true
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventWorkerUpdated:
+			protocol.EventModelChanged, protocol.EventSessionRenamed:
 			return false
 		}
 		return false

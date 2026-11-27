@@ -21,7 +21,7 @@ keep its types inside the backend plugin.
 - `cmd/wadad` and `cmd/wada`: standalone headless daemon binary and CLI client for `wadad`.
 - `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
 - `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `ConnectOrStartLocal`) and platform detached spawn helpers.
-- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), and embedded PiG runtime (`pig`).
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
@@ -37,7 +37,7 @@ keep its types inside the backend plugin.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
-  `workspace.db`, needing no chat), `folderpicker` (Open Folder… and the new chat's folder
+  `workspace.db`, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `folderpicker` (Open Folder… and the new chat's folder
   in the composer), `tabs` (open chats and pages as tabs across the title
   strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
   that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,

@@ -282,6 +282,7 @@ type Session struct {
 	ID        SessionID
 	Title     string
 	Directory string // where the conversation works; empty for the backend's default
+	Provider  string // optional; empty for embedded PiG
 	Updated   int64  // Unix milliseconds
 	Model     ModelRef
 	Cost      float64
@@ -301,6 +302,7 @@ type SessionPage struct {
 type CreateSession struct {
 	Title     string // empty for the backend's default
 	Directory string
+	Provider  string   // optional; empty for embedded PiG
 	Model     ModelRef // zero for the backend's default
 	Mode      string   // empty for the backend's default
 }

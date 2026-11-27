@@ -198,6 +198,7 @@ type Conversation struct {
 	Session   agent.SessionID
 	Title     string
 	Directory string
+	Provider  string
 	Model     agent.ModelRef // the conversation's model; zero when unknown or new
 	// Starting is set while the first message of a new chat is creating its
 	// conversation; its folder can no longer change.
@@ -221,6 +222,7 @@ type Draft struct {
 	DraftID      uint64          // the source new chat's identity; zero for stored conversations
 	Session      agent.SessionID // empty starts a new conversation
 	Directory    string          // the chat's working folder
+	Provider     string          // optional agent harness ID; empty uses default embedded PiG
 	Model        agent.ModelRef  // for a new conversation; zero for the default
 	Mode         string          // mode for this message; empty keeps the backend's choice
 	Text         string

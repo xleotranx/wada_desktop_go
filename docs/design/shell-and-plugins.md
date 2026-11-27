@@ -348,7 +348,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 ## Settings
 
-The kit's settings page shows as a tab. The tabs, chat, daemon, models and
+The kit's settings page shows as a tab. The tabs, chat, daemon, models, workers and
 notifications plugins contribute their own sections.
 
 ## Model picker

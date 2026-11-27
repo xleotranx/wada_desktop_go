@@ -22,6 +22,7 @@ import (
 	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
+	"wada-desktop-go/internal/plugins/workers"
 	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 
@@ -57,6 +58,7 @@ func main() {
 		modes.New, // the mode, or a workflow for the next message
 		usage.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
+		workers.New,     // harness picker, supervised CLI workers and Git worktrees
 		attachments.New,
 		markup.New,       // annotate attached screenshots before sending
 		mentions.New,     // files from the conversation folder

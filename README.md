@@ -86,9 +86,10 @@ requires explicit resume.
 | `cmd/wada` | CLI client (`wada`) talking to `wadad` over WebSocket RPC |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/client` | Go WebSocket client SDK and local daemon attach/auto-spawn helpers |
-| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), and embedded PiG runtime |
+| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local `wadad` over WebSocket RPC (`agent.*`, `daemon.restart`, and providers setup) |
+| `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section, and Worker Inspector drawer |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
 | `internal/plugins/modes` | Access mode and one-task workflow selection |

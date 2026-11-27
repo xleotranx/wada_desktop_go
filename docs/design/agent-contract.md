@@ -23,13 +23,17 @@ plugins have no PiG dependency.
 | `RewindKey` | Fork before a selected user message, retaining the original conversation and files |
 | `SnapshotsKey` | Bounded project snapshots and task-start diffs, including pre-existing working files |
 | `ChangesKey` | Session file changes against contents before the agent touched them |
+| `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
+| `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
+| `WorktreesKey` | Git worktree creation, listing (including dirty state), and safe secondary removal |
 
 `Events` carries immutable ordered normalized batches on the UI thread, in a
 `Scope.PostQuiet` closure: a listener whose view a batch changed calls
 `Invalidate`, so events of conversations out of sight (other tabs, side chats,
 workflow reviewers) draw no frames.
-`StatusChanged` describes startup/readiness/failure, and `ModelsChanged` invalidates
-the provider/model catalog. Consumers depend on these declarations, not the SDK.
+`StatusChanged` describes startup/readiness/failure, `ModelsChanged` invalidates
+the provider/model catalog, and `WorkerUpdated` announces supervised worker
+status transitions. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 

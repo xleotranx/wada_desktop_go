@@ -50,6 +50,7 @@ func (p *Plugin) Create(ctx context.Context, req agent.CreateSession) (agent.Ses
 		IdempotencyKey: uuid.NewString(),
 		Title:          req.Title,
 		Directory:      req.Directory,
+		Provider:       req.Provider,
 		Model:          toProtoModelRef(req.Model),
 		Mode:           req.Mode,
 	})
@@ -348,5 +349,81 @@ func (p *Plugin) Answer(ctx context.Context, ans agent.InteractionAnswer) error 
 		Cancelled: ans.Cancelled,
 		Confirmed: ans.Confirmed,
 		Value:     ans.Value,
+	})
+}
+
+func (p *Plugin) Harnesses(ctx context.Context) ([]agent.Harness, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Harnesses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Harness, len(list))
+	for i, h := range list {
+		out[i] = fromProtoHarness(h)
+	}
+	return out, nil
+}
+
+func (p *Plugin) Workers(ctx context.Context, parent agent.SessionID) ([]agent.Worker, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Workers(ctx, string(parent))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Worker, len(list))
+	for i, w := range list {
+		out[i] = fromProtoWorker(w)
+	}
+	return out, nil
+}
+
+func (p *Plugin) ListWorktrees(ctx context.Context, directory string) ([]agent.Worktree, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.ListWorktrees(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Worktree, len(list))
+	for i, wt := range list {
+		out[i] = fromProtoWorktree(wt)
+	}
+	return out, nil
+}
+
+func (p *Plugin) CreateWorktree(ctx context.Context, directory, name, baseRef string) (agent.Worktree, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.Worktree{}, err
+	}
+	wt, err := cli.CreateWorktree(ctx, protocol.WorktreeCreateRequest{
+		Directory: directory,
+		Name:      name,
+		BaseRef:   baseRef,
+	})
+	if err != nil {
+		return agent.Worktree{}, err
+	}
+	return fromProtoWorktree(wt), nil
+}
+
+func (p *Plugin) RemoveWorktree(ctx context.Context, directory, path string, force bool) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.RemoveWorktree(ctx, protocol.WorktreeRemoveRequest{
+		Directory: directory,
+		Path:      path,
+		Force:     force,
 	})
 }

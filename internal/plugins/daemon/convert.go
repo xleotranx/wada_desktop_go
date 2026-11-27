@@ -30,9 +30,80 @@ func fromProtoSession(s protocol.Session) agent.Session {
 		ID:        agent.SessionID(s.ID),
 		Title:     s.Title,
 		Directory: s.Directory,
+		Provider:  s.Provider,
 		Updated:   s.Updated,
 		Model:     fromProtoModelRef(s.Model),
 		Cost:      s.Cost,
+	}
+}
+
+func fromProtoHarnessKind(k protocol.HarnessKind) agent.HarnessKind {
+	switch k {
+	case protocol.HarnessEmbedded:
+		return agent.HarnessEmbedded
+	case protocol.HarnessACP:
+		return agent.HarnessACP
+	case protocol.HarnessClaude:
+		return agent.HarnessClaude
+	case protocol.HarnessCodex:
+		return agent.HarnessCodex
+	}
+	return agent.HarnessACP
+}
+
+func fromProtoHarness(h protocol.HarnessInfo) agent.Harness {
+	return agent.Harness{
+		ID:          h.ID,
+		Name:        h.Name,
+		Kind:        fromProtoHarnessKind(h.Kind),
+		Binary:      h.Binary,
+		Available:   h.Available,
+		Description: h.Description,
+	}
+}
+
+func fromProtoWorkerStatus(st protocol.WorkerStatus) agent.WorkerStatus {
+	switch st {
+	case protocol.WorkerIdle:
+		return agent.WorkerIdle
+	case protocol.WorkerRunning:
+		return agent.WorkerRunning
+	case protocol.WorkerWaitingApproval:
+		return agent.WorkerWaitingApproval
+	case protocol.WorkerCompleted:
+		return agent.WorkerCompleted
+	case protocol.WorkerFailed:
+		return agent.WorkerFailed
+	case protocol.WorkerStopped:
+		return agent.WorkerStopped
+	}
+	return agent.WorkerIdle
+}
+
+func fromProtoWorker(w protocol.WorkerInfo) agent.Worker {
+	return agent.Worker{
+		ID:            agent.SessionID(w.ID),
+		ParentSession: agent.SessionID(w.ParentSession),
+		Provider:      w.Provider,
+		Name:          w.Name,
+		Directory:     w.Directory,
+		Branch:        w.Branch,
+		WorktreePath:  w.WorktreePath,
+		Mode:          w.Mode,
+		Status:        fromProtoWorkerStatus(w.Status),
+		LastError:     w.LastError,
+		Updated:       w.Updated,
+	}
+}
+
+func fromProtoWorktree(wt protocol.WorktreeInfo) agent.Worktree {
+	return agent.Worktree{
+		RepoRoot:   wt.RepoRoot,
+		Path:       wt.Path,
+		Branch:     wt.Branch,
+		HeadCommit: wt.HeadCommit,
+		IsMain:     wt.IsMain,
+		Dirty:      wt.Dirty,
 	}
 }
 

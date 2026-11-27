@@ -136,7 +136,7 @@ func (p *Plugin) Open(s agent.Session) {
 	if s.ID == p.conv.Session && s.ID != "" {
 		return
 	}
-	p.switchTo(chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Model: s.Model})
+	p.switchTo(chat.Conversation{Session: s.ID, Title: s.Title, Directory: s.Directory, Provider: s.Provider, Model: s.Model})
 	if k := p.kept.take(s.ID); k != nil {
 		next := p.t.nextID
 		p.t, p.list, p.expanded, p.worked = k.t, k.list, k.expanded, k.worked
@@ -370,7 +370,7 @@ func (p *Plugin) send() {
 	scope, backend := p.scope, p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Session, error) {
-		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Model: d.Model, Mode: d.Mode})
+		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Provider: d.Provider, Model: d.Model, Mode: d.Mode})
 	}, func(s agent.Session, err error) {
 		here := p.scope == scope
 		if s.ID == "" {
@@ -382,7 +382,7 @@ func (p *Plugin) send() {
 			}
 			return
 		}
-		started := chat.Conversation{DraftID: draftID, Session: s.ID, Title: s.Title, Directory: d.Directory, Model: s.Model}
+		started := chat.Conversation{DraftID: draftID, Session: s.ID, Title: s.Title, Directory: d.Directory, Provider: s.Provider, Model: s.Model}
 		if !here {
 			kernel.Emit(p.ctx, chat.Started, started)
 			p.sendAway(s.ID, d)
@@ -390,7 +390,7 @@ func (p *Plugin) send() {
 		}
 		// The folder stays the one chosen, so a next chat and its tab group
 		// keep to it even when the backend names its default.
-		p.conv.Session, p.conv.Model, p.conv.Starting = s.ID, s.Model, false
+		p.conv.Session, p.conv.Provider, p.conv.Model, p.conv.Starting = s.ID, s.Provider, s.Model, false
 		kernel.Emit(p.ctx, chat.Changed, p.conv)
 		kernel.Emit(p.ctx, chat.Started, started)
 		if err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 )
@@ -25,6 +26,7 @@ type Options struct {
 	PiG       *pig.Runtime
 	Worktrees *worktree.Manager
 	Registry  *harness.Registry
+	Terminals *terminal.Supervisor
 }
 
 type managedWorker struct {
@@ -44,6 +46,7 @@ type Orchestrator struct {
 	pig       *pig.Runtime
 	worktrees *worktree.Manager
 	registry  *harness.Registry
+	terminals *terminal.Supervisor
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -71,6 +74,7 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		pig:       opts.PiG,
 		worktrees: opts.Worktrees,
 		registry:  opts.Registry,
+		terminals: opts.Terminals,
 		ctx:       octx,
 		cancel:    cancel,
 		events:    make(chan protocol.Event, 512),
@@ -83,6 +87,13 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		defer o.wg.Done()
 		o.pumpPiG()
 	}()
+	if o.terminals != nil {
+		o.wg.Add(1)
+		go func() {
+			defer o.wg.Done()
+			o.pumpTerminals()
+		}()
+	}
 	return o, nil
 }
 
@@ -106,9 +117,29 @@ func (o *Orchestrator) Close() error {
 	}
 
 	err := o.pig.Close()
+	if o.terminals != nil {
+		if terr := o.terminals.Close(); err == nil {
+			err = terr
+		}
+	}
 	o.wg.Wait()
 	close(o.events)
 	return err
+}
+
+func (o *Orchestrator) pumpTerminals() {
+	ch := o.terminals.Events()
+	for {
+		select {
+		case <-o.ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			o.emit(ev)
+		}
+	}
 }
 
 func (o *Orchestrator) emit(ev protocol.Event) {
@@ -251,7 +282,7 @@ func (o *Orchestrator) pumpWorker(w *managedWorker) {
 		case protocol.EventTextStarted, protocol.EventTextEnded, protocol.EventToolStarted,
 			protocol.EventInteractionRequested, protocol.EventModelChanged, protocol.EventSessionRenamed,
 			protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-			protocol.EventWorkerUpdated:
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
 			forward = append(forward, ev)
 		}
 		w.mu.Unlock()
@@ -485,6 +516,64 @@ func (o *Orchestrator) CreateWorktree(ctx context.Context, dir, name, baseRef st
 
 func (o *Orchestrator) RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error {
 	return o.worktrees.Remove(ctx, dir, wtPath, force)
+}
+
+// ---- server.TerminalBackend methods ----
+
+func (o *Orchestrator) ListTerminals(ctx context.Context) ([]protocol.TerminalInfo, error) {
+	if o.terminals == nil {
+		return nil, errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.List(ctx)
+}
+
+func (o *Orchestrator) CreateTerminal(ctx context.Context, req protocol.TerminalCreateRequest) (protocol.TerminalInfo, error) {
+	if o.terminals == nil {
+		return protocol.TerminalInfo{}, errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Create(ctx, req)
+}
+
+func (o *Orchestrator) AttachTerminal(ctx context.Context, clientID string, req protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error) {
+	if o.terminals == nil {
+		return protocol.TerminalInfo{}, nil, nil, nil, errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Attach(ctx, clientID, req)
+}
+
+func (o *Orchestrator) DetachTerminal(ctx context.Context, _, id string) error {
+	if o.terminals == nil {
+		return errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Detach(ctx, id)
+}
+
+func (o *Orchestrator) TerminalInput(ctx context.Context, id string, data []byte) error {
+	if o.terminals == nil {
+		return errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Input(ctx, id, data)
+}
+
+func (o *Orchestrator) TerminalResize(ctx context.Context, id string, cols, rows int) error {
+	if o.terminals == nil {
+		return errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Resize(ctx, id, cols, rows)
+}
+
+func (o *Orchestrator) CaptureTerminal(ctx context.Context, id string, lines int) (protocol.TerminalCaptureResponse, error) {
+	if o.terminals == nil {
+		return protocol.TerminalCaptureResponse{}, errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Capture(ctx, id, lines)
+}
+
+func (o *Orchestrator) KillTerminal(ctx context.Context, id string) error {
+	if o.terminals == nil {
+		return errors.New("terminal subsystem is unavailable")
+	}
+	return o.terminals.Kill(ctx, id)
 }
 
 // ---- server.Backend delegation + worker routing ----

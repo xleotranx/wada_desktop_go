@@ -81,12 +81,13 @@ requires explicit resume.
 | Package | Responsibility |
 | --- | --- |
 | `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
-| `main.go` | Wada's name, window and menus, `--daemon` mode dispatch, and the plugins this build installs |
+| `main.go` | Wada's name, window and menus, `--daemon` / `--terminal-worker` dispatch, and the plugins this build installs |
 | `cmd/wadad` | Standalone headless coding-agent daemon (`wadad`) |
-| `cmd/wada` | CLI client (`wada`) talking to `wadad` over WebSocket RPC |
+| `cmd/wadad-term` | Detached cross-platform PTY terminal worker (`wadad-term`) surviving daemon restarts |
+| `cmd/wada` | CLI client (`wada`) talking to `wadad` over WebSocket RPC (`ls`, `run`, `providers`, `workers`, `terminal`) |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
-| `internal/client` | Go WebSocket client SDK and local daemon attach/auto-spawn helpers |
-| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), orchestrator, and embedded PiG runtime |
+| `internal/client` | Go WebSocket client SDK, binary terminal streams, and local daemon attach/auto-spawn helpers |
+| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local `wadad` over WebSocket RPC (`agent.*`, `daemon.restart`, and providers setup) |
 | `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section, and Worker Inspector drawer |

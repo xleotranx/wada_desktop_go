@@ -251,6 +251,16 @@
       ]
     },
     {
+      "module": "github.com/creack/pty",
+      "version": "v1.1.24",
+      "notices": [
+        {
+          "file": "LICENSE",
+          "sha256": "a2a1cea59d9c2d71908082f516f86bb560abf857646ecf69d70c121ead14aef4"
+        }
+      ]
+    },
+    {
       "module": "github.com/dlclark/regexp2",
       "version": "v1.12.0",
       "notices": [

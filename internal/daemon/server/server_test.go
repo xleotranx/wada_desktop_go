@@ -213,7 +213,8 @@ func TestLiveStreamingApprovalAndTimelineCatchup(t *testing.T) {
 				protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 				protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventTurnInterrupted,
 				protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
-				protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated:
+				protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
+				protocol.EventTerminalUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for WS turn")

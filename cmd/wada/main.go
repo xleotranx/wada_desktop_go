@@ -6,12 +6,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/term"
 	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/protocol"
 )
@@ -45,6 +47,8 @@ func main() {
 		err = runProviders(ctx, c)
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
+	case "terminal":
+		err = runTerminalCmd(ctx, c, args[1:])
 	case "ls":
 		err = runList(ctx, c, args[1:])
 	case "run":
@@ -81,6 +85,8 @@ Commands:
   daemon stop            Stop the running wadad daemon
   providers              List embedded and external coding-agent harnesses
   workers [--parent ID]  List managed external harness workers
+  terminal <ls|create|attach|capture|kill>
+                         Manage detached interactive PTY terminals
   ls [--dir DIR]         List sessions
   run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>
                          Create a session, stream output, and handle approvals
@@ -154,6 +160,129 @@ func runWorkers(ctx context.Context, c *client.Client, args []string) error {
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", w.ID, w.Provider, w.Status, w.Directory, w.Name)
 	}
 	return nil
+}
+
+func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: wada terminal <ls|create|attach|capture|kill>")
+	}
+	switch args[0] {
+	case "ls":
+		list, err := c.Terminals(ctx)
+		if err != nil {
+			return err
+		}
+		for _, t := range list {
+			fmt.Printf("%s\t%s\t%dx%d\trunning=%v\t%s\n", t.ID, t.Name, t.Cols, t.Rows, t.Running, t.Directory)
+		}
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("terminal create", flag.ContinueOnError)
+		dir := fs.String("dir", ".", "Working directory")
+		sh := fs.String("shell", "", "Shell executable")
+		name := fs.String("name", "", "Terminal name")
+		cols := fs.Int("cols", 80, "Columns")
+		rows := fs.Int("rows", 24, "Rows")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		absDir, err := filepath.Abs(*dir)
+		if err != nil {
+			return err
+		}
+		info, err := c.CreateTerminal(ctx, protocol.TerminalCreateRequest{
+			Name:      *name,
+			Directory: absDir,
+			Shell:     *sh,
+			Cols:      *cols,
+			Rows:      *rows,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\t%s\t%s\n", info.ID, info.Name, info.Directory)
+		return nil
+	case "capture":
+		fs := flag.NewFlagSet("terminal capture", flag.ContinueOnError)
+		lines := fs.Int("lines", 200, "Maximum lines")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() < 1 {
+			return fmt.Errorf("usage: wada terminal capture [--lines N] <id>")
+		}
+		resp, err := c.CaptureTerminal(ctx, fs.Arg(0), *lines)
+		if err != nil {
+			return err
+		}
+		fmt.Println(resp.Text)
+		return nil
+	case "kill":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: wada terminal kill <id>")
+		}
+		return c.KillTerminal(ctx, args[1])
+	case "attach":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: wada terminal attach <id>")
+		}
+		cols, rows := 80, 24
+		inFD := int(os.Stdin.Fd())
+		if term.IsTerminal(inFD) {
+			if w, h, err := term.GetSize(inFD); err == nil {
+				cols, rows = w, h
+			}
+		}
+		stream, err := c.AttachTerminal(ctx, protocol.TerminalAttachRequest{ID: args[1], Cols: cols, Rows: rows})
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+
+		if term.IsTerminal(inFD) {
+			oldState, err := term.MakeRaw(inFD)
+			if err == nil {
+				defer func() { _ = term.Restore(inFD, oldState) }()
+			}
+		}
+		if snap := stream.Snapshot(); len(snap) > 0 {
+			_, _ = os.Stdout.Write(snap)
+		}
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for chunk := range stream.Output() {
+				_, _ = os.Stdout.Write(chunk)
+			}
+		}()
+
+		buf := make([]byte, 1024)
+		for {
+			n, rerr := os.Stdin.Read(buf)
+			if n > 0 {
+				// Detach on Ctrl+] (0x1d).
+				if idx := strings.IndexByte(string(buf[:n]), 0x1d); idx >= 0 {
+					if idx > 0 {
+						_ = stream.WriteInput(buf[:idx])
+					}
+					return nil
+				}
+				if werr := stream.WriteInput(buf[:n]); werr != nil {
+					return werr
+				}
+			}
+			if rerr != nil {
+				if rerr == io.EOF {
+					<-done
+					return nil
+				}
+				return rerr
+			}
+		}
+	default:
+		return fmt.Errorf("unknown terminal command %q", args[0])
+	}
 }
 
 func runList(ctx context.Context, c *client.Client, args []string) error {
@@ -287,7 +416,7 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-			protocol.EventProviderAuth, protocol.EventWorkerUpdated:
+			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
 		}
 	}
 	return nil

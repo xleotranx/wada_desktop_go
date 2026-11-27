@@ -26,6 +26,7 @@ import (
 )
 
 const (
+	termSoftBytes    = 4 << 20 // 4 MiB soft cap for droppable terminal output frames
 	maxOutboundBytes = 8 << 20 // 8 MiB per-socket high-water mark
 	writeWait        = 10 * time.Second
 )
@@ -76,6 +77,18 @@ type OrchestrationBackend interface {
 	RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error
 }
 
+// TerminalBackend is optionally implemented by Backends that host detached PTYs.
+type TerminalBackend interface {
+	ListTerminals(ctx context.Context) ([]protocol.TerminalInfo, error)
+	CreateTerminal(ctx context.Context, req protocol.TerminalCreateRequest) (protocol.TerminalInfo, error)
+	AttachTerminal(ctx context.Context, clientID string, req protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error)
+	DetachTerminal(ctx context.Context, clientID, termID string) error
+	TerminalInput(ctx context.Context, termID string, data []byte) error
+	TerminalResize(ctx context.Context, termID string, cols, rows int) error
+	CaptureTerminal(ctx context.Context, termID string, lines int) (protocol.TerminalCaptureResponse, error)
+	KillTerminal(ctx context.Context, termID string) error
+}
+
 // Config configures a wadad Server.
 type Config struct {
 	DataDir        string
@@ -93,17 +106,26 @@ type queuedFrame struct {
 	data    []byte
 }
 
+type termBinding struct {
+	termID string
+	detach func()
+	cancel context.CancelFunc
+}
+
 type clientConn struct {
-	id         string
-	ws         *websocket.Conn
-	server     *Server
-	mu         sync.Mutex
-	subs       map[string][]string // subscriptionID -> session filter (empty = all)
-	queue      []queuedFrame
-	queuedByte int
-	closed     bool
-	wake       chan struct{}
-	done       chan struct{}
+	id           string
+	ws           *websocket.Conn
+	server       *Server
+	mu           sync.Mutex
+	subs         map[string][]string // subscriptionID -> session filter (empty = all)
+	termChannels map[uint8]termBinding
+	termToChan   map[string]uint8
+	nextChan     uint8
+	queue        []queuedFrame
+	queuedByte   int
+	closed       bool
+	wake         chan struct{}
+	done         chan struct{}
 }
 
 // Server serves wadad's HTTP health endpoint and WebSocket RPC/stream protocol.
@@ -298,12 +320,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := &clientConn{
-		id:     uuid.NewString(),
-		ws:     ws,
-		server: s,
-		subs:   map[string][]string{},
-		wake:   make(chan struct{}, 1),
-		done:   make(chan struct{}),
+		id:           uuid.NewString(),
+		ws:           ws,
+		server:       s,
+		subs:         map[string][]string{},
+		termChannels: map[uint8]termBinding{},
+		termToChan:   map[string]uint8{},
+		wake:         make(chan struct{}, 1),
+		done:         make(chan struct{}),
 	}
 
 	// First frame must be hello with valid credential or password.
@@ -468,6 +492,21 @@ func (c *clientConn) enqueue(msgType int, data []byte) {
 	}
 }
 
+func (c *clientConn) enqueueTermOutput(data []byte) {
+	c.mu.Lock()
+	if c.closed || c.queuedByte+len(data) > termSoftBytes {
+		c.mu.Unlock()
+		return
+	}
+	c.queue = append(c.queue, queuedFrame{msgType: websocket.BinaryMessage, data: data})
+	c.queuedByte += len(data)
+	c.mu.Unlock()
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+}
+
 func (c *clientConn) closeNow() {
 	c.mu.Lock()
 	if !c.closed {
@@ -476,7 +515,21 @@ func (c *clientConn) closeNow() {
 		c.queuedByte = 0
 		close(c.done)
 	}
+	bindings := make([]termBinding, 0, len(c.termChannels))
+	for chID, b := range c.termChannels {
+		bindings = append(bindings, b)
+		delete(c.termChannels, chID)
+	}
+	clear(c.termToChan)
 	c.mu.Unlock()
+	for _, b := range bindings {
+		if b.cancel != nil {
+			b.cancel()
+		}
+		if b.detach != nil {
+			b.detach()
+		}
+	}
 	_ = c.ws.Close()
 }
 
@@ -522,6 +575,10 @@ func (c *clientConn) readLoop() {
 		msgType, raw, err := c.ws.ReadMessage()
 		if err != nil {
 			return
+		}
+		if msgType == websocket.BinaryMessage {
+			c.handleBinaryFrame(raw)
+			continue
 		}
 		if msgType != websocket.TextMessage {
 			continue
@@ -945,6 +1002,112 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return map[string]bool{"ok": true}, nil
+	case protocol.MethodTerminalsList:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		list, err := tb.ListTerminals(ctx)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodTerminalCreate:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalCreateRequest
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &req); err != nil {
+				return nil, invalidErr(err)
+			}
+		}
+		info, err := tb.CreateTerminal(ctx, req)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return info, nil
+	case protocol.MethodTerminalAttach:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalAttachRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		info, snap, outCh, detach, err := tb.AttachTerminal(ctx, c.id, req)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		chID, berr := c.bindTerminalChannel(req.ID, outCh, detach)
+		if berr != nil {
+			detach()
+			return nil, internalErr(berr)
+		}
+		return protocol.TerminalAttachResponse{Channel: chID, Info: info, Snapshot: snap}, nil
+	case protocol.MethodTerminalDetach:
+		var req protocol.TerminalDetachRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		c.unbindTerminalChannel(req.ID)
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodTerminalInput:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalInputRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := tb.TerminalInput(ctx, req.ID, req.Data); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodTerminalResize:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalResizeRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := tb.TerminalResize(ctx, req.ID, req.Cols, req.Rows); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodTerminalCapture:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalCaptureRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		resp, err := tb.CaptureTerminal(ctx, req.ID, req.Lines)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return resp, nil
+	case protocol.MethodTerminalKill:
+		tb, ok := s.cfg.Backend.(TerminalBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+		}
+		var req protocol.TerminalKillRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		c.unbindTerminalChannel(req.ID)
+		if err := tb.KillTerminal(ctx, req.ID); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
 	default:
 		return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: fmt.Sprintf("unknown method %q", method)}
 	}
@@ -1097,4 +1260,116 @@ func invalidErr(err error) *protocol.RPCError {
 
 func internalErr(err error) *protocol.RPCError {
 	return &protocol.RPCError{Code: protocol.ErrCodeInternal, Message: err.Error()}
+}
+
+func (c *clientConn) bindTerminalChannel(termID string, outCh <-chan []byte, detach func()) (uint8, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return 0, errors.New("connection closed")
+	}
+	if oldCh, exists := c.termToChan[termID]; exists {
+		old := c.termChannels[oldCh]
+		delete(c.termChannels, oldCh)
+		delete(c.termToChan, termID)
+		if old.cancel != nil {
+			old.cancel()
+		}
+		if old.detach != nil {
+			old.detach()
+		}
+	}
+	var chID uint8
+	for range 255 {
+		c.nextChan++
+		if c.nextChan == 0 {
+			c.nextChan = 1
+		}
+		if _, used := c.termChannels[c.nextChan]; !used {
+			chID = c.nextChan
+			break
+		}
+	}
+	if chID == 0 {
+		c.mu.Unlock()
+		return 0, errors.New("maximum attached terminals reached")
+	}
+	bctx, cancel := context.WithCancel(c.server.ctx)
+	c.termChannels[chID] = termBinding{termID: termID, detach: detach, cancel: cancel}
+	c.termToChan[termID] = chID
+	c.server.clientsMu.Lock()
+	shutting := c.server.shutting
+	if !shutting {
+		c.server.wg.Add(1)
+	}
+	c.server.clientsMu.Unlock()
+	c.mu.Unlock()
+
+	if shutting {
+		cancel()
+		return 0, errors.New("server shutting down")
+	}
+
+	go func() {
+		defer c.server.wg.Done()
+		for {
+			select {
+			case <-bctx.Done():
+				return
+			case <-c.done:
+				return
+			case chunk, ok := <-outCh:
+				if !ok {
+					return
+				}
+				c.enqueueTermOutput(protocol.EncodeBinaryFrame(protocol.OpTermOutput, chID, chunk))
+			}
+		}
+	}()
+	return chID, nil
+}
+
+func (c *clientConn) unbindTerminalChannel(termID string) {
+	c.mu.Lock()
+	chID, ok := c.termToChan[termID]
+	var b termBinding
+	if ok {
+		b = c.termChannels[chID]
+		delete(c.termChannels, chID)
+		delete(c.termToChan, termID)
+	}
+	c.mu.Unlock()
+	if ok {
+		if b.cancel != nil {
+			b.cancel()
+		}
+		if b.detach != nil {
+			b.detach()
+		}
+	}
+}
+
+func (c *clientConn) handleBinaryFrame(raw []byte) {
+	op, chID, payload, err := protocol.DecodeBinaryFrame(raw)
+	if err != nil {
+		return
+	}
+	tb, ok := c.server.cfg.Backend.(TerminalBackend)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	b, bound := c.termChannels[chID]
+	c.mu.Unlock()
+	if !bound {
+		return
+	}
+	switch op {
+	case protocol.OpTermInput:
+		_ = tb.TerminalInput(c.server.ctx, b.termID, payload)
+	case protocol.OpTermResize:
+		if cols, rows, derr := protocol.DecodeTermResize(payload); derr == nil {
+			_ = tb.TerminalResize(c.server.ctx, b.termID, cols, rows)
+		}
+	}
 }

@@ -54,6 +54,8 @@ linters:
           list-mode: strict
           allow:
             - "$gostd"
+            - "github.com/creack/pty"
+            - "github.com/Microsoft/go-winio"
             - "github.com/MichaelKinsy/PiG"
             - "github.com/gorilla/websocket"
             - "github.com/google/uuid"

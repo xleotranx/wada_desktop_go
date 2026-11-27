@@ -1,6 +1,9 @@
 package protocol
 
-import "errors"
+import (
+	"encoding/binary"
+	"errors"
+)
 
 // Binary WebSocket frame opcodes.
 const (
@@ -34,4 +37,26 @@ func DecodeBinaryFrame(frame []byte) (op byte, channel uint8, payload []byte, er
 		return 0, 0, nil, errInvalidBinaryFrame
 	}
 	return frame[0], frame[1], frame[2:], nil
+}
+
+// EncodeTermResize encodes terminal cols/rows as big-endian uint16 pairs.
+func EncodeTermResize(cols, rows int) []byte {
+	var buf [4]byte
+	if cols < 0 {
+		cols = 0
+	}
+	if rows < 0 {
+		rows = 0
+	}
+	binary.BigEndian.PutUint16(buf[0:2], uint16(min(cols, 0xffff)))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(min(rows, 0xffff)))
+	return buf[:]
+}
+
+// DecodeTermResize decodes [2B cols][2B rows] from an OpTermResize payload.
+func DecodeTermResize(payload []byte) (cols, rows int, err error) {
+	if len(payload) < 4 {
+		return 0, 0, errInvalidBinaryFrame
+	}
+	return int(binary.BigEndian.Uint16(payload[0:2])), int(binary.BigEndian.Uint16(payload[2:4])), nil
 }

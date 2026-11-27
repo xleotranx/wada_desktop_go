@@ -43,6 +43,15 @@ const (
 	MethodWorktreeCreate = "worktree.create"
 	MethodWorktreeRemove = "worktree.remove"
 
+	MethodTerminalsList   = "terminal.list"
+	MethodTerminalCreate  = "terminal.create"
+	MethodTerminalAttach  = "terminal.attach"
+	MethodTerminalDetach  = "terminal.detach"
+	MethodTerminalInput   = "terminal.input"
+	MethodTerminalResize  = "terminal.resize"
+	MethodTerminalCapture = "terminal.capture"
+	MethodTerminalKill    = "terminal.kill"
+
 	MethodInteractionsPending = "agent.interactions.pending"
 	MethodInteractionsAnswer  = "agent.interactions.answer"
 
@@ -126,6 +135,7 @@ const (
 	EventModelsChanged        EventKind = "models_changed"
 	EventProviderAuth         EventKind = "provider_auth"
 	EventWorkerUpdated        EventKind = "worker_updated"
+	EventTerminalUpdated      EventKind = "terminal_updated"
 )
 
 const (
@@ -438,6 +448,68 @@ type WorktreeRemoveRequest struct {
 	Force     bool   `json:"force,omitempty"`
 }
 
+type TerminalInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Directory string `json:"directory"`
+	Shell     string `json:"shell,omitempty"`
+	Cols      int    `json:"cols"`
+	Rows      int    `json:"rows"`
+	PID       int    `json:"pid,omitempty"`
+	Running   bool   `json:"running"`
+	ExitCode  int    `json:"exitCode,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+type TerminalCreateRequest struct {
+	Name      string `json:"name,omitempty"`
+	Directory string `json:"directory,omitempty"`
+	Shell     string `json:"shell,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
+}
+
+type TerminalAttachRequest struct {
+	ID   string `json:"id"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
+}
+
+type TerminalAttachResponse struct {
+	Channel  uint8        `json:"channel"`
+	Info     TerminalInfo `json:"info"`
+	Snapshot []byte       `json:"snapshot,omitempty"`
+}
+
+type TerminalDetachRequest struct {
+	ID string `json:"id"`
+}
+
+type TerminalInputRequest struct {
+	ID   string `json:"id"`
+	Data []byte `json:"data"`
+}
+
+type TerminalResizeRequest struct {
+	ID   string `json:"id"`
+	Cols int    `json:"cols"`
+	Rows int    `json:"rows"`
+}
+
+type TerminalCaptureRequest struct {
+	ID    string `json:"id"`
+	Lines int    `json:"lines,omitempty"`
+}
+
+type TerminalCaptureResponse struct {
+	Text     string `json:"text"`
+	Snapshot []byte `json:"snapshot,omitempty"`
+}
+
+type TerminalKillRequest struct {
+	ID string `json:"id"`
+}
+
 type SkillsListRequest struct {
 	Directory string `json:"directory,omitempty"`
 }
@@ -566,6 +638,7 @@ type Event struct {
 	Interaction  *Interaction       `json:"interaction,omitempty"`
 	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
 	Worker       *WorkerInfo        `json:"worker,omitempty"`
+	Terminal     *TerminalInfo      `json:"terminal,omitempty"`
 	Model        ModelRef           `json:"model"`
 	Title       string          `json:"title,omitempty"`
 	Error       string          `json:"error,omitempty"`

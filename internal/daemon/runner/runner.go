@@ -21,6 +21,7 @@ import (
 	"wada-desktop-go/internal/daemon/orchestrator"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/server"
+	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/daemon/worktree"
 )
 
@@ -72,6 +73,10 @@ func Run(args []string) error {
 
 	wtMgr := worktree.New(*dataDir)
 	reg := harness.DefaultRegistry()
+	termSup := terminal.NewSupervisor(terminal.SupervisorOptions{
+		DataDir:     *dataDir,
+		KeepOnClose: true,
+	})
 
 	var orch *orchestrator.Orchestrator
 	rt, err := pig.New(ctx, pig.Options{
@@ -84,6 +89,7 @@ func Run(args []string) error {
 		},
 	})
 	if err != nil {
+		_ = termSup.Close()
 		return fmt.Errorf("wadad: start PiG runtime: %w", err)
 	}
 
@@ -92,9 +98,11 @@ func Run(args []string) error {
 		PiG:       rt,
 		Worktrees: wtMgr,
 		Registry:  reg,
+		Terminals: termSup,
 	})
 	if err != nil {
 		_ = rt.Close()
+		_ = termSup.Close()
 		return fmt.Errorf("wadad: start orchestrator: %w", err)
 	}
 

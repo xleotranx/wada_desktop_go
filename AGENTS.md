@@ -17,11 +17,11 @@ keep its types inside the backend plugin.
   inspector plugins, `kernel/kerneltest` and `kittest`. It never imports Wada.
   Do not edit cached dependencies or add a permanent local `replace`. See
   [kit dependency maintenance](docs/design/kit-dependency.md).
-- `main.go`: composition only — Wada's `shell.App`, `--daemon` subprocess dispatch, and the plugins this build installs.
-- `cmd/wadad` and `cmd/wada`: standalone headless daemon binary and CLI client for `wadad`.
+- `main.go`: composition only — Wada's `shell.App`, `--daemon` / `--terminal-worker` subprocess dispatch, and the plugins this build installs.
+- `cmd/wadad`, `cmd/wadad-term`, and `cmd/wada`: standalone headless daemon binary, detached PTY worker binary, and CLI client for `wadad`.
 - `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
-- `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `ConnectOrStartLocal`) and platform detached spawn helpers.
-- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
+- `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `ConnectOrStartLocal`), binary terminal streams, and platform detached spawn helpers.
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer

@@ -371,7 +371,8 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed:
+			protocol.EventModelChanged, protocol.EventSessionRenamed,
+			protocol.EventTerminalUpdated:
 		}
 	}
 
@@ -384,7 +385,7 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed:
+			protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventTerminalUpdated:
 			return false
 		}
 		return false

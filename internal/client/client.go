@@ -47,6 +47,7 @@ type Client struct {
 	mu        sync.Mutex
 	pending   map[string]chan protocol.Envelope
 	subs      map[string]*subStream
+	termSubs  map[uint8]*termStream
 	closed    bool
 	closeOnce sync.Once
 	done      chan struct{}
@@ -154,6 +155,7 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 		rpcTimeout: opts.RPCTimeout,
 		pending:    map[string]chan protocol.Envelope{},
 		subs:       map[string]*subStream{},
+		termSubs:   map[uint8]*termStream{},
 		done:       make(chan struct{}),
 	}
 	go c.readLoop()
@@ -191,12 +193,23 @@ func (c *Client) Close() error {
 			subs = append(subs, sub)
 			delete(c.subs, id)
 		}
+		termSubs := make([]*termStream, 0, len(c.termSubs))
+		for chID, ts := range c.termSubs {
+			ts.closed = true
+			close(ts.done)
+			termSubs = append(termSubs, ts)
+			delete(c.termSubs, chID)
+		}
 		c.mu.Unlock()
 		close(c.done)
 		err = c.ws.Close()
 		for _, sub := range subs {
 			sub.wg.Wait()
 			close(sub.ch)
+		}
+		for _, ts := range termSubs {
+			ts.wg.Wait()
+			close(ts.ch)
 		}
 	})
 	return err
@@ -207,6 +220,13 @@ func (c *Client) writeJSON(v any) error {
 	defer c.writeMu.Unlock()
 	_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return c.ws.WriteJSON(v)
+}
+
+func (c *Client) writeBinary(frame []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return c.ws.WriteMessage(websocket.BinaryMessage, frame)
 }
 
 func (c *Client) pingLoop(interval time.Duration) {
@@ -236,6 +256,10 @@ func (c *Client) readLoop() {
 		msgType, raw, err := c.ws.ReadMessage()
 		if err != nil {
 			return
+		}
+		if msgType == websocket.BinaryMessage {
+			c.handleBinary(raw)
+			continue
 		}
 		if msgType != websocket.TextMessage {
 			continue
@@ -545,4 +569,123 @@ func (c *Client) CreateWorktree(ctx context.Context, req protocol.WorktreeCreate
 
 func (c *Client) RemoveWorktree(ctx context.Context, req protocol.WorktreeRemoveRequest) error {
 	return c.Call(ctx, protocol.MethodWorktreeRemove, req, nil)
+}
+
+type termStream struct {
+	client  *Client
+	termID  string
+	channel uint8
+	info    protocol.TerminalInfo
+	snap    []byte
+	ch      chan []byte
+	done    chan struct{}
+	closed  bool
+	wg      sync.WaitGroup
+}
+
+// TerminalStream is an attached live binary PTY stream over WebSocket.
+type TerminalStream struct {
+	ts *termStream
+}
+
+func (s *TerminalStream) Channel() uint8              { return s.ts.channel }
+func (s *TerminalStream) Info() protocol.TerminalInfo { return s.ts.info }
+func (s *TerminalStream) Snapshot() []byte            { return s.ts.snap }
+func (s *TerminalStream) Output() <-chan []byte       { return s.ts.ch }
+
+func (s *TerminalStream) WriteInput(data []byte) error {
+	return s.ts.client.writeBinary(protocol.EncodeBinaryFrame(protocol.OpTermInput, s.ts.channel, data))
+}
+
+func (s *TerminalStream) Resize(cols, rows int) error {
+	return s.ts.client.writeBinary(protocol.EncodeBinaryFrame(protocol.OpTermResize, s.ts.channel, protocol.EncodeTermResize(cols, rows)))
+}
+
+func (s *TerminalStream) Close() error {
+	c := s.ts.client
+	c.mu.Lock()
+	cur := c.termSubs[s.ts.channel]
+	if cur == s.ts && !s.ts.closed {
+		s.ts.closed = true
+		close(s.ts.done)
+		delete(c.termSubs, s.ts.channel)
+	}
+	c.mu.Unlock()
+	s.ts.wg.Wait()
+	close(s.ts.ch)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return c.Call(ctx, protocol.MethodTerminalDetach, protocol.TerminalDetachRequest{ID: s.ts.termID}, nil)
+}
+
+func (c *Client) handleBinary(raw []byte) {
+	op, chID, payload, err := protocol.DecodeBinaryFrame(raw)
+	if err != nil {
+		return
+	}
+	if op != protocol.OpTermOutput && op != protocol.OpTermSnapshot {
+		return
+	}
+	c.mu.Lock()
+	ts := c.termSubs[chID]
+	if ts != nil && !ts.closed {
+		ts.wg.Add(1)
+	} else {
+		ts = nil
+	}
+	c.mu.Unlock()
+	if ts == nil {
+		return
+	}
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+	select {
+	case ts.ch <- cp:
+	case <-ts.done:
+	case <-c.done:
+	}
+	ts.wg.Done()
+}
+
+func (c *Client) Terminals(ctx context.Context) ([]protocol.TerminalInfo, error) {
+	var out []protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodTerminalsList, nil, &out)
+}
+
+func (c *Client) CreateTerminal(ctx context.Context, req protocol.TerminalCreateRequest) (protocol.TerminalInfo, error) {
+	var out protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodTerminalCreate, req, &out)
+}
+
+func (c *Client) AttachTerminal(ctx context.Context, req protocol.TerminalAttachRequest) (*TerminalStream, error) {
+	var resp protocol.TerminalAttachResponse
+	if err := c.Call(ctx, protocol.MethodTerminalAttach, req, &resp); err != nil {
+		return nil, err
+	}
+	ts := &termStream{
+		client:  c,
+		termID:  req.ID,
+		channel: resp.Channel,
+		info:    resp.Info,
+		snap:    resp.Snapshot,
+		ch:      make(chan []byte, 128),
+		done:    make(chan struct{}),
+	}
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, errors.New("client: connection closed")
+	}
+	c.termSubs[resp.Channel] = ts
+	c.mu.Unlock()
+	return &TerminalStream{ts: ts}, nil
+}
+
+func (c *Client) CaptureTerminal(ctx context.Context, id string, lines int) (protocol.TerminalCaptureResponse, error) {
+	var out protocol.TerminalCaptureResponse
+	return out, c.Call(ctx, protocol.MethodTerminalCapture, protocol.TerminalCaptureRequest{ID: id, Lines: lines}, &out)
+}
+
+func (c *Client) KillTerminal(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodTerminalKill, protocol.TerminalKillRequest{ID: id}, nil)
 }

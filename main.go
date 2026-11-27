@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"wada-desktop-go/internal/daemon/runner"
+	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/daemon"
@@ -44,11 +45,19 @@ var wada = shell.App{
 // main launches either the headless daemon subprocess (`--daemon`) or the
 // desktop shell composed of plugins in order.
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--daemon" {
-		if err := runner.Run(os.Args[2:]); err != nil {
-			log.Fatal(err)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--daemon":
+			if err := runner.Run(os.Args[2:]); err != nil {
+				log.Fatal(err)
+			}
+			return
+		case "--terminal-worker":
+			if err := terminal.RunWorkerCLI(os.Args[2:]); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
-		return
 	}
 
 	shell.Run(wada, append([]kernel.Factory{

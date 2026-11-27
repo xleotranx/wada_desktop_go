@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -1248,59 +1249,58 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 }
 
 func (s *Server) createWithReceipt(ctx context.Context, req protocol.CreateSessionRequest) (any, *protocol.RPCError) {
-	if req.IdempotencyKey != "" {
-		reqHash := hashStruct(req)
-		rec, ok, err := s.store.GetCreationReceipt(ctx, req.IdempotencyKey)
-		if err != nil {
-			return nil, internalErr(err)
-		}
-		if ok {
-			if rec.Kind != "session" || rec.RequestHash != reqHash {
-				return nil, &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: "idempotencyKey reused with different arguments"}
+	return s.withCreationReceipt(ctx, req.IdempotencyKey, "session", hashStruct(req),
+		func(id string) any {
+			if sess, found := s.lookupSession(ctx, id); found {
+				return sess
 			}
-			if sess, found := s.lookupSession(ctx, rec.ResourceID); found {
-				return sess, nil
-			}
-			return protocol.Session{ID: rec.ResourceID, Title: req.Title, Directory: req.Directory, Model: req.Model}, nil
-		}
-	}
-	sess, err := s.cfg.Backend.Create(ctx, req)
-	if sess.ID != "" && req.IdempotencyKey != "" {
-		_ = s.store.PutCreationReceipt(ctx, store.CreationReceipt{
-			IdempotencyKey: req.IdempotencyKey,
-			Kind:           "session",
-			ResourceID:     sess.ID,
-			RequestHash:    hashStruct(req),
-		})
-	}
-	if err != nil {
-		return nil, internalErr(err)
-	}
-	return sess, nil
+			return protocol.Session{ID: id, Title: req.Title, Directory: req.Directory, Model: req.Model}
+		},
+		func() (protocol.Session, error) { return s.cfg.Backend.Create(ctx, req) })
 }
 
 func (s *Server) spawnWithReceipt(ctx context.Context, req protocol.SpawnRequest) (any, *protocol.RPCError) {
-	if req.IdempotencyKey != "" {
-		reqHash := hashStruct(req)
-		rec, ok, err := s.store.GetCreationReceipt(ctx, req.IdempotencyKey)
+	return s.withCreationReceipt(ctx, req.IdempotencyKey, "spawn", hashStruct(req),
+		func(id string) any {
+			return protocol.Session{ID: id, Title: req.Name, Directory: req.Directory, Model: req.Model}
+		},
+		func() (protocol.Session, error) { return s.cfg.Backend.Spawn(ctx, req) })
+}
+
+// withCreationReceipt runs create at most once per idempotency key. The key is
+// reserved before create runs, so a concurrent or later request with the same
+// key gets the first one's resource (from existing) instead of a second one.
+func (s *Server) withCreationReceipt(ctx context.Context, key, kind, reqHash string, existing func(id string) any, create func() (protocol.Session, error)) (any, *protocol.RPCError) {
+	if key == "" {
+		sess, err := create()
 		if err != nil {
 			return nil, internalErr(err)
 		}
-		if ok {
-			if rec.Kind != "spawn" || rec.RequestHash != reqHash {
-				return nil, &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: "idempotencyKey reused with different arguments"}
-			}
-			return protocol.Session{ID: rec.ResourceID, Title: req.Name, Directory: req.Directory, Model: req.Model}, nil
-		}
+		return sess, nil
 	}
-	sess, err := s.cfg.Backend.Spawn(ctx, req)
-	if sess.ID != "" && req.IdempotencyKey != "" {
-		_ = s.store.PutCreationReceipt(ctx, store.CreationReceipt{
-			IdempotencyKey: req.IdempotencyKey,
-			Kind:           "spawn",
-			ResourceID:     sess.ID,
-			RequestHash:    hashStruct(req),
-		})
+	reserved, rec, err := s.store.ReserveCreationReceipt(ctx, store.CreationReceipt{IdempotencyKey: key, Kind: kind, RequestHash: reqHash})
+	if err != nil {
+		return nil, internalErr(err)
+	}
+	if !reserved {
+		if rec.Kind != kind || rec.RequestHash != reqHash {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: "idempotencyKey reused with different arguments"}
+		}
+		if rec.ResourceID == "" {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeOutcomeUnknown, Message: "a creation with this idempotencyKey is in progress or its outcome is unknown"}
+		}
+		return existing(rec.ResourceID), nil
+	}
+	sess, err := create()
+	if sess.ID != "" {
+		// The resource exists; a lost receipt only means a retry with this key
+		// is refused as unknown instead of answered.
+		if perr := s.store.PutCreationReceipt(context.WithoutCancel(ctx), store.CreationReceipt{IdempotencyKey: key, Kind: kind, ResourceID: sess.ID, RequestHash: reqHash}); perr != nil {
+			log.Printf("wadad: record %s receipt for %s: %v", kind, sess.ID, perr)
+		}
+	} else if err != nil {
+		// The backend reports nothing was created, so the key may be used again.
+		_ = s.store.DeleteCreationReceipt(context.WithoutCancel(ctx), key)
 	}
 	if err != nil {
 		return nil, internalErr(err)

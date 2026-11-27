@@ -91,16 +91,16 @@ func (s *codexSession) emit(ev protocol.Event) {
 
 func (s *codexSession) Send(ctx context.Context, text string) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrNotSent, err)
 	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return errors.New("codex session is closed")
+		return fmt.Errorf("%w: codex session is closed", ErrNotSent)
 	}
 	if s.active != nil {
 		s.mu.Unlock()
-		return errors.New("codex session is already busy")
+		return fmt.Errorf("%w: codex session is already busy", ErrNotSent)
 	}
 	threadID := s.threadID
 	args := slices.Clone(s.baseArgs)
@@ -118,7 +118,7 @@ func (s *codexSession) Send(ctx context.Context, text string) error {
 	proc, err := StartProcess(s.ctx, s.opts.Directory, s.bin, args, s.opts.Env)
 	if err != nil {
 		s.mu.Unlock()
-		return err
+		return fmt.Errorf("%w: %w", ErrNotSent, err)
 	}
 	_ = proc.Stdin.Close()
 	s.active = proc

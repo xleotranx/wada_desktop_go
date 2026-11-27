@@ -113,7 +113,21 @@ func (f *Forge) CreatePR(ctx context.Context, req protocol.WorktreeCreatePRReque
 		return nil, fmt.Errorf("forge: gh is not authenticated for host %s", host)
 	}
 
-	args := []string{"pr", "create", "--title", req.Title, "--body", req.Body}
+	// gh cannot create a PR for a branch the remote doesn't have, and won't
+	// offer to push it with prompts disabled.
+	raw, err := f.run(ctx, req.Directory, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	branch := strings.TrimSpace(raw)
+	if branch == "" || branch == "HEAD" {
+		return nil, errors.New("forge: the worktree is not on a branch")
+	}
+	if _, err := f.run(ctx, req.Directory, "git", "push", "--set-upstream", "origin", branch); err != nil {
+		return nil, err
+	}
+
+	args := []string{"pr", "create", "--head", branch, "--title", req.Title, "--body", req.Body}
 	if req.Base != "" {
 		args = append(args, "--base", req.Base)
 	}

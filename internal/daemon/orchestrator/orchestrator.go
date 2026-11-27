@@ -667,20 +667,54 @@ func (o *Orchestrator) Messages(ctx context.Context, id string) ([]protocol.Mess
 
 func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (protocol.SendDisposition, error) {
 	if w := o.getWorker(req.Session); w != nil {
+		// Mark the worker running before the prompt goes out, so a wait right
+		// after this send cannot see the previous turn's result.
 		w.mu.Lock()
+		prevStatus, prevErr := w.info.Status, w.info.LastError
 		w.msgSeq++
-		w.msgs = append(w.msgs, protocol.Message{
-			ID:   fmt.Sprintf("%s_m%d", w.info.ID, w.msgSeq),
-			Role: protocol.RoleUser,
-			Text: req.Text,
-		})
+		msgID := fmt.Sprintf("%s_m%d", w.info.ID, w.msgSeq)
+		w.msgs = append(w.msgs, protocol.Message{ID: msgID, Role: protocol.RoleUser, Text: req.Text})
+		w.info.Status = protocol.WorkerRunning
+		w.info.LastError = ""
+		w.info.Updated = time.Now().UnixMilli()
+		running := w.info
 		w.mu.Unlock()
-		if err := w.sess.Send(ctx, req.Text); err != nil {
-			return "", fmt.Errorf("%w: %v", pig.ErrNotSent, err)
+		o.emitWorker(running)
+
+		err := w.sess.Send(ctx, req.Text)
+		if err == nil {
+			return protocol.SendAccepted, nil
 		}
-		return protocol.SendAccepted, nil
+		if !errors.Is(err, harness.ErrNotSent) {
+			// Part of the prompt may have reached the harness; the outcome is
+			// unknown, and the harness reports the turn's end itself.
+			return "", err
+		}
+		w.mu.Lock()
+		w.msgs = slices.DeleteFunc(w.msgs, func(m protocol.Message) bool { return m.ID == msgID })
+		var restored *protocol.WorkerInfo
+		if !w.turnOpen && w.info.Status == protocol.WorkerRunning {
+			w.info.Status, w.info.LastError = prevStatus, prevErr
+			cp := w.info
+			restored = &cp
+		}
+		w.mu.Unlock()
+		if restored != nil {
+			o.emitWorker(*restored)
+		}
+		return "", fmt.Errorf("%w: %w", pig.ErrNotSent, err)
 	}
 	return o.pig.Send(ctx, req)
+}
+
+// emitWorker reports info to its parent conversation, or to the worker's own
+// session when it has no parent.
+func (o *Orchestrator) emitWorker(info protocol.WorkerInfo) {
+	updateSess := info.ParentSession
+	if updateSess == "" {
+		updateSess = info.ID
+	}
+	o.emit(protocol.Event{Kind: protocol.EventWorkerUpdated, Session: updateSess, Worker: &info})
 }
 
 func (o *Orchestrator) Abort(ctx context.Context, id string) error {
@@ -692,19 +726,17 @@ func (o *Orchestrator) Abort(ctx context.Context, id string) error {
 
 func (o *Orchestrator) Reply(ctx context.Context, req protocol.ReplyRequest) error {
 	if w := o.getWorker(req.Session); w != nil {
-		w.mu.Lock()
-		w.info.Status = protocol.WorkerRunning
-		w.info.Updated = time.Now().UnixMilli()
-		cp := w.info
-		w.mu.Unlock()
 		if err := w.sess.Reply(ctx, req.Approval, req.Decision); err != nil {
 			return err
 		}
-		updateSess := cp.ParentSession
-		if updateSess == "" {
-			updateSess = cp.ID
+		w.mu.Lock()
+		if w.turnOpen && w.info.Status == protocol.WorkerWaitingApproval {
+			w.info.Status = protocol.WorkerRunning
 		}
-		o.emit(protocol.Event{Kind: protocol.EventWorkerUpdated, Session: updateSess, Worker: &cp})
+		w.info.Updated = time.Now().UnixMilli()
+		cp := w.info
+		w.mu.Unlock()
+		o.emitWorker(cp)
 		return nil
 	}
 	return o.pig.Reply(ctx, req)

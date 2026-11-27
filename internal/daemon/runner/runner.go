@@ -63,6 +63,11 @@ func Run(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// Terminals, harness workers and git inherit this process's environment;
+	// they have no use for the daemon's secrets.
+	for _, name := range []string{"WADA_PASSWORD", "WADA_RELAY_TOKEN"} {
+		_ = os.Unsetenv(name)
+	}
 
 	listenAddr := *listen
 	if listenAddr == "auto" {
@@ -75,6 +80,14 @@ func Run(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// One daemon per data directory: a replacement waits here while the daemon
+	// it replaces shuts down and removes its runtime files.
+	unlock, err := lockDataDir(ctx, *dataDir, 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("wadad: %w", err)
+	}
+	defer unlock()
 
 	wtMgr := worktree.New(*dataDir)
 	reg := harness.DefaultRegistry()

@@ -38,13 +38,15 @@ services:
     profiles: ["daemon"]
     restart: unless-stopped
     environment:
-      WADA_PASSWORD: "${WADA_PASSWORD:-change-me-in-production}"
+      WADA_PASSWORD: "${WADA_PASSWORD:-}"
       WADA_HOSTNAMES: "${WADA_HOSTNAMES:-localhost}"
       WADA_RELAY_URL: "${WADA_RELAY_URL:-}"
       WADA_RELAY_TOKEN: "${WADA_RELAY_TOKEN:-}"
       WADA_APP_URL: "${WADA_APP_URL:-https://app.wada.dev}"
+    # Loopback only unless WADA_DAEMON_BIND says otherwise; remote clients
+    # should come through the relay.
     ports:
-      - "6767:6767"
+      - "${WADA_DAEMON_BIND:-127.0.0.1}:6767:6767"
     volumes:
       - wadad_data:/data
       - "${WADA_WORKSPACES_DIR:-./workspaces}:/workspaces"

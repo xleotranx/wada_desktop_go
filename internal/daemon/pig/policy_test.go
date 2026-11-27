@@ -29,3 +29,19 @@ func TestAccessPolicies(t *testing.T) {
 		})
 	}
 }
+
+func TestChiefToolKinds(t *testing.T) {
+	for name, want := range map[string]protocol.ToolKind{
+		"wait_agent":         protocol.ToolRead,
+		"inspect_agent_diff": protocol.ToolRead,
+		"stop_agent":         protocol.ToolEdit,
+		"create_worktree":    protocol.ToolEdit,
+	} {
+		if got := toolKind(name); got != want {
+			t.Errorf("toolKind(%q) = %v, want %v", name, got, want)
+		}
+	}
+	if got := permissionFor(modeAsk, nil, toolKind("stop_agent")); got != ask {
+		t.Fatalf("stop_agent permission in ask mode = %v, want ask", got)
+	}
+}

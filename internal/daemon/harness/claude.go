@@ -42,6 +42,17 @@ func (p *ClaudeProvider) Info() protocol.HarnessInfo {
 	}
 }
 
+// claudeArgs returns the CLI arguments for a stream-json session in mode.
+func claudeArgs(mode string) []string {
+	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--input-format", "stream-json"}
+	if mode == "full" {
+		// Print mode refuses every tool that needs permission unless told to
+		// skip the checks.
+		return append(args, "--permission-mode", "bypassPermissions")
+	}
+	return append(args, "--permission-prompt-tool", "stdio")
+}
+
 type claudeSession struct {
 	id     string
 	proc   *ManagedProcess
@@ -55,6 +66,8 @@ type claudeSession struct {
 	mu        sync.Mutex
 	busy      bool
 	closed    bool
+	stopping  bool // an interrupt was sent for the current turn
+	nextReq   int
 	pending   map[string]struct{}
 	closeOnce sync.Once
 }
@@ -70,10 +83,7 @@ func (p *ClaudeProvider) Start(_ context.Context, opts SessionOptions) (Session,
 	} else if len(p.cfg.Args) > 0 {
 		args = slices.Clone(p.cfg.Args)
 	} else {
-		args = []string{"-p", "--verbose", "--output-format", "stream-json", "--input-format", "stream-json"}
-		if opts.Mode != "full" {
-			args = append(args, "--permission-prompt-tool", "stdio")
-		}
+		args = claudeArgs(opts.Mode)
 	}
 
 	sctx, cancel := context.WithCancel(context.Background())
@@ -126,18 +136,19 @@ func (s *claudeSession) writeJSON(v any) error {
 
 func (s *claudeSession) Send(ctx context.Context, text string) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrNotSent, err)
 	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return errors.New("claude session is closed")
+		return fmt.Errorf("%w: claude session is closed", ErrNotSent)
 	}
 	if s.busy {
 		s.mu.Unlock()
-		return errors.New("claude session is already busy")
+		return fmt.Errorf("%w: claude session is already busy", ErrNotSent)
 	}
 	s.busy = true
+	s.stopping = false
 	s.mu.Unlock()
 
 	s.emit(protocol.Event{Kind: protocol.EventTurnStarted})
@@ -158,10 +169,38 @@ func (s *claudeSession) Send(ctx context.Context, text string) error {
 	return nil
 }
 
-func (s *claudeSession) Abort(_ context.Context) error {
+// Abort interrupts the current turn and keeps the session for the next prompt.
+// Only a harness that ignores the interrupt is killed, which ends the session.
+func (s *claudeSession) Abort(ctx context.Context) error {
+	s.mu.Lock()
+	if !s.busy || s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.stopping = true
+	s.nextReq++
+	reqID := fmt.Sprintf("wada_interrupt_%d", s.nextReq)
+	s.mu.Unlock()
+
+	err := s.writeJSON(map[string]any{
+		"type":       "control_request",
+		"request_id": reqID,
+		"request":    map[string]any{"subtype": "interrupt"},
+	})
+	if err == nil {
+		ended, werr := waitTurnEnd(ctx, func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.busy
+		})
+		if werr != nil || ended {
+			return werr
+		}
+	}
 	s.mu.Lock()
 	wasBusy := s.busy
 	s.busy = false
+	s.stopping = false
 	s.closed = true
 	s.mu.Unlock()
 	_ = s.proc.Kill()
@@ -368,15 +407,22 @@ func (s *claudeSession) readLoop() {
 			}
 		case "result":
 			s.mu.Lock()
+			wasBusy, stopping := s.busy, s.stopping
 			s.busy = false
+			s.stopping = false
 			s.mu.Unlock()
-			if raw.IsError {
+			switch {
+			case !wasBusy:
+				// Abort already ended this turn.
+			case stopping:
+				s.emit(protocol.Event{Kind: protocol.EventTurnInterrupted})
+			case raw.IsError:
 				msg := raw.Result
 				if msg == "" {
 					msg = "claude turn failed"
 				}
 				s.emit(protocol.Event{Kind: protocol.EventTurnFailed, Error: msg})
-			} else {
+			default:
 				s.emit(protocol.Event{Kind: protocol.EventTurnSucceeded})
 			}
 		}

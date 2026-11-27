@@ -45,7 +45,10 @@ remote `wadad` host via `client.DialHost` (using direct WebSocket or Noise NK E2
 relay); otherwise it attaches to an already running local `wadad` instance (via
 `wadad.pid` and `local-credential`), or spawns a detached
 `os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
-reconnects automatically if the WebSocket drops. `wadad.db` tracks server identity,
+reconnects automatically if the WebSocket drops. One `wadad` serves a data
+directory at a time: it holds an exclusive lock on `<DataDir>/wadad.lock` for its
+whole run, so a replacement waits until the daemon it replaces has shut down and
+removed its runtime files. `wadad.db` tracks server identity,
 startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
 
 Ordinary chats use PiG's built-in coding tools

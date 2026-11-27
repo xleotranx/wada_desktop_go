@@ -167,6 +167,42 @@ func (s *Store) GetCreationReceipt(ctx context.Context, key string) (CreationRec
 	return r, true, nil
 }
 
+// ReserveCreationReceipt records r with no ResourceID before the resource is
+// created, unless its key already has a receipt. It reports whether r was
+// stored and otherwise returns the existing receipt; an empty ResourceID there
+// means that creation is still running or its outcome is unknown.
+func (s *Store) ReserveCreationReceipt(ctx context.Context, r CreationReceipt) (bool, CreationReceipt, error) {
+	if r.CreatedAt == 0 {
+		r.CreatedAt = time.Now().UnixMilli()
+	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO creation_receipts (idempotency_key, kind, resource_id, request_hash, created_at) VALUES (?, ?, '', ?, ?)
+		 ON CONFLICT(idempotency_key) DO NOTHING`,
+		r.IdempotencyKey, r.Kind, r.RequestHash, r.CreatedAt)
+	if err != nil {
+		return false, CreationReceipt{}, err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return false, CreationReceipt{}, err
+	} else if n == 1 {
+		return true, CreationReceipt{}, nil
+	}
+	existing, ok, err := s.GetCreationReceipt(ctx, r.IdempotencyKey)
+	if err != nil {
+		return false, CreationReceipt{}, err
+	}
+	if !ok {
+		return false, CreationReceipt{}, errors.New("store: creation receipt vanished")
+	}
+	return false, existing, nil
+}
+
+// DeleteCreationReceipt removes a reservation whose creation failed.
+func (s *Store) DeleteCreationReceipt(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM creation_receipts WHERE idempotency_key = ? AND resource_id = ''`, key)
+	return err
+}
+
 func (s *Store) PutCreationReceipt(ctx context.Context, r CreationReceipt) error {
 	if r.CreatedAt == 0 {
 		r.CreatedAt = time.Now().UnixMilli()

@@ -46,7 +46,17 @@ func WriteRuntimeFiles(dataDir string, rec PIDRecord, credential string) error {
 	return writeAtomic(filepath.Join(dataDir, PIDFileName), raw, 0o600)
 }
 
+// CleanupRuntimeFiles removes the runtime files this process published, and
+// leaves those of any other daemon in place.
 func CleanupRuntimeFiles(dataDir string) {
+	raw, err := os.ReadFile(filepath.Join(dataDir, PIDFileName))
+	if err != nil {
+		return
+	}
+	var rec PIDRecord
+	if json.Unmarshal(raw, &rec) != nil || rec.PID != os.Getpid() {
+		return
+	}
 	_ = os.Remove(filepath.Join(dataDir, CredentialFileName))
 	_ = os.Remove(filepath.Join(dataDir, PIDFileName))
 }

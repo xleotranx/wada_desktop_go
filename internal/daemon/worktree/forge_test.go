@@ -55,11 +55,21 @@ func TestForgeSkipsPRProbeWhenHostUnauthenticated(t *testing.T) {
 }
 
 func TestForgePRStatusAndCreate(t *testing.T) {
-	var createdArgs []string
+	var createdArgs, pushedArgs []string
 	viewJSON := `{"number":42,"title":"Add E2EE relay","state":"OPEN","isDraft":false,"url":"https://github.com/xleotranx/wada_desktop_go/pull/42","reviewDecision":"APPROVED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"SUCCESS"}]}`
 	f := &Forge{
 		authCache: map[string]authEntry{},
 		run: func(_ context.Context, _ string, name string, args ...string) (string, error) {
+			if name == "git" && args[0] == "rev-parse" {
+				return "wada/feature\n", nil
+			}
+			if name == "git" && args[0] == "push" {
+				if createdArgs != nil {
+					t.Fatal("pushed after creating the PR")
+				}
+				pushedArgs = append([]string(nil), args...)
+				return "", nil
+			}
 			if name == "git" {
 				return "https://github.com/xleotranx/wada_desktop_go.git\n", nil
 			}
@@ -87,7 +97,10 @@ func TestForgePRStatusAndCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(createdArgs) == 0 || !strings.Contains(strings.Join(createdArgs, " "), "--draft") {
+	if got := strings.Join(pushedArgs, " "); got != "push --set-upstream origin wada/feature" {
+		t.Fatalf("pushedArgs = %v", pushedArgs)
+	}
+	if got := strings.Join(createdArgs, " "); !strings.Contains(got, "--draft") || !strings.Contains(got, "--head wada/feature") {
 		t.Fatalf("createdArgs = %v", createdArgs)
 	}
 	if pr == nil || pr.Number != 42 || pr.Checks != "pass" || pr.ReviewDecision != "APPROVED" {

@@ -25,6 +25,10 @@ type ACPConfig struct {
 	Description string
 }
 
+// acpHandshakeTimeout bounds initialize and session/new, so an agent that never
+// answers fails the spawn instead of hanging it.
+var acpHandshakeTimeout = 30 * time.Second
+
 type ACPProvider struct {
 	cfg ACPConfig
 }
@@ -111,7 +115,10 @@ func (p *ACPProvider) Start(ctx context.Context, opts SessionOptions) (Session, 
 	s.nextID.Store(2)
 
 	reader := bufio.NewReaderSize(proc.Stdout, 64<<10)
-	if err := s.handshake(ctx, reader, opts.Directory); err != nil {
+	hctx, hcancel := context.WithTimeout(ctx, acpHandshakeTimeout)
+	err = s.handshake(hctx, reader, opts.Directory)
+	hcancel()
+	if err != nil {
 		_ = proc.Kill()
 		_ = proc.Wait()
 		cancel()
@@ -152,7 +159,8 @@ func (s *acpSession) handshake(ctx context.Context, reader *bufio.Reader, cwd st
 		"id":      2,
 		"method":  "session/new",
 		"params": map[string]any{
-			"cwd": cwd,
+			"cwd":        cwd,
+			"mcpServers": []any{},
 		},
 	}
 	if err := s.writeFrame(newReq); err != nil {
@@ -234,16 +242,16 @@ func (s *acpSession) emit(ev protocol.Event) {
 
 func (s *acpSession) Send(ctx context.Context, text string) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrNotSent, err)
 	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return errors.New("acp session is closed")
+		return fmt.Errorf("%w: acp session is closed", ErrNotSent)
 	}
 	if s.activeReq != "" {
 		s.mu.Unlock()
-		return errors.New("acp session is already busy")
+		return fmt.Errorf("%w: acp session is already busy", ErrNotSent)
 	}
 	idNum := s.nextID.Add(1)
 	reqID := fmt.Sprintf("%d", idNum)
@@ -270,38 +278,40 @@ func (s *acpSession) Send(ctx context.Context, text string) error {
 	return nil
 }
 
+// Abort cancels the current turn and keeps the session for the next prompt.
+// Only an agent that ignores session/cancel is killed, which ends the session.
 func (s *acpSession) Abort(ctx context.Context) error {
-	_ = s.writeFrame(map[string]any{
+	s.mu.Lock()
+	if s.activeReq == "" || s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+	err := s.writeFrame(map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "session/cancel",
 		"params":  map[string]any{"sessionId": s.acpSessionID},
 	})
-	// Wait briefly for graceful turn end; if still active kill the process.
-	t := time.NewTimer(400 * time.Millisecond)
-	defer t.Stop()
-	for {
-		s.mu.Lock()
-		active := s.activeReq
-		s.mu.Unlock()
-		if active == "" {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
-			_ = s.proc.Kill()
+	if err == nil {
+		ended, werr := waitTurnEnd(ctx, func() bool {
 			s.mu.Lock()
-			was := s.activeReq
-			s.activeReq = ""
-			s.mu.Unlock()
-			if was != "" {
-				s.emit(protocol.Event{Kind: protocol.EventTurnInterrupted})
-			}
-			return nil
-		case <-time.After(20 * time.Millisecond):
+			defer s.mu.Unlock()
+			return s.activeReq != ""
+		})
+		if werr != nil || ended {
+			return werr
 		}
 	}
+	s.mu.Lock()
+	was := s.activeReq
+	s.activeReq = ""
+	s.closed = true
+	s.mu.Unlock()
+	_ = s.proc.Kill()
+	if was != "" {
+		s.emit(protocol.Event{Kind: protocol.EventTurnInterrupted})
+	}
+	return nil
 }
 
 func (s *acpSession) Reply(ctx context.Context, approvalID string, decision protocol.Decision) error {

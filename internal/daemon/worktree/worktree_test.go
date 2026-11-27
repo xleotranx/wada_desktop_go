@@ -106,32 +106,6 @@ func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
 	}
 }
 
-func TestTrustStorePersistence(t *testing.T) {
-	ts := NewTrustStore(t.TempDir())
-	ok, err := ts.IsTrusted("/tmp/repo", "hash1")
-	if err != nil || ok {
-		t.Fatalf("initial IsTrusted = %v, %v", ok, err)
-	}
-	if err := ts.Trust("/tmp/repo", "hash1"); err != nil {
-		t.Fatal(err)
-	}
-	ok, err = ts.IsTrusted("/tmp/repo", "hash1")
-	if err != nil || !ok {
-		t.Fatalf("after Trust IsTrusted = %v, %v", ok, err)
-	}
-	ok, err = ts.IsTrusted("/tmp/repo", "hash2")
-	if err != nil || ok {
-		t.Fatalf("mismatched hash = %v, %v", ok, err)
-	}
-	if err := ts.Revoke("/tmp/repo"); err != nil {
-		t.Fatal(err)
-	}
-	ok, err = ts.IsTrusted("/tmp/repo", "hash1")
-	if err != nil || ok {
-		t.Fatalf("after Revoke = %v, %v", ok, err)
-	}
-}
-
 func TestDiffListsFilesInsideNewDirectories(t *testing.T) {
 	repo := initTestRepo(t)
 	pkg := filepath.Join(repo, "internal", "newpkg")

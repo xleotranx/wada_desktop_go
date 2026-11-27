@@ -42,11 +42,12 @@ func toolKind(name string) protocol.ToolKind {
 		return protocol.ToolRead
 	case "grep", "find", "ls":
 		return protocol.ToolSearch
-	case "write", "edit", "apply_patch", "create_worktree":
+	// stop_agent can force-remove a worker's worktree and its uncommitted work.
+	case "write", "edit", "apply_patch", "create_worktree", "stop_agent":
 		return protocol.ToolEdit
 	case "fetch", "web", "web_search":
 		return protocol.ToolFetch
-	case "list_providers", "list_worktrees", "wait_agent", "inspect_agent_diff", "stop_agent":
+	case "list_providers", "list_worktrees", "wait_agent", "inspect_agent_diff":
 		return protocol.ToolRead
 	case "spawn_agent", "send_agent":
 		return protocol.ToolOther

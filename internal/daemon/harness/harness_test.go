@@ -2,7 +2,9 @@ package harness
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -22,10 +24,16 @@ func TestHelperProcess(t *testing.T) {
 		runHelperACP()
 	case "claude":
 		runHelperClaude()
+	case "claude-interrupt":
+		runHelperClaudeInterrupt()
+	case "acp-cancel":
+		runHelperACPCancel()
 	case "codex":
 		runHelperCodex(os.Args)
 	case "hang":
-		select {}
+		// Sleep rather than block forever: the runtime would end a process
+		// whose goroutines are all blocked.
+		time.Sleep(time.Hour)
 	}
 	os.Exit(0)
 }
@@ -36,6 +44,9 @@ func runHelperACP() {
 		var env struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Params struct {
+				MCPServers []any `json:"mcpServers"`
+			} `json:"params"`
 		}
 		if json.Unmarshal(sc.Bytes(), &env) != nil {
 			continue
@@ -44,6 +55,10 @@ func runHelperACP() {
 		case "initialize":
 			fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}`+"\n", string(env.ID))
 		case "session/new":
+			if env.Params.MCPServers == nil {
+				fmt.Printf(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32602,"message":"mcpServers is required"}}`+"\n", string(env.ID))
+				continue
+			}
 			fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"acp_1"}}`+"\n", string(env.ID))
 		case "session/prompt":
 			fmt.Println(`{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc1","title":"bash","kind":"execute"}}}`)
@@ -77,6 +92,56 @@ func runHelperClaude() {
 				fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"Claude done."}]}}`)
 				fmt.Println(`{"type":"result","is_error":false}`)
 			}
+		}
+	}
+}
+
+// runHelperClaudeInterrupt starts a turn on every prompt and ends it only when
+// it is interrupted.
+func runHelperClaudeInterrupt() {
+	sc := bufio.NewScanner(os.Stdin)
+	for sc.Scan() {
+		var frame struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) != nil {
+			continue
+		}
+		switch {
+		case frame.Type == "user":
+			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`)
+		case frame.Type == "control_request" && frame.Request.Subtype == "interrupt":
+			fmt.Printf(`{"type":"control_response","response":{"subtype":"success","request_id":%q}}`+"\n", frame.RequestID)
+			fmt.Println(`{"type":"result","is_error":true,"subtype":"error_during_execution"}`)
+		}
+	}
+}
+
+// runHelperACPCancel answers each prompt only when it is cancelled.
+func runHelperACPCancel() {
+	sc := bufio.NewScanner(os.Stdin)
+	var prompt json.RawMessage
+	for sc.Scan() {
+		var env struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if json.Unmarshal(sc.Bytes(), &env) != nil {
+			continue
+		}
+		switch env.Method {
+		case "initialize":
+			fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}`+"\n", string(env.ID))
+		case "session/new":
+			fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"acp_1"}}`+"\n", string(env.ID))
+		case "session/prompt":
+			prompt = env.ID
+		case "session/cancel":
+			fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}`+"\n", string(prompt))
 		}
 	}
 }
@@ -262,6 +327,7 @@ func TestCodexAdapterTurnAndResume(t *testing.T) {
 }
 
 func TestManagedProcessKillCancelsHangingProcessTree(t *testing.T) {
+	setAbortGrace(t, 100*time.Millisecond)
 	p := NewClaudeProvider(ClaudeConfig{ID: "hang", Name: "Hang"})
 	sess, err := p.Start(t.Context(), helperOpts(t, "s_hang", "hang"))
 	if err != nil {
@@ -285,5 +351,102 @@ func TestManagedProcessKillCancelsHangingProcessTree(t *testing.T) {
 			_ = sess.Close()
 			t.Fatal("expected TurnInterrupted after Abort")
 		}
+	}
+}
+
+func setAbortGrace(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := abortGrace
+	abortGrace = d
+	t.Cleanup(func() { abortGrace = prev })
+}
+
+// waitFor returns the first event of kind, failing on a failed turn or timeout.
+func waitFor(t *testing.T, sess Session, kind protocol.EventKind) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-sess.Events():
+			if !ok {
+				t.Fatalf("events closed waiting for %s", kind)
+			}
+			if ev.Kind == kind {
+				return
+			}
+			if ev.Kind == protocol.EventTurnFailed {
+				t.Fatalf("turn failed waiting for %s: %s", kind, ev.Error)
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s", kind)
+		}
+	}
+}
+
+func TestAbortInterruptsTurnAndKeepsSession(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start func(*testing.T) (Session, error)
+	}{
+		{"claude", func(t *testing.T) (Session, error) {
+			return NewClaudeProvider(ClaudeConfig{ID: "c"}).Start(t.Context(), helperOpts(t, "s_ci", "claude-interrupt"))
+		}},
+		{"acp", func(t *testing.T) (Session, error) {
+			return NewACPProvider(ACPConfig{ID: "a"}).Start(t.Context(), helperOpts(t, "s_ac", "acp-cancel"))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sess, err := tc.start(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sess.Close()
+			for turn := range 2 {
+				if err := sess.Send(t.Context(), "work"); err != nil {
+					t.Fatalf("send %d: %v", turn, err)
+				}
+				waitFor(t, sess, protocol.EventTurnStarted)
+				if err := sess.Abort(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				waitFor(t, sess, protocol.EventTurnInterrupted)
+			}
+		})
+	}
+}
+
+func TestSendOnClosedSessionIsNotSent(t *testing.T) {
+	sess, err := NewClaudeProvider(ClaudeConfig{ID: "c"}).Start(t.Context(), helperOpts(t, "s_closed", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sess.Close()
+	if err := sess.Send(t.Context(), "hi"); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("Send after Close = %v, want ErrNotSent", err)
+	}
+}
+
+func TestACPHandshakeTimesOut(t *testing.T) {
+	prev := acpHandshakeTimeout
+	acpHandshakeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { acpHandshakeTimeout = prev })
+	start := time.Now()
+	_, err := NewACPProvider(ACPConfig{ID: "a"}).Start(t.Context(), helperOpts(t, "s_hs", "hang"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Start = %v, want deadline exceeded", err)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("handshake took %v", time.Since(start))
+	}
+}
+
+func TestClaudeArgsSkipPermissionsOnlyInFullMode(t *testing.T) {
+	full := strings.Join(claudeArgs("full"), " ")
+	if !strings.Contains(full, "--permission-mode bypassPermissions") || strings.Contains(full, "--permission-prompt-tool") {
+		t.Fatalf("full mode args = %s", full)
+	}
+	ask := strings.Join(claudeArgs("ask"), " ")
+	if !strings.Contains(ask, "--permission-prompt-tool stdio") || strings.Contains(ask, "bypassPermissions") {
+		t.Fatalf("ask mode args = %s", ask)
 	}
 }

@@ -73,6 +73,9 @@ worktrees, and PTY terminals on your own workstation or server:
    ```sh
    docker compose --env-file .env --profile daemon --profile tls up -d --build
    ```
+   The `daemon` profile has no default password: without `WADA_PASSWORD` it
+   accepts only its random pairing token. It publishes port `6767` on
+   `127.0.0.1` only; set `WADA_DAEMON_BIND` to expose it on another interface.
 
 ---
 
@@ -95,4 +98,7 @@ worktrees, and PTY terminals on your own workstation or server:
 - **GitHub/Forge Integration (`gh`):** Worktree PR badges and `wada pr status|create`
   parse `git remote get-url origin` and verify `gh auth status --hostname <host>`
   with `GH_PROMPT_DISABLED=1`. Hosts without active local `gh` authentication are
-  never probed.
+  never probed. Creating a PR first pushes the worktree's branch to `origin`.
+- **Secrets in child processes:** `wadad` removes `WADA_PASSWORD` and
+  `WADA_RELAY_TOKEN` from its environment after reading them, so terminals,
+  harness workers and `git`/`gh` never inherit them.

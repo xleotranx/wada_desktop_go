@@ -2,11 +2,13 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"wada-desktop-go/internal/protocol"
 )
@@ -19,6 +21,34 @@ type SessionOptions struct {
 	Command   string
 	Args      []string
 	Env       []string
+}
+
+// ErrNotSent reports that Session.Send refused a prompt before any of it
+// reached the harness, so sending it again cannot run it twice. Any other Send
+// error leaves the outcome unknown.
+var ErrNotSent = errors.New("the prompt was not sent")
+
+// abortGrace is how long Abort waits for a harness to end its turn after asking
+// it to stop, before it kills the process as a last resort.
+var abortGrace = 5 * time.Second
+
+// waitTurnEnd polls active until it reports false, the grace period ends
+// (false), or ctx is done.
+func waitTurnEnd(ctx context.Context, active func() bool) (bool, error) {
+	deadline := time.NewTimer(abortGrace)
+	defer deadline.Stop()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for active() {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-deadline.C:
+			return false, nil
+		case <-tick.C:
+		}
+	}
+	return true, nil
 }
 
 // Session is an active conversation backed by an external coding CLI process.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,6 +145,66 @@ func TestSessionCreateIdempotencyDedupAndConflict(t *testing.T) {
 		if !errors.As(err, &rpcErr) || rpcErr.Code != protocol.ErrCodeConflict {
 			t.Fatalf("unexpected error: %v", err)
 		}
+	}
+}
+
+func TestConcurrentIdempotentCreatesMakeOneSession(t *testing.T) {
+	dataDir := t.TempDir()
+	_, _, _, addr := startTestServer(t, dataDir)
+	_, cred, err := client.ReadLocalEndpoint(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := client.Dial(t.Context(), client.Options{Endpoint: addr, Credential: cred})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	req := protocol.CreateSessionRequest{
+		IdempotencyKey: "create-race",
+		Title:          "Raced",
+		Directory:      t.TempDir(),
+		Model:          protocol.ModelRef{Provider: "wada-test", ID: "test-model"},
+	}
+	var wg sync.WaitGroup
+	ids := make([]string, 8)
+	for i := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sess, err := c.Create(t.Context(), req)
+			var rpcErr *protocol.RPCError
+			switch {
+			case err == nil:
+				ids[i] = sess.ID
+			case errors.As(err, &rpcErr) && rpcErr.Code == protocol.ErrCodeOutcomeUnknown:
+			default:
+				t.Errorf("create %d: %v", i, err)
+			}
+		}()
+	}
+	wg.Wait()
+	final, err := c.Create(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range ids {
+		if id != "" && id != final.ID {
+			t.Fatalf("create %d made %s, want %s", i, id, final.ID)
+		}
+	}
+	page, err := c.Sessions(t.Context(), protocol.SessionQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, sess := range page.Sessions {
+		if sess.Title == "Raced" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d sessions created, want 1", n)
 	}
 }
 

@@ -53,9 +53,6 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 		if project && name != projectToolName {
 			return pa.ToolCallHookResult{Block: true, Reason: "This turn is scoped to the active project. Use the project tool; shell, global searches and app/session data are unavailable."}
 		}
-		if !project && name != resultToolName && !isWorkspaceTool(name) {
-			return pa.ToolCallHookResult{Block: true, Reason: "Use Wada's work-folder tools. Shell commands, coding tools and unrestricted filesystem access are unavailable."}
-		}
 		kind := toolKind(name)
 		if name == projectToolName {
 			var call struct {

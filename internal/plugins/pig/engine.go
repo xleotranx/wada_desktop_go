@@ -77,7 +77,23 @@ type engine struct {
 	approvals     map[agent.ApprovalID]*approvalWait
 	dialogs       map[agent.InteractionID]*interactionWait
 	sequence      uint64
-	mutation      sync.Mutex // makes baseline capture + execution attribution ordered across sessions
+	dirLocksMu    sync.Mutex
+	dirLocks      map[string]*sync.Mutex // normalized directory -> mutation lock
+}
+
+func (e *engine) mutationLock(dir string) *sync.Mutex {
+	key := filepath.Clean(dir)
+	e.dirLocksMu.Lock()
+	defer e.dirLocksMu.Unlock()
+	if e.dirLocks == nil {
+		e.dirLocks = map[string]*sync.Mutex{}
+	}
+	l := e.dirLocks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		e.dirLocks[key] = l
+	}
+	return l
 }
 
 func newEngine(ctx context.Context, root string, spawn func(func(context.Context)) bool) (*engine, error) {
@@ -108,7 +124,7 @@ func newEngine(ctx context.Context, root string, spawn func(func(context.Context
 	if err != nil {
 		return nil, err
 	}
-	e := &engine{storageLock: storageLock, ctx: ctx, root: root, spawn: spawn, models: svcs.ModelRuntime(), services: svcs, events: make(chan agent.Event, 64), sessions: map[agent.SessionID]*conversation{}, approvals: map[agent.ApprovalID]*approvalWait{}, dialogs: map[agent.InteractionID]*interactionWait{}}
+	e := &engine{storageLock: storageLock, ctx: ctx, root: root, spawn: spawn, models: svcs.ModelRuntime(), services: svcs, events: make(chan agent.Event, 64), sessions: map[agent.SessionID]*conversation{}, approvals: map[agent.ApprovalID]*approvalWait{}, dialogs: map[agent.InteractionID]*interactionWait{}, dirLocks: map[string]*sync.Mutex{}}
 	entries, err := os.ReadDir(filepath.Join(root, "metadata"))
 	if err != nil {
 		svcs.Close()
@@ -253,7 +269,7 @@ func (e *engine) openLocked(c *conversation) error {
 	model := e.models.GetModel(c.rec.Session.Model.Provider, c.rec.Session.Model.ID)
 	prompt := e.instructions
 	if prompt == "" {
-		prompt = "You are Wada Cowork, an assistant for everyday work. Focus on the requested outcome and selected work folder."
+		prompt = "You are Wada, a focused software engineering assistant. Read the codebase before editing and verify your changes."
 	}
 	loader := coding.NewDefaultResourceLoader(coding.DefaultResourceLoaderOptions{
 		CWD: c.rec.Session.Directory, AgentDir: filepath.Join(e.root, "agent"), SettingsManager: svcs.SettingsManager(),
@@ -265,9 +281,9 @@ func (e *engine) openLocked(c *conversation) error {
 		_ = rt.Close()
 		return err
 	}
-	tools := append(workspaceTools(e, c), &resultTool{c: c}, &projectTool{c: c, e: e})
+	tools := []pa.AgentTool{&resultTool{c: c}, &projectTool{c: c, e: e}}
 	opts := coding.SessionStartOptions{Model: model, ThinkingLevel: ai.ModelThinkingLevel(c.rec.Session.Model.Variant), SessionID: string(c.rec.Session.ID), SessionDir: filepath.Join(e.root, "sessions"),
-		SystemPrompt: prompt, ResourceLoader: loader, SkipBuiltinTools: true, SkipExtensionTools: true,
+		SystemPrompt: prompt, ResourceLoader: loader, SkipBuiltinTools: false, SkipExtensionTools: true,
 		BeforeToolCall: []pa.BeforeToolCallHook{e.toolHook(c)}, ExtraTools: tools}
 
 	retainedLoader := false

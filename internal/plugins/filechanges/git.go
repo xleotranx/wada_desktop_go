@@ -28,7 +28,7 @@ func gitChanges(ctx context.Context, directory string) ([]agent.FileChange, erro
 	root, _, err := readGit(ctx, directory, "rev-parse", "--show-toplevel")
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return nil, errors.New("git isn’t installed on this Mac")
+			return nil, errors.New("git isn’t installed on this machine")
 		}
 		return nil, errors.New("the conversation folder isn’t a local Git repository")
 	}

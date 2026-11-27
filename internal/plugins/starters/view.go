@@ -13,17 +13,14 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
-// starter is one way to begin a new chat. Choosing it fills the draft and,
-// for reviewed work, selects the workflow that plans, produces and reviews
-// the result.
+// starter is one way to begin a new chat. Choosing it fills the draft.
 type starter struct {
-	ID       string
-	Title    string
-	Detail   string
-	Prompt   string
-	Icon     func() *ui.SVG
-	Reviewed bool
-	Primary  bool
+	ID      string
+	Title   string
+	Detail  string
+	Prompt  string
+	Icon    func() *ui.SVG
+	Primary bool
 }
 
 // view draws the starters under the chat's composer. The chat only renders
@@ -53,13 +50,6 @@ func (p *Plugin) view(c *ui.Context) {
 				ui.Text(c, names).FontSize(11.5).TextColor(pal.Muted).SingleLine().Ellipsis("…")
 			})
 		}
-		if reviewed(list) {
-			ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-				ui.Icon(c, lucide.ShieldCheck()).FontSize(12).TextColor(pal.Orange).Shrink(0)
-				ui.Text(c, "Reviewed work · Wada plans, writes, then a second agent checks the result.").
-					FontSize(11.5).TextColor(pal.Muted).SingleLine().Ellipsis("…")
-			})
-		}
 		ui.Column(c).FillWidth().Gap(7).Children(func() {
 			for _, s := range list {
 				c.Key(s.ID)
@@ -72,11 +62,8 @@ func (p *Plugin) view(c *ui.Context) {
 // starterList is the folder's starters, best first.
 func (p *Plugin) starterList() []starter {
 	info := p.folder.info
-	_, hasReview := p.reviewedWorkflow()
 	switch {
-	case info.Docs > 0 && !info.codeFolder():
-		return documentStarters(hasReview)
-	case info.Code > 0:
+	case info.codeFolder():
 		return codeStarters()
 	case info.Files == 0:
 		return emptyStarters()
@@ -115,34 +102,16 @@ func (p *Plugin) starterButton(c *ui.Context, pal native.Palette, s starter) {
 	})
 }
 
-// useStarter fills the draft. A reviewed starter selects the reviewed
-// workflow for this message; any other clears a stale selection.
+// useStarter fills the draft and clears any stale workflow selection.
 func (p *Plugin) useStarter(s starter) {
-	workflow := ""
-	if s.Reviewed {
-		if id, ok := p.reviewedWorkflow(); ok {
-			workflow = id
-		}
-	}
-	kernel.Emit(p.ctx, chat.WorkflowSelected, workflow)
+	kernel.Emit(p.ctx, chat.WorkflowSelected, "")
 	p.chat.SetDraft(s.Prompt)
 	p.ctx.Invalidate()
 }
 
-// reviewedWorkflow is the first workflow offered for reviewed work.
-func (p *Plugin) reviewedWorkflow() (id string, ok bool) {
-	for _, e := range kernel.Items(p.ctx, chat.ReviewedWork) {
-		return e.ID, true
-	}
-	return "", false
-}
-
-// folderNames are the first few files the starters came from.
+// folderNames are the first few code files the starters came from.
 func (p *Plugin) folderNames() string {
-	names, total := p.folder.info.DocsNames, p.folder.info.Docs
-	if p.folder.info.codeFolder() {
-		names, total = p.folder.info.CodeNames, p.folder.info.Code
-	}
+	names, total := p.folder.info.CodeNames, p.folder.info.Code
 	if len(names) == 0 {
 		return ""
 	}
@@ -151,29 +120,6 @@ func (p *Plugin) folderNames() string {
 		line += "  ·  +" + strconv.Itoa(total-len(names)) + " more"
 	}
 	return line
-}
-
-func reviewed(list []starter) bool {
-	for _, s := range list {
-		if s.Reviewed {
-			return true
-		}
-	}
-	return false
-}
-
-func documentStarters(reviewed bool) []starter {
-	return []starter{
-		{ID: "summarize", Title: "Summarize these documents", Detail: "Read what is here and pull out what matters.",
-			Prompt: "Read the documents in this folder and summarize what matters: the key points, decisions, numbers and open questions. Cite each source file.",
-			Icon:   lucide.FileText, Reviewed: reviewed, Primary: true},
-		{ID: "report", Title: "Draft a report from them", Detail: "Turn the material into a document you can send.",
-			Prompt: "Draft a report from the documents in this folder. Keep facts and figures accurate, cite the sources, and save the report in this folder.",
-			Icon:   lucide.FilePen, Reviewed: reviewed},
-		{ID: "compare", Title: "Compare them", Detail: "Show what they agree on and where they differ.",
-			Prompt: "Compare the documents in this folder: show what they agree on, where they differ, and anything missing or inconsistent. Cite each source file.",
-			Icon:   lucide.Columns2, Reviewed: reviewed},
-	}
 }
 
 func codeStarters() []starter {
@@ -192,22 +138,22 @@ func codeStarters() []starter {
 
 func emptyStarters() []starter {
 	return []starter{
-		{ID: "start", Title: "Start a document", Detail: "Make the first file in this folder.",
-			Prompt: "Help me start a new document in this folder. Ask me what it should be about before writing.",
+		{ID: "scaffold", Title: "Scaffold a new project", Detail: "Initialize a codebase in this folder.",
+			Prompt: "Help me scaffold a new project in this folder. Ask me about the language, stack, and layout before writing files.",
 			Icon:   lucide.NotebookPen, Primary: true},
-		{ID: "look", Title: "What is in this folder?", Detail: "See what Wada can read here.",
-			Prompt: "List what is in this folder and tell me which files you can read.",
+		{ID: "look", Title: "Explore this folder", Detail: "See what is currently here.",
+			Prompt: "List what is in this folder and summarize its structure.",
 			Icon:   lucide.FolderSearch},
 	}
 }
 
 func fileStarters() []starter {
 	return []starter{
-		{ID: "look", Title: "What is in this folder?", Detail: "See what Wada can read here.",
-			Prompt: "List what is in this folder and tell me which files you can read.",
+		{ID: "look", Title: "Explore this folder", Detail: "Inspect the files and structure here.",
+			Prompt: "List what is in this folder and summarize its structure.",
 			Icon:   lucide.FolderSearch, Primary: true},
-		{ID: "start", Title: "Start a document", Detail: "Make a new file in this folder.",
-			Prompt: "Help me start a new document in this folder. Ask me what it should be about before writing.",
-			Icon:   lucide.NotebookPen},
+		{ID: "review", Title: "Review the changes", Detail: "Uncommitted work, for bugs and anything unclear.",
+			Prompt: "Review my uncommitted changes for bugs and anything unclear.",
+			Icon:   lucide.GitPullRequest},
 	}
 }

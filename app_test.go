@@ -308,10 +308,10 @@ func completeWorkflow(a *plugintest.Agent, req agent.Send) {
 		agent.Event{Kind: agent.TextEnded, Session: req.Session, RequestID: req.ID, Text: &agent.TextEvent{Message: agent.MessageID(req.ID), Text: "Implemented and checked."}},
 		agent.Event{Kind: agent.TurnSucceeded, Session: req.Session, RequestID: req.ID, Result: json.RawMessage(result)})
 }
-func TestAReviewedDocumentStarterSelectsPlanWorkReview(t *testing.T) {
+func TestACodeStarterFillsTheComposer(t *testing.T) {
 	a := startApp(t)
 	dir := t.TempDir()
-	for _, name := range []string{"report.docx", "notes.pdf"} {
+	for _, name := range []string{"go.mod", "main.go"} {
 		if err := os.WriteFile(path.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -319,17 +319,14 @@ func TestAReviewedDocumentStarterSelectsPlanWorkReview(t *testing.T) {
 	ctl, _ := kernel.Use(a.shell.Kernel, chatcontract.ControllerKey)
 	ctl.NewChat(dir)
 	a.settle()
-	if !a.tt.HasText("Summarize these documents") {
+	if !a.tt.HasText("Explain this project") {
 		t.Fatalf("starters missing: %q", a.tt.Texts())
 	}
-	if err := a.tt.Click("Summarize these documents"); err != nil {
+	if err := a.tt.Click("Explain this project"); err != nil {
 		t.Fatal(err)
 	}
 	a.settle()
-	if !a.tt.HasText("Plan, work, review") {
-		t.Fatalf("the workflow was not selected: %q", a.tt.Texts())
-	}
-	if !strings.HasPrefix(ctl.DraftText(), "Read the documents in this folder") {
+	if !strings.HasPrefix(ctl.DraftText(), "Give me a tour") {
 		t.Fatalf("draft %q", ctl.DraftText())
 	}
 }
@@ -339,7 +336,7 @@ func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
 	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
 	a.agent.OnSend = func(req agent.Send) { completeWorkflow(a.agent, req) }
 	a.command("flows.plan-work-review")
-	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, work, review") {
+	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, code, review") {
 		t.Fatalf("command did not select composer: %q", a.tt.Texts())
 	}
 	if err := a.tt.Click("Compose"); err != nil {
@@ -350,7 +347,7 @@ func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
 	if err := a.tt.Click("Send"); err != nil {
 		t.Fatal(err)
 	}
-	a.until("review completion", func() bool { return a.tt.HasText("Plan, work, review · Passed") })
+	a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
 	children := a.agent.SpawnRequests()
 	if len(children) != 1 {
 		t.Fatalf("children %+v", children)
@@ -386,14 +383,14 @@ func TestTheModePickerRunsWorkflowInsideNewAndExistingChat(t *testing.T) {
 				t.Fatal(err)
 			}
 			a.settle()
-			if err := a.tt.Click("Plan, work, review"); err != nil {
+			if err := a.tt.Click("Plan, code, review"); err != nil {
 				t.Fatal(err)
 			}
 			a.settle()
 			if err := a.tt.Click("Send"); err != nil {
 				t.Fatal(err)
 			}
-			a.until("review completion", func() bool { return a.tt.HasText("Plan, work, review · Passed") })
+			a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
 			ctl, _ := kernel.Use(a.shell.Kernel, chatcontract.ControllerKey)
 			current := ctl.Current()
 			if existing && current.Session != "s2" {
@@ -430,11 +427,11 @@ func TestTheModePickerRunsWorkflowInsideNewAndExistingChat(t *testing.T) {
 	}
 }
 
-// TestWadaKeepsItsDataAndMenus pins where Wada Cowork's data lives, which a new
-// name would quietly leave behind, and gives every command's menu a place in
-// the menu bar.
+// TestWadaKeepsItsDataAndMenus pins where Wada's data lives, which a new
+// folder name would quietly leave behind, and gives every command's menu a place
+// in the menu bar.
 func TestWadaKeepsItsDataAndMenus(t *testing.T) {
-	if wada.Name != "Wada Cowork" || wada.Folder != "wada-desktop-go" || wada.Env != "WADA" {
+	if wada.Name != "Wada" || wada.Folder != "wada-desktop-go" || wada.Env != "WADA" {
 		t.Fatalf("app %+v", wada)
 	}
 	ap := startApp(t)

@@ -13,9 +13,7 @@ TARGETS = ("darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64")
 LEGAL = ("LICENSE*", "NOTICE*", "COPYING*", "COPYRIGHT*", "AUTHORS*", "OFL*", "PATENTS*", "THIRD_PARTY_NOTICES*")
 # VENDORED are files shipped inside the app rather than Go modules: name,
 # version and the license file kept beside them.
-VENDORED = (
-    ("anydoc (WebAssembly build)", "0.2.4", "internal/plugins/documents/ANYDOC-LICENSE"),
-)
+VENDORED = ()
 EXTRA = {
     "github.com/MichaelKinsy/PiG": ("LICENSES/*", "third_party/*/LICENSE*", "third_party/*/NOTICE*"),
     "github.com/egoist/mygo": ("internal/shader/LICENSE", "plugins/*/LICENSE"),

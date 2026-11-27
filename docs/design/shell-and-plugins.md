@@ -176,18 +176,12 @@ latest read lands, and only while the same new chat still shows that folder. A
 folder that cannot be read says so under the composer.
 
 The read counts the folder's top-level files, skipping hidden files, directories and
-symlinks. Documents are the formats the reader handles as work documents (Office,
-PDF, CSV/TSV, text and Markdown, RTF, OpenDocument and EPUB); code is a source extension or a
-project marker such as `go.mod`, `package.json` or `Cargo.toml`. A folder with a
-marker, or with at least as many code files as documents, gets code starters;
-documents otherwise; an empty or unrecognized folder gets a folder starter. The
-first three names of the chosen kind show above the list, with the rest counted.
-
-Document starters are **reviewed** when a `chat.ReviewedWork` entry exists: the view
-says "Reviewed work", and choosing one emits `chat.WorkflowSelected` with that
-entry's ID before filling the draft. Another starter clears the selection. Code and
-folder starters never claim a review. The starter fills the composer; the user
-sends it.
+symlinks. Code is a source extension or a project marker such as `go.mod`,
+`package.json` or `Cargo.toml`. A folder with a marker or source files gets
+code starters; an empty folder gets scaffold/explore starters; any other folder
+gets general folder starters. The first three code names show above the list,
+with the rest counted. Choosing a starter clears any stale workflow selection and
+fills the composer; the user sends it.
 
 ## All chats
 
@@ -541,13 +535,12 @@ clicking it opens that conversation. Its settings section turns each kind off.
 ## Workflows
 
 The **Workflow engine** plugin provides `chat.DeliveryKey`; **Built-in workflows**
-contributes `workflow.Definitions`, composer choices, Agent-menu commands and the
-flow to `chat.ReviewedWork` for the new chat's reviewed document starters.
+contributes `workflow.Definitions`, composer choices and Agent-menu commands.
 `workflow.Flow` contains phase instructions and the review limit. The engine requires
 backend child sessions and task snapshots; it owns transitions and knows no built-in
 flow's prompt text. Plugins communicate through contracts and kernel registrations.
 
-**Plan, work, review** is a one-task selection. The ordinary conversation is the
+**Plan, code, review** is a one-task selection. The ordinary conversation is the
 main agent throughout planning, work, fixes, and final reporting. Planning
 is read-only and proceeds to work automatically unless clarification is
 needed. Each independent review creates a fresh child under that main session,
@@ -655,181 +648,6 @@ without taking the focus; closing it with × records that it was closed. A link
 whose conversation the current origin's workspace record no longer has is dropped
 when the record changes. A change of origin closes the drawer and lets go of the
 side chats kept under the old one.
-
-## Design canvas
-
-`internal/plugins/design` requires the agent service, the workspace record, the
-chat controller, the pending-image service and the shell host, and uses the tabs
-service when there is one. It contributes the canvas to `chat.Drawers`, after the
-side chat, a palette button to `shell.TitleBar`, at the title strip's right end
-after Settings, the presentation to `shell.Overlays`, a `chat.HideWork` entry, an
-`chat.Outgoing` transform and **New Design** (File, ⇧⌘D), enabled while the agent
-is ready.
-
-**Design mode** belongs to a conversation, and so does its design: each design has
-a folder of its own, `designs/design-N` in the conversation's folder. **New Design**,
-and the button, take the open conversation's folder, or else the folder whose tabs
-are on show, or else one the user picks; a worker makes the first `design-N` not
-there yet, and a new chat in design mode opens in the conversation's folder beside
-the design's empty canvas. **New Design** waits while a folder is being made. The
-canvas shows beside a design, and only there: beside it the button shows pressed, and opening another conversation, or a
-plain new chat (⌘N), puts the canvas away. When the design's first message creates
-its conversation, while the user stays beside it (`chat.Changed` with its session)
-or after they left it while it was starting (`chat.Started`), that conversation
-becomes a design. The source chat's `DraftID` matches each creation to its design's
-folder, backend origin and design system as they were when the first message left,
-also when several creations finish out of order.
-The plugin's `conversations-v1` setting keeps the designs, scoped
-by backend origin, with their folders, so a design shows its canvas again when it is opened, also after
-a restart; a design the workspace record no longer has is forgotten when the record
-changes. A new design left before its first message is a plain new chat. A
-`tabs.Looks` entry marks the tabs of designs, and of the new design on show, with
-the palette and calls the new one **New design**. While the
-canvas shows, the `chat.HideWork` entry hides the work panel, and usage shows in the
-composer.
-
-**The canvas.** It takes 2.4 parts of the page's width to the conversation's 1, at
-least 560 px, under a header: **Design**, the design's folder in the conversation's, the design system menu
-when the folder has design systems, **Export** (attach a snapshot to the message,
-open in the browser, copy the path) for the selected artboard, or else the first,
-and **Reload**. Where the host has no web pages a toast says so and the canvas stays
-away until another conversation shows.
-
-A worker lists the design's folder; one not there yet holds nothing. Every HTML file
-(`.html`, `.htm`) in it is an artboard, and the files of one folder make a page,
-named after it (**Page 1** for the design's folder itself).
-The walk leaves out hidden folders, `node_modules`, `vendor`, `target` and
-`__pycache__`, and stops five folders deep, at 200 artboards or after 20,000
-entries. An artboard's size is what its first 4 KB declare as `<meta
-name="artboard" content="1440x900">`, 120 to 4000 px a side, else 1280×800. A page
-lays its artboards out in a row, 120 px apart, in the order of their names, numbers
-counted as numbers. The page with the newest artboard shows, unless the user chose
-another from the **Page** menu while it is still there. Design systems are files
-named `DESIGN.md`, `design-system.md`, `brand.md`, `style-guide.md`, `tokens.json`,
-`*.tokens.json` and the like in the conversation's folder, at most three folders
-deep.
-
-Each artboard of the page on show, the first twelve, gets its own web page from
-`shell.Host.NewWebView`, loaded from its file. Below 100%, the page lays out at its
-full artboard dimensions at 100% browser zoom, and the canvas scales a captured
-bitmap of it. Text and layout shrink together without WebKit's minimum font size
-distorting the preview. Captures wait for layout and fonts, refresh after reloads,
-responsive size changes, tweaks and returning from a live page, and are reused
-while panning or changing reduced zoom levels. Clicking a reduced preview opens
-the artboard at 100% for live interaction; if a capture fails, the preview offers
-the same action. At 100% and above the canvas shows the live page at its zoom,
-laying out at the artboard's width. A line says how many more the page has. Pages of
-artboards no longer on show close, and all of them close with the plugin. While the
-canvas is open the plugin lists again after a tool of the open conversation that
-may change files (anything but a read, search or fetch), when its turn ends and on
-**Reload**; an artboard whose file changed since it loaded reloads. Where the host
-has no web pages a toast says so and the canvas closes.
-
-The canvas draws a dot grid and, above each artboard, its name, which selects it,
-with **Fit screen**, **Attach a snapshot** and **Present**. **Fit screen** fits
-that artboard into the canvas; clicking it again, now **Restore view**, returns to
-the previous zoom and canvas position. The bottom-right fit button also becomes
-**Restore previous view** while a screen is fitted. Manual views restore exactly;
-automatically fitted views refit all artboards to the current canvas size. Choosing
-another page, leaving the design, removing the fitted artboard or **Zoom to Fit**
-clears the restore target. A selected artboard has an
-outline with corner handles. It fits the page, at most at 100%, when it opens, when
-the page changes and when its size changes, until the user zooms or pans. A pinch
-or ⌘-scroll zooms around the pointer from 5% to 400%; scrolling pans. The zoom
-menu has Zoom In and Out through 10%, 25%, 50%, 75%, 100%, 150%, 200%, 300% and
-400%, Zoom to Fit and 50%, 100% and 200%. Visible **−** and **+** buttons beside
-the percentage zoom out and in, and disable at 5% and 400%. Pending comments float
-above these controls so both stay reachable on a narrow canvas.
-
-**Responsive previews.** The dimensions menu beside Export applies to the selected
-artboard, or the first when none is selected. It offers **Original** (the current
-size declared in the HTML), **Phone** (390×844), **Tablet** (768×1024) and
-**Desktop** (1440×900). Choosing a size changes that artboard's viewport, reflows
-its neighbors and fits the chosen screen into the canvas. It neither edits nor
-reloads the HTML, so live tweaks and page state remain. Preview choices survive
-page changes and reloads while that design is open; leaving the design clears
-them. Inspection is cleared when the viewport changes. Comment pins are refreshed
-from their selectors once the page adopts the new viewport, and when it reloads.
-Pins for missing or hidden elements stay hidden; their saved feedback is retained.
-
-**Tools** float at the top left after the page menu: **Select** (V), where reduced
-previews open at 100% and live pages
-take the pointer and scroll themselves; **Hand** (H), where a drag pans; **Inspect** (I),
-**Comment** (C) and **Note** (N); and **New artboard**. A middle-button or Option drag pans with
-any tool. With every tool but Select a layer over the pages takes the pointer;
-artboard names stay clickable. Escape goes back to Select and clears the inspected
-element. Presentation and tweaks float at the top right, and zoom controls at the
-bottom right. **New artboard** writes
-`artboard-N.html`, an empty 1280×800 page, on the page on show or in the design's folder,
-selects it and puts `Design <file>: ` in the composer. Creating has its own task,
-so a refresh cannot discard its completion; navigating to another design drops
-the completion, and the button waits while creation is in progress.
-
-**Inspect.** Hovering an artboard with Inspect asks its page for the element under
-its pointer, using the same `probe.js` as comments, and draws a native outline
-around its visible bounds. Clicking selects that element without activating the
-page. A removable chip above the composer names the artboard and selector. Each
-outgoing message includes `design-selection.json` as a text attachment with the
-relative file path, selector, visible text, markup and viewport dimensions, also
-when no brief is due.
-The brief explains that words such as "this" refer to that element. Navigation,
-page changes and reloads clear the selection and cancel pending probes. Choosing
-another tool drops pending inspection work; an already selected element stays
-until removed or cleared. Selecting an artboard by its name clears the element.
-
-**Comments and notes.** A Comment click on an artboard asks its page, through
-`probe.js`, what element is at that point, in the page's own pixels: a selector from
-its nearest ancestor with an ID, its words cut at 80 characters and its markup at
-600. A pin numbered in order marks it, with a card to write in (**Save**, **Cancel**,
-Escape, and **Delete** once saved). A Comment click off the artboards, or a Note
-click, leaves a note on the canvas. A comment or note left without words goes when
-its card closes. Once there are some, **Add N comments to the message** appends them
-to the composer's unsent text after a blank line, as `Comments on the design:` and
-numbered lines (``1. In design/home.html, `#hero > h1` (“Ship calmer”): Make it
-bigger``, `2. Note: Try a dark variant`), and keeps their pins, marked **Added to
-message** so they are not added twice. Nothing is sent. Comments and notes survive
-navigation and restarts, scoped by backend origin and design folder in the plugin's
-`feedback-v1` setting. Saved cards offer **Resolve** and **Reopen**; resolved
-feedback stays visible but is excluded from adding to the message. Editing the
-words makes feedback eligible to add again; **Add to message again** recovers it
-when a draft was discarded. Pin numbers stay stable when feedback is deleted or
-resolved.
-
-**Tweaks.** A page may declare CSS custom properties the user can adjust, in
-`<script type="application/json" id="tweaks">`: a list of `var`, `label` and `type`,
-which is `range` (`min`, `max`, `step`, `unit`), `color`, `toggle` (`on`, `off`) or
-`select` (`options`). Once an artboard loads, a worker asks its page every 100 ms,
-for at most 15 s, until it shows the file and has loaded, and reads them with their
-values now. **Tweaks** at the top right opens a panel for the selected artboard, or
-the first, with a slider, color well, switch or menu each. A change sets every tweak
-on the page's root at once; **Reset** gives them back the page's values, and **Ask
-to keep** puts `In <file>, make these the values:` and the changed ones in the
-composer.
-
-**Present** moves the artboard into a window-sized modal overlay at 100%, with its
-name, `i of n`, the previous and next artboards of the page, and **Stop presenting**
-(Escape). The page stays interactive while the canvas and chat behind it are inert.
-Stopping restores the canvas's zoom and the artboard's place on it.
-
-**The brief.** The `chat.Outgoing` transform attaches `design-canvas.md`
-(`text/markdown`) to a new design's first message, and to a design's next message
-once its folder's design system is another than the one its last brief named
-(recorded with the design once that message is sent). It says how the canvas shows artboards and names the
-design's folder, relative to the conversation's, as where to write: one
-self-contained HTML file per artboard, folders in it for more pages, in order, a file
-per variant, each with its size and its tweaks declared, leaving the app's code and
-other designs alone unless the user asks. It says that comments name a file and a
-selector and, when one is chosen, to follow the design system. The design system is
-chosen per conversation folder in the `systems-v1` setting, from **Choose design
-system…** in the header or on the empty canvas.
-
-The empty canvas says **Describe an idea and turn it into a design**, with the
-design system menu, **New artboard** to create its first artboard, and suggestions (**Landing page**, **Mobile onboarding**, **Three
-variants**, **Slide deck**) that start a request in the composer.
-
-**Attach a snapshot** captures the artboard's page as PNG on a worker and attaches it
-to the next message as `Design.png`, then `Design 2.png` and so on, where the
-screenshot markup editor can draw on it. A failure shows a toast.
 
 ## Screenshot markup
 

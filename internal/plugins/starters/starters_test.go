@@ -14,18 +14,6 @@ import (
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 )
 
-type extension struct{ setup func(*kernel.Context) error }
-
-func (f *extension) New() kernel.Plugin            { return f }
-func (*extension) Manifest() kernel.Manifest       { return kernel.Manifest{ID: "extension"} }
-func (e *extension) Setup(c *kernel.Context) error { return e.setup(c) }
-
-func reviewedWork() *extension {
-	return &extension{setup: func(c *kernel.Context) error {
-		return kernel.Contribute(c, chat.ReviewedWork, "extension.review", 0, chat.Workflow{Title: "Plan, work, review"})
-	}}
-}
-
 func start(t *testing.T, extra ...kernel.Factory) (*kerneltest.Harness, *Plugin, *plugintest.Chat) {
 	t.Helper()
 	ctl := &plugintest.Chat{}
@@ -46,51 +34,18 @@ func write(t *testing.T, dir string, names ...string) {
 	}
 }
 
-func TestDocumentsOfferReviewedWork(t *testing.T) {
-	h, p, ctl := start(t, reviewedWork().New)
-	if got := kernel.Items(h, chat.ReviewedWork); len(got) != 1 {
-		t.Fatalf("reviewed work %+v", got)
-	}
-	dir := t.TempDir()
-	write(t, dir, "q3-report.docx", "notes.pdf", "budget.xlsx")
-	ctl.NewChat(dir)
-	h.Flush()
-	tt := ui.NewTester(p.view, 700, 500)
-	tt.Frame()
-	for _, want := range []string{"Summarize these documents", "Draft a report from them", "Compare them", "Reviewed work", "q3-report.docx"} {
-		if !tt.HasText(want) {
-			t.Fatalf("missing %q: %q", want, tt.Texts())
-		}
-	}
-	if tt.HasText("Explain this project") {
-		t.Fatal("a documents folder shows code starters")
-	}
-	var selected string
-	kernel.On(h, chat.WorkflowSelected, func(id string) { selected = id })
-	if err := tt.Click("Summarize these documents"); err != nil {
-		t.Fatal(err)
-	}
-	if selected != "extension.review" {
-		t.Fatalf("workflow %q", selected)
-	}
-	if !strings.HasPrefix(ctl.Draft, "Read the documents in this folder") {
-		t.Fatalf("draft %q", ctl.Draft)
-	}
-}
-
 func TestAProjectOffersCodeStarters(t *testing.T) {
-	h, p, ctl := start(t, reviewedWork().New)
+	h, p, ctl := start(t)
 	dir := t.TempDir()
 	write(t, dir, "main.go", "go.mod", "notes.md")
 	ctl.NewChat(dir)
 	h.Flush()
 	tt := ui.NewTester(p.view, 700, 500)
 	tt.Frame()
-	if !tt.HasText("Explain this project") || tt.HasText("Summarize these documents") {
-		t.Fatalf("starters %q", tt.Texts())
-	}
-	if tt.HasText("Reviewed work") {
-		t.Fatal("code starters claim reviewed work")
+	for _, want := range []string{"Explain this project", "Review the changes", "Find a bug", "main.go", "go.mod"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %q: %q", want, tt.Texts())
+		}
 	}
 	selected := "unset"
 	kernel.On(h, chat.WorkflowSelected, func(id string) { selected = id })
@@ -105,13 +60,13 @@ func TestAProjectOffersCodeStarters(t *testing.T) {
 	}
 }
 
-func TestAnEmptyFolderOffersTheFirstDocument(t *testing.T) {
+func TestAnEmptyFolderOffersScaffoldAndExplore(t *testing.T) {
 	h, p, ctl := start(t)
 	ctl.NewChat(t.TempDir())
 	h.Flush()
 	tt := ui.NewTester(p.view, 700, 500)
 	tt.Frame()
-	if !tt.HasText("Start a document") || !tt.HasText("What is in this folder?") {
+	if !tt.HasText("Scaffold a new project") || !tt.HasText("Explore this folder") {
 		t.Fatalf("starters %q", tt.Texts())
 	}
 }
@@ -126,36 +81,35 @@ func TestNoFolderOffersNothing(t *testing.T) {
 	}
 }
 
-func TestMarkdownIsADocument(t *testing.T) {
+func TestNonCodeFilesOfferExploreStarters(t *testing.T) {
 	h, p, ctl := start(t)
 	dir := t.TempDir()
-	write(t, dir, "brief.md")
+	write(t, dir, "notes.txt")
 	ctl.NewChat(dir)
 	h.Flush()
 	tt := ui.NewTester(p.view, 700, 500)
 	tt.Frame()
-	if !tt.HasText("Summarize these documents") {
+	if !tt.HasText("Explore this folder") || !tt.HasText("Review the changes") {
 		t.Fatalf("starters %q", tt.Texts())
 	}
 }
 
 func TestChangingTheFolderChangesTheStarters(t *testing.T) {
 	h, p, ctl := start(t)
-	docs := t.TempDir()
-	write(t, docs, "report.docx")
+	empty := t.TempDir()
 	code := t.TempDir()
 	write(t, code, "main.go")
-	ctl.NewChat(docs)
+	ctl.NewChat(empty)
 	h.Flush()
 	tt := ui.NewTester(p.view, 700, 500)
 	tt.Frame()
-	if !tt.HasText("Summarize these documents") {
-		t.Fatalf("documents: %q", tt.Texts())
+	if !tt.HasText("Scaffold a new project") {
+		t.Fatalf("empty: %q", tt.Texts())
 	}
 	ctl.SetDirectory(code)
 	h.Flush()
 	tt.Frame()
-	if !tt.HasText("Explain this project") || tt.HasText("Summarize these documents") {
+	if !tt.HasText("Explain this project") || tt.HasText("Scaffold a new project") {
 		t.Fatalf("code: %q", tt.Texts())
 	}
 }

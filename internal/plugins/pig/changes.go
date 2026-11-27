@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -25,6 +26,7 @@ type mutationCapture struct {
 	id     string
 	before map[string]fileSnapshot
 	all    bool
+	lock   *sync.Mutex
 }
 
 // Captures belong to a conversation and are protected separately from session metadata.
@@ -74,8 +76,19 @@ func workspaceSnapshot(ctx context.Context, root string) (map[string]fileSnapsho
 	return out, nil
 }
 func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name string, args json.RawMessage) error {
-	// TryLock keeps cancellation responsive while another conversation mutates files.
-	for !e.mutation.TryLock() {
+	c.mu.Lock()
+	root := c.rec.Session.Directory
+	c.mu.Unlock()
+	if name == projectToolName {
+		c.turnMu.Lock()
+		if c.turn != nil && c.turn.project != nil {
+			root = c.turn.project.Directory
+		}
+		c.turnMu.Unlock()
+	}
+	lock := e.mutationLock(root)
+	// TryLock keeps cancellation responsive while another conversation mutates the same directory.
+	for !lock.TryLock() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -87,19 +100,9 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 	release := true
 	defer func() {
 		if release {
-			e.mutation.Unlock()
+			lock.Unlock()
 		}
 	}()
-	c.mu.Lock()
-	root := c.rec.Session.Directory
-	c.mu.Unlock()
-	if name == projectToolName {
-		c.turnMu.Lock()
-		if c.turn != nil && c.turn.project != nil {
-			root = c.turn.project.Directory
-		}
-		c.turnMu.Unlock()
-	}
 	before := map[string]fileSnapshot{}
 	if singleFileMutation(name) {
 		var arg struct {
@@ -129,7 +132,7 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 		}
 	}
 	c.captureMu.Lock()
-	c.capture = &mutationCapture{root: root, id: id, before: before, all: !singleFileMutation(name)}
+	c.capture = &mutationCapture{root: root, id: id, before: before, all: !singleFileMutation(name), lock: lock}
 	c.captureMu.Unlock()
 	release = false
 	return nil
@@ -143,7 +146,9 @@ func (e *engine) finishMutation(c *conversation, id string) {
 	}
 	c.capture = nil
 	c.captureMu.Unlock()
-	defer e.mutation.Unlock()
+	if capture.lock != nil {
+		defer capture.lock.Unlock()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	root := capture.root
@@ -284,5 +289,5 @@ func fileDiff(ctx context.Context, path string, before, after []byte) (string, i
 }
 
 func singleFileMutation(name string) bool {
-	return name == "write" || name == "edit" || name == "write_document" || name == "edit_document"
+	return name == "write" || name == "edit"
 }

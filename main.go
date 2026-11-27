@@ -3,9 +3,6 @@ package main
 import (
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
-	"wada-desktop-go/internal/plugins/cowork"
-	"wada-desktop-go/internal/plugins/design"
-	"wada-desktop-go/internal/plugins/documents"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/flows"
@@ -31,10 +28,10 @@ import (
 )
 
 // wada names the app, where its data lives (the folder and the WADA_
-// variables) and its window and menus. The Folder stays what it was before
-// the app was named Wada Cowork, so the data it already has is kept.
+// variables) and its window and menus. The Folder stays wada-desktop-go so
+// existing local data is kept.
 var wada = shell.App{
-	Name: "Wada Cowork", Folder: "wada-desktop-go", Env: "WADA",
+	Name: "Wada", Folder: "wada-desktop-go", Env: "WADA",
 	Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
 	Menus: []string{"File", "Chat", "View", "Agent", "Help"},
 }
@@ -42,7 +39,6 @@ var wada = shell.App{
 // main is the composition: the plugins this build installs, in order.
 func main() {
 	shell.Run(wada, append([]kernel.Factory{
-		cowork.New,
 		pig.New,
 		chat.New,
 		models.New,
@@ -57,8 +53,6 @@ func main() {
 		folderpicker.New, // Open Folder… and the new chat's folder in the composer
 		tabs.New,         // open chats as tabs across the window; replaces the sidebar
 		explore.New,      // read-only side chats in a drawer, from selected text
-		design.New,       // a canvas of the agent's web pages: comments, notes, tweaks, present
-		documents.New,    // Word, PowerPoint, Excel, PDF and more as Markdown, in the app
 		workflow.New,     // owns conversational tasks and fresh reviewer children
 		flows.New,        // plan, code, review, from the composer or command palette
 		starters.New,     // the new chat's folder starters

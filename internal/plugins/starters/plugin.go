@@ -1,7 +1,7 @@
-// Package starters reads the new chat's folder and offers the work it makes
-// possible: documents to read, a project to explain, or an empty folder to
-// start in. It owns the scan and draws under the composer; the chat decides
-// where its column goes and adds the composer's hint.
+// Package starters reads the new chat's folder and offers coding-focused
+// starting points for the repository or directory. It owns the scan and draws
+// under the composer; the chat decides where its column goes and adds the
+// composer's hint.
 package starters
 
 import (
@@ -89,28 +89,15 @@ type folderStarters struct {
 }
 
 // folderInfo counts the files the starters care about. Names are the first
-// few of each kind, to show that Wada sees the folder the user chose.
+// few code files or markers, to show that Wada sees the folder the user chose.
 type folderInfo struct {
-	Files, Docs, Code, Markers int
-	DocsNames, CodeNames       []string
+	Files, Code, Markers int
+	CodeNames            []string
 }
 
-// codeFolder reports that the folder is a project rather than a set of
-// documents. A project marker settles it; otherwise code must not be
-// outnumbered by documents.
+// codeFolder reports whether the folder contains recognizable code or project markers.
 func (i folderInfo) codeFolder() bool {
-	if i.Markers > 0 {
-		return true
-	}
-	return i.Code > 0 && i.Code >= i.Docs
-}
-
-var documentExtensions = map[string]bool{
-	".doc": true, ".docx": true, ".docm": true, ".pdf": true,
-	".ppt": true, ".pptx": true, ".pptm": true, ".pps": true, ".ppsx": true,
-	".xls": true, ".xlsx": true, ".xlsm": true, ".xlsb": true,
-	".csv": true, ".tsv": true, ".txt": true, ".md": true, ".markdown": true,
-	".rtf": true, ".odt": true, ".ods": true, ".odp": true, ".epub": true,
+	return i.Markers > 0 || i.Code > 0
 }
 
 var codeExtensions = map[string]bool{
@@ -149,16 +136,12 @@ func readFolder(ctx context.Context, dir string) (folderInfo, error) {
 		info.Files++
 		lower := strings.ToLower(name)
 		ext := strings.ToLower(filepath.Ext(name))
-		switch {
-		case codeExtensions[ext] || codeMarkers[lower]:
+		if codeExtensions[ext] || codeMarkers[lower] {
 			info.Code++
 			if codeMarkers[lower] {
 				info.Markers++
 			}
 			info.CodeNames = appendName(info.CodeNames, name)
-		case documentExtensions[ext]:
-			info.Docs++
-			info.DocsNames = appendName(info.DocsNames, name)
 		}
 	}
 	return info, nil

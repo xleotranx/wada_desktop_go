@@ -1,12 +1,7 @@
-# Wada Cowork
+# Wada
 
-A native desktop assistant for everyday work: understand documents, organize
-information, draft reports and correspondence, compare data, plan work and create
-useful deliverables. Choose a work folder and say what outcome you need. Workflows
-plan, work and review inside the conversation, and a design canvas previews the
-agent's HTML artboards beside the chat. Built with Go, MyGo and Onevra; PiG
-runs the agents inside the app, so no separate agent executable is required.
-Chat and controls are native; embedded WebViews preview local HTML.
+A native desktop coding-agent workspace: explore codebases, edit files, run commands, inspect diffs, and run reviewed engineering workflows (`Plan, code, review`) inside the conversation. Built with Go, MyGo and Onevra; PiG runs the agents inside the app, so no separate agent executable is required.
+Chat and controls are native.
 
 ![Wada's native desktop chat interface](docs/images/new_dekstop.png)
 
@@ -70,25 +65,16 @@ choose **Use annotated image**. The marked PNG goes with your next message;
 the source file stays unchanged. Images are limited to 16 megapixels and 16,384
 pixels per side, in addition to the attachment byte limits.
 
-Ordinary chats use work-folder tools: list files, read and search documents, write
-or revise text deliverables, verify arithmetic and read a known source URL. Office
-and PDF reading uses the embedded document reader. Shell commands and unrestricted
-coding tools are unavailable. Wada does not automatically load repository agent
-instructions; skills are included when explicitly selected. Without a selected
-folder, new conversations use a dedicated Inbox rather than the user's home folder.
+Ordinary chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) inside the selected project folder. Wada does not automatically load repository agent instructions; skills are included when explicitly selected. Without a selected folder, new conversations use a dedicated Inbox rather than the user's home folder.
 
 The composer offers **Ask before changes** (the default) and **Work independently**.
-Ask mode permits reads and searches, and asks before edits or web-page requests.
-Independent mode performs those operations within the selected work folder.
+Ask mode permits reads and searches, and asks before edits, shell commands, or web requests.
+Independent mode performs those operations within the selected project folder.
 Workflow planning and review deny edits in either mode; reviewer
 children retain their fixed policies. Questions do not restart the workflow, while
 related changes receive another independent review. Queued follow-ups are handled
 after the active turn. Tasks and queues persist in `workflow.db`; interrupted work
 requires explicit resume.
-
-**Design canvas** — work with the agent beside previews of its HTML artboards.
-
-![Wada's design canvas showing three mobile onboarding artboards](docs/images/claude_design.png)
 
 ## Architecture
 
@@ -96,9 +82,8 @@ requires explicit resume.
 | --- | --- |
 | `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
 | `main.go` | Wada's name, window and menus, and the plugins this build installs |
-| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `chat`, `tabs`, `workspace`, `workflow` |
-| `internal/plugins/cowork` | Everyday-work instructions, folder-contained document tools, arithmetic and URL reading |
-| `internal/plugins/pig` | Embedded PiG SDK, assistant sessions, permissions and providers |
+| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
+| `internal/plugins/pig` | Embedded PiG SDK, built-in coding tools, assistant sessions, permissions and providers |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
 | `internal/plugins/modes` | Access mode and one-task workflow selection |
@@ -113,6 +98,7 @@ requires explicit resume.
 | `internal/plugins/palette` | All chats (⌘K): conversations, folders and commands |
 | `internal/plugins/workflow` | Runs conversational tasks with fresh reviewer children |
 | `internal/plugins/flows` | The app's flows, such as plan, code, review |
+| `internal/plugins/starters` | Folder-aware coding starters on new chats |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
 
 Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/shell.md),

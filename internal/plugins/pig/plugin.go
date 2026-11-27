@@ -88,13 +88,7 @@ func (p *Plugin) Restart() {
 	p.drop()
 	p.run = p.ctx.NewScope()
 	run := p.run
-	profile := "You are Wada Cowork, a practical assistant for everyday work. Use only the selected work folder and the tools provided by Wada."
-	for _, entry := range kernel.Items(p.ctx, agent.ProjectTools) {
-		if entry.Value.Kind == "cowork" && entry.Value.Instructions != "" {
-			profile = entry.Value.Instructions
-			break
-		}
-	}
+	profile := "You are Wada, a focused software engineering assistant. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder."
 	root := filepath.Join(p.host.DataDir(), "pig")
 	st := agent.Status{State: agent.Connecting, Attempt: attempts.Add(1), Endpoint: "Embedded PiG", Version: version, Origin: "pig " + root}
 	p.setStatus(st)

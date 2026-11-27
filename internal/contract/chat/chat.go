@@ -74,11 +74,7 @@ var (
 	// thread while drawing and only read state.
 	Requirements = kernel.NewPoint[Requirement]("chat.requirements")
 	// Workflows are one-task behaviors listed after the access modes.
-	Workflows = kernel.NewPoint[Workflow]("chat.workflows")
-	// ReviewedWork names the workflow the new chat's document starters select
-	// for work that should be planned, produced and reviewed. The entry ID is
-	// the workflow's ID; the starters pick the first when one is installed.
-	ReviewedWork     = kernel.NewPoint[Workflow]("chat.reviewed-work")
+	Workflows        = kernel.NewPoint[Workflow]("chat.workflows")
 	WorkflowSelected = kernel.NewTopic[string]("chat.workflow-selected")
 	Incoming         = kernel.NewTopic[[]agent.Event]("chat.incoming") // external child approvals/questions shown in their parent
 	DeliveryKey      = kernel.NewKey[Delivery]("chat.delivery")

@@ -30,8 +30,8 @@ the provider/model catalog. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 
-The plugin requires `shell.HostKey`. Ordinary chats use the cowork plugin's
-instructions and purpose-built work tools, not the SDK's coding defaults.
+The plugin requires `shell.HostKey`. Ordinary chats use PiG's built-in coding tools
+(`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) with Wada's engineering system prompt.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
 conversation directories remain as recorded. Its backend storage root is `<DataDir>/pig`:
 
@@ -122,11 +122,10 @@ it to cancel related task scopes. Approvals and interactions can name their actu
 ## Permissions and interactions
 
 The composer uses the existing remembered mode selection. **Ask before changes**
-is the default: document reads, searches and calculations run automatically;
-file changes and source-URL requests ask first. **Work independently** skips
-individual approvals for those operations while retaining work-folder boundaries.
-Shell and legacy coding tools are unavailable in either mode. Pre-tool hooks wait for a
-matching session/request reply; stale, duplicate and invalid replies fail. Always
+is the default: reads and searches run automatically;
+file edits, shell commands and web requests ask first. **Work independently** skips
+individual approvals for those operations while retaining session and policy boundaries.
+Pre-tool hooks wait for a matching session/request reply; stale, duplicate and invalid replies fail. Always
 grants apply only to that conversation and exact action. Stopping cancels waiters.
 
 A child gets a separate history and persisted parent/policy metadata. Deny wins
@@ -145,8 +144,8 @@ Secrets are entered in password fields, stored by the SDK under Wada's agent dir
 and excluded from ordinary settings and error diagnostics. SDK catalog notices
 refresh provider and composer model lists.
 
-Wada supplies the Cowork system prompt through the pinned SDK's public resource
-loader and SessionStartOptions. Built-in coding tools, automatic extensions,
+Wada supplies its engineering system prompt through the pinned SDK's public resource
+loader and SessionStartOptions. Automatic extensions,
 AGENTS.md/CLAUDE.md, project prompt templates and automatic skills are disabled.
 Project-local SDK settings are untrusted. The explicit skill picker discovers
 `.agents/skills` in the selected work folder and `pig/agent/skills`; selected skill
@@ -172,17 +171,12 @@ search or extension wrappers from bypassing the scope. Project `update` and
 `write` operations remain subject to edit permissions, including read-only
 review policies. Normal tools are restored before the terminal event.
 
-The cowork plugin implements the `cowork` kind: list, read, search, write,
-update, calculate and URL reads. It owns path containment and validation. Other
-features can contribute their own handler kinds without exposing SDK types or
-importing another plugin.
-
 ## File changes
 
-Before document write/edit calls, Wada records the target's current bytes and
-compares them after execution to identify changes. General shell tools are not
-available to the assistant. Mutating calls serialize across conversations for baseline
-attribution; model streaming and reads remain independent. SDK tool batches execute
+Before file write/edit/shell calls, Wada records the target's current bytes and
+compares them after execution to identify changes. Mutating calls serialize per
+conversation directory for baseline attribution; model streaming, reads, and
+mutations in distinct directories remain concurrent. SDK tool batches execute
 sequentially so a later tool's approval/snapshot cannot block an earlier execution.
 Scoped project mutations snapshot only the selected project, then map baseline
 paths back to the conversation folder. Pre-existing edits form the baseline,

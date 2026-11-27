@@ -1,8 +1,7 @@
 # AGENTS.md — wada_desktop_go
 
-Wada Cowork: a native MyGo desktop workspace for everyday work beside the chat
-that started it — a folder's documents, written deliverables and the design
-canvas, with the agent's work reviewed in the conversation. Everything is a
+Wada: a native MyGo desktop workspace for coding-agent development beside the chat
+that started it, with the agent's work reviewed in the conversation. Everything is a
 plugin on a small kernel; all UI is Go, with Onevra components and theme. PiG is
 the embedded agent backend. This is development software with no users: replace
 internal APIs directly and remove obsolete paths. Use PiG's pinned public Go SDK;
@@ -27,22 +26,18 @@ keep its types inside the backend plugin.
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement).
-- `internal/plugins/*`: every feature. `cowork` (everyday-work instructions and tools for work documents, arithmetic and source URLs), `pig` (embedded backend and first-run provider setup), `chat` (conversation
+- `internal/plugins/*`: every feature. `pig` (embedded backend, coding tools, and first-run provider setup), `chat` (conversation
   page, which asks for a work folder before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
-  arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `design` (design mode for
-  conversations: a canvas beside a design whose artboards are the HTML files the agent writes, with comments, notes, tweaks,
-  presenting and a brief that tells the agent how to write for it),
-  `documents` (Word, PowerPoint, Excel, PDF and more read as
-  Markdown in the app through anydoc's embedded WebAssembly build, with a Sources section in the work panel), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
+  arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
   `workspace.db`, needing no chat), `folderpicker` (Open Folder… and the new chat's folder
   in the composer), `tabs` (open chats and pages as tabs across the title
   strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
   that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,
-  such as plan → work → review), `palette` (All chats, ⌘K), `notifications`
+  such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),
@@ -50,8 +45,7 @@ keep its types inside the backend plugin.
 
 Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
-[shell and built-in plugins](docs/design/shell-and-plugins.md),
-[documents](docs/design/documents.md). Keep them in step with the code.
+[shell and built-in plugins](docs/design/shell-and-plugins.md). Keep them in step with the code.
 
 Before nontrivial UI work, read [.agents/skills/mygo-maintenance/SKILL.md](.agents/skills/mygo-maintenance/SKILL.md).
 Check APIs against the pinned module with `go list -m -f '{{.Dir}}' github.com/egoist/mygo`,

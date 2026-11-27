@@ -25,7 +25,7 @@ func (p *Plugin) Modes(context.Context) ([]agent.Mode, error) {
 	if _, err := p.current(); err != nil {
 		return nil, err
 	}
-	return []agent.Mode{{ID: modeAsk, Name: "Ask before changes", Description: "Read work documents freely; ask before changing files or reading web pages."}, {ID: modeFull, Name: "Work independently", Description: "Read and update files in the selected work folder and read source URLs without individual approvals."}}, nil
+	return []agent.Mode{{ID: modeAsk, Name: "Ask before changes", Description: "Read and search code freely; ask before editing files or running shell commands."}, {ID: modeFull, Name: "Work independently", Description: "Read, edit files and run commands in the selected workspace without individual approvals."}}, nil
 }
 func validMode(mode string) bool { return mode == "" || mode == modeAsk || mode == modeFull }
 func (p *Plugin) Create(ctx context.Context, req agent.CreateSession) (agent.Session, error) {

@@ -88,7 +88,7 @@ func TestTaskSnapshotIncludesExistingAndUntrackedFiles(t *testing.T) {
 func TestTurnApprovalCarriesRequestIdentity(t *testing.T) {
 	h, p, faux := startPig(t)
 	s := createChat(t, h, p, t.TempDir())
-	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("read_url", map[string]any{"url": "https://example.com/source"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Checked.")}}})
+	faux.SetResponses([]ai.FauxResponseStep{ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "echo check"}, nil)}, StopReason: "toolUse"}, ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Checked.")}}})
 	var approval *agent.Event
 	kernel.On(h, agent.Events, func(batch []agent.Event) {
 		for _, ev := range batch {
@@ -132,7 +132,7 @@ func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
 	}
 	faux.SetResponses([]ai.FauxResponseStep{
 		result("ready", "Plan with project context", false), result("ready", "Implemented and checked", false),
-		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("read_url", map[string]any{"url": "https://example.com/source"}, nil)}, StopReason: "toolUse"},
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("bash", map[string]any{"command": "echo check"}, nil)}, StopReason: "toolUse"},
 		result("pass", "Independent review complete", true), result("ready", "Finished", false),
 	})
 	var approval *agent.Approval

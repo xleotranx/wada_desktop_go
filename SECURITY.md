@@ -24,13 +24,11 @@ provider. Review that provider's privacy and retention terms. The repository doe
 not supply a shared provider key or an account. Browser-based provider login and
 platform permissions use the selected provider and operating-system facilities.
 
-**Ask before write** permits reads and searches and asks about edits, shell
-commands, web access and unknown tools. **Full access** allows broader tool use.
+**Ask before changes** permits reads and searches and asks about edits, shell
+commands, web access and unknown tools. **Work independently** allows broader tool use.
 These modes are permission policy, not an operating-system sandbox. Agents work
 with your account's filesystem access. Use a disposable checkout for untrusted
 projects, inspect changes, and avoid granting access to unrelated sensitive files.
-The design canvas displays local HTML in an embedded WebView; treat HTML and
-remote resources it loads as untrusted content.
 
 ## Maintainer checks
 

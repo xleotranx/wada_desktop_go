@@ -1,0 +1,518 @@
+import {
+  NoiseNKInitiator,
+  type NoiseSession,
+  concatBytes,
+  utf8Bytes,
+} from "../crypto/noise";
+import {
+  decodeBase64Url,
+  decodeOffer,
+  normalizeDirectWSURL,
+  relayClientWSURL,
+} from "../crypto/offer";
+import {
+  type DaemonEvent,
+  type Envelope,
+  type FileChange,
+  type HarnessInfo,
+  OP_TERM_INPUT,
+  OP_TERM_OUTPUT,
+  OP_TERM_RESIZE,
+  PROTOCOL_VERSION,
+  type ServerInfo,
+  type SessionInfo,
+  type SessionMessage,
+  type TerminalInfo,
+  type WorkerInfo,
+  decodeBinaryFrame,
+  encodeBinaryFrame,
+  encodeTermResize,
+} from "./protocol";
+
+const WS_TEXT = 1;
+const WS_BINARY = 2;
+
+export interface ConnectConfig {
+  offer?: string;
+  endpoint?: string;
+  credential?: string;
+  password?: string;
+  relayAuthToken?: string;
+}
+
+export interface AttachedTerminal {
+  info: TerminalInfo;
+  snapshot: Uint8Array;
+  channel: number;
+  writeInput: (data: Uint8Array) => void;
+  resize: (cols: number, rows: number) => void;
+  close: () => Promise<void>;
+}
+
+export class WadaClient {
+  private ws: WebSocket | null = null;
+  private noise: NoiseSession | null = null;
+  private pending = new Map<
+    string,
+    { resolve: (val: unknown) => void; reject: (err: Error) => void; timer: number }
+  >();
+  private eventListeners = new Set<(ev: DaemonEvent) => void>();
+  private statusListeners = new Set<(state: "connected" | "disconnected", err?: string) => void>();
+  private termListeners = new Map<number, (chunk: Uint8Array) => void>();
+  private pingTimer: number | null = null;
+  private probeTimer: number | null = null;
+  private closed = false;
+  private subId = "";
+  public serverInfo: ServerInfo | null = null;
+  public mode: "relay" | "direct" = "direct";
+
+  constructor(private readonly cfg: ConnectConfig) {
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibility);
+    }
+  }
+
+  onEvent(fn: (ev: DaemonEvent) => void): () => void {
+    this.eventListeners.add(fn);
+    return () => this.eventListeners.delete(fn);
+  }
+
+  onStatus(fn: (state: "connected" | "disconnected", err?: string) => void): () => void {
+    this.statusListeners.add(fn);
+    return () => this.statusListeners.delete(fn);
+  }
+
+  async connect(): Promise<ServerInfo> {
+    this.closed = false;
+    let cred = this.cfg.credential || "";
+    const password = this.cfg.password || "";
+
+    let wsURL = "";
+    let serverPub: Uint8Array | null = null;
+
+    if (this.cfg.offer) {
+      const off = decodeOffer(this.cfg.offer);
+      if (!cred && !password && off.token) cred = off.token;
+      if (off.relayUrl) {
+        serverPub = decodeBase64Url(off.serverPubKey);
+        wsURL = relayClientWSURL(off.relayUrl, serverPub, this.cfg.relayAuthToken);
+        this.mode = "relay";
+      } else if (off.directUrl) {
+        wsURL = normalizeDirectWSURL(off.directUrl);
+        this.mode = "direct";
+      }
+    } else if (this.cfg.endpoint) {
+      wsURL = normalizeDirectWSURL(this.cfg.endpoint);
+      this.mode = "direct";
+    } else {
+      throw new Error("No offer or endpoint provided");
+    }
+
+    const ws = new WebSocket(wsURL);
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+
+    await new Promise<void>((resolve, reject) => {
+      const onOpen = () => {
+        ws.removeEventListener("error", onErr);
+        resolve();
+      };
+      const onErr = () => {
+        ws.removeEventListener("open", onOpen);
+        reject(new Error("WebSocket connection failed"));
+      };
+      ws.addEventListener("open", onOpen, { once: true });
+      ws.addEventListener("error", onErr, { once: true });
+    });
+
+    if (serverPub) {
+      const hs = new NoiseNKInitiator(serverPub);
+      const msg1 = hs.writeMessage();
+      ws.send(msg1);
+      const msg2 = await this.readNextBinary(ws);
+      const { session } = hs.readMessage(msg2);
+      this.noise = session;
+    } else {
+      this.noise = null;
+    }
+
+    const helloId = crypto.randomUUID();
+    const helloEnv: Envelope = {
+      type: "hello",
+      requestId: helloId,
+      payload: {
+        clientId: "web_" + crypto.randomUUID(),
+        clientType: "web",
+        protocolVersion: PROTOCOL_VERSION,
+        appVersion: "0.1.0-dev",
+        credential: cred || undefined,
+        password: password || undefined,
+        capabilities: ["owned_subscriptions", "creation_receipts", "binary_transfer"],
+      },
+    };
+    this.sendEnvelope(helloEnv);
+
+    const infoEnv = await this.readNextEnvelope(ws);
+    if (infoEnv.error) {
+      throw new Error(`${infoEnv.error.code}: ${infoEnv.error.message}`);
+    }
+    if (infoEnv.type !== "server_info" || !infoEnv.payload) {
+      throw new Error(`Unexpected handshake frame: ${infoEnv.type}`);
+    }
+    this.serverInfo = infoEnv.payload as ServerInfo;
+
+    ws.addEventListener("message", (ev) => this.handleMessage(ev.data));
+    ws.addEventListener("close", () => this.handleClose("Connection closed"));
+    ws.addEventListener("error", () => this.handleClose("WebSocket error"));
+
+    this.startPing();
+    const sub = await this.call<{ subscriptionId: string }>("events.subscribe", {});
+    this.subId = sub.subscriptionId;
+
+    for (const cb of this.statusListeners) cb("connected");
+    return this.serverInfo;
+  }
+
+  close(): void {
+    this.closed = true;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibility);
+    }
+    this.cleanupTimers();
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // ignore close errors
+      }
+      this.ws = null;
+    }
+    this.noise = null;
+    for (const [id, p] of this.pending) {
+      window.clearTimeout(p.timer);
+      p.reject(new Error("Client closed"));
+      this.pending.delete(id);
+    }
+  }
+
+  private cleanupTimers(): void {
+    if (this.pingTimer !== null) {
+      window.clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.probeTimer !== null) {
+      window.clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  private startPing(): void {
+    this.cleanupTimers();
+    this.pingTimer = window.setInterval(() => {
+      this.sendPing();
+    }, 10_000);
+  }
+
+  private sendPing(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.sendEnvelope({
+      type: "ping",
+      requestId: crypto.randomUUID(),
+      payload: { timestamp: Date.now() },
+    });
+  }
+
+  private handleVisibility = (): void => {
+    if (document.visibilityState !== "visible" || this.closed) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.handleClose("Socket closed while backgrounded");
+      return;
+    }
+    this.sendPing();
+    if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
+    this.probeTimer = window.setTimeout(() => {
+      if (!this.closed) {
+        this.handleClose("Foreground liveness check timed out");
+      }
+    }, 5_000);
+  };
+
+  private handleClose(reason: string): void {
+    this.cleanupTimers();
+    this.ws = null;
+    this.noise = null;
+    for (const [id, p] of this.pending) {
+      window.clearTimeout(p.timer);
+      p.reject(new Error(reason));
+      this.pending.delete(id);
+    }
+    if (!this.closed) {
+      for (const cb of this.statusListeners) cb("disconnected", reason);
+    }
+  }
+
+  private readNextBinary(ws: WebSocket): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        ws.removeEventListener("message", onMsg);
+        ws.removeEventListener("close", onClose);
+      };
+      const onMsg = (ev: MessageEvent) => {
+        if (ev.data instanceof ArrayBuffer) {
+          cleanup();
+          resolve(new Uint8Array(ev.data));
+        }
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error("Closed during handshake"));
+      };
+      ws.addEventListener("message", onMsg);
+      ws.addEventListener("close", onClose);
+    });
+  }
+
+  private readNextEnvelope(ws: WebSocket): Promise<Envelope> {
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        ws.removeEventListener("message", onMsg);
+        ws.removeEventListener("close", onClose);
+      };
+      const onMsg = (ev: MessageEvent) => {
+        cleanup();
+        try {
+          const decoded = this.decodeWireMessage(ev.data);
+          if (!decoded || decoded.kind !== WS_TEXT) {
+            reject(new Error("Expected JSON handshake frame"));
+            return;
+          }
+          resolve(JSON.parse(new TextDecoder().decode(decoded.payload)) as Envelope);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error("Closed during server_info"));
+      };
+      ws.addEventListener("message", onMsg);
+      ws.addEventListener("close", onClose);
+    });
+  }
+
+  private decodeWireMessage(
+    data: unknown
+  ): { kind: typeof WS_TEXT | typeof WS_BINARY; payload: Uint8Array } | null {
+    if (this.noise) {
+      if (!(data instanceof ArrayBuffer)) return null;
+      const pt = this.noise.recv.decryptWithAD(new Uint8Array(0), new Uint8Array(data));
+      if (pt.length === 0) return null;
+      const kind = pt[0];
+      if (kind !== WS_TEXT && kind !== WS_BINARY) return null;
+      return { kind, payload: pt.slice(1) };
+    }
+    if (typeof data === "string") {
+      return { kind: WS_TEXT, payload: utf8Bytes(data) };
+    }
+    if (data instanceof ArrayBuffer) {
+      return { kind: WS_BINARY, payload: new Uint8Array(data) };
+    }
+    return null;
+  }
+
+  private sendWire(kind: typeof WS_TEXT | typeof WS_BINARY, payload: Uint8Array): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("Not connected to daemon");
+    }
+    if (this.noise) {
+      const ct = this.noise.send.encryptWithAD(
+        new Uint8Array(0),
+        concatBytes(Uint8Array.of(kind), payload)
+      );
+      this.ws.send(ct);
+      return;
+    }
+    if (kind === WS_TEXT) {
+      this.ws.send(new TextDecoder().decode(payload));
+    } else {
+      this.ws.send(payload);
+    }
+  }
+
+  private sendEnvelope(env: Envelope): void {
+    this.sendWire(WS_TEXT, utf8Bytes(JSON.stringify(env)));
+  }
+
+  private handleMessage(rawData: unknown): void {
+    let decoded: { kind: typeof WS_TEXT | typeof WS_BINARY; payload: Uint8Array } | null = null;
+    try {
+      decoded = this.decodeWireMessage(rawData);
+    } catch (err) {
+      this.handleClose(err instanceof Error ? err.message : "Decryption failed");
+      return;
+    }
+    if (!decoded) return;
+
+    if (decoded.kind === WS_BINARY) {
+      const frame = decodeBinaryFrame(decoded.payload);
+      if (frame && frame.op === OP_TERM_OUTPUT) {
+        const listener = this.termListeners.get(frame.channel);
+        if (listener) listener(frame.payload);
+      }
+      return;
+    }
+
+    const env = JSON.parse(new TextDecoder().decode(decoded.payload)) as Envelope;
+    if (env.type === "pong") {
+      if (this.probeTimer !== null) {
+        window.clearTimeout(this.probeTimer);
+        this.probeTimer = null;
+      }
+      return;
+    }
+    if (env.type === "rpc_response" && env.requestId) {
+      const entry = this.pending.get(env.requestId);
+      if (entry) {
+        window.clearTimeout(entry.timer);
+        this.pending.delete(env.requestId);
+        if (env.error) entry.reject(new Error(`${env.error.code}: ${env.error.message}`));
+        else entry.resolve(env.payload);
+      }
+      return;
+    }
+    if (env.type === "event" && env.payload) {
+      const ev = env.payload as DaemonEvent;
+      for (const cb of this.eventListeners) cb(ev);
+    }
+  }
+
+  async call<T = unknown>(method: string, payload?: unknown): Promise<T> {
+    const requestId = crypto.randomUUID();
+    return new Promise<T>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error(`RPC ${method} timed out`));
+      }, 60_000);
+      this.pending.set(requestId, {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+        timer,
+      });
+      try {
+        this.sendEnvelope({ type: "rpc_request", requestId, method, payload });
+      } catch (err) {
+        window.clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  listSessions(): Promise<{ sessions: SessionInfo[] }> {
+    return this.call("agent.sessions.list", {});
+  }
+
+  createSession(directory: string, provider?: string, mode = "ask"): Promise<SessionInfo> {
+    return this.call("agent.session.create", {
+      idempotencyKey: "web_" + crypto.randomUUID(),
+      directory,
+      provider: provider || undefined,
+      mode,
+    });
+  }
+
+  getMessages(session: string): Promise<SessionMessage[]> {
+    return this.call("agent.session.messages", { session });
+  }
+
+  sendMessage(session: string, text: string, mode = "ask"): Promise<{ disposition: string }> {
+    const id = "web_" + crypto.randomUUID();
+    return this.call("agent.session.send", {
+      id,
+      messageId: id,
+      session,
+      mode,
+      text,
+    });
+  }
+
+  abortSession(session: string): Promise<void> {
+    return this.call("agent.session.abort", { session });
+  }
+
+  replyApproval(session: string, approval: string, decision: "once" | "always" | "reject"): Promise<void> {
+    return this.call("agent.session.reply", { session, approval, decision });
+  }
+
+  answerInteraction(ans: {
+    session: string;
+    id: string;
+    confirmed?: boolean;
+    value?: string;
+    cancelled?: boolean;
+    answers?: Record<string, string[]>;
+  }): Promise<void> {
+    return this.call("agent.interactions.answer", ans);
+  }
+
+  getChanges(session: string): Promise<FileChange[]> {
+    return this.call("agent.session.changes", { session });
+  }
+
+  listHarnesses(): Promise<HarnessInfo[]> {
+    return this.call("agent.harnesses.list");
+  }
+
+  listWorkers(parentSession?: string): Promise<WorkerInfo[]> {
+    return this.call("agent.workers.list", { parentSession: parentSession || "" });
+  }
+
+  listTerminals(): Promise<TerminalInfo[]> {
+    return this.call("terminal.list");
+  }
+
+  createTerminal(directory: string, cols = 80, rows = 24): Promise<TerminalInfo> {
+    return this.call("terminal.create", { directory, cols, rows });
+  }
+
+  killTerminal(id: string): Promise<void> {
+    return this.call("terminal.kill", { id });
+  }
+
+  async attachTerminal(
+    id: string,
+    onChunk: (data: Uint8Array) => void,
+    cols = 80,
+    rows = 24
+  ): Promise<AttachedTerminal> {
+    const res = await this.call<{ channel: number; info: TerminalInfo; snapshot?: string }>(
+      "terminal.attach",
+      { id, cols, rows }
+    );
+    const snap = res.snapshot ? decodeBase64Url(res.snapshot) : new Uint8Array(0);
+    this.termListeners.set(res.channel, onChunk);
+    return {
+      info: res.info,
+      snapshot: snap,
+      channel: res.channel,
+      writeInput: (data: Uint8Array) => {
+        this.sendWire(WS_BINARY, encodeBinaryFrame(OP_TERM_INPUT, res.channel, data));
+      },
+      resize: (c: number, r: number) => {
+        this.sendWire(WS_BINARY, encodeBinaryFrame(OP_TERM_RESIZE, res.channel, encodeTermResize(c, r)));
+      },
+      close: async () => {
+        this.termListeners.delete(res.channel);
+        try {
+          await this.call("terminal.detach", { id });
+        } catch {
+          // ignore detach failure on disconnect
+        }
+      },
+    };
+  }
+
+  get subID(): string {
+    return this.subId;
+  }
+}

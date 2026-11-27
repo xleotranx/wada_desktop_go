@@ -88,6 +88,7 @@ requires explicit resume.
 | `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `providers`, `workers`, `terminal`, `daemon pair`, `host`) |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
+| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, chat/approvals/diffs/terminal views; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |

@@ -2,8 +2,12 @@ package server_test
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,4 +144,61 @@ func TestDaemonRemoteRelayPairingAndPasswordAuthE2E(t *testing.T) {
 		t.Fatalf("expected valid password over Noise relay to succeed: %v", err)
 	}
 	_ = authedCli.Close()
+}
+
+func TestDaemonServesStaticWebDirAndSPAFallback(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dataDir := t.TempDir()
+	webDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<!doctype html><title>Wada</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "app.js"), []byte("console.log('ok');"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rt, err := pig.New(t.Context(), pig.Options{Root: filepath.Join(dataDir, "pig")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := server.New(t.Context(), server.Config{
+		DataDir: dataDir,
+		Listen:  "127.0.0.1:0",
+		WebDir:  webDir,
+		Backend: rt,
+	})
+	if err != nil {
+		_ = rt.Close()
+		t.Fatal(err)
+	}
+	addr, err := srv.Start()
+	if err != nil {
+		_ = rt.Close()
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	get := func(path string) (int, string) {
+		resp, err := http.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	if code, body := get("/"); code != http.StatusOK || !strings.Contains(body, "Wada") {
+		t.Fatalf("GET / = %d %q", code, body)
+	}
+	if code, body := get("/app.js"); code != http.StatusOK || !strings.Contains(body, "console.log") {
+		t.Fatalf("GET /app.js = %d %q", code, body)
+	}
+	if code, body := get("/sessions/abc"); code != http.StatusOK || !strings.Contains(body, "Wada") {
+		t.Fatalf("GET /sessions/abc SPA fallback = %d %q", code, body)
+	}
 }

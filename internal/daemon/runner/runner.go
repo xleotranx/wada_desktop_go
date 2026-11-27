@@ -57,6 +57,7 @@ func Run(args []string) error {
 		relayToken     = fs.String("relay-token", os.Getenv("WADA_RELAY_TOKEN"), "Optional Bearer token for connecting to wada-relay")
 		appURL         = fs.String("app-url", os.Getenv("WADA_APP_URL"), "Base web app URL used in pairing links (default https://app.wada.dev)")
 		publicURL      = fs.String("public-url", os.Getenv("WADA_PUBLIC_URL"), "Optional direct LAN/Tailscale URL advertised in pairing offers")
+		webDir         = fs.String("web-dir", os.Getenv("WADA_WEB_DIR"), "Optional built Web/PWA directory served by wadad on /")
 		desktopManaged = fs.Bool("desktop-managed", false, "Mark daemon as supervised by desktop app")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -134,6 +135,7 @@ func Run(args []string) error {
 		RelayToken:     strings.TrimSpace(*relayToken),
 		AppURL:         strings.TrimSpace(*appURL),
 		PublicURL:      strings.TrimSpace(*publicURL),
+		WebDir:         strings.TrimSpace(*webDir),
 		DesktopManaged: *desktopManaged,
 		Backend:        orch,
 		OnShutdown:     stop,

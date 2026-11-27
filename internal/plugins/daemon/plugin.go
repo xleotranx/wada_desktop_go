@@ -25,14 +25,16 @@ var attempts atomic.Uint64
 
 // Plugin connects Wada's UI kernel to a local or remote wadad daemon.
 type Plugin struct {
-	ctx       *kernel.Context
-	host      shell.Host
-	run       *kernel.Scope
-	status    agent.Status
-	managed   bool
-	mu        sync.Mutex
-	cli       *client.Client
-	providers providerForm
+	ctx        *kernel.Context
+	host       shell.Host
+	run        *kernel.Scope
+	status     agent.Status
+	managed    bool
+	mu         sync.Mutex
+	cli        *client.Client
+	providers  providerForm
+	activeHost *kernel.Setting[string]
+	remote     remoteForm
 
 	// dial overrides client.ConnectOrStartLocal in tests.
 	dial func(context.Context) (*client.Client, protocol.DaemonStatusResponse, error)
@@ -72,6 +74,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.host = kernel.Require(c, shell.HostKey)
+	p.activeHost = kernel.NewSetting(c, "active-host", "")
 	kernel.Provide[agent.Service](c, agent.ServiceKey, p)
 	kernel.Provide[agent.Models](c, agent.ModelsKey, p)
 	kernel.Provide[agent.Modes](c, agent.ModesKey, p)
@@ -95,6 +98,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		Run:   p.Restart,
 	})
 	p.contributeSettings(c)
+	p.loadHosts()
 	kernel.Contribute(c, chat.Requirements, "daemon.provider-setup", 0, chat.Requirement{
 		Needed: p.providerNeeded,
 		Render: p.providerSetup,
@@ -159,14 +163,24 @@ func (p *Plugin) connect(restartManaged bool) {
 	run := p.run
 	dataDir := p.host.DataDir()
 	dialFn := p.dial
+	hostName := ""
+	if p.activeHost != nil {
+		hostName = strings.TrimSpace(p.activeHost.Get())
+	}
+	remotePW := p.remote.connectPassword
 
 	run.Spawn(func(ctx context.Context) {
-		if restartManaged && wasManaged && dialFn == nil {
+		if restartManaged && wasManaged && dialFn == nil && hostName == "" {
 			p.stopManagedDaemon(ctx, dataDir)
 		}
 
 		backoffs := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 5 * time.Second}
 		failStreak := 0
+
+		endpointLabel := "Local wadad"
+		if hostName != "" {
+			endpointLabel = hostName
+		}
 
 		for {
 			if ctx.Err() != nil {
@@ -176,7 +190,7 @@ func (p *Plugin) connect(restartManaged bool) {
 			connectingSt := agent.Status{
 				State:    agent.Connecting,
 				Attempt:  attempt,
-				Endpoint: "Local wadad",
+				Endpoint: endpointLabel,
 			}
 			run.Post(func() { p.setStatus(connectingSt) })
 
@@ -186,9 +200,23 @@ func (p *Plugin) connect(restartManaged bool) {
 				daemonStat protocol.DaemonStatusResponse
 				err        error
 			)
-			if dialFn != nil {
+			switch {
+			case dialFn != nil:
 				cli, daemonStat, err = dialFn(dialCtx)
-			} else {
+			case hostName != "":
+				cli, err = client.DialHost(dialCtx, dataDir, hostName, client.Options{
+					ClientType: "desktop",
+					AppVersion: version,
+					Password:   remotePW,
+				})
+				if err == nil {
+					daemonStat, err = cli.Status(dialCtx)
+					if err != nil {
+						_ = cli.Close()
+						cli = nil
+					}
+				}
+			default:
 				cli, daemonStat, err = client.ConnectOrStartLocal(dialCtx, dataDir, version, client.Options{
 					ClientType: "desktop",
 					AppVersion: version,

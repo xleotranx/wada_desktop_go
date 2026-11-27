@@ -14,7 +14,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,6 +104,7 @@ type Config struct {
 	RelayToken     string
 	AppURL         string
 	PublicURL      string
+	WebDir         string
 	DesktopManaged bool
 	Backend        Backend
 	OnShutdown     func()
@@ -269,6 +272,9 @@ func (s *Server) Start() (string, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/ws", s.handleWS)
+	if s.cfg.WebDir != "" {
+		mux.Handle("/", newWebHandler(s.cfg.WebDir))
+	}
 	s.http = &http.Server{
 		Handler:           s.hostGuardMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -1405,6 +1411,34 @@ func (s *Server) setPassword(password string) error {
 	s.passwordHash = hash
 	s.authMu.Unlock()
 	return nil
+}
+
+func newWebHandler(dir string) http.Handler {
+	fsys := os.DirFS(dir)
+	fileServer := http.FileServer(http.FS(fsys))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+		clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+r.URL.Path)), "/")
+		if clean == "" {
+			clean = "index.html"
+		}
+		if info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(clean))); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		if _, err := os.Stat(filepath.Join(dir, clean, "index.html")); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/ws" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+	})
 }
 
 func (c *clientConn) bindTerminalChannel(termID string, outCh <-chan []byte, detach func()) (uint8, error) {

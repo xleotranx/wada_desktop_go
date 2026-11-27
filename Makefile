@@ -2,7 +2,7 @@
 # detector and once more without cgo, plus license inventory verification.
 # The independently released kit runs its own gate. Run `make check` before
 # calling anything done.
-.PHONY: check vet lint test test-nocgo licenses licenses-check audit secrets package demo
+.PHONY: check vet lint test test-nocgo licenses licenses-check audit secrets package demo web-test web-build
 
 check: vet lint licenses-check test test-nocgo
 
@@ -43,3 +43,9 @@ secrets:
 # Validate the notices before producing a local app/installer.
 package: licenses-check
 	go tool mygo build
+
+web-test:
+	pnpm --dir web test && pnpm --dir web typecheck
+
+web-build:
+	pnpm --dir web build

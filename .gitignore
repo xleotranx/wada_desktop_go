@@ -17,3 +17,5 @@ mygo_windows_*.syso
 *.pem
 *.key
 __pycache__/
+/web/node_modules/
+/web/dist/

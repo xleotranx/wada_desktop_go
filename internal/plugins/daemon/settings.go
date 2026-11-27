@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -11,9 +12,30 @@ import (
 	"github.com/xleotranx/wada-kit/contract/settings"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/native"
+	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/protocol"
 )
+
+type remoteForm struct {
+	hosts           []client.HostRecord
+	newName         string
+	newTarget       string
+	newPassword     string
+	connectPassword string
+	daemonPassword  string
+	pairingURL      string
+	pairingKey      string
+	requiresPW      bool
+	notice          string
+	err             string
+
+	loadHostsTask  kernel.Task
+	saveHostTask   kernel.Task
+	removeHostTask kernel.Task
+	pairTask       kernel.Task
+	passwordTask   kernel.Task
+}
 
 type providerForm struct {
 	list                                  []protocol.ProviderInfo
@@ -46,12 +68,23 @@ func (p *Plugin) contributeSettings(c *kernel.Context) {
 		p.providers.loginTask.Cancel()
 		p.providers.answerTask.Cancel()
 		p.providers.logoutTask.Cancel()
+		p.remote.loadHostsTask.Cancel()
+		p.remote.saveHostTask.Cancel()
+		p.remote.removeHostTask.Cancel()
+		p.remote.pairTask.Cancel()
+		p.remote.passwordTask.Cancel()
 	})
 }
 
 func (p *Plugin) daemonSection(c *ui.Context) {
 	pal := native.PaletteFor(c)
-	text := "Connecting to wadad…"
+	activeHost := ""
+	if p.activeHost != nil {
+		activeHost = p.activeHost.Get()
+	}
+	targetLabel := cmp.Or(activeHost, "Local wadad")
+
+	text := "Connecting to " + targetLabel + "…"
 	switch {
 	case p.status.Err != nil:
 		text = "Daemon error: " + p.status.Err.Error()
@@ -59,16 +92,15 @@ func (p *Plugin) daemonSection(c *ui.Context) {
 		mode := "external"
 		if p.managed {
 			mode = "managed"
+		} else if activeHost != "" {
+			mode = "remote"
 		}
-		ver := p.status.Version
-		if ver == "" {
-			ver = version
-		}
-		text = "wadad " + ver + " · " + mode
+		ver := cmp.Or(p.status.Version, version)
+		text = targetLabel + " (" + ver + " · " + mode + ")"
 	case p.status.State == agent.Down:
-		text = "Daemon disconnected"
+		text = targetLabel + " disconnected"
 	case p.status.State == agent.Stopped:
-		text = "Daemon stopped"
+		text = targetLabel + " stopped"
 	}
 	ui.Text(c, text).TextColor(pal.Text)
 	if p.status.Origin != "" {
@@ -76,7 +108,232 @@ func (p *Plugin) daemonSection(c *ui.Context) {
 	}
 	ui.Row(c).Gap(8).Children(func() {
 		components.Button(c, "Reconnect", components.ButtonSecondary).OnClick(p.Reconnect)
-		components.Button(c, "Restart Daemon", components.ButtonSecondary).OnClick(p.Restart)
+		if activeHost == "" {
+			components.Button(c, "Restart Daemon", components.ButtonSecondary).OnClick(p.Restart)
+		}
+	})
+	p.remoteSettingsSection(c, pal, activeHost)
+}
+
+func (p *Plugin) remoteSettingsSection(c *ui.Context, pal native.Palette, activeHost string) {
+	if p.remote.err != "" {
+		ui.Text(c, p.remote.err).FontSize(12).TextColor(pal.DangerText)
+	}
+	if p.remote.notice != "" {
+		ui.Text(c, p.remote.notice).FontSize(12).TextColor(pal.GreenBadge)
+	}
+
+	if p.status.State == agent.Ready {
+		ui.Column(c.Key("daemon-pairing")).FillWidth().Gap(8).Padding(8, 0, 0, 0).Children(func() {
+			ui.Text(c, "Remote pairing & password").FontSize(13).FontWeight(600).TextColor(pal.Text)
+			ui.Row(c).Gap(8).Children(func() {
+				components.Button(c, "Copy Pairing Link", components.ButtonSecondary).OnClick(p.copyPairingLink)
+			})
+			if p.remote.pairingURL != "" {
+				ui.Box(c).FillWidth().Padding(8).Radius(6).Background(pal.DetailBg).Children(func() {
+					ui.Column(c).FillWidth().Gap(2).Children(func() {
+						ui.Text(c, p.remote.pairingURL).Font("monospace").FontSize(11).TextColor(pal.Text)
+						if p.remote.pairingKey != "" {
+							ui.Text(c, "Key: "+p.remote.pairingKey).Font("monospace").FontSize(10.5).TextColor(pal.Muted)
+						}
+					})
+				})
+			}
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Box(c.Key("daemon-pw-input")).Grow(1).MinWidth(0).Children(func() {
+					components.TextBox(c, &p.remote.daemonPassword, components.TextBoxOptions{}).
+						FillWidth().Placeholder("Optional remote daemon password").Password()
+				})
+				components.Button(c, "Set Password", components.ButtonSecondary).OnClick(func() {
+					p.updateDaemonPassword(p.remote.daemonPassword)
+				})
+				components.Button(c, "Clear", components.ButtonGhost).OnClick(func() {
+					p.remote.daemonPassword = ""
+					p.updateDaemonPassword("")
+				})
+			})
+		})
+	}
+
+	ui.Column(c.Key("daemon-hosts")).FillWidth().Gap(8).Padding(8, 0, 0, 0).Children(func() {
+		ui.Text(c, "Saved daemon hosts").FontSize(13).FontWeight(600).TextColor(pal.Text)
+		p.hostRow(c, pal, "Local wadad", "", "Default local daemon", activeHost == "")
+		for _, h := range p.remote.hosts {
+			rec := h
+			detail := cmp.Or(rec.RelayURL, rec.Endpoint)
+			p.hostRow(c, pal, rec.Name, rec.Name, detail, activeHost == rec.Name)
+		}
+
+		ui.Text(c, "Add remote host").FontSize(12).FontWeight(500).TextColor(pal.Muted).Padding(4, 0, 0, 0)
+		ui.Row(c).FillWidth().Gap(6).Children(func() {
+			ui.Box(c.Key("host-name")).Width(120).Children(func() {
+				components.TextBox(c, &p.remote.newName, components.TextBoxOptions{}).FillWidth().Placeholder("Name")
+			})
+			ui.Box(c.Key("host-target")).Grow(1).MinWidth(0).Children(func() {
+				components.TextBox(c, &p.remote.newTarget, components.TextBoxOptions{}).
+					FillWidth().Placeholder("#offer= link or host:port")
+			})
+		})
+		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Box(c.Key("host-pass")).Grow(1).MinWidth(0).Children(func() {
+				components.TextBox(c, &p.remote.newPassword, components.TextBoxOptions{}).
+					FillWidth().Placeholder("Remote password (optional)").Password()
+			})
+			components.Button(c, "Add & Connect", components.ButtonPrimary).OnClick(p.addAndConnectHost)
+		})
+	})
+}
+
+func (p *Plugin) hostRow(c *ui.Context, pal native.Palette, label, hostID, detail string, active bool) {
+	ui.Row(c.Key("host-row:"+cmp.Or(hostID, "local"))).FillWidth().AlignItems(ui.Center).Gap(8).
+		Padding(6, 8).Radius(6).Background(pal.Raised).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+			ui.Text(c, label).FontSize(12.5).FontWeight(500).TextColor(pal.Text).SingleLine()
+			ui.Text(c, detail).FontSize(11).TextColor(pal.Muted).SingleLine().Ellipsis("…")
+		})
+		if active {
+			ui.Box(c).Padding(2, 8).Radius(99).Background(pal.GreenBadge.Alpha(.15)).Children(func() {
+				ui.Text(c, "Active").FontSize(11).FontWeight(500).TextColor(pal.GreenBadge)
+			})
+		} else {
+			id := hostID
+			components.Button(c, "Connect", components.ButtonSecondary).OnClick(func() { p.switchHost(id, "") })
+		}
+		if hostID != "" {
+			id := hostID
+			components.Button(c, "Remove", components.ButtonGhost).OnClick(func() { p.removeHost(id) })
+		}
+	})
+}
+
+func (p *Plugin) loadHosts() {
+	dataDir := p.host.DataDir()
+	kernel.Go(p.ctx, &p.remote.loadHostsTask, func(context.Context) ([]client.HostRecord, error) {
+		return client.LoadHosts(dataDir)
+	}, func(list []client.HostRecord, err error) {
+		if err != nil {
+			p.remote.err = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.remote.hosts = list
+		p.ctx.Invalidate()
+	})
+}
+
+func (p *Plugin) switchHost(name, pw string) {
+	if p.activeHost == nil {
+		return
+	}
+	p.remote.connectPassword = pw
+	p.remote.err = ""
+	p.remote.notice = ""
+	_ = p.activeHost.Set(name)
+	p.Reconnect()
+}
+
+func (p *Plugin) addAndConnectHost() {
+	name := strings.TrimSpace(p.remote.newName)
+	target := strings.TrimSpace(p.remote.newTarget)
+	pw := p.remote.newPassword
+	if name == "" || target == "" {
+		p.remote.err = "Host name and #offer= link or endpoint are required"
+		p.ctx.Invalidate()
+		return
+	}
+	rec := client.HostRecord{Name: name}
+	if strings.Contains(target, "#offer=") || (!strings.Contains(target, "://") && !strings.Contains(target, ":")) {
+		rec.Offer = target
+	} else {
+		rec.Endpoint = target
+	}
+	dataDir := p.host.DataDir()
+	kernel.Go(p.ctx, &p.remote.saveHostTask, func(context.Context) (struct{}, error) {
+		return struct{}{}, client.SaveHost(dataDir, rec)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.remote.err = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.remote.newName = ""
+		p.remote.newTarget = ""
+		p.remote.newPassword = ""
+		p.remote.err = ""
+		p.loadHosts()
+		p.switchHost(name, pw)
+	})
+}
+
+func (p *Plugin) removeHost(name string) {
+	dataDir := p.host.DataDir()
+	wasActive := p.activeHost != nil && p.activeHost.Get() == name
+	kernel.Go(p.ctx, &p.remote.removeHostTask, func(context.Context) (struct{}, error) {
+		return struct{}{}, client.RemoveHost(dataDir, name)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.remote.err = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.loadHosts()
+		if wasActive {
+			p.switchHost("", "")
+		}
+	})
+}
+
+func (p *Plugin) copyPairingLink() {
+	cli, err := p.current()
+	if err != nil {
+		p.remote.err = err.Error()
+		p.ctx.Invalidate()
+		return
+	}
+	kernel.Go(p.ctx, &p.remote.pairTask, func(ctx context.Context) (protocol.PairingOfferResponse, error) {
+		return cli.PairingOffer(ctx, "")
+	}, func(resp protocol.PairingOfferResponse, err error) {
+		if err != nil {
+			p.remote.err = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.remote.err = ""
+		p.remote.pairingURL = resp.URL
+		p.remote.pairingKey = resp.ServerPubKey
+		p.remote.requiresPW = resp.RequiresPassword
+		if cerr := p.host.Copy(resp.URL); cerr == nil {
+			p.remote.notice = "Copied pairing link to clipboard"
+			p.host.Toast(ui.Toast{Title: "Copied pairing link", Type: "success"})
+		} else {
+			p.remote.notice = "Pairing link ready"
+		}
+		p.ctx.Invalidate()
+	})
+}
+
+func (p *Plugin) updateDaemonPassword(pw string) {
+	cli, err := p.current()
+	if err != nil {
+		p.remote.err = err.Error()
+		p.ctx.Invalidate()
+		return
+	}
+	kernel.Go(p.ctx, &p.remote.passwordTask, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, cli.SetPassword(ctx, pw)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.remote.err = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.remote.err = ""
+		if pw == "" {
+			p.remote.notice = "Remote daemon password cleared"
+		} else {
+			p.remote.notice = "Remote daemon password updated"
+		}
+		p.ctx.Invalidate()
 	})
 }
 

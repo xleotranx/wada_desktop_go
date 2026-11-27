@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
@@ -318,5 +319,28 @@ func TestProvidesTerminalService(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "not_found") {
 		t.Fatalf("err = %v, want not_found error when server.Terminals is nil", err)
+	}
+}
+
+func TestDaemonSettingsPairingAndMultiHost(t *testing.T) {
+	h, p, _, _, _ := startDaemonHarness(t)
+	hostFake := p.host.(*kittest.Host)
+
+	p.copyPairingLink()
+	waitFor(t, h, "pairing link copied", func() bool {
+		return strings.Contains(hostFake.Copied, "#offer=") && p.remote.pairingURL == hostFake.Copied
+	})
+
+	p.remote.newName = "remote-box"
+	p.remote.newTarget = hostFake.Copied
+	p.addAndConnectHost()
+	waitFor(t, h, "remote host saved and reconnected", func() bool {
+		return len(p.remote.hosts) == 1 && p.remote.hosts[0].Name == "remote-box" && p.Status().State == agent.Ready
+	})
+
+	tt := ui.NewTester(p.daemonSection, 520, 640)
+	tt.Frame()
+	if !tt.HasText("remote-box") || !tt.HasText("Copy Pairing Link") {
+		t.Fatalf("daemonSection missing expected multi-host UI: %q", tt.Texts())
 	}
 }

@@ -257,9 +257,43 @@ func (s *Store) AppendEvent(ctx context.Context, ev protocol.Event) error {
 	return err
 }
 
+// MaxSessionTimeline is how many of a session's most recent events in one
+// epoch the timeline keeps for catch-up. Transcripts hold the full history.
+const MaxSessionTimeline = 20000
+
+// PruneTimeline deletes the events of epochs before the one preceding
+// current: a client that missed more than the last daemon run reloads the
+// conversation instead of replaying it.
+func (s *Store) PruneTimeline(ctx context.Context, current uint64) error {
+	if current < 2 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM timeline_events WHERE epoch < ?`, current-1)
+	return err
+}
+
+// TrimSessionTimeline keeps only the last MaxSessionTimeline events of
+// sessionID in epoch, counting back from seq.
+func (s *Store) TrimSessionTimeline(ctx context.Context, sessionID string, epoch, seq uint64) error {
+	if seq <= MaxSessionTimeline {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM timeline_events WHERE session_id = ? AND epoch = ? AND seq <= ?`,
+		sessionID, epoch, seq-MaxSessionTimeline)
+	return err
+}
+
+// DeleteSessionTimeline removes every event of sessionID.
+func (s *Store) DeleteSessionTimeline(ctx context.Context, sessionID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM timeline_events WHERE session_id = ?`, sessionID)
+	return err
+}
+
 // FetchTimeline returns sequenced events for sessionID after (epoch, afterSeq).
 // If epoch == 0, it fetches from the latest stored epoch or all epochs cleanly
 // in (epoch ASC, seq ASC) order after afterSeq within the target epoch.
+// Retention removes old events, so a first event whose Seq is past
+// afterSeq+1 means the caller missed some and should reload the conversation.
 func (s *Store) FetchTimeline(ctx context.Context, sessionID string, epoch, afterSeq uint64, limit int) (events []protocol.Event, currentEpoch uint64, hasMore bool, err error) {
 	if limit <= 0 {
 		limit = 200

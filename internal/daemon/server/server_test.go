@@ -208,6 +208,46 @@ func TestConcurrentIdempotentCreatesMakeOneSession(t *testing.T) {
 	}
 }
 
+func TestSetPasswordDisconnectsRemoteClientsAndRotatesToken(t *testing.T) {
+	dataDir := t.TempDir()
+	srv, _, _, addr := startTestServer(t, dataDir)
+	local, err := client.DialLocal(t.Context(), dataDir, client.Options{Endpoint: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	oldToken := srv.RemoteToken()
+	remote, err := client.Dial(t.Context(), client.Options{Endpoint: addr, Credential: oldToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+
+	if err := local.SetPassword(t.Context(), "n3w-pass"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-remote.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("remote client stayed connected after the password changed")
+	}
+	if _, err := local.Status(t.Context()); err != nil {
+		t.Fatalf("local client lost: %v", err)
+	}
+	if srv.RemoteToken() == oldToken {
+		t.Fatal("remote token was not rotated")
+	}
+	if c, err := client.Dial(t.Context(), client.Options{Endpoint: addr, Credential: oldToken}); err == nil {
+		_ = c.Close()
+		t.Fatal("old token still accepted")
+	}
+	c, err := client.Dial(t.Context(), client.Options{Endpoint: addr, Password: "n3w-pass"})
+	if err != nil {
+		t.Fatalf("new password refused: %v", err)
+	}
+	_ = c.Close()
+}
+
 func TestLiveStreamingApprovalAndTimelineCatchup(t *testing.T) {
 	dataDir := t.TempDir()
 	_, _, faux, addr := startTestServer(t, dataDir)

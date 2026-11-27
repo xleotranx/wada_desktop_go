@@ -84,6 +84,25 @@ func LoadOrCreateRemoteToken(dataDir string) (string, error) {
 	return tok, nil
 }
 
+// RotateRemoteToken replaces the remote pairing token, so links and clients
+// holding the old one stop working.
+func RotateRemoteToken(dataDir string) (string, error) {
+	tok, err := GenerateCredential()
+	if err != nil {
+		return "", err
+	}
+	if dataDir == "" {
+		return tok, nil
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return "", err
+	}
+	if err := writeAtomic(filepath.Join(dataDir, RemoteTokenFileName), []byte(tok), 0o600); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
 func LoadPasswordHash(dataDir string) ([]byte, error) {
 	if dataDir == "" {
 		return nil, nil

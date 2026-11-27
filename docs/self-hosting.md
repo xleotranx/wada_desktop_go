@@ -94,7 +94,9 @@ worktrees, and PTY terminals on your own workstation or server:
 - **Password vs Pairing Token:** Setting a daemon password (`wadad --password`,
   `wada daemon set-password`, or Settings → Daemon) removes the cleartext token
   from `#offer=` links and requires bcrypt verification inside the encrypted
-  Noise `hello` handshake.
+  Noise `hello` handshake. Setting or clearing the password also issues a new pairing
+  token and disconnects every remote client except the one that made the change,
+  so earlier links and sessions must authenticate again.
 - **GitHub/Forge Integration (`gh`):** Worktree PR badges and `wada pr status|create`
   parse `git remote get-url origin` and verify `gh auth status --hostname <host>`
   with `GH_PROMPT_DISABLED=1`. Hosts without active local `gh` authentication are

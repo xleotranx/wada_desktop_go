@@ -130,3 +130,27 @@ func TestWorkerSendStatusAndOutcome(t *testing.T) {
 		t.Fatalf("user messages = %s, want %s", got, want)
 	}
 }
+
+func TestSpawnAfterCloseIsRefused(t *testing.T) {
+	dataDir := t.TempDir()
+	rt, err := pig.New(t.Context(), pig.Options{Root: filepath.Join(dataDir, "pig")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &scriptedSession{events: make(chan protocol.Event)}
+	reg := harness.NewRegistry()
+	reg.Register(&scriptedProvider{sess: sess})
+	o, err := New(t.Context(), Options{DataDir: dataDir, PiG: rt, Worktrees: worktree.New(dataDir), Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.spawnWorker(t.Context(), spawnWorkerArgs{Provider: "scripted", Directory: dataDir}); err == nil {
+		t.Fatal("spawn after Close succeeded")
+	}
+	if _, open := <-sess.events; open {
+		t.Fatal("the refused worker's session was left open")
+	}
+}

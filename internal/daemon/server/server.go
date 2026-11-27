@@ -141,6 +141,9 @@ type clientConn struct {
 	closed       bool
 	wake         chan struct{}
 	done         chan struct{}
+	// local is set for a client that proved the local credential, which only
+	// processes that can read the data directory have.
+	local bool
 }
 
 // Server serves wadad's HTTP health endpoint and WebSocket RPC/stream protocol.
@@ -198,6 +201,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	if err := st.PruneTimeline(ctx, ep); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	if err := st.MarkPendingDeliveriesUnknown(ctx); err != nil {
 		_ = st.Close()
 		return nil, err
@@ -246,7 +253,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 func (s *Server) ServerID() string      { return s.serverID }
 func (s *Server) Epoch() uint64         { return s.epoch }
 func (s *Server) Credential() string    { return s.credential }
-func (s *Server) RemoteToken() string   { return s.remoteToken }
+func (s *Server) RemoteToken() string {
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	return s.remoteToken
+}
 func (s *Server) RelayKeypair() relay.Keypair { return s.keypair }
 func (s *Server) Addr() string {
 	if s.ln == nil {
@@ -413,11 +424,13 @@ func (s *Server) ServeTransport(tr relay.Transport) {
 		_ = tr.Close()
 		return
 	}
-	if !s.authenticate(hello) {
+	local, ok := s.authenticate(hello)
+	if !ok {
 		conn.writeImmediateError(env.RequestID, protocol.ErrCodeUnauthorized, "invalid daemon credential or password")
 		_ = tr.Close()
 		return
 	}
+	conn.local = local
 	_ = tr.SetReadDeadline(time.Time{})
 
 	info := protocol.ServerInfoPayload{
@@ -469,20 +482,20 @@ func writeJSONFrame(tr relay.Transport, v any) error {
 	return tr.WriteMessage(websocket.TextMessage, raw)
 }
 
-func (s *Server) authenticate(hello protocol.HelloPayload) bool {
+// authenticate reports whether hello may connect, and whether it did so with
+// the local credential.
+func (s *Server) authenticate(hello protocol.HelloPayload) (local, ok bool) {
 	if hello.Credential != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(s.credential)) == 1 {
-		return true
+		return true, true
 	}
 	s.authMu.RLock()
 	pwHash := slices.Clone(s.passwordHash)
+	remoteTok := s.remoteToken
 	s.authMu.RUnlock()
 	if len(pwHash) > 0 {
-		return hello.Password != "" && bcrypt.CompareHashAndPassword(pwHash, []byte(hello.Password)) == nil
+		return false, hello.Password != "" && bcrypt.CompareHashAndPassword(pwHash, []byte(hello.Password)) == nil
 	}
-	if hello.Credential != "" && s.remoteToken != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(s.remoteToken)) == 1 {
-		return true
-	}
-	return false
+	return false, hello.Credential != "" && remoteTok != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(remoteTok)) == 1
 }
 
 func (s *Server) pumpEvents() {
@@ -499,7 +512,7 @@ func (s *Server) pumpEvents() {
 			if ev.Session != "" {
 				s.seqBySess[ev.Session]++
 				ev.Seq = s.seqBySess[ev.Session]
-				_ = s.store.AppendEvent(s.ctx, ev)
+				s.recordEvent(ev)
 			}
 			payload, err := json.Marshal(ev)
 			if err != nil {
@@ -507,6 +520,27 @@ func (s *Server) pumpEvents() {
 			}
 			s.broadcastEvent(ev.Session, payload)
 		}
+	}
+}
+
+// recordEvent stores ev for timeline catch-up and applies the timeline's
+// retention when a turn ends or the session goes away.
+func (s *Server) recordEvent(ev protocol.Event) {
+	if ev.Kind == protocol.EventSessionDeleted {
+		_ = s.store.DeleteSessionTimeline(s.ctx, ev.Session)
+		delete(s.seqBySess, ev.Session)
+		return
+	}
+	_ = s.store.AppendEvent(s.ctx, ev)
+	switch ev.Kind {
+	case protocol.EventTurnSucceeded, protocol.EventTurnFailed, protocol.EventTurnInterrupted:
+		_ = s.store.TrimSessionTimeline(s.ctx, ev.Session, ev.Epoch, ev.Seq)
+	case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
+		protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
+		protocol.EventApprovalRequested, protocol.EventInteractionRequested, protocol.EventTurnStarted,
+		protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
+		protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
+		protocol.EventTerminalUpdated:
 	}
 }
 
@@ -748,7 +782,7 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 				return nil, invalidErr(err)
 			}
 		}
-		if err := s.setPassword(req.Password); err != nil {
+		if err := s.setPassword(c, req.Password); err != nil {
 			return nil, internalErr(err)
 		}
 		return map[string]bool{"ok": true}, nil
@@ -1416,7 +1450,7 @@ func (s *Server) pairingOffer(appURL string) (protocol.PairingOfferResponse, *pr
 		RequiresPassword: requiresPW,
 	}
 	if !requiresPW {
-		offer.Token = s.remoteToken
+		offer.Token = s.RemoteToken()
 	}
 	enc, err := relay.EncodeOffer(offer)
 	if err != nil {
@@ -1437,7 +1471,10 @@ func (s *Server) pairingOffer(appURL string) (protocol.PairingOfferResponse, *pr
 	}, nil
 }
 
-func (s *Server) setPassword(password string) error {
+// setPassword replaces the daemon password and the remote pairing token, and
+// disconnects every remote client except caller: whoever got in with the old
+// password or token must authenticate again.
+func (s *Server) setPassword(caller *clientConn, password string) error {
 	var hash []byte
 	if password != "" {
 		var err error
@@ -1446,12 +1483,29 @@ func (s *Server) setPassword(password string) error {
 			return err
 		}
 	}
+	tok, err := RotateRemoteToken(s.cfg.DataDir)
+	if err != nil {
+		return err
+	}
 	if err := SavePasswordHash(s.cfg.DataDir, hash); err != nil {
 		return err
 	}
 	s.authMu.Lock()
 	s.passwordHash = hash
+	s.remoteToken = tok
 	s.authMu.Unlock()
+
+	s.clientsMu.Lock()
+	var remote []*clientConn
+	for c := range s.clients {
+		if c != caller && !c.local {
+			remote = append(remote, c)
+		}
+	}
+	s.clientsMu.Unlock()
+	for _, c := range remote {
+		c.closeNow()
+	}
 	return nil
 }
 

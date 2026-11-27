@@ -54,6 +54,7 @@ type Orchestrator struct {
 	wg     sync.WaitGroup
 
 	mu      sync.Mutex
+	closed  bool // set by Close; no worker is added after it
 	workers map[string]*managedWorker
 	waiters map[string][]chan struct{}
 }
@@ -106,6 +107,7 @@ func (o *Orchestrator) Close() error {
 	o.cancel()
 
 	o.mu.Lock()
+	o.closed = true
 	workers := make([]*managedWorker, 0, len(o.workers))
 	for _, w := range o.workers {
 		workers = append(workers, w)
@@ -446,6 +448,11 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 	w := &managedWorker{info: info, sess: sess}
 
 	o.mu.Lock()
+	if o.closed {
+		o.mu.Unlock()
+		_ = sess.Close()
+		return protocol.WorkerInfo{}, errors.New("orchestrator is shutting down")
+	}
 	o.workers[workerID] = w
 	o.wg.Add(1)
 	o.mu.Unlock()

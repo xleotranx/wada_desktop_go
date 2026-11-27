@@ -79,3 +79,51 @@ func TestStoreIdentityEpochReceiptsAndTimeline(t *testing.T) {
 		t.Fatalf("page2 = %+v hasMore=%v err=%v", page2, hasMore, err)
 	}
 }
+
+func TestTimelineRetention(t *testing.T) {
+	ctx := t.Context()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	put := func(sess string, epoch, seq uint64) {
+		t.Helper()
+		if err := s.AppendEvent(ctx, protocol.Event{Kind: protocol.EventTextDelta, Session: sess, Epoch: epoch, Seq: seq}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(sess string) int {
+		t.Helper()
+		evs, _, _, err := s.FetchTimeline(ctx, sess, 0, 0, 100000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(evs)
+	}
+	for ep := uint64(1); ep <= 3; ep++ {
+		put("a", ep, 1)
+	}
+	if err := s.PruneTimeline(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("a"); n != 2 {
+		t.Fatalf("after prune %d events, want epochs 2 and 3", n)
+	}
+
+	put("b", 3, 1)
+	put("b", 3, MaxSessionTimeline+5)
+	if err := s.TrimSessionTimeline(ctx, "b", 3, MaxSessionTimeline+5); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("b"); n != 1 {
+		t.Fatalf("after trim %d events, want 1", n)
+	}
+
+	if err := s.DeleteSessionTimeline(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("a"); n != 0 {
+		t.Fatalf("after delete %d events, want 0", n)
+	}
+}

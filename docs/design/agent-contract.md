@@ -50,6 +50,8 @@ directory at a time: it holds an exclusive lock on `<DataDir>/wadad.lock` for it
 whole run, so a replacement waits until the daemon it replaces has shut down and
 removed its runtime files. `wadad.db` tracks server identity,
 startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
+The timeline is for catch-up only: it keeps the current and previous epochs, the
+last 20000 events of each session per epoch, and nothing for deleted sessions.
 
 Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) with Wada's engineering system prompt.

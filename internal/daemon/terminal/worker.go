@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -87,12 +88,27 @@ func (c *workerConn) send(f ipcFrame) error {
 	return writeIPCFrame(c.conn, f)
 }
 
+// inputQueueLen bounds a terminal's queued input writes. A shell that stops
+// reading fills it, and further input is refused instead of blocking the
+// connection that carries every terminal's requests.
+const inputQueueLen = 256
+
 type termProc struct {
-	mu      sync.Mutex
-	info    protocol.TerminalInfo
-	pty     PTY
-	vt      *VTBuffer
-	subs    map[*workerConn]struct{}
+	mu   sync.Mutex
+	info protocol.TerminalInfo
+	pty  PTY
+	vt   *VTBuffer
+	subs map[*workerConn]*termSub
+	// input feeds writeInput; it is closed, under mu, when the PTY ends.
+	input       chan []byte
+	inputClosed bool
+}
+
+// termSub is one connection's attachment. Until the attach response with its
+// snapshot is on the wire, output is held in pending so it can't arrive first.
+type termSub struct {
+	ready   bool
+	pending [][]byte
 }
 
 type Worker struct {
@@ -264,7 +280,11 @@ func (w *Worker) serveConn(rawConn net.Conn) {
 		} else if payload != nil {
 			resp.Payload, _ = json.Marshal(payload)
 		}
-		if err := wc.send(resp); err != nil {
+		err = wc.send(resp)
+		if att, ok := payload.(attachResult); ok {
+			att.term.release(wc)
+		}
+		if err != nil {
 			return
 		}
 	}
@@ -330,15 +350,14 @@ func (w *Worker) handleRPC(wc *workerConn, method string, raw json.RawMessage) (
 		if req.Cols > 0 && req.Rows > 0 {
 			_ = t.resize(req.Cols, req.Rows)
 		}
+		// pumpPTY writes the screen and reads the subscribers under t.mu, so
+		// each chunk is either in this snapshot or delivered after it.
 		t.mu.Lock()
-		t.subs[wc] = struct{}{}
+		t.subs[wc] = &termSub{}
 		info := t.info
 		snap := t.vt.Snapshot()
 		t.mu.Unlock()
-		return struct {
-			Info     protocol.TerminalInfo `json:"info"`
-			Snapshot []byte                `json:"snapshot,omitempty"`
-		}{Info: info, Snapshot: snap}, nil
+		return attachResult{Info: info, Snapshot: snap, term: t}, nil
 	case "detach":
 		var req protocol.TerminalDetachRequest
 		if err := json.Unmarshal(raw, &req); err != nil {
@@ -359,8 +378,10 @@ func (w *Worker) handleRPC(wc *workerConn, method string, raw json.RawMessage) (
 		if t == nil {
 			return nil, errors.New("terminal not found")
 		}
-		_, err := t.pty.Write(req.Data)
-		return map[string]bool{"ok": err == nil}, err
+		if err := t.queueInput(req.Data); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
 	case "resize":
 		var req protocol.TerminalResizeRequest
 		if err := json.Unmarshal(raw, &req); err != nil {
@@ -453,20 +474,25 @@ func (w *Worker) createTerm(req protocol.TerminalCreateRequest) (protocol.Termin
 	}
 
 	tp := &termProc{
-		info: info,
-		pty:  ptyInst,
-		vt:   NewVTBuffer(cols, rows),
-		subs: map[*workerConn]struct{}{},
+		info:  info,
+		pty:   ptyInst,
+		vt:    NewVTBuffer(cols, rows),
+		subs:  map[*workerConn]*termSub{},
+		input: make(chan []byte, inputQueueLen),
 	}
 
 	w.mu.Lock()
 	w.terms[id] = tp
-	w.wg.Add(1)
+	w.wg.Add(2)
 	w.mu.Unlock()
 
 	go func() {
 		defer w.wg.Done()
 		w.pumpPTY(tp)
+	}()
+	go func() {
+		defer w.wg.Done()
+		tp.writeInput()
 	}()
 
 	w.broadcastUpdated(info)
@@ -486,19 +512,86 @@ func (t *termProc) resize(cols, rows int) error {
 	return nil
 }
 
+// attachResult is the attach response; serveConn releases the held output
+// once it has sent it.
+type attachResult struct {
+	Info     protocol.TerminalInfo `json:"info"`
+	Snapshot []byte                `json:"snapshot,omitempty"`
+	term     *termProc
+}
+
+// release sends wc the output held since its attach, then lets pumpPTY send to
+// it directly. Output that arrives meanwhile joins the held output, so the
+// order is kept.
+func (t *termProc) release(wc *workerConn) {
+	for {
+		t.mu.Lock()
+		sub := t.subs[wc]
+		if sub == nil || len(sub.pending) == 0 {
+			if sub != nil {
+				sub.ready = true
+			}
+			t.mu.Unlock()
+			return
+		}
+		held := sub.pending
+		sub.pending = nil
+		id := t.info.ID
+		t.mu.Unlock()
+		for _, chunk := range held {
+			_ = wc.send(ipcFrame{Type: "output", TermID: id, Data: chunk})
+		}
+	}
+}
+
+func (t *termProc) queueInput(data []byte) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.inputClosed {
+		return errors.New("terminal has exited")
+	}
+	select {
+	case t.input <- slices.Clone(data):
+		return nil
+	default:
+		return errors.New("terminal is not reading its input")
+	}
+}
+
+func (t *termProc) closeInput() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.inputClosed {
+		t.inputClosed = true
+		close(t.input)
+	}
+}
+
+// writeInput writes queued input to the PTY until the queue closes.
+func (t *termProc) writeInput() {
+	for data := range t.input {
+		_, _ = t.pty.Write(data)
+	}
+}
+
 func (w *Worker) pumpPTY(tp *termProc) {
+	defer tp.closeInput()
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := tp.pty.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			tp.vt.Write(chunk)
 
 			tp.mu.Lock()
+			tp.vt.Write(chunk)
 			subs := make([]*workerConn, 0, len(tp.subs))
-			for c := range tp.subs {
-				subs = append(subs, c)
+			for c, sub := range tp.subs {
+				if sub.ready {
+					subs = append(subs, c)
+				} else {
+					sub.pending = append(sub.pending, chunk)
+				}
 			}
 			id := tp.info.ID
 			tp.mu.Unlock()

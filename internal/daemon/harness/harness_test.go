@@ -82,6 +82,11 @@ func runHelperClaude() {
 }
 
 func runHelperCodex(args []string) {
+	if len(args) < 2 || args[len(args)-2] != "--" {
+		fmt.Println(`{"type":"item.completed","item":{"id":"m0","type":"agent_message","text":"prompt was not passed after --"}}`)
+		fmt.Println(`{"type":"turn.completed"}`)
+		return
+	}
 	isResume := false
 	for _, a := range args {
 		if a == "resume" {
@@ -253,7 +258,7 @@ func TestCodexAdapterTurnAndResume(t *testing.T) {
 	}
 
 	runTurn("first", "Codex done.")
-	runTurn("second", "Codex resumed.")
+	runTurn("--second -m o3", "Codex resumed.")
 }
 
 func TestManagedProcessKillCancelsHangingProcessTree(t *testing.T) {

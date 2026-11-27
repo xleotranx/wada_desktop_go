@@ -25,6 +25,10 @@ const (
 
 	SessionIDSize = 16
 	muxHeaderSize = 1 + SessionIDSize
+
+	// sessionRxFrames is how many inbound frames a relayed session may queue
+	// before the daemon closes it rather than stall the shared relay socket.
+	sessionRxFrames = 256
 )
 
 // Transport abstracts a full-duplex framed message stream (*websocket.Conn or
@@ -450,7 +454,7 @@ func (mc *muxConn) openSession(sid [SessionIDSize]byte) {
 	ms := &muxSession{
 		mc:   mc,
 		id:   sid,
-		rxCh: make(chan []byte, 128),
+		rxCh: make(chan []byte, sessionRxFrames),
 		done: make(chan struct{}),
 	}
 	mc.mu.Lock()
@@ -480,9 +484,14 @@ func (mc *muxConn) deliver(sid [SessionIDSize]byte, payload []byte) {
 	if ms == nil {
 		return
 	}
+	// Never block the shared relay read loop on one session: a session whose
+	// receive buffer is full is closed, since dropping a single Noise frame
+	// would break its nonce sequence anyway.
 	select {
 	case ms.rxCh <- payload:
 	case <-ms.done:
+	default:
+		ms.closeRemote()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -112,5 +113,89 @@ func TestRouterForwardsOpaqueCiphertextAcrossConcurrentClients(t *testing.T) {
 		t.Fatal("expected client read to fail after daemon connector closed")
 	} else if errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("client read timed out waiting for EOF after daemon closed: %v", err)
+	}
+}
+
+func TestStalledSessionDoesNotBlockOtherTunnels(t *testing.T) {
+	kp, err := GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewRouter(RouterConfig{}))
+	defer srv.Close()
+
+	release := make(chan struct{})
+	dc, err := StartDaemonConnector(srv.URL, "", kp, func(tr Transport) {
+		defer tr.Close()
+		_, first, rerr := tr.ReadMessage()
+		if rerr != nil {
+			return
+		}
+		if string(first) == "stall" {
+			<-release // stop reading, as a session blocked in a slow call would
+			return
+		}
+		for {
+			mt, data, rerr := tr.ReadMessage()
+			if rerr != nil {
+				return
+			}
+			if werr := tr.WriteMessage(mt, append([]byte("echo:"), data...)); werr != nil {
+				return
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dc.Close()
+	defer close(release) // before dc.Close, which waits for the stalled handler
+
+	dial := func() *NoiseTransport {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			c, derr := DialClientTunnel(context.Background(), srv.URL, kp.Public, "")
+			if derr == nil {
+				return c
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("dial through relay: %v", derr)
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+	}
+	stalled := dial()
+	defer stalled.Close()
+	healthy := dial()
+	defer healthy.Close()
+
+	if err := stalled.WriteMessage(websocket.TextMessage, []byte("stall")); err != nil {
+		t.Fatal(err)
+	}
+	if err := healthy.WriteMessage(websocket.TextMessage, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	for range sessionRxFrames + 64 {
+		if err := stalled.WriteMessage(websocket.BinaryMessage, []byte("flood")); err != nil {
+			break // the daemon may already have closed the stalled tunnel
+		}
+	}
+
+	// The daemon closes the session that stopped reading instead of blocking
+	// the relay socket it shares with every other session.
+	_ = stalled.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _, err = stalled.ReadMessage()
+	var netErr net.Error
+	if err == nil || (errors.As(err, &netErr) && netErr.Timeout()) {
+		t.Fatalf("stalled tunnel was not closed: %v", err)
+	}
+
+	if err := healthy.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	_ = healthy.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, data, err := healthy.ReadMessage(); err != nil || string(data) != "echo:ping" {
+		t.Fatalf("healthy tunnel got (%q, %v) after another session stalled", data, err)
 	}
 }

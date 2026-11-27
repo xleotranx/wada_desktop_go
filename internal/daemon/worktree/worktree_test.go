@@ -131,3 +131,34 @@ func TestTrustStorePersistence(t *testing.T) {
 		t.Fatalf("after Revoke = %v, %v", ok, err)
 	}
 }
+
+func TestDiffListsFilesInsideNewDirectories(t *testing.T) {
+	repo := initTestRepo(t)
+	pkg := filepath.Join(repo, "internal", "newpkg")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"a.go": "package newpkg\n", "b.go": "package newpkg\n\nvar B = 1\n"} {
+		if err := os.WriteFile(filepath.Join(pkg, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	changes, err := New(t.TempDir()).Diff(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]protocol.FileChange{}
+	for _, ch := range changes {
+		got[ch.Path] = ch
+	}
+	if len(got) != 2 {
+		t.Fatalf("changes = %+v, want the two new files", changes)
+	}
+	for _, path := range []string{"internal/newpkg/a.go", "internal/newpkg/b.go"} {
+		ch, ok := got[path]
+		if !ok || ch.Status != protocol.FileAdded || ch.Added == 0 || !strings.Contains(ch.Patch, "+package newpkg") {
+			t.Fatalf("%s = %+v (present %v)", path, ch, ok)
+		}
+	}
+}

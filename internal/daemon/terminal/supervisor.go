@@ -31,6 +31,11 @@ type supSub struct {
 
 // Supervisor manages a persistent IPC connection to the detached terminal worker,
 // spawning it lazily on first terminal operation and re-attaching after restarts.
+//
+// The worker tracks attachments per IPC connection, and every wadad client shares
+// this one connection, so the Supervisor keeps the worker attached to a terminal
+// while any local subscription for it remains and re-attaches them all whenever
+// it opens a new connection.
 type Supervisor struct {
 	opts   SupervisorOptions
 	events chan protocol.Event
@@ -40,11 +45,27 @@ type Supervisor struct {
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 
-	connMu  sync.Mutex
-	conn    *ipcClient
-	subMu   sync.Mutex
-	subs    map[string]map[string]*supSub // termID -> clientSubKey -> stream
+	connMu sync.Mutex
+	conn   *ipcClient
+	subMu  sync.Mutex
+	subs   map[string]map[string]*supSub // termID -> clientSubKey -> stream
+
+	// attachMu orders worker attach/detach calls against changes to subs, so a
+	// detach for a terminal's last subscription never overtakes a newer attach.
+	attachMu sync.Mutex
 }
+
+// retryableMethods are worker calls that are safe to resend on a new connection
+// after the previous one dropped. Every other method changes worker state and
+// has an unknown outcome once its connection is lost.
+var retryableMethods = map[string]bool{
+	"ping":    true,
+	"list":    true,
+	"capture": true,
+	"attach":  true,
+}
+
+var errOutcomeUnknown = errors.New("terminal worker connection lost; the request's outcome is unknown")
 
 type ipcClient struct {
 	wc      *workerConn
@@ -91,11 +112,7 @@ func (s *Supervisor) Close() error {
 		s.subMu.Lock()
 		for _, group := range s.subs {
 			for _, sub := range group {
-				if !sub.closed {
-					sub.closed = true
-					close(sub.done)
-					close(sub.ch)
-				}
+				sub.close()
 			}
 		}
 		clear(s.subs)
@@ -148,6 +165,9 @@ func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.
 	ch := make(chan []byte, 128)
 	sub := &supSub{ch: ch, done: make(chan struct{})}
 
+	s.attachMu.Lock()
+	defer s.attachMu.Unlock()
+
 	s.subMu.Lock()
 	group := s.subs[req.ID]
 	if group == nil {
@@ -167,7 +187,11 @@ func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.
 	}
 
 	detach := func() {
-		s.removeSub(req.ID, subKey)
+		s.attachMu.Lock()
+		defer s.attachMu.Unlock()
+		if !s.removeSub(req.ID, subKey) {
+			return
+		}
 		dctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 		_ = s.callExisting(dctx, "detach", protocol.TerminalDetachRequest{ID: req.ID}, nil)
@@ -175,7 +199,17 @@ func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.
 	return resp.Info, resp.Snapshot, ch, detach, nil
 }
 
+// Detach stops the worker streaming termID to wadad, unless a local
+// subscription still needs it.
 func (s *Supervisor) Detach(ctx context.Context, termID string) error {
+	s.attachMu.Lock()
+	defer s.attachMu.Unlock()
+	s.subMu.Lock()
+	inUse := len(s.subs[termID]) > 0
+	s.subMu.Unlock()
+	if inUse {
+		return nil
+	}
 	return s.callExisting(ctx, "detach", protocol.TerminalDetachRequest{ID: termID}, nil)
 }
 
@@ -195,36 +229,46 @@ func (s *Supervisor) Capture(ctx context.Context, termID string, lines int) (pro
 func (s *Supervisor) Kill(ctx context.Context, termID string) error {
 	err := s.call(ctx, "kill", protocol.TerminalKillRequest{ID: termID}, nil)
 	if err == nil {
-		s.subMu.Lock()
-		for k, sub := range s.subs[termID] {
-			if !sub.closed {
-				sub.closed = true
-				close(sub.done)
-				close(sub.ch)
-			}
-			delete(s.subs[termID], k)
-		}
-		delete(s.subs, termID)
-		s.subMu.Unlock()
+		s.closeSubs(termID)
 	}
 	return err
 }
 
-func (s *Supervisor) removeSub(termID, subKey string) {
+func (sub *supSub) close() {
+	if !sub.closed {
+		sub.closed = true
+		close(sub.done)
+		close(sub.ch)
+	}
+}
+
+// closeSubs ends every local stream of termID.
+func (s *Supervisor) closeSubs(termID string) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	for _, sub := range s.subs[termID] {
+		sub.close()
+	}
+	delete(s.subs, termID)
+}
+
+// removeSub ends one local stream and reports whether it was the last one for
+// termID, so the caller should detach the worker.
+func (s *Supervisor) removeSub(termID, subKey string) bool {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
 	group := s.subs[termID]
-	if sub := group[subKey]; sub != nil {
-		if !sub.closed {
-			sub.closed = true
-			close(sub.done)
-			close(sub.ch)
-		}
-		delete(group, subKey)
+	sub := group[subKey]
+	if sub == nil {
+		return false
 	}
-	if len(group) == 0 {
-		delete(s.subs, termID)
+	sub.close()
+	delete(group, subKey)
+	if len(group) > 0 {
+		return false
 	}
+	delete(s.subs, termID)
+	return true
 }
 
 func (s *Supervisor) callExisting(ctx context.Context, method string, req, resp any) error {
@@ -251,6 +295,12 @@ func (s *Supervisor) call(ctx context.Context, method string, req, resp any) err
 				s.conn = nil
 			}
 			s.connMu.Unlock()
+			if !retryableMethods[method] {
+				// The worker may have applied the request before the connection
+				// dropped; resending it could repeat input or create a second
+				// terminal, so report the unknown outcome instead.
+				return errOutcomeUnknown
+			}
 			c2, err2 := s.ensureConn(ctx)
 			if err2 == nil {
 				return c2.call(ctx, method, req, resp)
@@ -279,6 +329,7 @@ func (s *Supervisor) ensureConn(ctx context.Context) (*ipcClient, error) {
 
 	if c, err := s.tryDialExisting(ctx); err == nil {
 		s.conn = c
+		s.reattach(c)
 		return c, nil
 	}
 
@@ -293,6 +344,7 @@ func (s *Supervisor) ensureConn(ctx context.Context) (*ipcClient, error) {
 		cancel()
 		if err == nil {
 			s.conn = c
+			s.reattach(c)
 			return c, nil
 		}
 		select {
@@ -304,6 +356,28 @@ func (s *Supervisor) ensureConn(ctx context.Context) (*ipcClient, error) {
 		}
 	}
 	return nil, errors.New("timed out waiting for wadad-term IPC worker")
+}
+
+// reattach asks the worker to stream every terminal that still has a local
+// subscription to the new connection c. A terminal the worker no longer has
+// ends its local streams, so their clients see the stream close.
+func (s *Supervisor) reattach(c *ipcClient) {
+	s.subMu.Lock()
+	ids := make([]string, 0, len(s.subs))
+	for id, group := range s.subs {
+		if len(group) > 0 {
+			ids = append(ids, id)
+		}
+	}
+	s.subMu.Unlock()
+	for _, id := range ids {
+		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+		err := c.call(ctx, "attach", protocol.TerminalAttachRequest{ID: id}, nil)
+		cancel()
+		if err != nil {
+			s.closeSubs(id)
+		}
+	}
 }
 
 func (s *Supervisor) tryDialExisting(ctx context.Context) (*ipcClient, error) {

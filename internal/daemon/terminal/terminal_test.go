@@ -207,3 +207,86 @@ func TestDetachedWorkerSurvivesSupervisorRestart(t *testing.T) {
 		}
 	}
 }
+
+func newHelperSupervisor(t *testing.T) *Supervisor {
+	t.Helper()
+	dataDir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "WADA_TERM_HELPER_WORKER=1", "WADA_TERM_HELPER_DIR="+dataDir)
+	sup := NewSupervisor(SupervisorOptions{
+		DataDir:    dataDir,
+		WorkerBin:  exe,
+		WorkerArgs: []string{"-test.run=TestHelperWorkerProcess"},
+		WorkerEnv:  env,
+	})
+	t.Cleanup(func() { _ = sup.Close() })
+	return sup
+}
+
+func waitForOutput(t *testing.T, ch <-chan []byte, token string) {
+	t.Helper()
+	var live strings.Builder
+	deadline := time.After(5 * time.Second)
+	for !strings.Contains(live.String(), token) {
+		select {
+		case chunk, ok := <-ch:
+			if !ok {
+				t.Fatalf("stream closed before %q arrived: %q", token, live.String())
+			}
+			live.Write(chunk)
+		case <-deadline:
+			t.Fatalf("did not receive %q: %q", token, live.String())
+		}
+	}
+}
+
+func TestDetachKeepsOtherSubscribersStreaming(t *testing.T) {
+	sup := newHelperSupervisor(t)
+	info, err := sup.Create(t.Context(), protocol.TerminalCreateRequest{Directory: t.TempDir(), Shell: "/bin/sh", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, detachA, err := sup.Attach(t.Context(), "client-a", protocol.TerminalAttachRequest{ID: info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, chB, detachB, err := sup.Attach(t.Context(), "client-b", protocol.TerminalAttachRequest{ID: info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detachB()
+
+	detachA()
+	detachA() // a repeated detach must not detach the remaining subscriber either
+	if err := sup.Input(t.Context(), info.ID, []byte("echo STILL_STREAMING\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitForOutput(t, chB, "STILL_STREAMING")
+}
+
+func TestReconnectReattachesSubscriptions(t *testing.T) {
+	sup := newHelperSupervisor(t)
+	info, err := sup.Create(t.Context(), protocol.TerminalCreateRequest{Directory: t.TempDir(), Shell: "/bin/sh", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, ch, detach, err := sup.Attach(t.Context(), "client", protocol.TerminalAttachRequest{ID: info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+
+	sup.connMu.Lock()
+	old := sup.conn
+	sup.connMu.Unlock()
+	_ = old.wc.conn.Close()
+	<-old.done
+
+	if err := sup.Input(t.Context(), info.ID, []byte("echo AFTER_RECONNECT\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitForOutput(t, ch, "AFTER_RECONNECT")
+}

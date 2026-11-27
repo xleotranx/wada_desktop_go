@@ -685,7 +685,10 @@ type Event struct {
 }
 
 type SubscribeRequest struct {
-	Sessions []string `json:"sessions,omitempty"` // empty subscribes to all sessions
+	// SubscriptionID is optional and chosen by the client, so it can route
+	// events that arrive before the response. Empty asks the server for one.
+	SubscriptionID string   `json:"subscriptionId,omitempty"`
+	Sessions       []string `json:"sessions,omitempty"` // empty subscribes to all sessions
 }
 
 type SubscribeResponse struct {

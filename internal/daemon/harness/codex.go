@@ -112,7 +112,8 @@ func (s *codexSession) Send(ctx context.Context, text string) error {
 	if s.opts.Mode == "full" {
 		args = append(args, "--full-auto")
 	}
-	args = append(args, text)
+	// "--" ends option parsing, so a prompt that starts with "-" stays a prompt.
+	args = append(args, "--", text)
 
 	proc, err := StartProcess(s.ctx, s.opts.Directory, s.bin, args, s.opts.Env)
 	if err != nil {

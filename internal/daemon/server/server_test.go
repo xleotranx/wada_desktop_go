@@ -276,3 +276,29 @@ func TestPendingDeliveryBecomesOutcomeUnknownAfterRestart(t *testing.T) {
 		}
 	}
 }
+
+func TestSubscribeHonorsClientChosenIDAndRejectsReuse(t *testing.T) {
+	dataDir := t.TempDir()
+	_, _, _, addr := startTestServer(t, dataDir)
+	c, err := client.DialLocal(t.Context(), dataDir, client.Options{Endpoint: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var resp protocol.SubscribeResponse
+	if err := c.Call(t.Context(), protocol.MethodEventsSubscribe, protocol.SubscribeRequest{SubscriptionID: "sub_mine"}, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.SubscriptionID != "sub_mine" {
+		t.Fatalf("subscriptionId = %q, want sub_mine", resp.SubscriptionID)
+	}
+	err = c.Call(t.Context(), protocol.MethodEventsSubscribe, protocol.SubscribeRequest{SubscriptionID: "sub_mine"}, &resp)
+	var rpcErr *protocol.RPCError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != protocol.ErrCodeConflict {
+		t.Fatalf("reused subscriptionId err = %v, want conflict", err)
+	}
+	if err := c.Call(t.Context(), protocol.MethodEventsSubscribe, protocol.SubscribeRequest{}, &resp); err != nil || !strings.HasPrefix(resp.SubscriptionID, "sub_") {
+		t.Fatalf("server-chosen subscriptionId = %q, err = %v", resp.SubscriptionID, err)
+	}
+}

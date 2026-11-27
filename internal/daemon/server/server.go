@@ -33,6 +33,9 @@ const (
 	termSoftBytes    = 4 << 20 // 4 MiB soft cap for droppable terminal output frames
 	maxOutboundBytes = 8 << 20 // 8 MiB per-socket high-water mark
 	writeWait        = 10 * time.Second
+
+	maxSubscriptionIDLen = 128
+	binaryFrameTimeout   = 2 * time.Second
 )
 
 // Backend is the agent runtime contract hosted by wadad.
@@ -755,8 +758,17 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 				return nil, invalidErr(err)
 			}
 		}
-		subID := "sub_" + uuid.NewString()
+		subID := req.SubscriptionID
+		if subID == "" {
+			subID = "sub_" + uuid.NewString()
+		} else if len(subID) > maxSubscriptionIDLen {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeInvalid, Message: "subscriptionId is too long"}
+		}
 		c.mu.Lock()
+		if _, taken := c.subs[subID]; taken {
+			c.mu.Unlock()
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: "subscriptionId is already in use"}
+		}
 		c.subs[subID] = slices.Clone(req.Sessions)
 		c.mu.Unlock()
 		return protocol.SubscribeResponse{SubscriptionID: subID}, nil
@@ -1573,12 +1585,17 @@ func (c *clientConn) handleBinaryFrame(raw []byte) {
 	if !bound {
 		return
 	}
+	// Binary frames are handled on the read loop, so bound each call: a slow
+	// terminal worker must not stall this connection's RPCs and, over the
+	// relay, every other tunnel sharing it.
+	ctx, cancel := context.WithTimeout(c.server.ctx, binaryFrameTimeout)
+	defer cancel()
 	switch op {
 	case protocol.OpTermInput:
-		_ = tb.TerminalInput(c.server.ctx, b.termID, payload)
+		_ = tb.TerminalInput(ctx, b.termID, payload)
 	case protocol.OpTermResize:
 		if cols, rows, derr := protocol.DecodeTermResize(payload); derr == nil {
-			_ = tb.TerminalResize(c.server.ctx, b.termID, cols, rows)
+			_ = tb.TerminalResize(ctx, b.termID, cols, rows)
 		}
 	}
 }

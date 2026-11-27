@@ -197,7 +197,8 @@ func (m *Manager) Remove(ctx context.Context, dir, wtPath string, force bool) er
 
 // Diff returns uncommitted file changes (modified, added, deleted, untracked) inside dir.
 func (m *Manager) Diff(ctx context.Context, dir string) ([]protocol.FileChange, error) {
-	statusOut, err := gitOut(ctx, dir, "status", "--porcelain", "-z")
+	// --untracked-files=all lists the files inside a new directory, not just the directory.
+	statusOut, err := gitOut(ctx, dir, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return nil, err
 	}

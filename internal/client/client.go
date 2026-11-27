@@ -423,21 +423,49 @@ func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
 	}
 }
 
+// Subscribe registers an event stream. The subscription is registered locally
+// under a client-chosen ID before the request is sent, so events the server
+// sends ahead of its response are not dropped.
 func (c *Client) Subscribe(ctx context.Context, sessions ...string) (string, <-chan protocol.Event, error) {
+	subID := "sub_" + uuid.NewString()
 	ch := make(chan protocol.Event, 128)
-	var resp protocol.SubscribeResponse
-	if err := c.Call(ctx, protocol.MethodEventsSubscribe, protocol.SubscribeRequest{Sessions: sessions}, &resp); err != nil {
-		return "", nil, err
-	}
 	sub := &subStream{ch: ch, done: make(chan struct{})}
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return "", nil, errors.New("client: connection closed")
 	}
-	c.subs[resp.SubscriptionID] = sub
+	c.subs[subID] = sub
 	c.mu.Unlock()
-	return resp.SubscriptionID, ch, nil
+
+	var resp protocol.SubscribeResponse
+	err := c.Call(ctx, protocol.MethodEventsSubscribe, protocol.SubscribeRequest{SubscriptionID: subID, Sessions: sessions}, &resp)
+	if err == nil && resp.SubscriptionID != subID {
+		err = fmt.Errorf("client: server returned subscription %q, want %q", resp.SubscriptionID, subID)
+	}
+	if err != nil {
+		c.dropSub(subID, sub)
+		return "", nil, err
+	}
+	return subID, ch, nil
+}
+
+// dropSub ends a locally registered subscription that never became active.
+func (c *Client) dropSub(subID string, sub *subStream) {
+	c.mu.Lock()
+	owned := !sub.closed
+	if owned {
+		sub.closed = true
+		close(sub.done)
+		if c.subs[subID] == sub {
+			delete(c.subs, subID)
+		}
+	}
+	c.mu.Unlock()
+	if owned {
+		sub.wg.Wait()
+		close(sub.ch)
+	}
 }
 
 func (c *Client) Unsubscribe(ctx context.Context, subID string) error {
@@ -674,10 +702,15 @@ func (s *TerminalStream) Resize(cols, rows int) error {
 func (s *TerminalStream) Close() error {
 	c := s.ts.client
 	c.mu.Lock()
-	cur := c.termSubs[s.ts.channel]
-	if cur == s.ts && !s.ts.closed {
-		s.ts.closed = true
-		close(s.ts.done)
+	if s.ts.closed {
+		// Already closed, by an earlier Close or by Client.Close, which also
+		// closed ts.ch and ended the server-side attachment with the connection.
+		c.mu.Unlock()
+		return nil
+	}
+	s.ts.closed = true
+	close(s.ts.done)
+	if c.termSubs[s.ts.channel] == s.ts {
 		delete(c.termSubs, s.ts.channel)
 	}
 	c.mu.Unlock()

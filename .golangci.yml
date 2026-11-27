@@ -36,6 +36,31 @@ linters:
           allow:
             - "$gostd"
             - "modernc.org/sqlite"
+        protocol:
+          files: ["**/internal/protocol/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+        client:
+          files: ["**/internal/client/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/gorilla/websocket"
+            - "github.com/google/uuid"
+            - "wada-desktop-go/internal/protocol"
+        daemon:
+          files: ["**/internal/daemon/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/MichaelKinsy/PiG"
+            - "github.com/gorilla/websocket"
+            - "github.com/google/uuid"
+            - "golang.org/x/crypto"
+            - "wada-desktop-go/internal/daemon"
+            - "wada-desktop-go/internal/protocol"
+            - "wada-desktop-go/internal/store"
         pig:
           files: ["**/internal/plugins/pig/*.go", "!$test"]
           list-mode: strict

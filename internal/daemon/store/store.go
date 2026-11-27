@@ -1,0 +1,262 @@
+// Package store persists wadad state in pure-Go SQLite: server identity,
+// epochs, creation/delivery idempotency receipts, and sequenced timelines.
+package store
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"wada-desktop-go/internal/protocol"
+	dbstore "wada-desktop-go/internal/store"
+)
+
+const (
+	DeliveryPending  = "pending"
+	DeliveryAccepted = "accepted"
+	DeliveryRejected = "rejected"
+	DeliveryUnknown  = "unknown"
+)
+
+var daemonMigrations = []dbstore.Migration{{
+	Version: 1,
+	Up: func(ctx context.Context, tx *sql.Tx) error {
+		for _, stmt := range []string{
+			`CREATE TABLE daemon_meta (
+				key   TEXT PRIMARY KEY,
+				value TEXT NOT NULL)`,
+			`CREATE TABLE creation_receipts (
+				idempotency_key TEXT PRIMARY KEY,
+				kind            TEXT NOT NULL,
+				resource_id     TEXT NOT NULL,
+				request_hash    TEXT NOT NULL,
+				created_at      INTEGER NOT NULL)`,
+			`CREATE TABLE delivery_receipts (
+				session_id   TEXT NOT NULL,
+				message_id   TEXT NOT NULL,
+				request_hash TEXT NOT NULL,
+				status       TEXT NOT NULL,
+				created_at   INTEGER NOT NULL,
+				PRIMARY KEY (session_id, message_id))`,
+			`CREATE TABLE timeline_events (
+				session_id TEXT NOT NULL,
+				epoch      INTEGER NOT NULL,
+				seq        INTEGER NOT NULL,
+				payload    TEXT NOT NULL,
+				PRIMARY KEY (session_id, epoch, seq))`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
+}}
+
+type CreationReceipt struct {
+	IdempotencyKey string
+	Kind           string
+	ResourceID     string
+	RequestHash    string
+	CreatedAt      int64
+}
+
+type DeliveryReceipt struct {
+	SessionID   string
+	MessageID   string
+	RequestHash string
+	Status      string
+	CreatedAt   int64
+}
+
+// Store owns wadad's SQLite database.
+type Store struct {
+	db *sql.DB
+}
+
+// Open opens or initializes wadad.db inside dataDir.
+func Open(ctx context.Context, dataDir string) (*Store, error) {
+	db, err := dbstore.Open(ctx, filepath.Join(dataDir, "wadad.db"), "daemon", daemonMigrations)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+// ServerID returns the stable daemon identifier, creating one on first run.
+func (s *Store) ServerID(ctx context.Context) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM daemon_meta WHERE key = 'server_id'`).Scan(&id)
+	if err == nil && id != "" {
+		return id, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	id = "srv_" + hex.EncodeToString(raw[:])
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO daemon_meta (key, value) VALUES ('server_id', ?) ON CONFLICT(key) DO NOTHING`, id); err != nil {
+		return "", err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM daemon_meta WHERE key = 'server_id'`).Scan(&id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// NextEpoch increments and returns the daemon's monotonic startup epoch.
+func (s *Store) NextEpoch(ctx context.Context) (uint64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	var raw string
+	var epoch uint64
+	err = tx.QueryRowContext(ctx, `SELECT value FROM daemon_meta WHERE key = 'epoch'`).Scan(&raw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
+		return 0, err
+	}
+	if raw != "" {
+		epoch, _ = strconv.ParseUint(raw, 10, 64)
+	}
+	epoch++
+	if _, err := tx.ExecContext(ctx, `INSERT INTO daemon_meta (key, value) VALUES ('epoch', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.FormatUint(epoch, 10)); err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return epoch, nil
+}
+
+// MarkPendingDeliveriesUnknown transitions any in-flight pending prompt deliveries
+// left behind by a previous daemon crash/restart to outcome unknown.
+func (s *Store) MarkPendingDeliveriesUnknown(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE delivery_receipts SET status = ? WHERE status = ?`, DeliveryUnknown, DeliveryPending)
+	return err
+}
+
+func (s *Store) GetCreationReceipt(ctx context.Context, key string) (CreationReceipt, bool, error) {
+	var r CreationReceipt
+	err := s.db.QueryRowContext(ctx, `SELECT idempotency_key, kind, resource_id, request_hash, created_at FROM creation_receipts WHERE idempotency_key = ?`, key).
+		Scan(&r.IdempotencyKey, &r.Kind, &r.ResourceID, &r.RequestHash, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CreationReceipt{}, false, nil
+	}
+	if err != nil {
+		return CreationReceipt{}, false, err
+	}
+	return r, true, nil
+}
+
+func (s *Store) PutCreationReceipt(ctx context.Context, r CreationReceipt) error {
+	if r.CreatedAt == 0 {
+		r.CreatedAt = time.Now().UnixMilli()
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO creation_receipts (idempotency_key, kind, resource_id, request_hash, created_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(idempotency_key) DO UPDATE SET resource_id = excluded.resource_id`,
+		r.IdempotencyKey, r.Kind, r.ResourceID, r.RequestHash, r.CreatedAt)
+	return err
+}
+
+func (s *Store) GetDeliveryReceipt(ctx context.Context, sessionID, messageID string) (DeliveryReceipt, bool, error) {
+	var r DeliveryReceipt
+	err := s.db.QueryRowContext(ctx, `SELECT session_id, message_id, request_hash, status, created_at FROM delivery_receipts WHERE session_id = ? AND message_id = ?`, sessionID, messageID).
+		Scan(&r.SessionID, &r.MessageID, &r.RequestHash, &r.Status, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DeliveryReceipt{}, false, nil
+	}
+	if err != nil {
+		return DeliveryReceipt{}, false, err
+	}
+	return r, true, nil
+}
+
+func (s *Store) PutDeliveryReceipt(ctx context.Context, r DeliveryReceipt) error {
+	if r.CreatedAt == 0 {
+		r.CreatedAt = time.Now().UnixMilli()
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO delivery_receipts (session_id, message_id, request_hash, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+		r.SessionID, r.MessageID, r.RequestHash, r.Status, r.CreatedAt)
+	return err
+}
+
+func (s *Store) UpdateDeliveryReceipt(ctx context.Context, sessionID, messageID, status string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE delivery_receipts SET status = ? WHERE session_id = ? AND message_id = ?`, status, sessionID, messageID)
+	return err
+}
+
+func (s *Store) AppendEvent(ctx context.Context, ev protocol.Event) error {
+	if ev.Session == "" {
+		return nil
+	}
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO timeline_events (session_id, epoch, seq, payload) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(session_id, epoch, seq) DO UPDATE SET payload = excluded.payload`,
+		ev.Session, ev.Epoch, ev.Seq, string(raw))
+	return err
+}
+
+// FetchTimeline returns sequenced events for sessionID after (epoch, afterSeq).
+// If epoch == 0, it fetches from the latest stored epoch or all epochs cleanly
+// in (epoch ASC, seq ASC) order after afterSeq within the target epoch.
+func (s *Store) FetchTimeline(ctx context.Context, sessionID string, epoch, afterSeq uint64, limit int) (events []protocol.Event, currentEpoch uint64, hasMore bool, err error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	var rows *sql.Rows
+	if epoch > 0 {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT payload FROM timeline_events WHERE session_id = ? AND ((epoch = ? AND seq > ?) OR epoch > ?) ORDER BY epoch ASC, seq ASC LIMIT ?`,
+			sessionID, epoch, afterSeq, epoch, limit+1)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT payload FROM timeline_events WHERE session_id = ? AND seq > ? ORDER BY epoch ASC, seq ASC LIMIT ?`,
+			sessionID, afterSeq, limit+1)
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, 0, false, err
+		}
+		var ev protocol.Event
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			return nil, 0, false, err
+		}
+		if len(events) == limit {
+			hasMore = true
+			break
+		}
+		currentEpoch = ev.Epoch
+		events = append(events, ev)
+	}
+	return events, currentEpoch, hasMore, rows.Err()
+}

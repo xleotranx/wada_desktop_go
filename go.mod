@@ -7,8 +7,11 @@ tool github.com/egoist/mygo/cmd/mygo
 require (
 	github.com/MichaelKinsy/PiG v0.8.0
 	github.com/egoist/mygo v0.10.0
+	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/oneo-me/onevra/source v0.2026.19
 	github.com/xleotranx/wada-kit v0.3.1
+	golang.org/x/crypto v0.59.0
 	modernc.org/sqlite v1.63.0
 )
 
@@ -33,8 +36,6 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -44,7 +45,6 @@ require (
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	go.digitalxero.dev/rpm v0.3.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/image v0.48.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.63.0 // indirect

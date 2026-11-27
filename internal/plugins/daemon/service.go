@@ -114,13 +114,6 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 	for i, s := range req.Skills {
 		skills[i] = protocol.SkillRef{ID: s.ID}
 	}
-	var project *protocol.ProjectScope
-	if req.Project != nil {
-		project = &protocol.ProjectScope{
-			Kind:      req.Project.Kind,
-			Directory: req.Project.Directory,
-		}
-	}
 	disp, err := cli.Send(ctx, protocol.SendRequest{
 		ID:           req.ID,
 		MessageID:    msgID,
@@ -129,7 +122,6 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 		Text:         req.Text,
 		Instructions: req.Instructions,
 		Policy:       toProtoToolPolicy(req.Policy),
-		Project:      project,
 		ResultSchema: req.ResultSchema,
 		Internal:     req.Internal,
 		Files:        files,

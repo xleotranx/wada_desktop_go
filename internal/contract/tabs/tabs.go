@@ -19,7 +19,7 @@ var (
 	// titles or states, or the active tab change.
 	Changed = kernel.NewTopic[struct{}]("tabs.changed")
 
-	// Looks mark the tabs of a kind of conversation, such as a design: the
+	// Looks mark the tabs of a kind of conversation, such as a worker chat: the
 	// first whose Applies holds gives the tab its icon and, while it is a
 	// new chat, its title.
 	Looks = kernel.NewPoint[Look]("tabs.looks")
@@ -44,10 +44,10 @@ type Look struct {
 	Applies func(t Tab) bool
 	// Icon shows before the title while the conversation is idle, and in
 	// place of a new chat's plus; Name is what assistive technology calls
-	// it, such as "Design".
+	// it, such as "Worker".
 	Icon func() *ui.SVG
 	Name string
-	// Draft is a new chat's title, such as "New design"; empty keeps
+	// Draft is a new chat's title, such as "New worker"; empty keeps
 	// "New chat".
 	Draft string
 }

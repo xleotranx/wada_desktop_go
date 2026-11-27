@@ -309,7 +309,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   well; only a change to a tab on the strip asks for a frame.
 - A tab's marker is its state: a spinner while working, a square while waiting, a
   dot while unread; a new chat shows a plus. The first `tabs.Looks` entry whose
-  `Applies` holds marks a kind of conversation, such as a design: its icon, named for
+  `Applies` holds marks a kind of conversation: its icon, named for
   assistive technology, shows in place of the plus and while the conversation is
   idle, and its `Draft` title in place of "New chat" for a new chat. The tab's own
   title, as `tabs.Service` reports it, is unchanged.
@@ -480,8 +480,7 @@ read off the UI thread, typed by extension and contents (text stays `text/*`
 whatever the extension), and shown as removable chips with image thumbnails in
 `chat.ComposerAttachments`. A message takes at most 10 files, 10 MB each and 20 MB
 in all; a folder, an unreadable file or one over a limit is reported in a toast. Its
-`chat.Outgoing` transform runs at order 1000, after the design's, so it numbers
-images among those already in the draft: it refuses a send while files are still
+`chat.Outgoing` transform runs at order 1000, keeping images numbered in order: it refuses a send while files are still
 being read, then adds the files to `Draft.Files`. They leave the composer when the
 message is sent.
 
@@ -797,3 +796,27 @@ hiding the work panel (`chat.HideWork`).
   between PTYs and `Kill` terminates a terminal permanently.
 - **Controls.** Includes a monospace output list, clipboard copy, `Ctrl+C` (`0x03`),
   `Ctrl+D` (`0x04`), `Clear`, and a command input sending `<line>\r`.
+
+## Workers, worktrees, and Forge PRs
+
+`internal/plugins/workers` requires `agent.ServiceKey`, `chat.ControllerKey`,
+and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.WorkersKey`,
+and `agent.WorktreesKey`:
+
+- **Harness picker.** Contributes a `chat.ComposerAccessory` picker on new chats
+  (before `Draft.Provider` is stamped at `chat.Outgoing` order `-15`) so users can
+  target embedded PiG or an external CLI harness (Claude Code, Codex, ACP).
+- **Work panel section.** Contributes a `chat.Work` section displaying supervised
+  workers (with status pill and Stop action) and secondary Git worktrees (with
+  modified indicator, clickable authenticated GitHub `#N · pass/fail/pending`
+  PR badge via `Worktrees.PRStatus`, and Remove action).
+- **Worker Inspector drawer.** Opening a worker hides the work panel
+  (`chat.HideWork`) and opens a 400 px `chat.Drawers` column with Transcript
+  and per-worktree Diff tabs.
+
+## Daemon pairing & multi-host settings
+
+`internal/plugins/daemon` contributes Settings → Daemon controls to copy a
+`#offer=` remote pairing link (`daemon.pairing.offer`), set or clear the
+bcrypt remote daemon password (`daemon.password.set`), and switch between
+`Local wadad` and saved remote profiles in `<DataDir>/hosts.json`.

@@ -304,16 +304,15 @@ func TestContradictoryReviewResultsCannotPass(t *testing.T) {
 	}
 }
 
-func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
+func TestInstructionsFollowOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
 	h, p, a, sent := fixture(t)
-	scope := &agent.ProjectScope{Kind: "project", Directory: "/work/project"}
-	d := chat.Draft{Session: "main", Directory: t.TempDir(), Text: "Make the report", Instructions: "Use only the selected project.", Project: scope}
+	d := chat.Draft{Session: "main", Directory: t.TempDir(), Text: "Fix bug", Instructions: "Use only the selected project."}
 	if err := p.Admit(d); err != nil {
 		t.Fatal(err)
 	}
 	ordinary := next(t, h, sent)
-	if ordinary.Project == nil || *ordinary.Project != *scope || ordinary.Instructions != d.Instructions {
-		t.Fatal("ordinary delivery dropped project context")
+	if ordinary.Instructions != d.Instructions {
+		t.Fatal("ordinary delivery dropped draft instructions")
 	}
 	finish(h, a, ordinary, "")
 	d.Workflow = kernel.HostPrefix + "test"
@@ -321,18 +320,18 @@ func TestProjectScopeFollowsOrdinaryDeliveryAndWorkflowPhases(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := next(t, h, sent)
-	if plan.Project == nil || *plan.Project != *scope || plan.Instructions != "Use only the selected project.\nplan" {
-		t.Fatalf("plan lost scope: %+v", plan)
+	if plan.Instructions != "Use only the selected project.\nplan" {
+		t.Fatalf("plan lost instructions: %+v", plan)
 	}
 	finish(h, a, plan, `{"status":"ready","summary":"plan"}`)
 	code := next(t, h, sent)
-	if code.Project == nil || *code.Project != *scope || code.Instructions != "Use only the selected project.\nwork" {
-		t.Fatal("code lost scope")
+	if code.Instructions != "Use only the selected project.\nwork" {
+		t.Fatal("code lost instructions")
 	}
 	finish(h, a, code, `{"status":"ready","summary":"created"}`)
 	review := next(t, h, sent)
-	if review.Project == nil || *review.Project != *scope || review.Policy == nil {
-		t.Fatal("review child lost project scope or read-only policy")
+	if review.Policy == nil {
+		t.Fatal("review child lost read-only policy")
 	}
 }
 

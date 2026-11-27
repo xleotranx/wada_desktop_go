@@ -8,7 +8,6 @@ mygo_windows_*.syso
 # Local app data and generated conversation output
 /pig/
 /data/
-/designs/
 /*.db
 /*.db-shm
 /*.db-wal

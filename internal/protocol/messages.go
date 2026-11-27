@@ -259,11 +259,6 @@ type SpawnRequest struct {
 	Policy         ToolPolicy `json:"policy"`
 }
 
-type ProjectScope struct {
-	Kind      string `json:"kind"`
-	Directory string `json:"directory"`
-}
-
 type File struct {
 	Name string `json:"name"`
 	MIME string `json:"mime"`
@@ -282,7 +277,6 @@ type SendRequest struct {
 	Text         string          `json:"text"`
 	Instructions string          `json:"instructions,omitempty"`
 	Policy       *ToolPolicy     `json:"policy,omitempty"`
-	Project      *ProjectScope   `json:"project,omitempty"`
 	ResultSchema json.RawMessage `json:"resultSchema,omitempty"`
 	Internal     bool            `json:"internal,omitempty"`
 	Files        []File          `json:"files,omitempty"`

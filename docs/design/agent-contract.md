@@ -25,7 +25,9 @@ plugins have no PiG dependency.
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
-| `WorktreesKey` | Git worktree creation, listing (including dirty state), and safe secondary removal |
+| `WorktreesKey` | Git worktree creation, listing (including dirty state), safe secondary removal, and authenticated `gh` PR status (`PRStatus`) |
+
+See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
 
 `Events` carries immutable ordered normalized batches on the UI thread, in a
 `Scope.PostQuiet` closure: a listener whose view a batch changed calls
@@ -37,9 +39,12 @@ status transitions. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 
-The daemon plugin requires `shell.HostKey`. On activation it attaches to an already
-running local `wadad` instance (via `wadad.pid` and `local-credential`), or spawns a
-detached `os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
+The daemon plugin requires `shell.HostKey`. On activation, if the `active-host`
+setting names a saved remote profile in `<DataDir>/hosts.json`, it dials that
+remote `wadad` host via `client.DialHost` (using direct WebSocket or Noise NK E2EE
+relay); otherwise it attaches to an already running local `wadad` instance (via
+`wadad.pid` and `local-credential`), or spawns a detached
+`os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
 reconnects automatically if the WebSocket drops. `wadad.db` tracks server identity,
 startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
 
@@ -167,23 +172,6 @@ file reads; absolute paths, traversal and symlinks leaving the project are refus
 Git projects use Git's tracked/untracked, non-ignored file list. Other folders are
 walked excluding `.git`, `node_modules` and `.cache`.
 
-## Scoped project tools
-
-Feature plugins contribute stateless, worker-safe `ProjectTool` operations through
-`agent.ProjectTools`. A serializable `ProjectScope{Kind, Directory}` on `Send`
-binds the current turn to one contributed handler and a directory inside the
-conversation folder. `chat.Draft` carries the scope and internal `Instructions`
-through ordinary delivery, queues and workflow phases.
-
-PiG registers one SDK `project` bridge tool, resolving the matching contribution
-on the UI thread before calling its operation on the tool worker. Its arguments
-are `action` and `input`; the directory comes from the host request. A scoped
-turn exposes only this tool and, when needed, `submit_result`. The pre-tool hook
-also blocks every general tool, regardless of access mode, preventing shell,
-search or extension wrappers from bypassing the scope. Project `update` and
-`write` operations remain subject to edit permissions, including read-only
-review policies. Normal tools are restored before the terminal event.
-
 ## File changes
 
 Before file write/edit/shell calls, Wada records the target's current bytes and
@@ -191,9 +179,7 @@ compares them after execution to identify changes. Mutating calls serialize per
 conversation directory for baseline attribution; model streaming, reads, and
 mutations in distinct directories remain concurrent. SDK tool batches execute
 sequentially so a later tool's approval/snapshot cannot block an earlier execution.
-Scoped project mutations snapshot only the selected project, then map baseline
-paths back to the conversation folder. Pre-existing edits form the baseline,
-rather than being counted as agent changes.
+Pre-existing edits form the baseline, rather than being counted as agent changes.
 Baselines persist across launches. The separate uncommitted Git view remains local.
 
 Snapshots accept regular files up to 8 MiB and project workspaces up to 128 MiB;

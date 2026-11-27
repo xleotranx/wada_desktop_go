@@ -121,11 +121,11 @@ func (p *Plugin) advance(l *lane) {
 				p.fail(l, errors.New("the workflow definition is unavailable"))
 				return
 			}
-			req := agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: withContext(d.Instructions, f.Route+"\nReviewed task:\n"+t.Brief), Project: d.Project, Policy: &readOnly, ResultSchema: routeSchema}
+			req := agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: withContext(d.Instructions, f.Route+"\nReviewed task:\n"+t.Brief), Policy: &readOnly, ResultSchema: routeSchema}
 			p.execute(l, &operation{TaskID: t.ID, Phase: "route", Draft: d, Request: req})
 			return
 		}
-		p.execute(l, &operation{Phase: "ordinary", Draft: d, Request: agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions, Project: d.Project}})
+		p.execute(l, &operation{Phase: "ordinary", Draft: d, Request: agent.Send{Session: l.Session, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions}})
 		return
 	}
 	t := l.task()
@@ -176,7 +176,6 @@ func (p *Plugin) prepare(t *task, op *operation, f wf.Flow, l *lane) {
 		data, _ := json.Marshal(t.Findings)
 		req.Text += "\nUnresolved findings:\n" + string(data)
 	}
-	req.Project = t.Initial.Project
 	req.Instructions = withContext(t.Initial.Instructions, req.Instructions)
 	op.Request = req
 }
@@ -393,7 +392,7 @@ func (p *Plugin) completed(l *lane, op *operation, result phaseResult) {
 				t.State = "paused"
 			}
 			l.Associated = ""
-			req := agent.Send{Session: l.Session, Mode: op.Draft.Mode, Text: op.Draft.Text, Files: op.Draft.Files, Skills: op.Draft.Skills, Internal: true, Project: op.Draft.Project, Instructions: withContext(op.Draft.Instructions, "Handle this as an ordinary task. Earlier workflow instructions do not apply.")}
+			req := agent.Send{Session: l.Session, Mode: op.Draft.Mode, Text: op.Draft.Text, Files: op.Draft.Files, Skills: op.Draft.Skills, Internal: true, Instructions: withContext(op.Draft.Instructions, "Handle this as an ordinary task. Earlier workflow instructions do not apply.")}
 			p.execute(l, &operation{Phase: "ordinary", Request: req, Draft: op.Draft})
 			return
 		}

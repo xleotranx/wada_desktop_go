@@ -80,13 +80,6 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 	c.mu.Lock()
 	root := c.rec.Session.Directory
 	c.mu.Unlock()
-	if name == projectToolName {
-		c.turnMu.Lock()
-		if c.turn != nil && c.turn.project != nil {
-			root = c.turn.project.Directory
-		}
-		c.turnMu.Unlock()
-	}
 	lock := e.mutationLock(root)
 	for !lock.TryLock() {
 		select {

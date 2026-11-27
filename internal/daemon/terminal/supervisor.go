@@ -400,18 +400,15 @@ func (s *Supervisor) readClientLoop(ic *ipcClient) {
 			}
 		case "output":
 			s.subMu.Lock()
-			group := s.subs[f.TermID]
-			targets := make([]*supSub, 0, len(group))
-			for _, sub := range group {
-				targets = append(targets, sub)
-			}
-			s.subMu.Unlock()
-			for _, sub := range targets {
-				select {
-				case sub.ch <- f.Data:
-				default:
+			for _, sub := range s.subs[f.TermID] {
+				if !sub.closed {
+					select {
+					case sub.ch <- f.Data:
+					default:
+					}
 				}
 			}
+			s.subMu.Unlock()
 		case "updated":
 			if f.Info != nil {
 				cp := *f.Info

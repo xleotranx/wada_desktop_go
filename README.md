@@ -92,9 +92,10 @@ requires explicit resume.
 | `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, chat/approvals/diffs/terminal views; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
-| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
-| `internal/plugins/daemon` | Connects Desktop to local `wadad` over WebSocket RPC (`agent.*`, `daemon.restart`, and providers setup) |
-| `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section, and Worker Inspector drawer |
+| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workflow`, `workspace` |
+| `internal/plugins/daemon` | Connects Desktop to local or remote `wadad` (`agent.*`, `terminal.*`, pairing, multi-host settings, and provider auth) |
+| `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section (with PR badges), and Worker Inspector drawer |
+| `internal/plugins/terminal` | Interactive right-edge PTY terminal drawer (`⌘J` / `⇧⌘J`) backed by `wadad-term` |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
 | `internal/plugins/modes` | Access mode and one-task workflow selection |
@@ -114,7 +115,8 @@ requires explicit resume.
 
 Design notes: [kernel API](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/kernel-api.md), [kit shell](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/shell.md),
 [agent contract](docs/design/agent-contract.md),
-[shell and built-in plugins](docs/design/shell-and-plugins.md).
+[shell and built-in plugins](docs/design/shell-and-plugins.md),
+[self-hosting guide](docs/self-hosting.md).
 
 ## Extend
 
@@ -142,7 +144,7 @@ func (n *Notes) Setup(c *kernel.Context) error {
 ```
 
 A new backend is a plugin that provides `agent.ServiceKey` (see the agent contract);
-PiG is the only backend installed by this app.
+the `daemon` plugin is the built-in backend installed by this app, talking to `wadad` (embedded PiG plus supervised CLI harnesses).
 
 ## Local data and permissions
 
@@ -153,6 +155,8 @@ Production settings and app records live under
 - `settings.db`: settings; `workspace.db`: folder and conversation records;
   `workflow.db`: tasks and queued inputs; `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
 - `wadad.pid`, `local-credential`, `wadad.log`: local daemon discovery and authentication files.
+- `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`: E2EE relay identity keys, optional remote password hash, and saved remote host profiles.
+- `worktrees/`, `terminal-worker/`: managed secondary Git worktrees and detached PTY worker IPC descriptors.
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
   `pig/baselines/`: lazy on-disk session diff baselines; `pig/agent/`: provider credentials and configuration.
 

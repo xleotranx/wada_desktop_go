@@ -7,17 +7,15 @@ release or change provider accounts, local data, or API credentials.
 ## Included
 
 - The root MIT license for Wada and a pinned MIT-licensed wada-kit release.
-- Build and contributor instructions, security policy, changelog, issue templates
-  and desktop/design-canvas screenshots.
+- Build and contributor instructions, security policy, changelog, self-hosting guide, and desktop screenshot.
 - A versioned runtime license inventory and complete collected notices, checked
   during CI and packaging. MyGo includes them in the app's resources.
-- Lifetime vet, lint, license verification, race tests, no-cgo tests, secret scanning,
-  known-vulnerability scanning and Windows compilation in CI.
+- Lifetime vet, lint, license verification, race tests, no-cgo tests, secret scanning
+  (`.gitleaks.toml`), known-vulnerability scanning, Web/PWA checks, and Linux/Windows builds in CI.
 
-Generated `designs/` output is kept locally and ignored by Git. Conversation data,
-provider credentials, databases, signing keys and build output are not source
-release inputs. The publishable branch is `main`; local recovery bundles and
-Codex-internal refs are not part of the source release.
+Conversation data, provider credentials, databases, daemon keys (`daemon-keypair.json`,
+`remote-token`, `password.hash`, `hosts.json`), signing keys, and build output are not source
+release inputs. The publishable branch is `main`.
 
 ## Verification
 

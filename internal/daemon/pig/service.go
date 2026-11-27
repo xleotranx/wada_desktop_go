@@ -208,36 +208,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 		}
 		req.ResultSchema = slices.Clone(req.ResultSchema)
 	}
-	if req.Project != nil {
-		project := *req.Project
-		if project.Kind == "" || project.Directory == "" {
-			return "", fmt.Errorf("%w: invalid project scope", ErrNotSent)
-		}
-		c.mu.Lock()
-		base := c.rec.Session.Directory
-		c.mu.Unlock()
-		base, err := directory(base)
-		if err != nil {
-			return "", fmt.Errorf("%w: invalid conversation folder", ErrNotSent)
-		}
-		project.Directory, err = directory(project.Directory)
-		if err != nil {
-			return "", fmt.Errorf("%w: invalid project folder", ErrNotSent)
-		}
-		info, err := os.Stat(project.Directory)
-		if err != nil || !info.IsDir() {
-			return "", fmt.Errorf("%w: project must be a directory", ErrNotSent)
-		}
-		rel, err := filepath.Rel(base, project.Directory)
-		if err != nil || project.Kind == "" {
-			return "", fmt.Errorf("%w: invalid project scope", ErrNotSent)
-		}
-		project.Directory, err = contained(base, rel)
-		if err != nil {
-			return "", fmt.Errorf("%w: %s", ErrNotSent, err)
-		}
-		req.Project = &project
-	}
 	if req.Policy != nil {
 		cp := protocol.ToolPolicy{Allow: slices.Clone(req.Policy.Allow), Deny: slices.Clone(req.Policy.Deny)}
 		req.Policy = &cp
@@ -314,7 +284,7 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 	c.cancel = cancel
 	c.busy = true
 	c.turnMu.Lock()
-	c.turn = &turnState{id: req.ID, schema: slices.Clone(req.ResultSchema), policy: req.Policy, project: req.Project}
+	c.turn = &turnState{id: req.ID, schema: slices.Clone(req.ResultSchema), policy: req.Policy}
 	c.turnMu.Unlock()
 	c.lifetime.RLock()
 	s := c.session
@@ -355,9 +325,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 		c.turnMu.Lock()
 		c.turn.tools = slices.Clone(names)
 		c.turnMu.Unlock()
-		if req.Project != nil {
-			names = []string{projectToolName}
-		}
 		if len(req.ResultSchema) > 0 {
 			names = append(names, resultToolName)
 		}

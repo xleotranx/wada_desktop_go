@@ -74,7 +74,6 @@ type engine struct {
 	events        chan protocol.Event
 	instructions  string
 	modelsChanged func()
-	projectTool   func(context.Context, string) (ProjectTool, error)
 	chiefTools    func(contextFn func() (sessionID, dir string)) []pa.AgentTool
 	mu            sync.Mutex
 	sessions      map[string]*conversation
@@ -329,7 +328,7 @@ func (e *engine) openLocked(c *conversation) error {
 		_ = rt.Close()
 		return err
 	}
-	tools := []pa.AgentTool{&resultTool{c: c}, &projectTool{c: c, e: e}}
+	tools := []pa.AgentTool{&resultTool{c: c}}
 	if c.rec.Parent == "" && e.chiefTools != nil {
 		tools = append(tools, e.chiefTools(func() (string, string) {
 			c.mu.Lock()

@@ -60,7 +60,9 @@ services and event subscription together. Reopening restores the saved transcrip
 identity, model, thinking level, mode and attachment metadata. Extension bindings
 belong to the newly opened SDK owner.
 
-A diagnostic using the real PiG plugin and the 56-chat seed, with GC before each
+Notice the baseline runtime and historical measurements below:
+
+A diagnostic using the embedded PiG runtime and the 56-chat seed, with GC before each
 heap reading, measured:
 
 | Chats read | Live SDK owners | Retained Go heap | Goroutines |

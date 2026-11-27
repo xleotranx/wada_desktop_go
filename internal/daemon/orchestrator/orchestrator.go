@@ -82,10 +82,11 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		waiters:   map[string][]chan struct{}{},
 	}
 
+	pigEvents := o.pig.Events()
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.pumpPiG()
+		o.pumpPiG(pigEvents)
 	}()
 	if o.terminals != nil {
 		o.wg.Add(1)
@@ -149,8 +150,7 @@ func (o *Orchestrator) emit(ev protocol.Event) {
 	}
 }
 
-func (o *Orchestrator) pumpPiG() {
-	ch := o.pig.Events()
+func (o *Orchestrator) pumpPiG(ch <-chan protocol.Event) {
 	for {
 		select {
 		case <-o.ctx.Done():

@@ -33,7 +33,7 @@ func TestCodingIdentityAndBuiltinToolsEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := c.session.SystemPrompt()
-	if strings.Contains(prompt, "Wada Cowork") || !strings.Contains(prompt, "Wada") || !strings.Contains(prompt, "software engineering") {
+	if !strings.Contains(prompt, "Wada") || !strings.Contains(prompt, "software engineering") {
 		t.Fatalf("unexpected coding system prompt: %q", prompt)
 	}
 	names := c.session.ActiveToolNames()

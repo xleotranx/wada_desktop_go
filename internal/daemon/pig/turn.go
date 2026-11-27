@@ -12,18 +12,14 @@ import (
 	"wada-desktop-go/internal/protocol"
 )
 
-const (
-	resultToolName  = "submit_result"
-	projectToolName = "project"
-)
+const resultToolName = "submit_result"
 
 type turnState struct {
-	id      string
-	project *protocol.ProjectScope
-	tools   []string
-	schema  json.RawMessage
-	policy  *protocol.ToolPolicy
-	result  json.RawMessage
+	id     string
+	tools  []string
+	schema json.RawMessage
+	policy *protocol.ToolPolicy
+	result json.RawMessage
 }
 
 type resultTool struct{ c *conversation }
@@ -56,50 +52,6 @@ func (t *resultTool) Execute(ctx context.Context, _ string, params json.RawMessa
 	}
 	turn.result = slices.Clone(validated)
 	return pa.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "Result recorded."}}, Terminate: true}, nil
-}
-
-type projectTool struct {
-	c *conversation
-	e *engine
-}
-
-func (*projectTool) Name() string                        { return projectToolName }
-func (*projectTool) Label() string                       { return "Work on the active project" }
-func (*projectTool) ExecutionMode() pa.ToolExecutionMode { return pa.ToolModeSequential }
-func (*projectTool) Schema() ai.ToolSchema {
-	return ai.ToolSchema{Name: projectToolName, Description: "Work only on the active project.", Parameters: map[string]any{
-		"type": "object", "properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"inspect", "update", "read", "write", "check"}}, "input": map[string]any{"type": "object"}}, "required": []string{"action"}, "additionalProperties": false}}
-}
-func (t *projectTool) Execute(ctx context.Context, _ string, params json.RawMessage, _ pa.ToolUpdateCallback) (pa.AgentToolResult, error) {
-	if err := ctx.Err(); err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	t.c.turnMu.Lock()
-	var scope *protocol.ProjectScope
-	if t.c.turn != nil && t.c.turn.project != nil {
-		cp := *t.c.turn.project
-		scope = &cp
-	}
-	t.c.turnMu.Unlock()
-	if scope == nil || t.e.projectTool == nil {
-		return pa.AgentToolResult{}, errors.New("no project is active for this turn")
-	}
-	var call struct {
-		Action string          `json:"action"`
-		Input  json.RawMessage `json:"input"`
-	}
-	if err := json.Unmarshal(params, &call); err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	tool, err := t.e.projectTool(ctx, scope.Kind)
-	if err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	output, err := tool.Execute(ctx, scope.Directory, call.Action, call.Input)
-	if err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	return pa.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: output}}}, nil
 }
 
 func resultFromText(text string, schema json.RawMessage) (json.RawMessage, bool) {
@@ -138,5 +90,5 @@ func resultFromText(text string, schema json.RawMessage) (json.RawMessage, bool)
 }
 
 func withoutTurnTools(names []string) []string {
-	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return n == resultToolName || n == projectToolName })
+	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return n == resultToolName })
 }

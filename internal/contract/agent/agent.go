@@ -317,8 +317,7 @@ type Snapshots interface {
 }
 
 type Send struct {
-	Project *ProjectScope // optional; exposes only the scoped project tool for this turn
-	ID      string        // correlates this admission with its events
+	ID string // correlates this admission with its events
 	// Instructions and Policy apply to this turn only. Internal prompts stay out of user history.
 	Instructions string
 	Policy       *ToolPolicy

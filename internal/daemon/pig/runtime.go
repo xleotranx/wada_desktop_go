@@ -4,7 +4,6 @@ package pig
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -20,17 +19,10 @@ var ErrNotSent = errors.New("the message was not sent")
 // ErrNotConnected indicates the runtime has been closed.
 var ErrNotConnected = errors.New("the agent runtime is closed")
 
-// ProjectTool executes scoped turn operations when configured by a host/workflow.
-type ProjectTool struct {
-	Kind    string
-	Execute func(ctx context.Context, dir, action string, input json.RawMessage) (string, error)
-}
-
 // Options configures a headless PiG runtime.
 type Options struct {
 	Root         string
 	Instructions string
-	ProjectTools map[string]ProjectTool
 	ChiefTools   func(contextFn func() (sessionID, dir string)) []pa.AgentTool
 }
 
@@ -38,6 +30,7 @@ type Options struct {
 type Runtime struct {
 	origin string
 	cancel context.CancelFunc
+	events <-chan protocol.Event
 	mu     sync.Mutex
 	engine *engine
 }
@@ -71,21 +64,12 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		e.instructions = "You are Wada, a focused software engineering assistant and Chief Agent. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder. For multi-part or parallel engineering tasks, you can also create isolated Git worktrees and spawn/supervise external CLI worker agents (such as Claude Code, Codex, or ACP harnesses) via your orchestration tools."
 	}
 	e.chiefTools = opts.ChiefTools
-	if len(opts.ProjectTools) > 0 {
-		tools := opts.ProjectTools
-		e.projectTool = func(_ context.Context, kind string) (ProjectTool, error) {
-			t, ok := tools[kind]
-			if !ok || t.Execute == nil {
-				return ProjectTool{}, errors.New("the project tools are unavailable")
-			}
-			return t, nil
-		}
-	}
 	e.modelsChanged = func() {
 		e.emit(protocol.Event{Kind: protocol.EventModelsChanged})
 	}
 	off := e.models.SetChangeListener(e.modelsChanged)
 	e.offModels = off
+	r.events = e.events
 	r.engine = e
 	return r, nil
 }
@@ -105,7 +89,7 @@ func (r *Runtime) ModelRuntime() *coding.ModelRuntime {
 
 // Events returns the stream of normalized protocol events produced by this runtime.
 func (r *Runtime) Events() <-chan protocol.Event {
-	return r.engine.events
+	return r.events
 }
 
 // Close cancels active turns, drains workers, and closes SDK resources.

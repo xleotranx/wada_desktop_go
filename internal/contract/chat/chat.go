@@ -215,7 +215,6 @@ type Unsent struct {
 
 // Draft is one message on its way out.
 type Draft struct {
-	Project      *agent.ProjectScope
 	Instructions string          // internal per-turn context supplied by feature plugins
 	Workflow     string          // selected for this submitted task only
 	Anchor       int             // one-based visible user message for transcript activities

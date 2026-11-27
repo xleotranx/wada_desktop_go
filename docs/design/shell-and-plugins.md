@@ -1,8 +1,9 @@
 # Shell and the built-in plugins
 
 Declared in `internal/contract/chat`, `internal/contract/tabs`,
-`internal/contract/workspace` and `internal/contract/workflow`, beside the kit's
-`contract/shell` and `contract/settings`; implemented by the plugins named below.
+`internal/contract/workspace`, `internal/contract/workflow`, and
+`internal/contract/terminal`, beside the kit's `contract/shell` and
+`contract/settings`; implemented by the plugins named below.
 
 ## Shell
 
@@ -775,3 +776,24 @@ Opening and exporting use workers tied to a child scope. Switching conversations
 or projects, or removing, sending or replacing the pending image, ends that edit.
 Cancel, Escape and the backdrop leave the attachment unchanged, and the decoded
 image is released once the dialog closes.
+
+## Interactive terminal drawer
+
+`internal/plugins/terminal` requires `agent.ServiceKey`, `chat.ControllerKey`,
+and `shell.HostKey`, and uses `terminal.ServiceKey` (provided by `daemon`) to
+host detached interactive PTY terminals in a 460 px `chat.Drawers` drawer while
+hiding the work panel (`chat.HideWork`).
+
+- **Commands and title-strip button.** **Toggle Terminal** (⌘J, View menu) and a
+  Terminal button in `tabs.EndActions` toggle the drawer; **New Terminal**
+  (⇧⌘J, View menu) opens the drawer and starts a new PTY in the open
+  conversation's folder. Closing the drawer detaches the live binary WebSocket
+  stream without killing the underlying PTY.
+- **Sessions and reconnect.** Opening reloads `terminal.List`, attaches to the
+  active terminal via `terminal.Service.Attach`, applies the ANSI/VT reconnect
+  snapshot and live `terminal.Stream.Output()` bytes in a child `kernel.Scope`
+  screen buffer (`2,000`-line scrollback), and reattaches automatically when
+  `agent.StatusChanged` reports a new `agent.Ready` attempt. Multiple tabs switch
+  between PTYs and `Kill` terminates a terminal permanently.
+- **Controls.** Includes a monospace output list, clipboard copy, `Ctrl+C` (`0x03`),
+  `Ctrl+D` (`0x04`), `Clear`, and a command input sending `<line>\r`.

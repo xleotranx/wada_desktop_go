@@ -29,7 +29,8 @@ keep its types inside the backend plugin.
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
-  `attachments` (images waiting in the composer, their actions and replacement).
+  `attachments` (images waiting in the composer, their actions and replacement),
+  `terminal` (detached PTY terminal management contract and stream lifecycle).
 - `internal/plugins/*`: every feature. `daemon` (connects to local `wadad` over WebSocket RPC, auto-spawns `wadad`, and hosts first-run/settings provider auth), `chat` (conversation
   page, which asks for a work folder before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
@@ -37,7 +38,7 @@ keep its types inside the backend plugin.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
-  `workspace.db`, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `folderpicker` (Open Folder… and the new chat's folder
+  `workspace.db`, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Open Folder… and the new chat's folder
   in the composer), `tabs` (open chats and pages as tabs across the title
   strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
   that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,

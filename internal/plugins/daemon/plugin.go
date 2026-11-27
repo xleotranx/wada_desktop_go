@@ -15,6 +15,7 @@ import (
 	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -63,6 +64,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.HarnessesKey,
 			agent.WorkersKey,
 			agent.WorktreesKey,
+			terminal.ServiceKey,
 		},
 	}
 }
@@ -85,6 +87,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p)
 	kernel.Provide[agent.Workers](c, agent.WorkersKey, p)
 	kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p)
+	kernel.Provide[terminal.Service](c, terminal.ServiceKey, terminalService{p: p})
 	c.OnDispose(p.drop)
 	kernel.Contribute(c, kernel.Commands, "daemon.restart", 0, kernel.Command{
 		Title: "Restart Daemon",
@@ -366,26 +369,31 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 				w := fromProtoWorker(*ev.Worker)
 				run.Post(func() { kernel.Emit(p.ctx, agent.WorkerUpdated, w) })
 			}
+		case protocol.EventTerminalUpdated:
+			if ev.Terminal != nil {
+				info := fromProtoTerminal(*ev.Terminal)
+				run.Post(func() { kernel.Emit(p.ctx, terminal.Updated, info) })
+			}
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed,
-			protocol.EventTerminalUpdated:
+			protocol.EventModelChanged, protocol.EventSessionRenamed:
 		}
 	}
 
 	isControl := func(kind protocol.EventKind) bool {
 		switch kind {
-		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth, protocol.EventWorkerUpdated:
+		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth,
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
 			return true
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
 			protocol.EventTurnStarted, protocol.EventTurnSucceeded,
 			protocol.EventTurnFailed, protocol.EventTurnInterrupted,
-			protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventTerminalUpdated:
+			protocol.EventModelChanged, protocol.EventSessionRenamed:
 			return false
 		}
 		return false

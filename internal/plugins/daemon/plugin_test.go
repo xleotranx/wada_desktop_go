@@ -19,6 +19,7 @@ import (
 	"github.com/xleotranx/wada-kit/kittest"
 	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/server"
 	"wada-desktop-go/internal/plugintest"
@@ -293,4 +294,29 @@ func TestReconnectAdvancesAttemptOnSocketDrop(t *testing.T) {
 		st := p.Status()
 		return st.State == agent.Ready && st.Attempt > firstAttempt
 	})
+}
+
+func TestProvidesTerminalService(t *testing.T) {
+	h, _, _, _, _ := startDaemonHarness(t)
+	svc, ok := kernel.Use(h, terminal.ServiceKey)
+	if !ok {
+		t.Fatal("daemon plugin did not provide terminal.ServiceKey")
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.List(context.Background())
+		done <- err
+	}()
+	var err error
+	waitFor(t, h, "terminal list call", func() bool {
+		select {
+		case err = <-done:
+			return true
+		default:
+			return false
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "not_found") {
+		t.Fatalf("err = %v, want not_found error when server.Terminals is nil", err)
+	}
 }

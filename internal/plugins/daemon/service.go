@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -427,3 +429,87 @@ func (p *Plugin) RemoveWorktree(ctx context.Context, directory, path string, for
 		Force:     force,
 	})
 }
+
+type terminalService struct{ p *Plugin }
+
+func (s terminalService) List(ctx context.Context) ([]terminal.Info, error) {
+	cli, err := s.p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Terminals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]terminal.Info, len(list))
+	for i, t := range list {
+		out[i] = fromProtoTerminal(t)
+	}
+	return out, nil
+}
+
+func (s terminalService) Create(ctx context.Context, req terminal.CreateRequest) (terminal.Info, error) {
+	cli, err := s.p.current()
+	if err != nil {
+		return terminal.Info{}, err
+	}
+	info, err := cli.CreateTerminal(ctx, protocol.TerminalCreateRequest{
+		Name:      req.Name,
+		Directory: req.Directory,
+		Shell:     req.Shell,
+		Cols:      req.Cols,
+		Rows:      req.Rows,
+	})
+	if err != nil {
+		return terminal.Info{}, err
+	}
+	return fromProtoTerminal(info), nil
+}
+
+func (s terminalService) Attach(ctx context.Context, req terminal.AttachRequest) (terminal.Stream, error) {
+	cli, err := s.p.current()
+	if err != nil {
+		return nil, err
+	}
+	st, err := cli.AttachTerminal(ctx, protocol.TerminalAttachRequest{
+		ID:   req.ID,
+		Cols: req.Cols,
+		Rows: req.Rows,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return terminalStreamAdapter{s: st}, nil
+}
+
+func (s terminalService) Capture(ctx context.Context, id string, lines int) (terminal.CaptureResult, error) {
+	cli, err := s.p.current()
+	if err != nil {
+		return terminal.CaptureResult{}, err
+	}
+	res, err := cli.CaptureTerminal(ctx, id, lines)
+	if err != nil {
+		return terminal.CaptureResult{}, err
+	}
+	return terminal.CaptureResult{
+		Text:     res.Text,
+		Snapshot: res.Snapshot,
+	}, nil
+}
+
+func (s terminalService) Kill(ctx context.Context, id string) error {
+	cli, err := s.p.current()
+	if err != nil {
+		return err
+	}
+	return cli.KillTerminal(ctx, id)
+}
+
+type terminalStreamAdapter struct{ s *client.TerminalStream }
+
+func (a terminalStreamAdapter) Info() terminal.Info          { return fromProtoTerminal(a.s.Info()) }
+func (a terminalStreamAdapter) Snapshot() []byte             { return a.s.Snapshot() }
+func (a terminalStreamAdapter) Output() <-chan []byte        { return a.s.Output() }
+func (a terminalStreamAdapter) WriteInput(data []byte) error { return a.s.WriteInput(data) }
+func (a terminalStreamAdapter) Resize(cols, rows int) error  { return a.s.Resize(cols, rows) }
+func (a terminalStreamAdapter) Close() error                 { return a.s.Close() }

@@ -22,6 +22,7 @@ import (
 	"wada-desktop-go/internal/plugins/skills"
 	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
+	terminalplugin "wada-desktop-go/internal/plugins/terminal"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workers"
 	"wada-desktop-go/internal/plugins/workflow"
@@ -68,6 +69,7 @@ func main() {
 		usage.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
 		workers.New,     // harness picker, supervised CLI workers and Git worktrees
+		terminalplugin.New,
 		attachments.New,
 		markup.New,       // annotate attached screenshots before sending
 		mentions.New,     // files from the conversation folder

@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"slices"
+	"time"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -430,4 +432,23 @@ func fromProtoEvent(ev protocol.Event) agent.Event {
 		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
 	}
 	return out
+}
+
+func fromProtoTerminal(t protocol.TerminalInfo) terminal.Info {
+	var created time.Time
+	if t.CreatedAt > 0 {
+		created = time.UnixMilli(t.CreatedAt)
+	}
+	return terminal.Info{
+		ID:        t.ID,
+		Name:      t.Name,
+		Directory: t.Directory,
+		Shell:     t.Shell,
+		Cols:      t.Cols,
+		Rows:      t.Rows,
+		PID:       t.PID,
+		Running:   t.Running,
+		ExitCode:  t.ExitCode,
+		CreatedAt: created,
+	}
 }

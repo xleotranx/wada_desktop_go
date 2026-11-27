@@ -3,6 +3,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -23,6 +24,7 @@ import (
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/protocol"
+	"wada-desktop-go/internal/relay"
 )
 
 const (
@@ -96,6 +98,10 @@ type Config struct {
 	Version        string
 	PasswordHash   []byte
 	Hostnames      []string
+	RelayURL       string
+	RelayToken     string
+	AppURL         string
+	PublicURL      string
 	DesktopManaged bool
 	Backend        Backend
 	OnShutdown     func()
@@ -114,7 +120,7 @@ type termBinding struct {
 
 type clientConn struct {
 	id           string
-	ws           *websocket.Conn
+	tr           relay.Transport
 	server       *Server
 	mu           sync.Mutex
 	subs         map[string][]string // subscriptionID -> session filter (empty = all)
@@ -130,17 +136,23 @@ type clientConn struct {
 
 // Server serves wadad's HTTP health endpoint and WebSocket RPC/stream protocol.
 type Server struct {
-	cfg        Config
-	store      *store.Store
-	serverID   string
-	epoch      uint64
-	credential string
-	hostname   string
+	cfg         Config
+	store       *store.Store
+	serverID    string
+	epoch       uint64
+	credential  string
+	remoteToken string
+	keypair     relay.Keypair
+	hostname    string
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	http   *http.Server
-	ln     net.Listener
+	authMu       sync.RWMutex
+	passwordHash []byte
+
+	ctx       context.Context
+	cancel    context.CancelFunc
+	http      *http.Server
+	ln        net.Listener
+	relayConn *relay.DaemonConnector
 
 	clientsMu sync.Mutex
 	shutting  bool
@@ -186,28 +198,47 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	remoteTok, err := LoadOrCreateRemoteToken(cfg.DataDir)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	kp, err := relay.LoadOrCreateKeypair(cfg.DataDir)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	pwHash := slices.Clone(cfg.PasswordHash)
+	if len(pwHash) == 0 {
+		if diskHash, herr := LoadPasswordHash(cfg.DataDir); herr == nil && len(diskHash) > 0 {
+			pwHash = diskHash
+		}
+	}
 	host, _ := os.Hostname()
 	sctx, cancel := context.WithCancel(ctx)
 	s := &Server{
-		cfg:        cfg,
-		store:      st,
-		serverID:   sid,
-		epoch:      ep,
-		credential: cred,
-		hostname:   host,
-		ctx:        sctx,
-		cancel:     cancel,
-		clients:    map[*clientConn]struct{}{},
-		seqBySess:  map[string]uint64{},
+		cfg:          cfg,
+		store:        st,
+		serverID:     sid,
+		epoch:        ep,
+		credential:   cred,
+		remoteToken:  remoteTok,
+		keypair:      kp,
+		passwordHash: pwHash,
+		hostname:     host,
+		ctx:          sctx,
+		cancel:       cancel,
+		clients:      map[*clientConn]struct{}{},
+		seqBySess:    map[string]uint64{},
 	}
 	return s, nil
 }
 
-func (s *Server) ServerID() string { return s.serverID }
-func (s *Server) Epoch() uint64    { return s.epoch }
-func (s *Server) Credential() string {
-	return s.credential
-}
+func (s *Server) ServerID() string      { return s.serverID }
+func (s *Server) Epoch() uint64         { return s.epoch }
+func (s *Server) Credential() string    { return s.credential }
+func (s *Server) RemoteToken() string   { return s.remoteToken }
+func (s *Server) RelayKeypair() relay.Keypair { return s.keypair }
 func (s *Server) Addr() string {
 	if s.ln == nil {
 		return ""
@@ -254,6 +285,16 @@ func (s *Server) Start() (string, error) {
 			s.cancel()
 		}
 	}()
+	if s.cfg.RelayURL != "" {
+		rc, rerr := relay.StartDaemonConnector(s.cfg.RelayURL, s.cfg.RelayToken, s.keypair, func(tr relay.Transport) {
+			s.ServeTransport(tr)
+		})
+		if rerr != nil {
+			_ = s.Shutdown(context.Background())
+			return "", rerr
+		}
+		s.relayConn = rc
+	}
 	return addr, nil
 }
 
@@ -271,9 +312,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	for c := range s.clients {
 		conns = append(conns, c)
 	}
+	rc := s.relayConn
+	s.relayConn = nil
 	s.clientsMu.Unlock()
 	for _, c := range conns {
 		c.closeNow()
+	}
+	if rc != nil {
+		rc.Close()
 	}
 	s.wg.Wait()
 	CleanupRuntimeFiles(s.cfg.DataDir)
@@ -319,9 +365,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	s.ServeTransport(ws)
+}
+
+// ServeTransport runs the hello/server_info handshake and multiplexed RPC/event/terminal
+// loop over an accepted WebSocket or Noise NK relay tunnel.
+func (s *Server) ServeTransport(tr relay.Transport) {
 	conn := &clientConn{
 		id:           uuid.NewString(),
-		ws:           ws,
+		tr:           tr,
 		server:       s,
 		subs:         map[string][]string{},
 		termChannels: map[uint8]termBinding{},
@@ -331,30 +383,30 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// First frame must be hello with valid credential or password.
-	_ = ws.SetReadDeadline(time.Now().Add(15 * time.Second))
-	_, raw, err := ws.ReadMessage()
+	_ = tr.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_, raw, err := tr.ReadMessage()
 	if err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
 	var env protocol.Envelope
 	if err := json.Unmarshal(raw, &env); err != nil || env.Type != protocol.TypeHello {
 		conn.writeImmediateError(env.RequestID, protocol.ErrCodeUnauthorized, "expected hello handshake")
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
 	var hello protocol.HelloPayload
 	if err := json.Unmarshal(env.Payload, &hello); err != nil {
 		conn.writeImmediateError(env.RequestID, protocol.ErrCodeInvalid, "invalid hello payload")
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
 	if !s.authenticate(hello) {
 		conn.writeImmediateError(env.RequestID, protocol.ErrCodeUnauthorized, "invalid daemon credential or password")
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
-	_ = ws.SetReadDeadline(time.Time{})
+	_ = tr.SetReadDeadline(time.Time{})
 
 	info := protocol.ServerInfoPayload{
 		ServerID:        s.serverID,
@@ -369,19 +421,19 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	rawInfo, _ := json.Marshal(info)
-	if err := ws.WriteJSON(protocol.Envelope{
+	if err := writeJSONFrame(tr, protocol.Envelope{
 		Type:      protocol.TypeServerInfo,
 		RequestID: env.RequestID,
 		Payload:   rawInfo,
 	}); err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
 
 	s.clientsMu.Lock()
 	if s.shutting {
 		s.clientsMu.Unlock()
-		_ = ws.Close()
+		_ = tr.Close()
 		return
 	}
 	s.clients[conn] = struct{}{}
@@ -396,12 +448,27 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.readLoop()
 }
 
+func writeJSONFrame(tr relay.Transport, v any) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_ = tr.SetWriteDeadline(time.Now().Add(writeWait))
+	return tr.WriteMessage(websocket.TextMessage, raw)
+}
+
 func (s *Server) authenticate(hello protocol.HelloPayload) bool {
 	if hello.Credential != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(s.credential)) == 1 {
 		return true
 	}
-	if len(s.cfg.PasswordHash) > 0 && hello.Password != "" {
-		return bcrypt.CompareHashAndPassword(s.cfg.PasswordHash, []byte(hello.Password)) == nil
+	s.authMu.RLock()
+	pwHash := slices.Clone(s.passwordHash)
+	s.authMu.RUnlock()
+	if len(pwHash) > 0 {
+		return hello.Password != "" && bcrypt.CompareHashAndPassword(pwHash, []byte(hello.Password)) == nil
+	}
+	if hello.Credential != "" && s.remoteToken != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(s.remoteToken)) == 1 {
+		return true
 	}
 	return false
 }
@@ -462,7 +529,7 @@ func (s *Server) broadcastEvent(sessionID string, payload json.RawMessage) {
 }
 
 func (c *clientConn) writeImmediateError(reqID, code, msg string) {
-	_ = c.ws.WriteJSON(protocol.Envelope{
+	_ = writeJSONFrame(c.tr, protocol.Envelope{
 		Type:      protocol.TypeRPCResponse,
 		RequestID: reqID,
 		Error:     &protocol.RPCError{Code: code, Message: msg},
@@ -480,7 +547,7 @@ func (c *clientConn) enqueue(msgType int, data []byte) {
 		c.queue = nil
 		c.queuedByte = 0
 		c.mu.Unlock()
-		_ = c.ws.Close()
+		_ = c.tr.Close()
 		return
 	}
 	c.queue = append(c.queue, queuedFrame{msgType: msgType, data: data})
@@ -530,7 +597,7 @@ func (c *clientConn) closeNow() {
 			b.detach()
 		}
 	}
-	_ = c.ws.Close()
+	_ = c.tr.Close()
 }
 
 func (c *clientConn) writeLoop() {
@@ -556,8 +623,8 @@ func (c *clientConn) writeLoop() {
 		c.queuedByte -= len(frame.data)
 		c.mu.Unlock()
 
-		_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-		if err := c.ws.WriteMessage(frame.msgType, frame.data); err != nil {
+		_ = c.tr.SetWriteDeadline(time.Now().Add(writeWait))
+		if err := c.tr.WriteMessage(frame.msgType, frame.data); err != nil {
 			c.closeNow()
 			return
 		}
@@ -572,7 +639,7 @@ func (c *clientConn) readLoop() {
 		c.closeNow()
 	}()
 	for {
-		msgType, raw, err := c.ws.ReadMessage()
+		msgType, raw, err := c.tr.ReadMessage()
 		if err != nil {
 			return
 		}
@@ -652,6 +719,25 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 				defer cancel()
 				_ = s.Shutdown(shutCtx)
 			}()
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodDaemonPairingOffer:
+		var req protocol.PairingOfferRequest
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &req); err != nil {
+				return nil, invalidErr(err)
+			}
+		}
+		return s.pairingOffer(req.AppURL)
+	case protocol.MethodDaemonSetPassword:
+		var req protocol.SetPasswordRequest
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &req); err != nil {
+				return nil, invalidErr(err)
+			}
+		}
+		if err := s.setPassword(req.Password); err != nil {
+			return nil, internalErr(err)
 		}
 		return map[string]bool{"ok": true}, nil
 	case protocol.MethodEventsSubscribe:
@@ -1260,6 +1346,65 @@ func invalidErr(err error) *protocol.RPCError {
 
 func internalErr(err error) *protocol.RPCError {
 	return &protocol.RPCError{Code: protocol.ErrCodeInternal, Message: err.Error()}
+}
+
+func (s *Server) pairingOffer(appURL string) (protocol.PairingOfferResponse, *protocol.RPCError) {
+	s.authMu.RLock()
+	requiresPW := len(s.passwordHash) > 0
+	s.authMu.RUnlock()
+
+	directURL := s.cfg.PublicURL
+	if directURL == "" && s.cfg.RelayURL == "" && s.Addr() != "" {
+		directURL = "ws://" + s.Addr()
+	}
+	pubStr := relay.EncodeKey(s.keypair.Public)
+	offer := relay.Offer{
+		Version:          relay.OfferVersion,
+		RelayURL:         s.cfg.RelayURL,
+		DirectURL:        directURL,
+		ServerID:         s.serverID,
+		Hostname:         s.hostname,
+		ServerPubKey:     pubStr,
+		RequiresPassword: requiresPW,
+	}
+	if !requiresPW {
+		offer.Token = s.remoteToken
+	}
+	enc, err := relay.EncodeOffer(offer)
+	if err != nil {
+		return protocol.PairingOfferResponse{}, internalErr(err)
+	}
+	link, err := relay.OfferURL(cmp.Or(appURL, s.cfg.AppURL), offer)
+	if err != nil {
+		return protocol.PairingOfferResponse{}, internalErr(err)
+	}
+	return protocol.PairingOfferResponse{
+		Offer:            enc,
+		URL:              link,
+		RelayURL:         offer.RelayURL,
+		DirectURL:        offer.DirectURL,
+		ServerID:         s.serverID,
+		ServerPubKey:     pubStr,
+		RequiresPassword: requiresPW,
+	}, nil
+}
+
+func (s *Server) setPassword(password string) error {
+	var hash []byte
+	if password != "" {
+		var err error
+		hash, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+	}
+	if err := SavePasswordHash(s.cfg.DataDir, hash); err != nil {
+		return err
+	}
+	s.authMu.Lock()
+	s.passwordHash = hash
+	s.authMu.Unlock()
+	return nil
 }
 
 func (c *clientConn) bindTerminalChannel(termID string, outCh <-chan []byte, detach func()) (uint8, error) {

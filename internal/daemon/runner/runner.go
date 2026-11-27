@@ -53,6 +53,10 @@ func Run(args []string) error {
 		listen         = fs.String("listen", "127.0.0.1:6767", "HTTP/WebSocket listen address (or \"auto\")")
 		password       = fs.String("password", os.Getenv("WADA_PASSWORD"), "Optional daemon password")
 		hostnames      = fs.String("hostnames", os.Getenv("WADA_HOSTNAMES"), "Comma-separated allowed Host headers")
+		relayURL       = fs.String("relay-url", os.Getenv("WADA_RELAY_URL"), "Optional wada-relay URL for encrypted remote access")
+		relayToken     = fs.String("relay-token", os.Getenv("WADA_RELAY_TOKEN"), "Optional Bearer token for connecting to wada-relay")
+		appURL         = fs.String("app-url", os.Getenv("WADA_APP_URL"), "Base web app URL used in pairing links (default https://app.wada.dev)")
+		publicURL      = fs.String("public-url", os.Getenv("WADA_PUBLIC_URL"), "Optional direct LAN/Tailscale URL advertised in pairing offers")
 		desktopManaged = fs.Bool("desktop-managed", false, "Mark daemon as supervised by desktop app")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -126,6 +130,10 @@ func Run(args []string) error {
 		Version:        Version,
 		PasswordHash:   pwHash,
 		Hostnames:      extraHosts,
+		RelayURL:       strings.TrimSpace(*relayURL),
+		RelayToken:     strings.TrimSpace(*relayToken),
+		AppURL:         strings.TrimSpace(*appURL),
+		PublicURL:      strings.TrimSpace(*publicURL),
 		DesktopManaged: *desktopManaged,
 		Backend:        orch,
 		OnShutdown:     stop,

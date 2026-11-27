@@ -4,8 +4,10 @@ import "encoding/json"
 
 // Dotted RPC method names.
 const (
-	MethodDaemonStatus   = "daemon.status"
-	MethodDaemonShutdown = "daemon.shutdown"
+	MethodDaemonStatus       = "daemon.status"
+	MethodDaemonShutdown     = "daemon.shutdown"
+	MethodDaemonPairingOffer = "daemon.pairing.offer"
+	MethodDaemonSetPassword  = "daemon.password.set"
 
 	MethodSessionsList   = "agent.sessions.list"
 	MethodSessionCreate  = "agent.session.create"
@@ -508,6 +510,24 @@ type TerminalCaptureResponse struct {
 
 type TerminalKillRequest struct {
 	ID string `json:"id"`
+}
+
+type PairingOfferRequest struct {
+	AppURL string `json:"appUrl,omitempty"`
+}
+
+type PairingOfferResponse struct {
+	Offer            string `json:"offer"`
+	URL              string `json:"url"`
+	RelayURL         string `json:"relayUrl,omitempty"`
+	DirectURL        string `json:"directUrl,omitempty"`
+	ServerID         string `json:"serverId"`
+	ServerPubKey     string `json:"serverPubKey"`
+	RequiresPassword bool   `json:"requiresPassword,omitempty"`
+}
+
+type SetPasswordRequest struct {
+	Password string `json:"password,omitempty"`
 }
 
 type SkillsListRequest struct {

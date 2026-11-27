@@ -49,6 +49,15 @@ linters:
             - "github.com/gorilla/websocket"
             - "github.com/google/uuid"
             - "wada-desktop-go/internal/protocol"
+            - "wada-desktop-go/internal/relay"
+        relay:
+          files: ["**/internal/relay/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/gorilla/websocket"
+            - "golang.org/x/crypto"
+            - "wada-desktop-go/internal/relay"
         daemon:
           files: ["**/internal/daemon/**/*.go", "!$test"]
           list-mode: strict
@@ -63,6 +72,7 @@ linters:
             - "golang.org/x/sys"
             - "wada-desktop-go/internal/daemon"
             - "wada-desktop-go/internal/protocol"
+            - "wada-desktop-go/internal/relay"
             - "wada-desktop-go/internal/store"
         daemon_plugin:
           files: ["**/internal/plugins/daemon/*.go", "!$test"]

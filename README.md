@@ -84,9 +84,11 @@ requires explicit resume.
 | `main.go` | Wada's name, window and menus, `--daemon` / `--terminal-worker` dispatch, and the plugins this build installs |
 | `cmd/wadad` | Standalone headless coding-agent daemon (`wadad`) |
 | `cmd/wadad-term` | Detached cross-platform PTY terminal worker (`wadad-term`) surviving daemon restarts |
-| `cmd/wada` | CLI client (`wada`) talking to `wadad` over WebSocket RPC (`ls`, `run`, `providers`, `workers`, `terminal`) |
+| `cmd/wada-relay` | Stateless zero-knowledge Noise NK WebSocket relay (`wada-relay`) for remote/mobile pairing |
+| `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `providers`, `workers`, `terminal`, `daemon pair`, `host`) |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
-| `internal/client` | Go WebSocket client SDK, binary terminal streams, and local daemon attach/auto-spawn helpers |
+| `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
+| `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local `wadad` over WebSocket RPC (`agent.*`, `daemon.restart`, and providers setup) |

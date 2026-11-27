@@ -21,8 +21,11 @@ import (
 func main() {
 	var (
 		dataDir    = flag.String("data-dir", "", "Wada data directory (default WADA_DATA_DIR or OS config dir)")
+		hostName   = flag.String("host", "", "Connect to a saved remote host profile by name")
+		offer      = flag.String("offer", "", "Connect via pairing offer token or #offer= URL")
 		endpoint   = flag.String("endpoint", "", "Remote wadad endpoint (host:port or ws://.../ws)")
 		credential = flag.String("credential", "", "Daemon credential or password")
+		relayToken = flag.String("relay-token", os.Getenv("WADA_RELAY_TOKEN"), "Optional Bearer token for wada-relay")
 	)
 	flag.Parse()
 
@@ -33,7 +36,15 @@ func main() {
 	}
 
 	ctx := context.Background()
-	c, err := connect(ctx, *dataDir, *endpoint, *credential)
+	if args[0] == "host" {
+		if err := runHostCmd(*dataDir, args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "wada: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	c, err := connect(ctx, *dataDir, *hostName, *offer, *endpoint, *credential, *relayToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wada: %v\n", err)
 		os.Exit(1)
@@ -83,6 +94,9 @@ func usage() {
 Commands:
   daemon status          Show connected wadad status
   daemon stop            Stop the running wadad daemon
+  daemon pair            Print a pairing offer & #offer= link for remote/mobile clients
+  daemon set-password    Configure or clear the remote daemon password
+  host <ls|add|remove>   Manage saved remote wadad host profiles
   providers              List embedded and external coding-agent harnesses
   workers [--parent ID]  List managed external harness workers
   terminal <ls|create|attach|capture|kill>
@@ -95,25 +109,81 @@ Commands:
   delete <session-id>    Delete a session`)
 }
 
-func connect(ctx context.Context, dataDir, endpoint, credential string) (*client.Client, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func connect(ctx context.Context, dataDir, hostName, offer, endpoint, credential, relayToken string) (*client.Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	opts := client.Options{
-		Endpoint:   endpoint,
-		Credential: credential,
-		Password:   credential,
-		ClientType: "cli",
-		AppVersion: "0.1.0-dev",
+		Endpoint:       endpoint,
+		Credential:     credential,
+		Password:       credential,
+		RelayAuthToken: relayToken,
+		ClientType:     "cli",
+		AppVersion:     "0.1.0-dev",
 	}
-	if endpoint == "" {
+	switch {
+	case offer != "":
+		return client.DialOffer(ctx, offer, opts)
+	case hostName != "":
+		return client.DialHost(ctx, dataDir, hostName, opts)
+	case endpoint != "":
+		return client.Dial(ctx, opts)
+	default:
 		return client.DialLocal(ctx, dataDir, opts)
 	}
-	return client.Dial(ctx, opts)
+}
+
+func runHostCmd(dataDir string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: wada host <ls|add|remove>")
+	}
+	switch args[0] {
+	case "ls":
+		list, err := client.LoadHosts(dataDir)
+		if err != nil {
+			return err
+		}
+		for _, h := range list {
+			target := h.RelayURL
+			if target == "" {
+				target = h.Endpoint
+			}
+			fmt.Printf("%s\t%s\t%s\n", h.Name, target, h.ServerID)
+		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("host add", flag.ContinueOnError)
+		endpoint := fs.String("endpoint", "", "Direct WebSocket endpoint (host:port or ws://...)")
+		cred := fs.String("credential", "", "Credential or remote token")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() < 1 {
+			return fmt.Errorf("usage: wada host add <name> (<offer-url> | --endpoint <url> [--credential <tok>])")
+		}
+		name := fs.Arg(0)
+		var offer string
+		if fs.NArg() > 1 {
+			offer = fs.Arg(1)
+		}
+		return client.SaveHost(dataDir, client.HostRecord{
+			Name:       name,
+			Offer:      offer,
+			Endpoint:   *endpoint,
+			Credential: *cred,
+		})
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: wada host remove <name>")
+		}
+		return client.RemoveHost(dataDir, args[1])
+	default:
+		return fmt.Errorf("unknown host command %q", args[0])
+	}
 }
 
 func runDaemonCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: wada daemon <status|stop>")
+		return fmt.Errorf("usage: wada daemon <status|stop|pair|set-password>")
 	}
 	switch args[0] {
 	case "status":
@@ -126,6 +196,53 @@ func runDaemonCmd(ctx context.Context, c *client.Client, args []string) error {
 		return nil
 	case "stop":
 		return c.Shutdown(ctx)
+	case "pair":
+		fs := flag.NewFlagSet("daemon pair", flag.ContinueOnError)
+		appURL := fs.String("app-url", "", "Web app base URL for #offer= link")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		resp, err := c.PairingOffer(ctx, *appURL)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("url:              %s\noffer:            %s\nserverId:         %s\nserverPubKey:     %s\nrelayUrl:         %s\ndirectUrl:        %s\nrequiresPassword: %v\n",
+			resp.URL, resp.Offer, resp.ServerID, resp.ServerPubKey, resp.RelayURL, resp.DirectURL, resp.RequiresPassword)
+		return nil
+	case "set-password":
+		fs := flag.NewFlagSet("daemon set-password", flag.ContinueOnError)
+		pw := fs.String("password", "", "Password to set (or use --clear)")
+		clearPW := fs.Bool("clear", false, "Clear daemon password and allow pairing token")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		target := *pw
+		if *clearPW {
+			target = ""
+		} else if target == "" {
+			if fs.NArg() > 0 {
+				target = fs.Arg(0)
+			} else if term.IsTerminal(int(os.Stdin.Fd())) {
+				fmt.Fprint(os.Stderr, "New daemon password: ")
+				raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Fprintln(os.Stderr)
+				if err != nil {
+					return err
+				}
+				target = string(raw)
+			} else {
+				return fmt.Errorf("usage: wada daemon set-password (--password PW | --clear)")
+			}
+		}
+		if err := c.SetPassword(ctx, target); err != nil {
+			return err
+		}
+		if target == "" {
+			fmt.Println("daemon password cleared")
+		} else {
+			fmt.Println("daemon password updated")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown daemon command %q", args[0])
 	}

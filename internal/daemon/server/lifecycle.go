@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	PIDFileName        = "wadad.pid"
-	CredentialFileName = "local-credential"
+	PIDFileName         = "wadad.pid"
+	CredentialFileName  = "local-credential"
+	RemoteTokenFileName = "remote-token"
+	PasswordHashFile    = "password.hash"
 )
 
 // PIDRecord is published atomically while a wadad worker is listening.
@@ -47,6 +49,58 @@ func WriteRuntimeFiles(dataDir string, rec PIDRecord, credential string) error {
 func CleanupRuntimeFiles(dataDir string) {
 	_ = os.Remove(filepath.Join(dataDir, CredentialFileName))
 	_ = os.Remove(filepath.Join(dataDir, PIDFileName))
+}
+
+func LoadOrCreateRemoteToken(dataDir string) (string, error) {
+	if dataDir == "" {
+		return GenerateCredential()
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return "", err
+	}
+	p := filepath.Join(dataDir, RemoteTokenFileName)
+	if raw, err := os.ReadFile(p); err == nil {
+		if tok := string(raw); len(tok) >= 32 {
+			return tok, nil
+		}
+	}
+	tok, err := GenerateCredential()
+	if err != nil {
+		return "", err
+	}
+	if err := writeAtomic(p, []byte(tok), 0o600); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
+func LoadPasswordHash(dataDir string) ([]byte, error) {
+	if dataDir == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dataDir, PasswordHashFile))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return raw, err
+}
+
+func SavePasswordHash(dataDir string, hash []byte) error {
+	if dataDir == "" {
+		return nil
+	}
+	p := filepath.Join(dataDir, PasswordHashFile)
+	if len(hash) == 0 {
+		err := os.Remove(p)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	return writeAtomic(p, hash, 0o600)
 }
 
 func writeAtomic(path string, data []byte, mode os.FileMode) error {

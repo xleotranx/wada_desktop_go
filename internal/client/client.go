@@ -15,19 +15,21 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"wada-desktop-go/internal/protocol"
+	"wada-desktop-go/internal/relay"
 )
 
 // Options configures a connection to wadad.
 type Options struct {
-	Endpoint     string // host:port or ws://.../ws
-	Credential   string
-	Password     string
-	ClientID     string
-	ClientType   string // "desktop" | "web" | "cli"
-	AppVersion   string
-	Capabilities []string
-	PingInterval time.Duration
-	RPCTimeout   time.Duration
+	Endpoint       string // host:port or ws://.../ws
+	Credential     string
+	Password       string
+	RelayAuthToken string // optional Bearer token for wada-relay itself
+	ClientID       string
+	ClientType     string // "desktop" | "web" | "cli"
+	AppVersion     string
+	Capabilities   []string
+	PingInterval   time.Duration
+	RPCTimeout     time.Duration
 }
 
 type subStream struct {
@@ -39,7 +41,7 @@ type subStream struct {
 
 // Client is a multiplexed WebSocket RPC and event-stream client for wadad.
 type Client struct {
-	ws         *websocket.Conn
+	tr         relay.Transport
 	serverInfo protocol.ServerInfoPayload
 	rpcTimeout time.Duration
 
@@ -77,6 +79,49 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 		return nil, errors.New("client: endpoint is required")
 	}
 	wsURL := normalizeWSURL(opts.Endpoint)
+	ws, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, http.Header{})
+	if err != nil {
+		return nil, err
+	}
+	return dialTransport(ctx, ws, opts)
+}
+
+// DialRelay connects to a wadad instance over a zero-knowledge wada-relay Noise NK tunnel.
+func DialRelay(ctx context.Context, relayURL string, serverPub [32]byte, opts Options) (*Client, error) {
+	tr, err := relay.DialClientTunnel(ctx, relayURL, serverPub, opts.RelayAuthToken)
+	if err != nil {
+		return nil, err
+	}
+	return dialTransport(ctx, tr, opts)
+}
+
+// DialOffer decodes a pairing offer or #offer= URL and dials over E2EE relay (preferred) or direct WS.
+func DialOffer(ctx context.Context, rawOffer string, opts Options) (*Client, error) {
+	off, err := relay.DecodeOffer(rawOffer)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Credential == "" && opts.Password == "" && off.Token != "" {
+		opts.Credential = off.Token
+	}
+	if off.RelayURL != "" {
+		pub, perr := relay.ParseKey(off.ServerPubKey)
+		if perr != nil {
+			return nil, perr
+		}
+		cli, rerr := DialRelay(ctx, off.RelayURL, pub, opts)
+		if rerr == nil || off.DirectURL == "" {
+			return cli, rerr
+		}
+	}
+	if off.DirectURL == "" {
+		return nil, errors.New("client: offer has no reachable endpoint")
+	}
+	opts.Endpoint = off.DirectURL
+	return Dial(ctx, opts)
+}
+
+func dialTransport(ctx context.Context, tr relay.Transport, opts Options) (*Client, error) {
 	if opts.ClientID == "" {
 		opts.ClientID = "cli_" + uuid.NewString()
 	}
@@ -97,11 +142,6 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 		opts.RPCTimeout = 60 * time.Second
 	}
 
-	ws, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, http.Header{})
-	if err != nil {
-		return nil, err
-	}
-
 	helloPayload, err := json.Marshal(protocol.HelloPayload{
 		ClientID:        opts.ClientID,
 		ClientType:      opts.ClientType,
@@ -112,45 +152,55 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 		Capabilities:    opts.Capabilities,
 	})
 	if err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, err
 	}
 	reqID := uuid.NewString()
-	if err := ws.WriteJSON(protocol.Envelope{
+	helloEnv, err := json.Marshal(protocol.Envelope{
 		Type:      protocol.TypeHello,
 		RequestID: reqID,
 		Payload:   helloPayload,
-	}); err != nil {
-		_ = ws.Close()
-		return nil, err
-	}
-
-	_, raw, err := ws.ReadMessage()
+	})
 	if err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, err
 	}
+	_ = tr.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := tr.WriteMessage(websocket.TextMessage, helloEnv); err != nil {
+		_ = tr.Close()
+		return nil, err
+	}
+	_ = tr.SetWriteDeadline(time.Time{})
+
+	_ = tr.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_, raw, err := tr.ReadMessage()
+	if err != nil {
+		_ = tr.Close()
+		return nil, err
+	}
+	_ = tr.SetReadDeadline(time.Time{})
+
 	var env protocol.Envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, err
 	}
 	if env.Error != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, env.Error
 	}
 	if env.Type != protocol.TypeServerInfo {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, fmt.Errorf("client: unexpected handshake frame %q", env.Type)
 	}
 	var info protocol.ServerInfoPayload
 	if err := json.Unmarshal(env.Payload, &info); err != nil {
-		_ = ws.Close()
+		_ = tr.Close()
 		return nil, err
 	}
 
 	c := &Client{
-		ws:         ws,
+		tr:         tr,
 		serverInfo: info,
 		rpcTimeout: opts.RPCTimeout,
 		pending:    map[string]chan protocol.Envelope{},
@@ -164,6 +214,12 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 }
 
 func normalizeWSURL(endpoint string) string {
+	switch {
+	case strings.HasPrefix(endpoint, "http://"):
+		endpoint = "ws://" + strings.TrimPrefix(endpoint, "http://")
+	case strings.HasPrefix(endpoint, "https://"):
+		endpoint = "wss://" + strings.TrimPrefix(endpoint, "https://")
+	}
 	if strings.HasPrefix(endpoint, "ws://") || strings.HasPrefix(endpoint, "wss://") {
 		if strings.HasSuffix(endpoint, "/ws") {
 			return endpoint
@@ -202,7 +258,7 @@ func (c *Client) Close() error {
 		}
 		c.mu.Unlock()
 		close(c.done)
-		err = c.ws.Close()
+		err = c.tr.Close()
 		for _, sub := range subs {
 			sub.wg.Wait()
 			close(sub.ch)
@@ -216,17 +272,21 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) writeJSON(v any) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return c.ws.WriteJSON(v)
+	_ = c.tr.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return c.tr.WriteMessage(websocket.TextMessage, raw)
 }
 
 func (c *Client) writeBinary(frame []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return c.ws.WriteMessage(websocket.BinaryMessage, frame)
+	_ = c.tr.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return c.tr.WriteMessage(websocket.BinaryMessage, frame)
 }
 
 func (c *Client) pingLoop(interval time.Duration) {
@@ -253,7 +313,7 @@ func (c *Client) pingLoop(interval time.Duration) {
 func (c *Client) readLoop() {
 	defer func() { _ = c.Close() }()
 	for {
-		msgType, raw, err := c.ws.ReadMessage()
+		msgType, raw, err := c.tr.ReadMessage()
 		if err != nil {
 			return
 		}
@@ -688,4 +748,13 @@ func (c *Client) CaptureTerminal(ctx context.Context, id string, lines int) (pro
 
 func (c *Client) KillTerminal(ctx context.Context, id string) error {
 	return c.Call(ctx, protocol.MethodTerminalKill, protocol.TerminalKillRequest{ID: id}, nil)
+}
+
+func (c *Client) PairingOffer(ctx context.Context, appURL string) (protocol.PairingOfferResponse, error) {
+	var out protocol.PairingOfferResponse
+	return out, c.Call(ctx, protocol.MethodDaemonPairingOffer, protocol.PairingOfferRequest{AppURL: appURL}, &out)
+}
+
+func (c *Client) SetPassword(ctx context.Context, password string) error {
+	return c.Call(ctx, protocol.MethodDaemonSetPassword, protocol.SetPasswordRequest{Password: password}, nil)
 }

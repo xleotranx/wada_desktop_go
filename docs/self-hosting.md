@@ -63,6 +63,9 @@ worktrees, and PTY terminals on your own workstation or server:
    wada daemon pair --app-url https://app.wada.dev
    ```
    Or copy the link from Desktop under **Settings → Daemon → Copy Pairing Link**.
+   If the relay has a `WADA_RELAY_TOKEN`, enter it as the relay token when
+   pairing in the Web/PWA client; the browser sends it as the `token` query
+   parameter, because browsers cannot set WebSocket headers.
    Everything inside `#offer=...` remains in the browser URL hash fragment and is
    never sent in HTTP requests.
 

@@ -12,9 +12,17 @@ import {
 } from "../crypto/offer";
 import {
   type DaemonEvent,
+  ENV_EVENT,
+  ENV_HELLO,
+  ENV_PING,
+  ENV_PONG,
+  ENV_RPC_REQUEST,
+  ENV_RPC_RESPONSE,
+  ENV_SERVER_INFO,
   type Envelope,
   type FileChange,
   type HarnessInfo,
+  type InteractionItem,
   OP_TERM_INPUT,
   OP_TERM_OUTPUT,
   OP_TERM_RESIZE,
@@ -42,7 +50,6 @@ export interface ConnectConfig {
 
 export interface AttachedTerminal {
   info: TerminalInfo;
-  snapshot: Uint8Array;
   channel: number;
   writeInput: (data: Uint8Array) => void;
   resize: (cols: number, rows: number) => void;
@@ -62,6 +69,8 @@ export class WadaClient {
   private pingTimer: number | null = null;
   private probeTimer: number | null = null;
   private closed = false;
+  // live is true from a completed connect until the socket is torn down.
+  private live = false;
   private subId = "";
   public serverInfo: ServerInfo | null = null;
   public mode: "relay" | "direct" = "direct";
@@ -111,7 +120,21 @@ export class WadaClient {
     const ws = new WebSocket(wsURL);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
+    try {
+      return await this.handshake(ws, serverPub, cred, password);
+    } catch (err) {
+      // A failed connect reports through its rejection, not the status listeners.
+      this.teardown(err instanceof Error ? err.message : "Connection failed");
+      throw err;
+    }
+  }
 
+  private async handshake(
+    ws: WebSocket,
+    serverPub: Uint8Array | null,
+    cred: string,
+    password: string
+  ): Promise<ServerInfo> {
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {
         ws.removeEventListener("error", onErr);
@@ -138,7 +161,7 @@ export class WadaClient {
 
     const helloId = crypto.randomUUID();
     const helloEnv: Envelope = {
-      type: "hello",
+      type: ENV_HELLO,
       requestId: helloId,
       payload: {
         clientId: "web_" + crypto.randomUUID(),
@@ -156,18 +179,27 @@ export class WadaClient {
     if (infoEnv.error) {
       throw new Error(`${infoEnv.error.code}: ${infoEnv.error.message}`);
     }
-    if (infoEnv.type !== "server_info" || !infoEnv.payload) {
+    if (infoEnv.type !== ENV_SERVER_INFO || !infoEnv.payload) {
       throw new Error(`Unexpected handshake frame: ${infoEnv.type}`);
     }
     this.serverInfo = infoEnv.payload as ServerInfo;
 
-    ws.addEventListener("message", (ev) => this.handleMessage(ev.data));
-    ws.addEventListener("close", () => this.handleClose("Connection closed"));
-    ws.addEventListener("error", () => this.handleClose("WebSocket error"));
+    // Only the current socket may drive the client: a socket that was torn
+    // down can still deliver frames or a late close.
+    ws.addEventListener("message", (ev) => {
+      if (this.ws === ws) this.handleMessage(ev.data);
+    });
+    ws.addEventListener("close", () => {
+      if (this.ws === ws) this.handleClose("Connection closed");
+    });
+    ws.addEventListener("error", () => {
+      if (this.ws === ws) this.handleClose("WebSocket error");
+    });
 
     this.startPing();
     const sub = await this.call<{ subscriptionId: string }>("events.subscribe", {});
     this.subId = sub.subscriptionId;
+    this.live = true;
 
     for (const cb of this.statusListeners) cb("connected");
     return this.serverInfo;
@@ -178,21 +210,30 @@ export class WadaClient {
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.handleVisibility);
     }
+    this.teardown("Client closed");
+  }
+
+  // teardown closes the current socket and fails its pending calls. It reports
+  // whether there was a socket to tear down.
+  private teardown(reason: string): boolean {
     this.cleanupTimers();
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch {
-        // ignore close errors
-      }
-      this.ws = null;
-    }
+    this.live = false;
+    const ws = this.ws;
+    this.ws = null;
     this.noise = null;
+    this.termListeners.clear();
     for (const [id, p] of this.pending) {
       window.clearTimeout(p.timer);
-      p.reject(new Error("Client closed"));
+      p.reject(new Error(reason));
       this.pending.delete(id);
     }
+    if (!ws) return false;
+    try {
+      ws.close();
+    } catch {
+      // The socket is being discarded either way.
+    }
+    return true;
   }
 
   private cleanupTimers(): void {
@@ -216,14 +257,14 @@ export class WadaClient {
   private sendPing(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.sendEnvelope({
-      type: "ping",
+      type: ENV_PING,
       requestId: crypto.randomUUID(),
       payload: { timestamp: Date.now() },
     });
   }
 
   private handleVisibility = (): void => {
-    if (document.visibilityState !== "visible" || this.closed) return;
+    if (document.visibilityState !== "visible" || this.closed || !this.live) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handleClose("Socket closed while backgrounded");
       return;
@@ -238,14 +279,7 @@ export class WadaClient {
   };
 
   private handleClose(reason: string): void {
-    this.cleanupTimers();
-    this.ws = null;
-    this.noise = null;
-    for (const [id, p] of this.pending) {
-      window.clearTimeout(p.timer);
-      p.reject(new Error(reason));
-      this.pending.delete(id);
-    }
+    if (!this.teardown(reason)) return;
     if (!this.closed) {
       for (const cb of this.statusListeners) cb("disconnected", reason);
     }
@@ -363,14 +397,14 @@ export class WadaClient {
     }
 
     const env = JSON.parse(new TextDecoder().decode(decoded.payload)) as Envelope;
-    if (env.type === "pong") {
+    if (env.type === ENV_PONG) {
       if (this.probeTimer !== null) {
         window.clearTimeout(this.probeTimer);
         this.probeTimer = null;
       }
       return;
     }
-    if (env.type === "rpc_response" && env.requestId) {
+    if (env.type === ENV_RPC_RESPONSE && env.requestId) {
       const entry = this.pending.get(env.requestId);
       if (entry) {
         window.clearTimeout(entry.timer);
@@ -380,7 +414,7 @@ export class WadaClient {
       }
       return;
     }
-    if (env.type === "event" && env.payload) {
+    if (env.type === ENV_EVENT && env.payload) {
       const ev = env.payload as DaemonEvent;
       for (const cb of this.eventListeners) cb(ev);
     }
@@ -399,7 +433,7 @@ export class WadaClient {
         timer,
       });
       try {
-        this.sendEnvelope({ type: "rpc_request", requestId, method, payload });
+        this.sendEnvelope({ type: ENV_RPC_REQUEST, requestId, method, payload });
       } catch (err) {
         window.clearTimeout(timer);
         this.pending.delete(requestId);
@@ -455,6 +489,10 @@ export class WadaClient {
     return this.call("agent.interactions.answer", ans);
   }
 
+  pendingInteractions(session: string): Promise<InteractionItem[] | null> {
+    return this.call("agent.interactions.pending", { session });
+  }
+
   getChanges(session: string): Promise<FileChange[]> {
     return this.call("agent.session.changes", { session });
   }
@@ -479,6 +517,8 @@ export class WadaClient {
     return this.call("terminal.kill", { id });
   }
 
+  // attachTerminal delivers the terminal's snapshot through onChunk first, then
+  // its live output.
   async attachTerminal(
     id: string,
     onChunk: (data: Uint8Array) => void,
@@ -489,11 +529,10 @@ export class WadaClient {
       "terminal.attach",
       { id, cols, rows }
     );
-    const snap = res.snapshot ? decodeBase64Url(res.snapshot) : new Uint8Array(0);
+    if (res.snapshot) onChunk(decodeBase64Url(res.snapshot));
     this.termListeners.set(res.channel, onChunk);
     return {
       info: res.info,
-      snapshot: snap,
       channel: res.channel,
       writeInput: (data: Uint8Array) => {
         this.sendWire(WS_BINARY, encodeBinaryFrame(OP_TERM_INPUT, res.channel, data));

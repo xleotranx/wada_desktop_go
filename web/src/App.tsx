@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { formatTerminalOutput } from "./client/ansi";
-import type {
-  ApprovalItem,
-  DaemonEvent,
-  FileChange,
-  HarnessInfo,
-  SessionInfo,
-  SessionMessage,
-  TerminalInfo,
-  WorkerInfo,
+import { TerminalTextStream, appendTerminalOutput } from "./client/ansi";
+import {
+  type ApprovalItem,
+  type DaemonEvent,
+  EV_APPROVAL_REQUESTED,
+  EV_INTERACTION_REQUESTED,
+  EV_SESSION_RENAMED,
+  EV_TERMINAL_UPDATED,
+  EV_TEXT_DELTA,
+  EV_TURN_FAILED,
+  EV_TURN_INTERRUPTED,
+  EV_TURN_STARTED,
+  EV_TURN_SUCCEEDED,
+  EV_WORKER_UPDATED,
+  type FileChange,
+  type HarnessInfo,
+  type InteractionItem,
+  type SessionInfo,
+  type SessionMessage,
+  type TerminalInfo,
+  type WorkerInfo,
 } from "./client/protocol";
 import {
   type SavedHost,
@@ -19,13 +30,32 @@ import {
   upsertHost,
 } from "./client/storage";
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
-import { decodeOffer } from "./crypto/offer";
+import { decodeOffer, normalizeDirectWSURL } from "./crypto/offer";
 
 type RightTab = "chat" | "diffs" | "terminal";
 
+type InteractionAnswer = Parameters<WadaClient["answerInteraction"]>[0];
+
+const MAX_RECONNECT_DELAY = 30_000;
+
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+// An unknown outcome is reported, never retried: the user decides (AGENTS.md rule 5).
+function unconfirmed(what: string, err: unknown): string {
+  return `${what} was not confirmed (${errorText(err, "unknown error")}). It may still have taken effect; check before trying again.`;
+}
+
 export function App() {
   const clientRef = useRef<WadaClient | null>(null);
+  const hostRef = useRef<SavedHost | null>(null);
   const termAttachRef = useRef<AttachedTerminal | null>(null);
+  const termGenRef = useRef(0);
+  // Passwords stay in memory, per host, and are never written to storage.
+  const passwordsRef = useRef(new Map<string, string>());
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
   const [hosts, setHosts] = useState<SavedHost[]>(() => loadSavedHosts());
   const [activeHostId, setActiveHostId] = useState<string>(() => loadActiveHostId());
@@ -39,6 +69,7 @@ export function App() {
   const [pairName, setPairName] = useState("My Workstation");
   const [pairInput, setPairInput] = useState("");
   const [pairPassword, setPairPassword] = useState("");
+  const [pairRelayToken, setPairRelayToken] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -46,7 +77,11 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [liveDelta, setLiveDelta] = useState("");
+  // Approvals, interactions and running turns are kept for every session, so
+  // one that arrives while another session is open is still there to answer.
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [interactions, setInteractions] = useState<InteractionItem[]>([]);
+  const [busySessions, setBusySessions] = useState<ReadonlySet<string>>(() => new Set());
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [rightTab, setRightTab] = useState<RightTab>("chat");
@@ -55,17 +90,19 @@ export function App() {
   const [newDir, setNewDir] = useState(".");
   const [newProvider, setNewProvider] = useState("");
   const [mode, setMode] = useState<"ask" | "full">("ask");
-  const [busyTurn, setBusyTurn] = useState(false);
 
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [activeTermId, setActiveTermId] = useState("");
   const [termOutput, setTermOutput] = useState("");
   const [termCmd, setTermCmd] = useState("");
 
+  const selectedSessionRef = useRef(selectedSessionId);
+  selectedSessionRef.current = selectedSessionId;
+
   // Extract #offer= from initial URL fragment and wipe it from browser history.
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.includes("#offer=") || hash.startsWith("#offer=")) {
+    if (hash.includes("#offer=")) {
       try {
         const offer = decodeOffer(hash);
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -81,41 +118,110 @@ export function App() {
           requiresPassword: offer.requiresPassword,
           addedAt: Date.now(),
         };
-        const next = upsertHost(host);
-        setHosts(next);
-        setActiveHostId(host.id);
-        saveActiveHostId(host.id);
-        if (offer.requiresPassword) {
-          setPairName(host.name);
-          setPairInput(hash);
-          setPairOpen(true);
-        } else {
-          void connectHost(host);
-        }
+        setHosts(upsertHost(host));
+        void openHost(host);
       } catch (err) {
-        setConnError(err instanceof Error ? err.message : "Invalid pairing link");
+        setConnError(errorText(err, "Invalid pairing link"));
       }
     } else if (hosts.length > 0) {
       const target = hosts.find((h) => h.id === activeHostId) || hosts[0];
-      void connectHost(target);
-    } else if (
-      window.location.protocol.startsWith("http") &&
-      window.location.hostname !== "localhost"
-    ) {
-      // Optionally show pairing modal when opened fresh.
-      setPairOpen(false);
+      void openHost(target);
     }
     return () => {
-      void termAttachRef.current?.close();
+      cancelReconnect();
+      hostRef.current = null;
+      termAttachRef.current = null;
       clientRef.current?.close();
+      clientRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function connectHost(host: SavedHost, pwOverride?: string): Promise<void> {
-    await termAttachRef.current?.close();
+  function cancelReconnect(): void {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }
+
+  function scheduleReconnect(host: SavedHost): void {
+    if (reconnectTimerRef.current !== null) return;
+    const attempt = reconnectAttemptsRef.current++;
+    const delay = Math.min(MAX_RECONNECT_DELAY, 1000 * 2 ** attempt);
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (hostRef.current?.id === host.id) void connectHost(host);
+    }, delay);
+  }
+
+  function openPairFor(host: SavedHost): void {
+    setPairName(host.name);
+    setPairInput(host.offer || host.directUrl || "");
+    setPairPassword("");
+    setPairRelayToken(host.relayToken || "");
+    setPairOpen(true);
+  }
+
+  // openHost is a connection the user asked for: it starts the backoff afresh.
+  async function openHost(host: SavedHost, password?: string): Promise<void> {
+    setActiveHostId(host.id);
+    saveActiveHostId(host.id);
+    if (password !== undefined) passwordsRef.current.set(host.id, password);
+    if (host.requiresPassword && !passwordsRef.current.get(host.id)) {
+      openPairFor(host);
+      return;
+    }
+    reconnectAttemptsRef.current = 0;
+    await connectHost(host);
+  }
+
+  function setBusy(session: string, busy: boolean): void {
+    setBusySessions((prev) => {
+      if (prev.has(session) === busy) return prev;
+      const next = new Set(prev);
+      if (busy) next.add(session);
+      else next.delete(session);
+      return next;
+    });
+  }
+
+  function chooseSession(id: string): void {
+    selectedSessionRef.current = id;
+    setSelectedSessionId(id);
+    setLiveDelta("");
+  }
+
+  function resetHostState(): void {
+    termGenRef.current++;
     termAttachRef.current = null;
+    setSessions([]);
+    setMessages([]);
+    setApprovals([]);
+    setInteractions([]);
+    setBusySessions(new Set());
+    setWorkers([]);
+    setChanges([]);
+    setTerminals([]);
+    setActiveTermId("");
+    setTermOutput("");
+    setLiveDelta("");
+  }
+
+  async function connectHost(host: SavedHost): Promise<void> {
+    cancelReconnect();
+    const sameHost = hostRef.current?.id === host.id;
+    hostRef.current = host;
+    // Closing the old connection also detaches its terminals on the daemon.
     clientRef.current?.close();
+    termGenRef.current++;
+    termAttachRef.current = null;
+    // The daemon does not say which turns are running, and one may have ended
+    // while disconnected; a stuck Stop button is worse than a missing one.
+    setBusySessions(new Set());
+    if (!sameHost) {
+      chooseSession("");
+      resetHostState();
+    }
 
     setConnState("connecting");
     setConnError("");
@@ -124,52 +230,27 @@ export function App() {
       offer: host.offer,
       endpoint: host.offer ? undefined : host.directUrl,
       credential: host.token,
-      password: pwOverride ?? pairPassword,
+      password: passwordsRef.current.get(host.id) || "",
+      relayAuthToken: host.relayToken,
     });
     clientRef.current = cli;
+    // A connection that was replaced must not touch the UI any more.
+    const current = () => clientRef.current === cli;
 
     cli.onStatus((st, err) => {
+      if (!current()) return;
       setConnState(st);
       if (err) setConnError(err);
+      if (st === "disconnected") scheduleReconnect(host);
     });
-
-    cli.onEvent((ev: DaemonEvent) => {
-      if (ev.kind === "worker.updated" && ev.worker) {
-        const updated = ev.worker;
-        setWorkers((prev) => {
-          const rest = prev.filter((w) => w.id !== updated.id);
-          return [updated, ...rest];
-        });
-      }
-      if (ev.kind === "terminal.updated" && ev.terminal) {
-        const t = ev.terminal;
-        setTerminals((prev) => {
-          const exists = prev.some((x) => x.id === t.id);
-          return exists ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t];
-        });
-      }
-      if (!ev.session || ev.session !== selectedSessionRef.current) return;
-      if (ev.kind === "turn.started") {
-        setBusyTurn(true);
-        setLiveDelta("");
-      } else if (ev.kind === "text.delta" && ev.text?.delta) {
-        setLiveDelta((d) => d + ev.text!.delta!);
-      } else if (ev.kind === "approval.requested" && ev.approval) {
-        setApprovals((prev) => [...prev, ev.approval!]);
-      } else if (
-        ev.kind === "turn.succeeded" ||
-        ev.kind === "turn.failed" ||
-        ev.kind === "turn.interrupted"
-      ) {
-        setBusyTurn(false);
-        setLiveDelta("");
-        if (ev.error) setConnError(ev.error);
-        void refreshSession(cli, ev.session);
-      }
+    cli.onEvent((ev) => {
+      if (current()) handleEvent(cli, ev);
     });
 
     try {
       await cli.connect();
+      if (!current()) return;
+      reconnectAttemptsRef.current = 0;
       setE2eeMode(cli.mode);
       setConnState("connected");
       const [sessRes, harnessRes, termRes] = await Promise.all([
@@ -177,78 +258,167 @@ export function App() {
         cli.listHarnesses().catch(() => [] as HarnessInfo[]),
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
       ]);
-      setSessions(sessRes.sessions || []);
-      setHarnesses(harnessRes);
-      setTerminals(termRes);
-      if (sessRes.sessions?.length) {
-        const first = sessRes.sessions[0];
-        setSelectedSessionId(first.id);
-        await refreshSession(cli, first.id);
+      if (!current()) return;
+      const list = sessRes.sessions || [];
+      setSessions(list);
+      setHarnesses(harnessRes || []);
+      setTerminals(termRes || []);
+      setActiveTermId("");
+      setTermOutput("");
+      const keep = list.find((s) => s.id === selectedSessionRef.current) || list[0];
+      if (keep) {
+        chooseSession(keep.id);
+        await refreshSession(cli, keep.id);
       }
     } catch (err) {
+      if (!current()) return;
+      const msg = errorText(err, "Failed to connect");
       setConnState("disconnected");
-      setConnError(err instanceof Error ? err.message : "Failed to connect");
+      setConnError(msg);
+      if (msg.startsWith("unauthorized")) {
+        // A wrong password will not start working by itself.
+        passwordsRef.current.delete(host.id);
+        if (host.requiresPassword) openPairFor(host);
+        return;
+      }
+      scheduleReconnect(host);
     }
   }
 
-  const selectedSessionRef = useRef(selectedSessionId);
-  selectedSessionRef.current = selectedSessionId;
+  function handleEvent(cli: WadaClient, ev: DaemonEvent): void {
+    switch (ev.kind) {
+      case EV_WORKER_UPDATED: {
+        const updated = ev.worker;
+        if (!updated) return;
+        setWorkers((prev) => [updated, ...prev.filter((w) => w.id !== updated.id)]);
+        return;
+      }
+      case EV_TERMINAL_UPDATED: {
+        const t = ev.terminal;
+        if (!t) return;
+        setTerminals((prev) =>
+          prev.some((x) => x.id === t.id) ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]
+        );
+        return;
+      }
+      case EV_SESSION_RENAMED: {
+        const { session, title } = ev;
+        if (!session || title === undefined) return;
+        setSessions((prev) => prev.map((s) => (s.id === session ? { ...s, title } : s)));
+        return;
+      }
+      case EV_APPROVAL_REQUESTED: {
+        const ap = ev.approval;
+        if (!ap) return;
+        setApprovals((prev) => (prev.some((x) => x.id === ap.id) ? prev : [...prev, ap]));
+        return;
+      }
+      case EV_INTERACTION_REQUESTED: {
+        const it = ev.interaction;
+        if (!it) return;
+        setInteractions((prev) => {
+          const rest = prev.filter((x) => x.id !== it.id);
+          return it.settled ? rest : [...rest, it];
+        });
+        return;
+      }
+      case EV_TURN_STARTED:
+        if (!ev.session) return;
+        setBusy(ev.session, true);
+        if (ev.session === selectedSessionRef.current) setLiveDelta("");
+        return;
+      case EV_TEXT_DELTA: {
+        const delta = ev.text?.delta;
+        if (delta && ev.session === selectedSessionRef.current) setLiveDelta((d) => d + delta);
+        return;
+      }
+      case EV_TURN_SUCCEEDED:
+      case EV_TURN_FAILED:
+      case EV_TURN_INTERRUPTED: {
+        const session = ev.session;
+        if (!session) return;
+        setBusy(session, false);
+        // Nothing waits on a finished turn's approvals any more.
+        setApprovals((prev) => prev.filter((a) => a.session !== session));
+        if (session !== selectedSessionRef.current) return;
+        setLiveDelta("");
+        if (ev.error) setConnError(ev.error);
+        void refreshSession(cli, session);
+        return;
+      }
+    }
+  }
 
   async function refreshSession(cli: WadaClient, sessionId: string): Promise<void> {
-    const [msgs, wks, chg] = await Promise.all([
+    const [msgs, wks, chg, pending] = await Promise.all([
       cli.getMessages(sessionId).catch(() => [] as SessionMessage[]),
       cli.listWorkers(sessionId).catch(() => [] as WorkerInfo[]),
       cli.getChanges(sessionId).catch(() => [] as FileChange[]),
+      cli.pendingInteractions(sessionId).catch(() => null),
     ]);
-    setMessages(msgs);
-    setWorkers(wks);
-    setChanges(chg);
+    if (clientRef.current !== cli) return;
+    if (pending) {
+      setInteractions((prev) => [
+        ...prev.filter((x) => x.session !== sessionId),
+        ...pending.filter((x) => !x.settled),
+      ]);
+    }
+    // The user may have moved to another session while this loaded.
+    if (selectedSessionRef.current !== sessionId) return;
+    setMessages(msgs || []);
+    setWorkers(wks || []);
+    setChanges(chg || []);
   }
 
   async function selectSession(id: string): Promise<void> {
-    setSelectedSessionId(id);
-    setApprovals([]);
-    setLiveDelta("");
+    chooseSession(id);
     setSidebarOpen(false);
     if (clientRef.current) {
       await refreshSession(clientRef.current, id);
     }
   }
 
-  async function handlePairSubmit(e: React.FormEvent): Promise<void> {
+  function handlePairSubmit(e: React.FormEvent): void {
     e.preventDefault();
     const target = pairInput.trim();
     if (!target) return;
+    const relayToken = pairRelayToken.trim() || undefined;
     let host: SavedHost;
-    if (target.includes("#offer=") || (!target.includes("://") && !target.includes(":"))) {
-      const off = decodeOffer(target);
-      host = {
-        id: off.serverId || crypto.randomUUID(),
-        name: pairName.trim() || off.hostname || off.serverId || "Remote Daemon",
-        mode: off.relayUrl ? "relay" : "direct",
-        offer: target,
-        relayUrl: off.relayUrl,
-        directUrl: off.directUrl,
-        serverId: off.serverId,
-        token: off.token,
-        requiresPassword: off.requiresPassword,
-        addedAt: Date.now(),
-      };
-    } else {
-      host = {
-        id: crypto.randomUUID(),
-        name: pairName.trim() || target,
-        mode: "direct",
-        directUrl: target,
-        addedAt: Date.now(),
-      };
+    try {
+      if (target.includes("#offer=") || (!target.includes("://") && !target.includes(":"))) {
+        const off = decodeOffer(target);
+        host = {
+          id: off.serverId || crypto.randomUUID(),
+          name: pairName.trim() || off.hostname || off.serverId || "Remote Daemon",
+          mode: off.relayUrl ? "relay" : "direct",
+          offer: target,
+          relayUrl: off.relayUrl,
+          directUrl: off.directUrl,
+          serverId: off.serverId,
+          token: off.token,
+          relayToken,
+          requiresPassword: off.requiresPassword,
+          addedAt: Date.now(),
+        };
+      } else {
+        // The same endpoint is the same host, so re-pairing replaces it.
+        host = {
+          id: "direct:" + normalizeDirectWSURL(target),
+          name: pairName.trim() || target,
+          mode: "direct",
+          directUrl: target,
+          addedAt: Date.now(),
+        };
+      }
+    } catch (err) {
+      setConnError(errorText(err, "Invalid pairing link"));
+      return;
     }
-    const next = upsertHost(host);
-    setHosts(next);
-    setActiveHostId(host.id);
-    saveActiveHostId(host.id);
+    const password = pairPassword;
+    setPairPassword("");
+    setHosts(upsertHost(host));
     setPairOpen(false);
-    await connectHost(host, pairPassword);
+    void openHost(host, password);
   }
 
   async function handleSend(e: React.FormEvent): Promise<void> {
@@ -259,49 +429,134 @@ export function App() {
 
     setPromptText("");
     let sessId = selectedSessionId;
-    if (!sessId) {
-      const created = await cli.createSession(newDir.trim() || ".", newProvider, mode);
-      sessId = created.id;
-      setSessions((prev) => [created, ...prev]);
-      setSelectedSessionId(sessId);
+    const localId = "local_" + crypto.randomUUID();
+    try {
+      if (!sessId) {
+        const created = await cli.createSession(newDir.trim() || ".", newProvider, mode);
+        sessId = created.id;
+        setSessions((prev) => [created, ...prev]);
+        chooseSession(sessId);
+      }
+      setMessages((prev) => [...prev, { id: localId, role: "user", text }]);
+      setBusy(sessId, true);
+      await cli.sendMessage(sessId, text, mode);
+    } catch (err) {
+      setConnError(unconfirmed(sessId ? "The message" : "The new session", err));
+      setPromptText((cur) => cur || text);
+      setMessages((prev) => prev.filter((m) => m.id !== localId));
+      if (sessId) {
+        setBusy(sessId, false);
+        void refreshSession(cli, sessId);
+      }
     }
-    setMessages((prev) => [...prev, { id: "local_" + Date.now(), role: "user", text }]);
-    setBusyTurn(true);
-    await cli.sendMessage(sessId, text, mode);
+  }
+
+  async function handleAbort(session: string): Promise<void> {
+    try {
+      await clientRef.current?.abortSession(session);
+    } catch (err) {
+      setConnError(unconfirmed("Stopping the turn", err));
+    }
+  }
+
+  async function handleApproval(
+    ap: ApprovalItem,
+    decision: "once" | "always" | "reject"
+  ): Promise<void> {
+    try {
+      await clientRef.current?.replyApproval(ap.session, ap.id, decision);
+      setApprovals((prev) => prev.filter((x) => x.id !== ap.id));
+    } catch (err) {
+      setConnError(unconfirmed("The approval reply", err));
+    }
+  }
+
+  async function handleAnswer(ans: InteractionAnswer): Promise<void> {
+    try {
+      await clientRef.current?.answerInteraction(ans);
+      setInteractions((prev) => prev.filter((x) => x.id !== ans.id));
+    } catch (err) {
+      setConnError(unconfirmed("The answer", err));
+    }
   }
 
   async function handleCreateTerminal(): Promise<void> {
     const cli = clientRef.current;
     if (!cli) return;
     const activeSess = sessions.find((s) => s.id === selectedSessionId);
-    const info = await cli.createTerminal(activeSess?.directory || newDir || ".");
-    setTerminals((prev) => [...prev, info]);
+    let info: TerminalInfo;
+    try {
+      info = await cli.createTerminal(activeSess?.directory || newDir || ".");
+    } catch (err) {
+      setConnError(unconfirmed("Creating the terminal", err));
+      return;
+    }
+    setTerminals((prev) => (prev.some((t) => t.id === info.id) ? prev : [...prev, info]));
     await attachTerminal(info.id);
   }
 
   async function attachTerminal(id: string): Promise<void> {
     const cli = clientRef.current;
     if (!cli) return;
-    await termAttachRef.current?.close();
+    // Each attach gets a generation; output and results of a replaced one are dropped.
+    const gen = ++termGenRef.current;
+    const prev = termAttachRef.current;
+    termAttachRef.current = null;
     setActiveTermId(id);
     setTermOutput("");
-    const st = await cli.attachTerminal(id, (chunk) => {
-      setTermOutput((prev) => formatTerminalOutput(prev, chunk));
-    });
-    termAttachRef.current = st;
-    if (st.snapshot.length > 0) {
-      setTermOutput(formatTerminalOutput("", st.snapshot));
+    await prev?.close();
+    if (gen !== termGenRef.current) return;
+    const stream = new TerminalTextStream();
+    try {
+      const st = await cli.attachTerminal(id, (chunk) => {
+        if (gen !== termGenRef.current) return;
+        const text = stream.push(chunk);
+        if (text) setTermOutput((out) => appendTerminalOutput(out, text));
+      });
+      if (gen !== termGenRef.current) {
+        void st.close();
+        return;
+      }
+      termAttachRef.current = st;
+    } catch (err) {
+      if (gen === termGenRef.current) setConnError(errorText(err, "Failed to attach terminal"));
+    }
+  }
+
+  async function handleKillTerminal(id: string): Promise<void> {
+    try {
+      await clientRef.current?.killTerminal(id);
+    } catch (err) {
+      setConnError(unconfirmed("Killing the terminal", err));
+      return;
+    }
+    setTerminals((prev) => prev.filter((x) => x.id !== id));
+    if (id === activeTermId) {
+      termGenRef.current++;
+      termAttachRef.current = null;
+      setActiveTermId("");
+      setTermOutput("");
     }
   }
 
   function handleSendTermCmd(e: React.FormEvent): void {
     e.preventDefault();
-    if (!termAttachRef.current) return;
-    termAttachRef.current.writeInput(new TextEncoder().encode(termCmd + "\r"));
-    setTermCmd("");
+    const term = termAttachRef.current;
+    if (!term) return;
+    try {
+      term.writeInput(new TextEncoder().encode(termCmd + "\r"));
+      setTermCmd("");
+    } catch (err) {
+      setConnError(errorText(err, "Terminal input failed"));
+    }
   }
 
   const activeSession = sessions.find((s) => s.id === selectedSessionId);
+  const busyTurn = selectedSessionId !== "" && busySessions.has(selectedSessionId);
+  const sessionApprovals = approvals.filter((a) => a.session === selectedSessionId);
+  const sessionInteractions = interactions.filter((x) => x.session === selectedSessionId);
+  const needsAttention = (id: string) =>
+    approvals.some((a) => a.session === id) || interactions.some((x) => x.session === id);
 
   return (
     <div className="shell">
@@ -317,7 +572,16 @@ export function App() {
           <span className={`pill pill-${connState}`}>{connState}</span>
         </div>
         <div className="topbar-actions">
-          <button className="btn btn-secondary" onClick={() => setPairOpen(true)}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              setPairName("My Workstation");
+              setPairInput("");
+              setPairPassword("");
+              setPairRelayToken("");
+              setPairOpen(true);
+            }}
+          >
             + Pair / Host
           </button>
         </div>
@@ -332,21 +596,17 @@ export function App() {
             ) : (
               hosts.map((h) => (
                 <div key={h.id} className={`host-item ${h.id === activeHostId ? "active" : ""}`}>
-                  <button
-                    className="host-select"
-                    onClick={() => {
-                      setActiveHostId(h.id);
-                      saveActiveHostId(h.id);
-                      void connectHost(h);
-                    }}
-                  >
+                  <button className="host-select" onClick={() => void openHost(h)}>
                     <span>{h.name}</span>
                     <small>{h.mode === "relay" ? "Noise E2EE" : h.directUrl}</small>
                   </button>
                   <button
                     className="icon-btn"
                     title="Remove"
-                    onClick={() => setHosts(deleteHost(h.id))}
+                    onClick={() => {
+                      passwordsRef.current.delete(h.id);
+                      setHosts(deleteHost(h.id));
+                    }}
                   >
                     ×
                   </button>
@@ -361,7 +621,7 @@ export function App() {
               <button
                 className="btn btn-small"
                 onClick={() => {
-                  setSelectedSessionId("");
+                  chooseSession("");
                   setMessages([]);
                   setChanges([]);
                   setWorkers([]);
@@ -378,7 +638,11 @@ export function App() {
                   className={`session-item ${s.id === selectedSessionId ? "active" : ""}`}
                   onClick={() => void selectSession(s.id)}
                 >
-                  <div className="session-title">{s.title || "Untitled session"}</div>
+                  <div className="session-title">
+                    {s.title || "Untitled session"}{" "}
+                    {needsAttention(s.id) && <span className="pill pill-attention">needs you</span>}
+                    {busySessions.has(s.id) && <span className="pill">running</span>}
+                  </div>
                   <div className="session-dir">{s.directory}</div>
                 </button>
               ))}
@@ -483,7 +747,7 @@ export function App() {
                   </div>
                 )}
 
-                {approvals.map((ap) => (
+                {sessionApprovals.map((ap) => (
                   <div key={ap.id} className="approval-card">
                     <div>
                       <strong>Approval needed:</strong> {ap.action}
@@ -496,16 +760,17 @@ export function App() {
                         <button
                           key={dec}
                           className={dec === "reject" ? "btn btn-danger" : "btn btn-primary"}
-                          onClick={async () => {
-                            await clientRef.current?.replyApproval(ap.session, ap.id, dec);
-                            setApprovals((prev) => prev.filter((x) => x.id !== ap.id));
-                          }}
+                          onClick={() => void handleApproval(ap, dec)}
                         >
                           {dec === "once" ? "Allow once" : dec === "always" ? "Always" : "Reject"}
                         </button>
                       ))}
                     </div>
                   </div>
+                ))}
+
+                {sessionInteractions.map((it) => (
+                  <InteractionCard key={it.id} item={it} onAnswer={handleAnswer} />
                 ))}
               </div>
 
@@ -516,11 +781,11 @@ export function App() {
                   placeholder="Ask Wada or delegate to Claude Code / Codex workers…"
                   disabled={connState !== "connected"}
                 />
-                {busyTurn && selectedSessionId ? (
+                {busyTurn ? (
                   <button
                     type="button"
                     className="btn btn-danger"
-                    onClick={() => void clientRef.current?.abortSession(selectedSessionId)}
+                    onClick={() => void handleAbort(selectedSessionId)}
                   >
                     Stop
                   </button>
@@ -565,13 +830,7 @@ export function App() {
                     <button onClick={() => void attachTerminal(t.id)}>
                       {t.name || t.id} ({t.running ? "on" : "exit"})
                     </button>
-                    <button
-                      className="icon-btn"
-                      onClick={async () => {
-                        await clientRef.current?.killTerminal(t.id);
-                        setTerminals((prev) => prev.filter((x) => x.id !== t.id));
-                      }}
-                    >
+                    <button className="icon-btn" onClick={() => void handleKillTerminal(t.id)}>
                       ×
                     </button>
                   </div>
@@ -581,9 +840,13 @@ export function App() {
                 </button>
                 <button
                   className="btn btn-small"
-                  onClick={() =>
-                    termAttachRef.current?.writeInput(new Uint8Array([0x03]))
-                  }
+                  onClick={() => {
+                    try {
+                      termAttachRef.current?.writeInput(new Uint8Array([0x03]));
+                    } catch (err) {
+                      setConnError(errorText(err, "Terminal input failed"));
+                    }
+                  }}
                 >
                   Ctrl+C
                 </button>
@@ -607,11 +870,7 @@ export function App() {
 
       {pairOpen && (
         <div className="modal-backdrop" onClick={() => setPairOpen(false)}>
-          <form
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => void handlePairSubmit(e)}
-          >
+          <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handlePairSubmit}>
             <h3>Pair or Connect Daemon</h3>
             <label>
               Host name
@@ -636,6 +895,15 @@ export function App() {
                 placeholder="Optional"
               />
             </label>
+            <label>
+              Relay token (if the relay requires one)
+              <input
+                type="password"
+                value={pairRelayToken}
+                onChange={(e) => setPairRelayToken(e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
             <div className="row end">
               <button type="button" className="btn btn-secondary" onClick={() => setPairOpen(false)}>
                 Cancel
@@ -647,6 +915,171 @@ export function App() {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+// InteractionCard asks the user a question the agent is waiting on: a
+// confirmation, a choice, free text, or a set of structured questions.
+function InteractionCard({
+  item,
+  onAnswer,
+}: {
+  item: InteractionItem;
+  onAnswer: (ans: InteractionAnswer) => Promise<void>;
+}) {
+  const [value, setValue] = useState(item.prefill ?? "");
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
+  const [custom, setCustom] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
+  const base = { session: item.session, id: item.id };
+
+  async function send(ans: InteractionAnswer): Promise<void> {
+    setSending(true);
+    try {
+      await onAnswer(ans);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function toggle(key: string, option: string, multiple: boolean): void {
+    setPicked((prev) => {
+      const cur = prev[key] ?? [];
+      const has = cur.includes(option);
+      const next = multiple
+        ? has
+          ? cur.filter((v) => v !== option)
+          : [...cur, option]
+        : has
+          ? []
+          : [option];
+      return { ...prev, [key]: next };
+    });
+  }
+
+  let body: React.ReactNode;
+  if (item.questions?.length) {
+    const submitQuestions = () => {
+      const answers: Record<string, string[]> = {};
+      for (const q of item.questions ?? []) {
+        const vals = [...(picked[q.key] ?? [])];
+        const text = (custom[q.key] ?? "").trim();
+        if (text) vals.push(text);
+        answers[q.key] = vals;
+      }
+      void send({ ...base, answers });
+    };
+    body = (
+      <>
+        {item.questions.map((q) => (
+          <div key={q.key}>
+            <div>{q.title}</div>
+            {q.description && <div className="muted">{q.description}</div>}
+            <div className="row">
+              {q.options?.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  title={o.description}
+                  className={(picked[q.key] ?? []).includes(o.value) ? "btn btn-primary" : "btn"}
+                  onClick={() => toggle(q.key, o.value, q.multiple ?? false)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {(q.custom || !q.options?.length) && (
+              <input
+                value={custom[q.key] ?? ""}
+                onChange={(e) => setCustom((prev) => ({ ...prev, [q.key]: e.target.value }))}
+                placeholder="Your answer"
+              />
+            )}
+          </div>
+        ))}
+        <div className="row">
+          <button className="btn btn-primary" disabled={sending} onClick={submitQuestions}>
+            Answer
+          </button>
+        </div>
+      </>
+    );
+  } else if (item.kind === "confirm") {
+    body = (
+      <div className="row">
+        <button
+          className="btn btn-primary"
+          disabled={sending}
+          onClick={() => void send({ ...base, confirmed: true })}
+        >
+          Yes
+        </button>
+        <button
+          className="btn"
+          disabled={sending}
+          onClick={() => void send({ ...base, confirmed: false })}
+        >
+          No
+        </button>
+      </div>
+    );
+  } else if (item.kind === "select") {
+    body = (
+      <div className="row">
+        {item.options?.map((o) => (
+          <button
+            key={o}
+            className="btn btn-primary"
+            disabled={sending}
+            onClick={() => void send({ ...base, value: o })}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        {item.kind === "editor" ? (
+          <textarea rows={6} value={value} onChange={(e) => setValue(e.target.value)} />
+        ) : (
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={item.placeholder}
+          />
+        )}
+        <div className="row">
+          <button
+            className="btn btn-primary"
+            disabled={sending}
+            onClick={() => void send({ ...base, value })}
+          >
+            Submit
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="approval-card">
+      <div>
+        <strong>{item.title || "The agent has a question"}</strong>
+      </div>
+      {item.message && <div className="muted">{item.message}</div>}
+      {body}
+      <div className="row end">
+        <button
+          className="btn btn-small"
+          disabled={sending}
+          onClick={() => void send({ ...base, cancelled: true })}
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }

@@ -5,8 +5,37 @@ export const OP_TERM_OUTPUT = 0x01;
 export const OP_TERM_INPUT = 0x02;
 export const OP_TERM_RESIZE = 0x03;
 
+// Envelope types, as internal/protocol/envelope.go spells them.
+export const ENV_HELLO = "hello";
+export const ENV_SERVER_INFO = "server_info";
+export const ENV_PING = "ping";
+export const ENV_PONG = "pong";
+export const ENV_RPC_REQUEST = "rpc.request";
+export const ENV_RPC_RESPONSE = "rpc.response";
+export const ENV_EVENT = "event";
+
+// Event kinds, as internal/protocol/messages.go spells them.
+export const EV_TEXT_STARTED = "text_started";
+export const EV_TEXT_DELTA = "text_delta";
+export const EV_APPROVAL_REQUESTED = "approval_requested";
+export const EV_INTERACTION_REQUESTED = "interaction_requested";
+export const EV_TURN_STARTED = "turn_started";
+export const EV_TURN_SUCCEEDED = "turn_succeeded";
+export const EV_TURN_FAILED = "turn_failed";
+export const EV_TURN_INTERRUPTED = "turn_interrupted";
+export const EV_SESSION_RENAMED = "session_renamed";
+export const EV_WORKER_UPDATED = "worker_updated";
+export const EV_TERMINAL_UPDATED = "terminal_updated";
+
 export interface Envelope<T = unknown> {
-  type: "hello" | "server_info" | "ping" | "pong" | "rpc_request" | "rpc_response" | "event";
+  type:
+    | typeof ENV_HELLO
+    | typeof ENV_SERVER_INFO
+    | typeof ENV_PING
+    | typeof ENV_PONG
+    | typeof ENV_RPC_REQUEST
+    | typeof ENV_RPC_RESPONSE
+    | typeof ENV_EVENT;
   requestId?: string;
   subscriptionId?: string;
   method?: string;
@@ -69,11 +98,16 @@ export interface InteractionItem {
   title?: string;
   message?: string;
   options?: string[];
+  placeholder?: string;
+  prefill?: string;
+  settled?: boolean;
   questions?: {
     key: string;
     title: string;
     description?: string;
     options?: { value: string; label: string; description?: string }[];
+    multiple?: boolean;
+    custom?: boolean;
   }[];
 }
 

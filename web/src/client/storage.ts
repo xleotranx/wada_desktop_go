@@ -7,6 +7,8 @@ export interface SavedHost {
   directUrl?: string;
   serverId?: string;
   token?: string;
+  // relayToken is wada-relay's own access token, when the relay requires one.
+  relayToken?: string;
   requiresPassword?: boolean;
   addedAt: number;
 }
@@ -30,7 +32,8 @@ export function saveHosts(list: SavedHost[]): void {
 }
 
 export function upsertHost(host: SavedHost): SavedHost[] {
-  const list = loadSavedHosts().filter((h) => h.id !== host.id && h.name !== host.name);
+  // Hosts are identified by id alone: two daemons may share a display name.
+  const list = loadSavedHosts().filter((h) => h.id !== host.id);
   const next = [host, ...list];
   saveHosts(next);
   return next;

@@ -77,6 +77,15 @@ body,
   color: var(--danger);
 }
 
+.pill-attention {
+  color: var(--accent);
+}
+
+.approval-card input,
+.approval-card textarea {
+  width: 100%;
+}
+
 .workspace {
   flex: 1;
   min-height: 0;

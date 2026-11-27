@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"mime"
 	"os"
 	"path/filepath"
 	"slices"
@@ -144,6 +145,11 @@ func TestLimits(t *testing.T) {
 }
 
 func TestMIME(t *testing.T) {
+	// Stands in for a machine-specific text type, like text/vnd.trolltech.linguist
+	// for ".ts" in some Linux MIME tables.
+	if err := mime.AddExtensionType(".wadaodd", "text/x-wada-odd"); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		path string
 		data []byte
@@ -151,6 +157,8 @@ func TestMIME(t *testing.T) {
 	}{
 		{"a.ts", []byte("const x = 1"), "text/plain"},
 		{"a.html", []byte("<p>Hi</p>"), "text/html"},
+		{"a.wadaodd", []byte("plain words"), "text/plain"},
+		{"a.css", []byte("p { color: red }"), "text/css"},
 		{"Makefile", []byte("all:\n"), "text/plain"},
 		{"a.png", []byte{0x89, 'P', 'N', 'G', 0}, "image/png"},
 		{"blob", []byte{0, 1, 2}, "application/octet-stream"},

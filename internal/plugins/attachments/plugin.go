@@ -311,6 +311,14 @@ func load(r read) read {
 	return r
 }
 
+// knownText are the text types mimeOf keeps. Any other text type comes from
+// the machine's MIME tables, which differ between systems (".ts" is a Qt
+// translation file in some), so text with any other type is text/plain.
+var knownText = []string{
+	"text/plain", "text/html", "text/css", "text/csv", "text/javascript",
+	"text/markdown", "text/xml",
+}
+
 // mimeOf types a file by its extension, then by its contents. Text stays
 // text whatever the extension claims (".ts" is not a video here).
 func mimeOf(path string, data []byte) string {
@@ -323,7 +331,7 @@ func mimeOf(path string, data []byte) string {
 	}
 	text := utf8.Valid(data) && !bytes.ContainsRune(data, 0)
 	switch {
-	case strings.HasPrefix(typ, "image/"), strings.HasPrefix(typ, "text/") && text:
+	case strings.HasPrefix(typ, "image/"), text && slices.Contains(knownText, typ):
 		return typ
 	case text:
 		return "text/plain"

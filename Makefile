@@ -10,9 +10,12 @@ vet:
 	go tool mygo vet .
 
 # Pinned here rather than as a go.mod tool: the linter's module graph would
-# add hundreds of indirect requires to the app's dependency list.
+# add hundreds of indirect requires to the app's dependency list. `go run
+# pkg@version` would otherwise build it with the oldest Go its module allows,
+# which refuses to lint a module that targets a newer Go, so it is built with
+# this module's toolchain.
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run
+	GOTOOLCHAIN=$$(go env GOVERSION) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run
 
 test:
 	go test -race ./...

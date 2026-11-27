@@ -78,7 +78,13 @@ worktrees, and PTY terminals on your own workstation or server:
 - **Zero-Knowledge Relay:** Static X25519 keys live in `<DataDir>/daemon-keypair.json`
   (`0600`). Only `<DataDir>/hosts.json` (on Desktop CLI/app) or browser
   `localStorage` stores pairing profiles. Nonce counters strictly increment per
-  message; tampered or replayed ciphertext closes the tunnel.
+  message; tampered or replayed ciphertext closes the tunnel. A client that falls
+  more than 4 MiB behind is disconnected rather than losing frames.
+- **Daemon Registration:** Before routing any client to a server hash, `wada-relay`
+  challenges the connecting daemon to prove it holds the static private key behind
+  that hash (an HMAC keyed by X25519 with a relay ephemeral key). Knowing the hash
+  from a pairing link is not enough to register as, or evict, that daemon; a daemon
+  that passes the challenge replaces its previous connection.
 - **Password vs Pairing Token:** Setting a daemon password (`wadad --password`,
   `wada daemon set-password`, or Settings → Daemon) removes the cleartext token
   from `#offer=` links and requires bcrypt verification inside the encrypted

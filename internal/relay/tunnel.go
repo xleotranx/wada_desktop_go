@@ -22,6 +22,11 @@ const (
 	RelayOpClose byte = 0x12
 	RelayOpPing  byte = 0x13
 	RelayOpPong  byte = 0x14
+	// RelayOpChallenge (relay → daemon) and RelayOpProof (daemon → relay) are
+	// the daemon's proof that it holds the key behind its server hash; they are
+	// the first frames on a daemon connection, before it is registered.
+	RelayOpChallenge byte = 0x15
+	RelayOpProof     byte = 0x16
 
 	SessionIDSize = 16
 	muxHeaderSize = 1 + SessionIDSize
@@ -372,6 +377,10 @@ func (dc *DaemonConnector) runOnce(wsURL string) error {
 	if err != nil {
 		return err
 	}
+	if err := answerRelayChallenge(ws, dc.kp); err != nil {
+		_ = ws.Close()
+		return err
+	}
 
 	mc := &muxConn{
 		dc:       dc,
@@ -441,6 +450,32 @@ func (dc *DaemonConnector) runOnce(wsURL string) error {
 			mc.closeSession(sid)
 		}
 	}
+}
+
+// answerRelayChallenge proves to wada-relay that this daemon holds kp's
+// private key, which the relay requires before it routes any client to it.
+func answerRelayChallenge(ws *websocket.Conn, kp Keypair) error {
+	_ = ws.SetReadDeadline(time.Now().Add(15 * time.Second))
+	mt, raw, err := ws.ReadMessage()
+	if err != nil {
+		return err
+	}
+	_ = ws.SetReadDeadline(time.Time{})
+	if mt != websocket.BinaryMessage {
+		return errors.New("relay: expected daemon key challenge")
+	}
+	op, sid, challenge, err := DecodeMuxFrame(raw)
+	if err != nil || op != RelayOpChallenge {
+		return errors.New("relay: expected daemon key challenge")
+	}
+	proof, err := answerDaemonChallenge(kp, challenge)
+	if err != nil {
+		return err
+	}
+	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	err = ws.WriteMessage(websocket.BinaryMessage, EncodeMuxFrame(RelayOpProof, sid, proof))
+	_ = ws.SetWriteDeadline(time.Time{})
+	return err
 }
 
 func (mc *muxConn) writeBinary(frame []byte) error {

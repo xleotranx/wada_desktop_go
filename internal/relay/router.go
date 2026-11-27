@@ -15,6 +15,7 @@ const (
 	defaultMaxClientsPerDaemon = 64
 	maxRelayFrameBytes         = 4 << 20
 	maxClientQueueBytes        = 4 << 20
+	daemonProofTimeout         = 10 * time.Second
 )
 
 // RouterConfig configures a stateless zero-knowledge wada-relay router.
@@ -115,7 +116,16 @@ func (rt *Router) handleDaemon(w http.ResponseWriter, r *http.Request, hash stri
 		return
 	}
 	ws.SetReadLimit(maxRelayFrameBytes + muxHeaderSize)
+	if err := proveDaemon(ws, hash); err != nil {
+		_ = ws.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "daemon key proof failed"),
+			time.Now().Add(time.Second))
+		_ = ws.Close()
+		return
+	}
 
+	// Only a daemon that proved it holds the key replaces the current slot,
+	// which is how a reconnecting daemon takes over from a dead connection.
 	slot := &daemonSlot{
 		hash:    hash,
 		ws:      ws,
@@ -173,6 +183,35 @@ func (rt *Router) handleDaemon(w http.ResponseWriter, r *http.Request, hash stri
 			}
 		}
 	}
+}
+
+// proveDaemon challenges a newly connected daemon to prove it holds the private
+// key behind hash before it may register.
+func proveDaemon(ws *websocket.Conn, hash string) error {
+	eph, challenge, err := newDaemonChallenge()
+	if err != nil {
+		return err
+	}
+	var zero [SessionIDSize]byte
+	_ = ws.SetWriteDeadline(time.Now().Add(daemonProofTimeout))
+	if err := ws.WriteMessage(websocket.BinaryMessage, EncodeMuxFrame(RelayOpChallenge, zero, challenge)); err != nil {
+		return err
+	}
+	_ = ws.SetReadDeadline(time.Now().Add(daemonProofTimeout))
+	mt, raw, err := ws.ReadMessage()
+	if err != nil {
+		return err
+	}
+	_ = ws.SetReadDeadline(time.Time{})
+	_ = ws.SetWriteDeadline(time.Time{})
+	if mt != websocket.BinaryMessage {
+		return errBadDaemonProof
+	}
+	op, _, proof, err := DecodeMuxFrame(raw)
+	if err != nil || op != RelayOpProof {
+		return errBadDaemonProof
+	}
+	return verifyDaemonProof(eph, challenge, hash, proof)
 }
 
 func (rt *Router) handleClient(w http.ResponseWriter, r *http.Request, hash string) {
@@ -293,8 +332,16 @@ func (d *daemonSlot) closeAll() {
 
 func (cs *clientSlot) enqueue(frame []byte) {
 	cs.mu.Lock()
-	if cs.closed || cs.queuedByte+len(frame) > maxClientQueueBytes {
+	if cs.closed {
 		cs.mu.Unlock()
+		return
+	}
+	if cs.queuedByte+len(frame) > maxClientQueueBytes {
+		// Dropping one ciphertext frame would break the tunnel's Noise nonce
+		// sequence, so a client this far behind is disconnected instead; its
+		// read loop then tells the daemon the session closed.
+		cs.mu.Unlock()
+		cs.closeNow()
 		return
 	}
 	cs.queue = append(cs.queue, frame)

@@ -475,9 +475,38 @@ func (c *Client) ReadFile(ctx context.Context, dir, path string) ([]byte, error)
 	return out.Data, err
 }
 
+func (c *Client) FitImage(ctx context.Context, ref protocol.ModelRef, file protocol.File) (int, int, error) {
+	var out protocol.FitImageResponse
+	err := c.Call(ctx, protocol.MethodImagesFit, protocol.FitImageRequest{Model: ref, File: file}, &out)
+	return out.Width, out.Height, err
+}
+
 func (c *Client) Skills(ctx context.Context, dir string) ([]protocol.Skill, error) {
 	var out []protocol.Skill
 	return out, c.Call(ctx, protocol.MethodSkillsList, protocol.SkillsListRequest{Directory: dir}, &out)
+}
+
+func (c *Client) Providers(ctx context.Context) ([]protocol.ProviderInfo, error) {
+	var out []protocol.ProviderInfo
+	return out, c.Call(ctx, protocol.MethodProvidersList, nil, &out)
+}
+
+func (c *Client) StartProviderLogin(ctx context.Context, req protocol.ProviderLoginStartRequest) (string, error) {
+	var out protocol.ProviderLoginStartResponse
+	err := c.Call(ctx, protocol.MethodProviderLoginStart, req, &out)
+	return out.LoginID, err
+}
+
+func (c *Client) AnswerProviderLogin(ctx context.Context, loginID, value string) error {
+	return c.Call(ctx, protocol.MethodProviderLoginAnswer, protocol.ProviderLoginAnswerRequest{LoginID: loginID, Value: value}, nil)
+}
+
+func (c *Client) CancelProviderLogin(ctx context.Context, loginID string) error {
+	return c.Call(ctx, protocol.MethodProviderLoginCancel, protocol.ProviderLoginCancelRequest{LoginID: loginID}, nil)
+}
+
+func (c *Client) LogoutProvider(ctx context.Context, providerID string) error {
+	return c.Call(ctx, protocol.MethodProviderLogout, protocol.ProviderLogoutRequest{ProviderID: providerID}, nil)
 }
 
 func (c *Client) PendingInteractions(ctx context.Context, id string) ([]protocol.Interaction, error) {

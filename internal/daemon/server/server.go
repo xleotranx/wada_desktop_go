@@ -55,7 +55,13 @@ type Backend interface {
 	Modes(ctx context.Context) ([]protocol.Mode, error)
 	FindFiles(ctx context.Context, dir, query string, limit int) ([]protocol.FileEntry, error)
 	ReadFile(ctx context.Context, dir, path string) ([]byte, error)
+	FitImage(ctx context.Context, ref protocol.ModelRef, file protocol.File) (int, int, error)
 	Skills(ctx context.Context, dir string) ([]protocol.Skill, error)
+	Providers(ctx context.Context) ([]protocol.ProviderInfo, error)
+	StartProviderLogin(ctx context.Context, req protocol.ProviderLoginStartRequest) (string, error)
+	AnswerProviderLogin(ctx context.Context, loginID, value string) error
+	CancelProviderLogin(ctx context.Context, loginID string) error
+	LogoutProvider(ctx context.Context, providerID string) error
 	PendingInteractions(ctx context.Context, id string) ([]protocol.Interaction, error)
 	AnswerInteraction(ctx context.Context, req protocol.InteractionAnswer) error
 }
@@ -778,6 +784,16 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return protocol.FilesReadResponse{Data: data}, nil
+	case protocol.MethodImagesFit:
+		var req protocol.FitImageRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		w, h, err := s.cfg.Backend.FitImage(ctx, req.Model, req.File)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return protocol.FitImageResponse{Width: w, Height: h}, nil
 	case protocol.MethodSkillsList:
 		var req protocol.SkillsListRequest
 		if len(payload) > 0 {
@@ -790,6 +806,49 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return skills, nil
+	case protocol.MethodProvidersList:
+		list, err := s.cfg.Backend.Providers(ctx)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodProviderLoginStart:
+		var req protocol.ProviderLoginStartRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		loginID, err := s.cfg.Backend.StartProviderLogin(ctx, req)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return protocol.ProviderLoginStartResponse{LoginID: loginID}, nil
+	case protocol.MethodProviderLoginAnswer:
+		var req protocol.ProviderLoginAnswerRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := s.cfg.Backend.AnswerProviderLogin(ctx, req.LoginID, req.Value); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodProviderLoginCancel:
+		var req protocol.ProviderLoginCancelRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := s.cfg.Backend.CancelProviderLogin(ctx, req.LoginID); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodProviderLogout:
+		var req protocol.ProviderLogoutRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		if err := s.cfg.Backend.LogoutProvider(ctx, req.ProviderID); err != nil {
+			return nil, internalErr(err)
+		}
+		return map[string]bool{"ok": true}, nil
 	case protocol.MethodInteractionsPending:
 		var req protocol.SessionIDRequest
 		if err := json.Unmarshal(payload, &req); err != nil {

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"log"
+	"os"
+
+	"wada-desktop-go/internal/daemon/runner"
 	"wada-desktop-go/internal/plugins/attachments"
 	"wada-desktop-go/internal/plugins/chat"
+	"wada-desktop-go/internal/plugins/daemon"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/flows"
@@ -13,7 +18,6 @@ import (
 	"wada-desktop-go/internal/plugins/modes"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/palette"
-	"wada-desktop-go/internal/plugins/pig"
 	"wada-desktop-go/internal/plugins/skills"
 	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
@@ -36,10 +40,18 @@ var wada = shell.App{
 	Menus: []string{"File", "Chat", "View", "Agent", "Help"},
 }
 
-// main is the composition: the plugins this build installs, in order.
+// main launches either the headless daemon subprocess (`--daemon`) or the
+// desktop shell composed of plugins in order.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--daemon" {
+		if err := runner.Run(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	shell.Run(wada, append([]kernel.Factory{
-		pig.New,
+		daemon.New,
 		chat.New,
 		models.New,
 		modes.New, // the mode, or a workflow for the next message

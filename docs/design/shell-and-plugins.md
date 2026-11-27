@@ -34,7 +34,7 @@ Conversation settings section with the work panel's switch.
   folder** opens the composer in the backend's Inbox. Once the transcript has rows the composer sits at the foot of
   the page; it keeps its place in the tree, so it keeps its focus as it moves.
 - A `chat.Requirements` entry stands in front of an empty new chat while something
-  is missing. PiG contributes one while no provider is connected: its setup reuses
+  is missing. The daemon plugin contributes one while no provider is connected: its setup reuses
   the provider search, list and login form from Settings → Providers and draws in
   place of the folder gate and composer. When a provider connects, the provider
   list reloads, the models catalog reloads and the folder gate appears.
@@ -348,7 +348,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 ## Settings
 
-The kit's settings page shows as a tab. The tabs, chat, PiG, models and
+The kit's settings page shows as a tab. The tabs, chat, daemon, models and
 notifications plugins contribute their own sections.
 
 ## Model picker

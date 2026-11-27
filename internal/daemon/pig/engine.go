@@ -80,6 +80,8 @@ type engine struct {
 	approvals     map[string]*approvalWait
 	dialogs       map[string]*interactionWait
 	sequence      uint64
+	loginsMu      sync.Mutex
+	logins        map[string]*providerLogin
 	dirLocksMu    sync.Mutex
 	dirLocks      map[string]*sync.Mutex
 }
@@ -141,6 +143,7 @@ func newEngine(ctx context.Context, root string, spawn func(func(context.Context
 		sessions:    map[string]*conversation{},
 		approvals:   map[string]*approvalWait{},
 		dialogs:     map[string]*interactionWait{},
+		logins:      map[string]*providerLogin{},
 		dirLocks:    map[string]*sync.Mutex{},
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "metadata"))
@@ -235,6 +238,12 @@ func (e *engine) close() {
 	if e.offModels != nil {
 		e.offModels()
 	}
+	e.loginsMu.Lock()
+	for id, login := range e.logins {
+		login.cancel()
+		delete(e.logins, id)
+	}
+	e.loginsMu.Unlock()
 	e.active.Wait()
 	e.turns.Wait()
 	e.mu.Lock()

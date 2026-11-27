@@ -1,6 +1,6 @@
 # Wada
 
-A native desktop coding-agent workspace: explore codebases, edit files, run commands, inspect diffs, and run reviewed engineering workflows (`Plan, code, review`) inside the conversation. Built with Go, MyGo and Onevra; PiG runs the agents inside the app, so no separate agent executable is required.
+A native desktop coding-agent workspace: explore codebases, edit files, run commands, inspect diffs, and run reviewed engineering workflows (`Plan, code, review`) inside the conversation. Built with Go, MyGo and Onevra; the headless `wadad` daemon embeds PiG so coding turns keep running even when the desktop window closes.
 Chat and controls are native.
 
 ![Wada's native desktop chat interface](docs/images/new_dekstop.png)
@@ -51,7 +51,7 @@ command; folders picked with ⌘O, All chats or the composer; a work panel besid
 conversation with its context, session or uncommitted Git changes with expandable diffs, and cost;
 model, effort and mode pickers; file and image attachments; workflows such as plan,
 work, review in the current chat; desktop notifications for conversations in the background; settings
-for appearance, tabs, PiG, providers, notifications, and turning plugins
+for appearance, tabs, daemon, providers, notifications, and turning plugins
 on and off.
 
 Select text in a conversation for **Start a side chat** or **Reply**. A side chat
@@ -81,9 +81,14 @@ requires explicit resume.
 | Package | Responsibility |
 | --- | --- |
 | `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
-| `main.go` | Wada's name, window and menus, and the plugins this build installs |
+| `main.go` | Wada's name, window and menus, `--daemon` mode dispatch, and the plugins this build installs |
+| `cmd/wadad` | Standalone headless coding-agent daemon (`wadad`) |
+| `cmd/wada` | CLI client (`wada`) talking to `wadad` over WebSocket RPC |
+| `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
+| `internal/client` | Go WebSocket client SDK and local daemon attach/auto-spawn helpers |
+| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `workflow`, `workspace` |
-| `internal/plugins/pig` | Embedded PiG SDK, built-in coding tools, assistant sessions, permissions and providers |
+| `internal/plugins/daemon` | Connects Desktop to local `wadad` over WebSocket RPC (`agent.*`, `daemon.restart`, and providers setup) |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
 | `internal/plugins/modes` | Access mode and one-task workflow selection |
@@ -140,9 +145,10 @@ Production settings and app records live under
 `wada-desktop-go-dev/`. Set `WADA_DATA_DIR` to choose another directory.
 
 - `settings.db`: settings; `workspace.db`: folder and conversation records;
-  `workflow.db`: tasks and queued inputs.
+  `workflow.db`: tasks and queued inputs; `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
+- `wadad.pid`, `local-credential`, `wadad.log`: local daemon discovery and authentication files.
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
-  `pig/agent/`: provider credentials and configuration.
+  `pig/baselines/`: lazy on-disk session diff baselines; `pig/agent/`: provider credentials and configuration.
 
 Treat these directories as sensitive. Messages, attachments and tool results sent
 to a model go to your chosen provider. Do not include credentials or private

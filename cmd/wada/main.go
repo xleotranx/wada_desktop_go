@@ -247,7 +247,8 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 			return fmt.Errorf("turn interrupted")
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventModelChanged,
-			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged:
+			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
+			protocol.EventProviderAuth:
 		}
 	}
 	return nil

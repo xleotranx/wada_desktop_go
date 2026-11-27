@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/protocol"
 )
 
-func imageFile(t *testing.T, w, h int, noise bool) agent.File {
+func imageFile(t *testing.T, w, h int, noise bool) protocol.File {
 	t.Helper()
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	r := rand.New(rand.NewPCG(1, 2))
@@ -26,12 +26,13 @@ func imageFile(t *testing.T, w, h int, noise bool) agent.File {
 	if err := png.Encode(&data, img); err != nil {
 		t.Fatal(err)
 	}
-	return agent.File{Name: "image.png", MIME: "image/png", Data: data.Bytes()}
+	return protocol.File{Name: "image.png", MIME: "image/png", Data: data.Bytes()}
 }
 
 func TestImageFitAccountsForTheEncodedByteLimit(t *testing.T) {
-	h, p, _ := startPig(t)
-	e, err := p.current()
+	rt, _ := newTestRuntime(t)
+	e, release, err := rt.acquire()
+	defer release()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,34 +45,31 @@ func TestImageFitAccountsForTheEncodedByteLimit(t *testing.T) {
 	if err := e.models.RegisterNativeProvider(faux.Provider()); err != nil {
 		t.Fatal(err)
 	}
-	ref := agent.ModelRef{Provider: "small-images", ID: "vision"}
+	ref := protocol.ModelRef{Provider: "small-images", ID: "vision"}
 	file := imageFile(t, 600, 600, true)
-	fit := func() [2]int {
-		return call(t, h, func(ctx context.Context) ([2]int, error) {
-			w, h, err := p.Fit(ctx, ref, file)
-			return [2]int{w, h}, err
-		})
+	w, h, err := rt.FitImage(t.Context(), ref, file)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The pinned PiG encoder needs four 3/4-size steps to fit this image.
-	if got := fit(); got != [2]int{189, 189} {
-		t.Fatalf("byte-limited image sent at %v, want 189×189", got)
+	if [2]int{w, h} != [2]int{189, 189} {
+		t.Fatalf("byte-limited image sent at %dx%d, want 189x189", w, h)
 	}
 	if err := e.services.SettingsManager().SetImageAutoResize(false); err != nil {
 		t.Fatal(err)
 	}
-	if got := fit(); got != [2]int{600, 600} {
-		t.Fatalf("resizing disabled: got %v, want 600×600", got)
+	w, h, err = rt.FitImage(t.Context(), ref, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if [2]int{w, h} != [2]int{600, 600} {
+		t.Fatalf("resizing disabled: got %dx%d, want 600x600", w, h)
 	}
 }
 
 func TestImagesFitWithinTheModelsLimitsKeepingTheirShape(t *testing.T) {
-	h, p, _ := startPig(t)
-	e, err := p.current()
-	if err != nil {
-		t.Fatal(err)
-	}
+	rt, _ := newTestRuntime(t)
 	for _, tc := range []struct{ w, h, mw, mh, ww, wh int }{
-		{3024, 1964, 0, 0, 2000, 1299}, // default limits
+		{3024, 1964, 0, 0, 2000, 1299},
 		{1964, 3024, 2000, 2000, 1299, 2000},
 		{1920, 1080, 2000, 2000, 1920, 1080},
 		{5120, 2880, 1568, 1000, 1568, 882},
@@ -81,32 +79,29 @@ func TestImagesFitWithinTheModelsLimitsKeepingTheirShape(t *testing.T) {
 			ID: "vision", Input: []string{"text", "image"},
 			InputLimits: &ai.ModelInputLimits{Images: &ai.ModelImageInputLimits{Resize: &ai.ModelImageResizeOptions{MaxWidth: tc.mw, MaxHeight: tc.mh}}},
 		}}})
-		if err := e.models.RegisterNativeProvider(faux.Provider()); err != nil {
+		if err := rt.ModelRuntime().RegisterNativeProvider(faux.Provider()); err != nil {
 			t.Fatal(err)
 		}
 		file := imageFile(t, tc.w, tc.h, false)
-		got := call(t, h, func(ctx context.Context) ([2]int, error) {
-			w, h, err := p.Fit(ctx, agent.ModelRef{Provider: "image-limits", ID: "vision"}, file)
-			return [2]int{w, h}, err
-		})
-		if got != [2]int{tc.ww, tc.wh} {
-			t.Errorf("%d×%d in %d×%d: %v, want %d×%d", tc.w, tc.h, tc.mw, tc.mh, got, tc.ww, tc.wh)
+		w, h, err := rt.FitImage(t.Context(), protocol.ModelRef{Provider: "image-limits", ID: "vision"}, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if [2]int{w, h} != [2]int{tc.ww, tc.wh} {
+			t.Errorf("%dx%d in %dx%d: %dx%d, want %dx%d", tc.w, tc.h, tc.mw, tc.mh, w, h, tc.ww, tc.wh)
 		}
 	}
 }
 
 func TestImageFitRejectsInvalidAndCancelledImages(t *testing.T) {
-	h, p, _ := startPig(t)
+	rt, _ := newTestRuntime(t)
 	file := imageFile(t, 10, 10, false)
-	call(t, h, func(ctx context.Context) (struct{}, error) {
-		if _, _, err := p.Fit(ctx, agent.ModelRef{}, agent.File{MIME: "image/png", Data: []byte("invalid")}); err == nil {
-			t.Error("an invalid image reported a sent size")
-		}
-		cancelled, cancel := context.WithCancel(ctx)
-		cancel()
-		if _, _, err := p.Fit(cancelled, agent.ModelRef{}, file); err != context.Canceled {
-			t.Errorf("cancelled fit: %v", err)
-		}
-		return struct{}{}, nil
-	})
+	if _, _, err := rt.FitImage(t.Context(), protocol.ModelRef{}, protocol.File{MIME: "image/png", Data: []byte("invalid")}); err == nil {
+		t.Error("an invalid image reported a sent size")
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, _, err := rt.FitImage(cancelled, protocol.ModelRef{}, file); err != context.Canceled {
+		t.Errorf("cancelled fit: %v", err)
+	}
 }

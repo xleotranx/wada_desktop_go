@@ -28,7 +28,14 @@ const (
 
 	MethodFilesFind  = "agent.files.find"
 	MethodFilesRead  = "agent.files.read"
+	MethodImagesFit  = "agent.images.fit"
 	MethodSkillsList = "agent.skills.list"
+
+	MethodProvidersList       = "agent.providers.list"
+	MethodProviderLoginStart  = "agent.provider.login.start"
+	MethodProviderLoginAnswer = "agent.provider.login.answer"
+	MethodProviderLoginCancel = "agent.provider.login.cancel"
+	MethodProviderLogout      = "agent.provider.logout"
 
 	MethodInteractionsPending = "agent.interactions.pending"
 	MethodInteractionsAnswer  = "agent.interactions.answer"
@@ -48,6 +55,8 @@ type (
 	FileStatus      string
 	EventKind       string
 	InteractionKind string
+	ProviderAuthType      string
+	ProviderAuthEventKind string
 )
 
 const (
@@ -107,6 +116,25 @@ const (
 	EventSessionRenamed       EventKind = "session_renamed"
 	EventSessionDeleted       EventKind = "session_deleted"
 	EventModelsChanged        EventKind = "models_changed"
+	EventProviderAuth         EventKind = "provider_auth"
+)
+
+const (
+	ProviderAuthAPIKey ProviderAuthType = "api_key"
+	ProviderAuthOAuth  ProviderAuthType = "oauth"
+)
+
+const (
+	ProviderAuthPromptText   ProviderAuthEventKind = "prompt_text"
+	ProviderAuthPromptSecret ProviderAuthEventKind = "prompt_secret"
+	ProviderAuthPromptCode   ProviderAuthEventKind = "prompt_code"
+	ProviderAuthPromptSelect ProviderAuthEventKind = "prompt_select"
+	ProviderAuthURL          ProviderAuthEventKind = "url"
+	ProviderAuthDeviceCode   ProviderAuthEventKind = "device_code"
+	ProviderAuthInfo         ProviderAuthEventKind = "info"
+	ProviderAuthProgress     ProviderAuthEventKind = "progress"
+	ProviderAuthDone         ProviderAuthEventKind = "done"
+	ProviderAuthError        ProviderAuthEventKind = "error"
 )
 
 const (
@@ -273,6 +301,64 @@ type FilesReadResponse struct {
 	Data []byte `json:"data"`
 }
 
+type FitImageRequest struct {
+	Model ModelRef `json:"model"`
+	File  File     `json:"file"`
+}
+
+type FitImageResponse struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type ProviderInfo struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Source         string `json:"source,omitempty"`
+	SupportsAPIKey bool   `json:"supportsApiKey,omitempty"`
+	SupportsOAuth  bool   `json:"supportsOAuth,omitempty"`
+	Connected      bool   `json:"connected,omitempty"`
+}
+
+type ProviderSelectOption struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type ProviderAuthEvent struct {
+	LoginID    string                 `json:"loginId"`
+	ProviderID string                 `json:"providerId"`
+	Kind       ProviderAuthEventKind  `json:"kind"`
+	Message    string                 `json:"message,omitempty"`
+	URL        string                 `json:"url,omitempty"`
+	UserCode   string                 `json:"userCode,omitempty"`
+	Options    []ProviderSelectOption `json:"options,omitempty"`
+}
+
+type ProviderLoginStartRequest struct {
+	LoginID    string           `json:"loginId,omitempty"`
+	ProviderID string           `json:"providerId"`
+	AuthType   ProviderAuthType `json:"authType"`
+}
+
+type ProviderLoginStartResponse struct {
+	LoginID string `json:"loginId"`
+}
+
+type ProviderLoginAnswerRequest struct {
+	LoginID string `json:"loginId"`
+	Value   string `json:"value"`
+}
+
+type ProviderLoginCancelRequest struct {
+	LoginID string `json:"loginId"`
+}
+
+type ProviderLogoutRequest struct {
+	ProviderID string `json:"providerId"`
+}
+
 type SkillsListRequest struct {
 	Directory string `json:"directory,omitempty"`
 }
@@ -397,9 +483,10 @@ type Event struct {
 	Session     string          `json:"session,omitempty"`
 	Text        *TextEvent      `json:"text,omitempty"`
 	Tool        *Tool           `json:"tool,omitempty"`
-	Approval    *Approval       `json:"approval,omitempty"`
-	Interaction *Interaction    `json:"interaction,omitempty"`
-	Model       ModelRef        `json:"model"`
+	Approval     *Approval          `json:"approval,omitempty"`
+	Interaction  *Interaction       `json:"interaction,omitempty"`
+	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
+	Model        ModelRef           `json:"model"`
 	Title       string          `json:"title,omitempty"`
 	Error       string          `json:"error,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`

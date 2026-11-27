@@ -61,23 +61,22 @@ linters:
             - "wada-desktop-go/internal/daemon"
             - "wada-desktop-go/internal/protocol"
             - "wada-desktop-go/internal/store"
-        pig:
-          files: ["**/internal/plugins/pig/*.go", "!$test"]
+        daemon_plugin:
+          files: ["**/internal/plugins/daemon/*.go", "!$test"]
           list-mode: strict
           allow:
             - "$gostd"
-            - "github.com/MichaelKinsy/PiG/agent"
-            - "github.com/MichaelKinsy/PiG/ai"
-            - "github.com/MichaelKinsy/PiG/coding"
             - "github.com/egoist/mygo"
+            - "github.com/google/uuid"
             - "github.com/oneo-me/onevra/source"
             - "github.com/xleotranx/wada-kit/kernel"
             - "github.com/xleotranx/wada-kit/contract"
             - "github.com/xleotranx/wada-kit/native"
+            - "wada-desktop-go/internal/client"
             - "wada-desktop-go/internal/contract"
-            - "wada-desktop-go/internal/store"
+            - "wada-desktop-go/internal/protocol"
         plugins:
-          files: ["**/internal/plugins/**/*.go", "!**/internal/plugins/pig/*.go", "!$test"]
+          files: ["**/internal/plugins/**/*.go", "!**/internal/plugins/daemon/*.go", "!$test"]
           list-mode: strict
           allow:
             - "$gostd"

@@ -17,7 +17,11 @@ keep its types inside the backend plugin.
   inspector plugins, `kernel/kerneltest` and `kittest`. It never imports Wada.
   Do not edit cached dependencies or add a permanent local `replace`. See
   [kit dependency maintenance](docs/design/kit-dependency.md).
-- `main.go`: composition only — Wada's `shell.App` and the plugins this build installs.
+- `main.go`: composition only — Wada's `shell.App`, `--daemon` subprocess dispatch, and the plugins this build installs.
+- `cmd/wadad` and `cmd/wada`: standalone headless daemon binary and CLI client for `wadad`.
+- `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
+- `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `ConnectOrStartLocal`) and platform detached spawn helpers.
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), and embedded PiG runtime (`pig`).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
@@ -26,7 +30,7 @@ keep its types inside the backend plugin.
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement).
-- `internal/plugins/*`: every feature. `pig` (embedded backend, coding tools, and first-run provider setup), `chat` (conversation
+- `internal/plugins/*`: every feature. `daemon` (connects to local `wadad` over WebSocket RPC, auto-spawns `wadad`, and hosts first-run/settings provider auth), `chat` (conversation
   page, which asks for a work folder before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
@@ -113,7 +117,9 @@ Settings live in `settings.db` (schema 1, via `wada-kit`) under `$WADA_DATA_DIR`
 `wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
 conversations the app started live beside it in `workspace.db` (pure-Go SQLite with
 numbered schema migrations). Workflow tasks, queued inputs and review reports live in
-`workflow.db` (pure-Go SQLite with numbered schema migrations). Future unsupported
+`workflow.db` (pure-Go SQLite with numbered schema migrations). Daemon server identity,
+epoch counters, idempotent creation/delivery receipts, and sequenced timeline events
+live in `wadad.db`. Future unsupported
 schemas are refused. Conversations' messages belong to PiG's JSONL transcripts in
 `pig/sessions/`; Wada's session metadata is in `pig/metadata/`, lazy session diff
 baselines in `pig/baselines/`, and provider credentials and configuration in `pig/agent/`.

@@ -1,36 +1,32 @@
-package pig
+package daemon
 
 import (
 	"cmp"
 	"strings"
 
-	"wada-desktop-go/internal/contract/agent"
-
-	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
 	"github.com/xleotranx/wada-kit/native"
+	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/protocol"
 )
 
-// providerNeeded reports that PiG is ready but no provider is connected, so a
-// new chat has no model to work with. It is false until the provider list has
-// loaded, so a connected provider never flashes a setup screen.
+// providerNeeded reports that the daemon is ready but no provider is connected,
+// so a new chat has no model to work with.
 func (p *Plugin) providerNeeded() bool {
 	if p.status.State != agent.Ready || !p.providers.loaded {
 		return false
 	}
 	for _, pr := range p.providers.list {
-		if pr.connected {
+		if pr.Connected {
 			return false
 		}
 	}
 	return true
 }
 
-// providerSetup connects a provider from the first run's new chat. It is the
-// same provider search, list and login form as Settings → Providers, without
-// the settings furniture.
+// providerSetup connects a provider from the first run's new chat.
 func (p *Plugin) providerSetup(c *ui.Context) {
 	pal := native.PaletteFor(c)
 	ui.Column(c).Fill().Center().Padding(32).Children(func() {
@@ -40,7 +36,7 @@ func (p *Plugin) providerSetup(c *ui.Context) {
 			})
 			ui.Column(c).AlignItems(ui.Center).Gap(7).Children(func() {
 				ui.Text(c, "Connect a model provider").FontSize(24).FontWeight(600).TextColor(pal.Text).TextAlign(ui.Center)
-				ui.Text(c, "Wada needs a model before it can work. Connect the provider you use; credentials stay in Wada.").
+				ui.Text(c, "Wada needs a model before it can work. Connect the provider you use; credentials stay on the daemon.").
 					FontSize(13).TextColor(pal.Muted).TextAlign(ui.Center)
 			})
 			if p.providers.selected != "" {
@@ -51,7 +47,7 @@ func (p *Plugin) providerSetup(c *ui.Context) {
 				ui.Text(c, p.providers.err).FontSize(12).TextColor(pal.Danger).TextAlign(ui.Center)
 			}
 			if len(p.providers.list) == 0 {
-				ui.Text(c, "No providers are available. Try again after PiG starts.").
+				ui.Text(c, "No providers are available. Try again after wadad connects.").
 					FontSize(12).TextColor(pal.Muted).TextAlign(ui.Center)
 				components.Button(c, "Try again", components.ButtonSecondary).OnClick(p.loadProviders)
 				return
@@ -63,22 +59,22 @@ func (p *Plugin) providerSetup(c *ui.Context) {
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
 					shown := 0
 					for _, pr := range p.providers.list {
-						if pr.connected || !strings.Contains(strings.ToLower(pr.name+" "+pr.id), query) {
+						if pr.Connected || !strings.Contains(strings.ToLower(pr.Name+" "+pr.ID), query) {
 							continue
 						}
 						shown++
-						c.Key(pr.id)
+						c.Key(pr.ID)
 						ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Padding(10, 12).Radius(10).
 							Background(pal.Raised).Border(1, pal.Hairline).Children(func() {
-							ui.Text(c, cmp.Or(pr.name, pr.id)).Grow(1).MinWidth(0).FontSize(13.5).FontWeight(500).
+							ui.Text(c, cmp.Or(pr.Name, pr.ID)).Grow(1).MinWidth(0).FontSize(13.5).FontWeight(500).
 								TextColor(pal.Text).SingleLine().Ellipsis("…")
-							if pr.key {
-								components.Button(c, "API key", components.ButtonSecondary).OnClick(func() { p.login(pr.id, ai.CredentialAPIKey) })
+							if pr.SupportsAPIKey {
+								components.Button(c, "API key", components.ButtonSecondary).OnClick(func() { p.login(pr.ID, protocol.ProviderAuthAPIKey) })
 							}
-							if pr.oauth {
-								components.Button(c, "Sign in", components.ButtonSecondary).OnClick(func() { p.login(pr.id, ai.CredentialOAuth) })
+							if pr.SupportsOAuth {
+								components.Button(c, "Sign in", components.ButtonSecondary).OnClick(func() { p.login(pr.ID, protocol.ProviderAuthOAuth) })
 							}
-							if !pr.key && !pr.oauth {
+							if !pr.SupportsAPIKey && !pr.SupportsOAuth {
 								ui.Text(c, "Unavailable").FontSize(12).TextColor(pal.Muted)
 							}
 						})
@@ -94,7 +90,7 @@ func (p *Plugin) providerSetup(c *ui.Context) {
 	})
 }
 
-// providerLogin is the login form the setup and the settings section share.
+// providerLogin is the login form the setup and settings sections share.
 func (p *Plugin) providerLogin(c *ui.Context, pal native.Palette) {
 	ui.Column(c).FillWidth().MaxWidth(420).AlignItems(ui.Center).Gap(10).Children(func() {
 		ui.Text(c, "Connect "+p.providerName(p.providers.selected)).FontSize(16).FontWeight(600).
@@ -102,10 +98,10 @@ func (p *Plugin) providerLogin(c *ui.Context, pal native.Palette) {
 		if p.providers.message != "" {
 			ui.Text(c, p.providers.message).FontSize(12).TextColor(pal.Muted).TextAlign(ui.Center)
 		}
-		if p.providers.busy && p.providers.reply == nil {
+		if p.providers.busy && !p.providers.awaitingAnswer {
 			ui.Text(c, "Connecting…").FontSize(12).TextColor(pal.Muted)
 		}
-		if p.providers.reply != nil {
+		if p.providers.awaitingAnswer {
 			ui.Text(c, p.providers.prompt).FontSize(12.5).TextColor(pal.Text).TextAlign(ui.Center)
 			if len(p.providers.options) > 0 {
 				for _, option := range p.providers.options {
@@ -127,8 +123,8 @@ func (p *Plugin) providerLogin(c *ui.Context, pal native.Palette) {
 
 func (p *Plugin) providerName(id string) string {
 	for _, pr := range p.providers.list {
-		if pr.id == id {
-			return cmp.Or(pr.name, pr.id)
+		if pr.ID == id {
+			return cmp.Or(pr.Name, pr.ID)
 		}
 	}
 	return id

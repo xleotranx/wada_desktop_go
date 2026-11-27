@@ -1,8 +1,11 @@
 # Agent contract
 
 `internal/contract/agent` declares Wada's backend-neutral services and events.
-`internal/plugins/pig` is their implementation, embedding PiG v0.8.0 through its
-public Go SDK. PiG types never leave the plugin; the kit has no agent dependency.
+`internal/plugins/daemon` implements the desktop side by connecting over WebSocket RPC
+(`internal/client` + `internal/protocol`) to the headless `wadad` daemon
+(`internal/daemon/server` + `internal/daemon/pig`), which embeds PiG v0.8.0 through
+its public Go SDK. PiG types never leave `internal/daemon/pig`; the kit and UI
+plugins have no PiG dependency.
 
 ## Capabilities
 
@@ -30,10 +33,16 @@ the provider/model catalog. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 
-The plugin requires `shell.HostKey`. Ordinary chats use PiG's built-in coding tools
+The daemon plugin requires `shell.HostKey`. On activation it attaches to an already
+running local `wadad` instance (via `wadad.pid` and `local-credential`), or spawns a
+detached `os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
+reconnects automatically if the WebSocket drops. `wadad.db` tracks server identity,
+startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
+
+Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) with Wada's engineering system prompt.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
-conversation directories remain as recorded. Its backend storage root is `<DataDir>/pig`:
+conversation directories remain as recorded. The daemon's PiG storage root is `<DataDir>/pig`:
 
 - `agent/`: SDK configuration and provider credentials, including `auth.json`;
 - `sessions/`: SDK-owned JSONL transcripts;
@@ -58,19 +67,17 @@ so SDK teardown can join the callback without blocking that same callback.
 
 Reopening reads the SDK transcript and restores Wada's identity, model, thinking
 level, access mode and attachment metadata. Extension bindings start afresh for
-the new SDK owner. Session logs can be deferred until the first message; Wada
+the new SDK owner. Session logs can be deferred until the first message; `wadad`
 persists identity immediately and supplies it when reopening an empty
-conversation. All remaining SDK resources, subscribers and pending requests end
-with the plugin's scope. Restart PiG creates a new connection generation;
-generations increase across plugin activations. Old services return
-`ErrNotConnected`.
+conversation. Closing the desktop window leaves active `wadad` runs intact so
+re-attaching catches up the timeline. **Restart Daemon** restarts an attached
+desktop-managed daemon and creates a new connection generation; generations increase
+across plugin activations. Old services return `ErrNotConnected`.
 
-Plugin UI state stays on the UI thread. SDK state is synchronized separately.
-Blocking service methods run off the UI thread, normally through `kernel.Go`.
-Conversation mutations are serialized separately from metadata access. SDK model
-and thinking-level notifications run without the metadata lock, so extension
-handlers can ask questions through the interaction service.
-SDK turns run through `Scope.Spawn`; the plugin has no bare goroutines. Events use
+Plugin UI state stays on the UI thread; daemon RPC and PiG state are synchronized in
+`wadad` and `internal/client`. Blocking service methods run off the UI thread through
+`kernel.Go`, while the desktop plugin's WebSocket reconnect and event loop runs in
+`Scope.Spawn` with no bare goroutines inside `internal/plugins/daemon`. Events use
 bounded backpressure: at most 64 events or 256 KiB per batch, collected for at most
 1/60 second, with one UI batch in flight.
 
@@ -138,12 +145,13 @@ preserving empty answers, selections, confirmations and explicit cancellation.
 
 ## Providers and project resources
 
-Settings → Providers lists SDK providers and their configured credential source.
-API-key and OAuth login use `ModelRuntime.Login`; disconnect uses `Logout`. Awaited
-login prompts and browser/device-code notices are presented through native controls.
-Secrets are entered in password fields, stored by the SDK under Wada's agent directory,
-and excluded from ordinary settings and error diagnostics. SDK catalog notices
-refresh provider and composer model lists.
+Settings → Providers lists daemon providers and their configured credential source
+via `agent.providers.list`, `agent.provider.login.*` (streaming `provider_auth`
+prompts/URL/device-code notices), and `agent.provider.logout`. Awaited login prompts
+and browser/device-code notices are presented through native controls. Secrets are
+entered in password fields, stored by PiG under `<DataDir>/pig/agent/`, and excluded
+from ordinary settings and error diagnostics. Daemon catalog notices refresh
+provider and composer model lists.
 
 Wada supplies its engineering system prompt through the pinned SDK's public resource
 loader and SessionStartOptions. Automatic extensions,

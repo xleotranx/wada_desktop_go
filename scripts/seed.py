@@ -195,11 +195,14 @@ def write_session(cwd, title, turns, updated_ms, image=None):
     if heavy:
         for k in range(12):
             baselines[f"internal/pkg{k}/file{k}.go"] = {"Exists": True, "Data": b64(code_text(64 << 10).encode())}
+        baselines_dir = os.path.join(os.path.dirname(metadata), "baselines")
+        os.makedirs(baselines_dir, exist_ok=True)
+        with open(os.path.join(baselines_dir, sid + ".json"), "w") as bf:
+            json.dump(baselines, bf)
     with open(os.path.join(metadata, sid + ".json"), "w") as f:
         json.dump({"Session": {"ID": sid, "Title": title, "Directory": cwd,
                    "Updated": updated_ms, "Model": {"Provider": "anthropic", "ID": "claude-sonnet-5-5"}},
-                   "Path": path, "HasMessages": True, "Mode": "ask", "Attachments": attachments,
-                   "Baselines": baselines}, f)
+                   "Path": path, "HasMessages": True, "Mode": "ask", "Attachments": attachments}, f)
 
     return sid
 

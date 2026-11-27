@@ -30,6 +30,12 @@ linters:
             - "github.com/xleotranx/wada-kit/kernel"
             - "github.com/xleotranx/wada-kit/contract"
             - "wada-desktop-go/internal/contract"
+        store:
+          files: ["**/internal/store/**/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "modernc.org/sqlite"
         pig:
           files: ["**/internal/plugins/pig/*.go", "!$test"]
           list-mode: strict
@@ -44,6 +50,7 @@ linters:
             - "github.com/xleotranx/wada-kit/contract"
             - "github.com/xleotranx/wada-kit/native"
             - "wada-desktop-go/internal/contract"
+            - "wada-desktop-go/internal/store"
         plugins:
           files: ["**/internal/plugins/**/*.go", "!**/internal/plugins/pig/*.go", "!$test"]
           list-mode: strict
@@ -55,6 +62,7 @@ linters:
             - "github.com/xleotranx/wada-kit/contract"
             - "github.com/xleotranx/wada-kit/native"
             - "wada-desktop-go/internal/contract"
+            - "wada-desktop-go/internal/store"
         plugintest:
           files: ["**/internal/plugintest/*.go", "!$test"]
           list-mode: strict

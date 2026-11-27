@@ -38,8 +38,9 @@ conversation directories remain as recorded. Its backend storage root is `<DataD
 - `agent/`: SDK configuration and provider credentials, including `auth.json`;
 - `sessions/`: SDK-owned JSONL transcripts;
 - `metadata/`: atomic Wada records containing session identity, title, folder,
-  access mode, parent and child policy, attachment display metadata and original
-  file contents used by session diffs.
+  access mode, parent and child policy, and attachment display metadata;
+- `baselines/`: lazy on-disk original file contents used by session diffs (legacy
+  inline baselines in `metadata/` migrate here automatically on startup).
 
 The origin is `pig <absolute storage root>`. Session IDs are meaningful only within
 that origin. Workspace records and tabs remain scoped by origin. The plugin reads

@@ -74,7 +74,7 @@ func (e *engine) create(ctx context.Context, req agent.CreateSession, parent age
 	if mode == "" {
 		mode = modeAsk
 	}
-	c := &conversation{rec: record{Session: agent.Session{Title: req.Title, Directory: dir, Updated: time.Now().UnixMilli()}, Mode: mode, Parent: parent, Policy: policy, Attachments: map[string]attachment{}, Baselines: map[string]fileSnapshot{}}, allowed: map[string]bool{}}
+	c := &conversation{rec: record{Session: agent.Session{Title: req.Title, Directory: dir, Updated: time.Now().UnixMilli()}, Mode: mode, Parent: parent, Policy: policy, Attachments: map[string]attachment{}}, allowed: map[string]bool{}}
 	c.lifetime.RLock()
 	defer c.lifetime.RUnlock()
 	c.mu.Lock()
@@ -494,6 +494,7 @@ func (p *Plugin) Delete(ctx context.Context, id agent.SessionID) error {
 	if err = os.Remove(filepath.Join(e.root, "metadata", string(id)+".json")); err != nil {
 		return err
 	}
+	e.removeBaselines(id)
 	e.mu.Lock()
 	delete(e.sessions, id)
 	e.mu.Unlock()
@@ -600,7 +601,7 @@ func (p *Plugin) Rewind(ctx context.Context, id agent.SessionID, msg agent.Messa
 	// Open a separate owner so the original session and its resources remain intact.
 	copyRec := c.rec
 	copyRec.Attachments = maps.Clone(c.rec.Attachments)
-	copyRec.Baselines = maps.Clone(c.rec.Baselines)
+	copyRec.Baselines = nil
 	copyRec.Path = c.session.Path()
 	fork := &conversation{rec: copyRec, allowed: map[string]bool{}}
 	fork.lifetime.RLock()
@@ -620,6 +621,11 @@ func (p *Plugin) Rewind(ctx context.Context, id agent.SessionID, msg agent.Messa
 	fork.translator.mu.Lock()
 	fork.translator.session = fork.rec.Session.ID
 	fork.translator.mu.Unlock()
+	if err = e.copyBaselines(c.rec.Session.ID, fork.rec.Session.ID); err != nil {
+		e.forget(fork)
+		fork.closeResources()
+		return "", err
+	}
 	e.mu.Lock()
 	e.sessions[fork.rec.Session.ID] = fork
 	e.mu.Unlock()

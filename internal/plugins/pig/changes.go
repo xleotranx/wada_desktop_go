@@ -184,22 +184,31 @@ func (e *engine) finishMutation(c *conversation, id string) {
 			}
 		}
 	}
-	if c.rec.Baselines == nil {
-		c.rec.Baselines = map[string]fileSnapshot{}
-	}
-	for path := range paths {
-		before := capture.before[path]
-		after, err := snapshotFile(root, path)
-		if err != nil {
-			c.rec.ChangesError = "Session changes are unavailable: " + err.Error()
-			continue
+	baseMap, err := e.loadBaselines(c.rec.Session.ID)
+	if err != nil {
+		c.rec.ChangesError = "Session changes could not be read"
+	} else {
+		updated := false
+		for path := range paths {
+			before := capture.before[path]
+			after, err := snapshotFile(root, path)
+			if err != nil {
+				c.rec.ChangesError = "Session changes are unavailable: " + err.Error()
+				continue
+			}
+			if before.Exists == after.Exists && bytes.Equal(before.Data, after.Data) {
+				continue
+			}
+			key := filepath.ToSlash(filepath.Join(prefix, filepath.FromSlash(path)))
+			if _, ok := baseMap[key]; !ok {
+				baseMap[key] = before
+				updated = true
+			}
 		}
-		if before.Exists == after.Exists && bytes.Equal(before.Data, after.Data) {
-			continue
-		}
-		key := filepath.ToSlash(filepath.Join(prefix, filepath.FromSlash(path)))
-		if _, ok := c.rec.Baselines[key]; !ok {
-			c.rec.Baselines[key] = before
+		if updated {
+			if err := e.saveBaselines(c.rec.Session.ID, baseMap); err != nil {
+				c.rec.ChangesError = "Session changes could not be saved"
+			}
 		}
 	}
 	if err := e.saveLocked(c); err != nil {
@@ -219,13 +228,13 @@ func (p *Plugin) Changes(ctx context.Context, id agent.SessionID) ([]agent.FileC
 	c.mu.Lock()
 	root := c.rec.Session.Directory
 	trackingError := c.rec.ChangesError
-	base := make(map[string]fileSnapshot, len(c.rec.Baselines))
-	for k, v := range c.rec.Baselines {
-		base[k] = v
-	}
+	base, baseErr := e.loadBaselines(id)
 	c.mu.Unlock()
 	if trackingError != "" {
 		return nil, errors.New(trackingError)
+	}
+	if baseErr != nil {
+		return nil, baseErr
 	}
 	var out []agent.FileChange
 	for path, before := range base {

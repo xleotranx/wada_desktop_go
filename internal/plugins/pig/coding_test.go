@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/xleotranx/wada-kit/kernel"
 	"wada-desktop-go/internal/contract/agent"
 )
 
@@ -101,5 +103,87 @@ func TestFolderlessMentionsUseTheInboxRatherThanHome(t *testing.T) {
 		if file.Path == "private.md" {
 			t.Fatal("folderless completion listed the home folder")
 		}
+	}
+}
+
+func TestBaselinesAreLazyOnDiskAndSurviveRestartDeleteRewind(t *testing.T) {
+	h, p, faux := startPig(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := createChat(t, h, p, dir)
+	faux.SetResponses([]ai.FauxResponseStep{
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxToolCall("write", map[string]any{"path": "main.go", "content": "package main\n// edited\n"}, nil)}, StopReason: "toolUse"},
+		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Updated")}},
+	})
+	done := false
+	kernel.On(h, agent.Events, func(batch []agent.Event) {
+		for _, ev := range batch {
+			if ev.Session == s.ID && ev.Kind == agent.TurnSucceeded {
+				done = true
+			}
+		}
+	})
+	call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
+		return p.Send(ctx, agent.Send{Session: s.ID, Mode: modeFull, Text: "Edit main.go"})
+	})
+	waitFor(t, h, "edit turn", func() bool { return done })
+
+	e, _ := p.current()
+	c, _ := e.get(s.ID)
+	if len(c.rec.Baselines) != 0 {
+		t.Fatalf("baselines retained in RAM: %d", len(c.rec.Baselines))
+	}
+	if _, err := os.Stat(e.baselinePath(s.ID)); err != nil {
+		t.Fatalf("baseline file missing: %v", err)
+	}
+
+	// Simulate legacy inline Baselines in metadata/<id>.json to verify migration on restart.
+	c.mu.Lock()
+	c.rec.Baselines = map[string]fileSnapshot{"legacy.txt": {Exists: true, Data: []byte("old\n")}}
+	if err := e.saveLocked(c); err != nil {
+		c.mu.Unlock()
+		t.Fatal(err)
+	}
+	c.mu.Unlock()
+	if err := os.WriteFile(filepath.Join(dir, "legacy.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.Disable("pig"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Enable("pig"); err != nil {
+		t.Fatal(err)
+	}
+	service, _ := kernel.Use(h, agent.ServiceKey)
+	p = service.(*Plugin)
+	waitFor(t, h, "restart", func() bool { return p.Status().State == agent.Ready })
+
+	e, _ = p.current()
+	c, _ = e.get(s.ID)
+	if len(c.rec.Baselines) != 0 {
+		t.Fatalf("migrated baselines still kept in RAM: %d", len(c.rec.Baselines))
+	}
+	changes := call(t, h, func(ctx context.Context) ([]agent.FileChange, error) { return p.Changes(ctx, s.ID) })
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes after restart & legacy migration, got %+v", changes)
+	}
+
+	// Rewind copies baselines independently to fork; deleting original preserves fork baselines.
+	msgs := call(t, h, func(ctx context.Context) ([]agent.Message, error) { return p.Messages(ctx, s.ID) })
+	forkID := call(t, h, func(ctx context.Context) (agent.SessionID, error) { return p.Rewind(ctx, s.ID, msgs[0].ID) })
+	if _, err := os.Stat(e.baselinePath(forkID)); err != nil {
+		t.Fatalf("fork baseline missing: %v", err)
+	}
+	call(t, h, func(ctx context.Context) (struct{}, error) { return struct{}{}, p.Delete(ctx, s.ID) })
+	if _, err := os.Stat(e.baselinePath(s.ID)); !os.IsNotExist(err) {
+		t.Fatalf("deleted session baseline still exists: %v", err)
+	}
+	forkChanges := call(t, h, func(ctx context.Context) ([]agent.FileChange, error) { return p.Changes(ctx, forkID) })
+	if len(forkChanges) != 2 {
+		t.Fatalf("fork lost baselines after original delete: %+v", forkChanges)
 	}
 }

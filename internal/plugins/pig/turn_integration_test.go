@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/egoist/mygo/plugins/sqlite"
 	"github.com/xleotranx/wada-kit/kernel"
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
@@ -109,10 +108,6 @@ func TestTurnApprovalCarriesRequestIdentity(t *testing.T) {
 }
 
 func TestConversationalWorkflowThroughPiGWithReviewerApproval(t *testing.T) {
-	// Load the native SQLite module before startPig isolates HOME and its cache.
-	if err := sqlite.Load(); err != nil {
-		t.Fatal(err)
-	}
 	for _, proxy := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"} {
 		t.Setenv(proxy, "http://127.0.0.1:1")
 	}

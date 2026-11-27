@@ -2,19 +2,42 @@ package workspace
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
+	"database/sql"
 	"sync"
 	"time"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/workspace"
-
-	"github.com/egoist/mygo/plugins/sqlite"
+	"wada-desktop-go/internal/store"
 )
 
-const schema = 1
+var workspaceMigrations = []store.Migration{{
+	Version: 1,
+	Up: func(ctx context.Context, tx *sql.Tx) error {
+		for _, stmt := range []string{
+			`CREATE TABLE folders (
+				path      TEXT PRIMARY KEY,
+				collapsed INTEGER NOT NULL,
+				added     INTEGER NOT NULL)`,
+			`CREATE TABLE conversations (
+				origin         TEXT NOT NULL,
+				session        TEXT NOT NULL,
+				folder         TEXT NOT NULL,
+				title          TEXT NOT NULL,
+				model_provider TEXT NOT NULL,
+				model_id       TEXT NOT NULL,
+				model_variant  TEXT NOT NULL,
+				created        INTEGER NOT NULL,
+				updated        INTEGER NOT NULL,
+				PRIMARY KEY (origin, session))`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
+}}
 
 // key names a conversation: a session ID means something only under the
 // backend origin it came from.
@@ -33,18 +56,18 @@ type snapshot struct {
 // statements; the worker writes them in order, one transaction per wake, and
 // whatever is still queued when its lifetime ends. Every statement is an
 // upsert or a delete, so a failed batch is written again with the next one.
-type store struct {
+type storeQueue struct {
 	path  string
 	mu    sync.Mutex
-	queue []sqlite.Statement
+	queue []store.Statement
 	dead  bool // the database did not open; nothing is queued any more
 	wake  chan struct{}
 }
 
-func newStore(path string) *store { return &store{path: path, wake: make(chan struct{}, 1)} }
+func newStore(path string) *storeQueue { return &storeQueue{path: path, wake: make(chan struct{}, 1)} }
 
 // enqueue is called on the UI thread.
-func (s *store) enqueue(statements ...sqlite.Statement) {
+func (s *storeQueue) enqueue(statements ...store.Statement) {
 	s.mu.Lock()
 	if !s.dead {
 		s.queue = append(s.queue, statements...)
@@ -56,7 +79,7 @@ func (s *store) enqueue(statements ...sqlite.Statement) {
 	}
 }
 
-func (s *store) take() []sqlite.Statement {
+func (s *storeQueue) take() []store.Statement {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	q := s.queue
@@ -64,7 +87,7 @@ func (s *store) take() []sqlite.Statement {
 	return q
 }
 
-func (s *store) putBack(batch []sqlite.Statement) {
+func (s *storeQueue) putBack(batch []store.Statement) {
 	s.mu.Lock()
 	s.queue = append(batch, s.queue...)
 	s.mu.Unlock()
@@ -72,7 +95,7 @@ func (s *store) putBack(batch []sqlite.Statement) {
 
 // run is the worker: it opens the database, reports its contents, then writes
 // queued changes until ctx ends. loaded and failed are called on the worker.
-func (s *store) run(ctx context.Context, loaded func(snapshot, error), failed func(error)) {
+func (s *storeQueue) run(ctx context.Context, loaded func(snapshot, error), failed func(error)) {
 	db, snap, err := open(ctx, s.path)
 	if err != nil {
 		s.mu.Lock()
@@ -91,7 +114,7 @@ func (s *store) run(ctx context.Context, loaded func(snapshot, error), failed fu
 		// Not ctx: a write under way finishes even as the plugin goes.
 		wctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := db.Transaction(wctx, batch); err != nil {
+		if err := store.ExecTx(wctx, db, batch); err != nil {
 			s.putBack(batch)
 			return err
 		}
@@ -110,108 +133,86 @@ func (s *store) run(ctx context.Context, loaded func(snapshot, error), failed fu
 	}
 }
 
-// open opens or creates the database at path. It refuses a database of
-// another schema rather than changing it.
-func open(ctx context.Context, path string) (*sqlite.DB, snapshot, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, snapshot{}, err
-	}
-	db, err := sqlite.Open(ctx, path, sqlite.OpenOptions{})
+// open opens or creates the workspace database at path and applies migrations.
+func open(ctx context.Context, path string) (*sql.DB, snapshot, error) {
+	db, err := store.Open(ctx, path, "workspace", workspaceMigrations)
 	if err != nil {
 		return nil, snapshot{}, err
-	}
-	fail := func(err error) (*sqlite.DB, snapshot, error) { db.Close(); return nil, snapshot{}, err }
-	rows, err := db.Query(ctx, "PRAGMA user_version")
-	if err != nil {
-		return fail(err)
-	}
-	switch version, _ := rows.Values[0][0].(int64); version {
-	case schema:
-	case 0:
-		tables, err := db.Query(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-		if err != nil {
-			return fail(err)
-		}
-		if len(tables.Values) > 0 {
-			return fail(fmt.Errorf("%s is not a workspace database", path))
-		}
-		if _, err := db.Transaction(ctx, []sqlite.Statement{
-			{SQL: `CREATE TABLE folders (
-				path      TEXT PRIMARY KEY,
-				collapsed INTEGER NOT NULL,
-				added     INTEGER NOT NULL)`},
-			{SQL: `CREATE TABLE conversations (
-				origin         TEXT NOT NULL,
-				session        TEXT NOT NULL,
-				folder         TEXT NOT NULL,
-				title          TEXT NOT NULL,
-				model_provider TEXT NOT NULL,
-				model_id       TEXT NOT NULL,
-				model_variant  TEXT NOT NULL,
-				created        INTEGER NOT NULL,
-				updated        INTEGER NOT NULL,
-				PRIMARY KEY (origin, session))`},
-			{SQL: fmt.Sprintf("PRAGMA user_version = %d", schema)},
-		}); err != nil {
-			return fail(err)
-		}
-	default:
-		return fail(fmt.Errorf("%s has workspace schema %d; this build reads %d", path, version, schema))
 	}
 	snap, err := read(ctx, db)
 	if err != nil {
-		return fail(err)
+		_ = db.Close()
+		return nil, snapshot{}, err
 	}
 	return db, snap, nil
 }
 
-func read(ctx context.Context, db *sqlite.DB) (snapshot, error) {
+func read(ctx context.Context, db *sql.DB) (snapshot, error) {
 	snap := snapshot{convs: map[key]workspace.Conversation{}}
-	rows, err := db.Query(ctx, "SELECT path, added FROM folders")
+	rows, err := db.QueryContext(ctx, "SELECT path, added FROM folders")
 	if err != nil {
 		return snap, err
 	}
-	for _, r := range rows.Values {
-		path, _ := r[0].(string)
-		added, _ := r[1].(int64)
+	for rows.Next() {
+		var path string
+		var added int64
+		if err := rows.Scan(&path, &added); err != nil {
+			_ = rows.Close()
+			return snap, err
+		}
 		snap.folders = append(snap.folders, workspace.Folder{Path: path, Added: added})
 	}
-	rows, err = db.Query(ctx, `SELECT origin, session, folder, title, model_provider, model_id, model_variant,
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return snap, err
+	}
+	_ = rows.Close()
+
+	rows, err = db.QueryContext(ctx, `SELECT origin, session, folder, title, model_provider, model_id, model_variant,
 		created, updated FROM conversations`)
 	if err != nil {
 		return snap, err
 	}
-	for _, r := range rows.Values {
-		text := func(i int) string { s, _ := r[i].(string); return s }
-		number := func(i int) int64 { n, _ := r[i].(int64); return n }
-		k := key{origin: text(0), id: agent.SessionID(text(1))}
-		snap.convs[k] = workspace.Conversation{ID: k.id, Folder: text(2), Title: text(3),
-			Model:   agent.ModelRef{Provider: text(4), ID: text(5), Variant: text(6)},
-			Created: number(7), Updated: number(8)}
+	defer rows.Close()
+	for rows.Next() {
+		var origin, session, folder, title, provider, modelID, variant string
+		var created, updated int64
+		if err := rows.Scan(&origin, &session, &folder, &title, &provider, &modelID, &variant, &created, &updated); err != nil {
+			return snap, err
+		}
+		k := key{origin: origin, id: agent.SessionID(session)}
+		snap.convs[k] = workspace.Conversation{
+			ID:      k.id,
+			Folder:  folder,
+			Title:   title,
+			Model:   agent.ModelRef{Provider: provider, ID: modelID, Variant: variant},
+			Created: created,
+			Updated: updated,
+		}
 	}
-	return snap, nil
+	return snap, rows.Err()
 }
 
 // ---- Statements
 
 // putFolder records a folder. The collapsed column is from an earlier
 // layout of schema 1 and always 0.
-func putFolder(f workspace.Folder) sqlite.Statement {
-	return sqlite.Statement{
+func putFolder(f workspace.Folder) store.Statement {
+	return store.Statement{
 		SQL:  "INSERT INTO folders (path, collapsed, added) VALUES (?, 0, ?) ON CONFLICT (path) DO NOTHING",
 		Args: []any{f.Path, f.Added}}
 }
 
 // dropFolder forgets a folder and its conversations under every origin.
-func dropFolder(path string) []sqlite.Statement {
-	return []sqlite.Statement{
+func dropFolder(path string) []store.Statement {
+	return []store.Statement{
 		{SQL: "DELETE FROM folders WHERE path = ?", Args: []any{path}},
 		{SQL: "DELETE FROM conversations WHERE folder = ?", Args: []any{path}},
 	}
 }
 
-func putConversation(k key, c workspace.Conversation) sqlite.Statement {
-	return sqlite.Statement{
+func putConversation(k key, c workspace.Conversation) store.Statement {
+	return store.Statement{
 		SQL: `INSERT INTO conversations (origin, session, folder, title, model_provider, model_id, model_variant, created, updated)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (origin, session) DO UPDATE SET folder = excluded.folder, title = excluded.title,
@@ -220,6 +221,6 @@ func putConversation(k key, c workspace.Conversation) sqlite.Statement {
 		Args: []any{k.origin, string(k.id), c.Folder, c.Title, c.Model.Provider, c.Model.ID, c.Model.Variant, c.Created, c.Updated}}
 }
 
-func dropConversation(k key) sqlite.Statement {
-	return sqlite.Statement{SQL: "DELETE FROM conversations WHERE origin = ? AND session = ?", Args: []any{k.origin, string(k.id)}}
+func dropConversation(k key) store.Statement {
+	return store.Statement{SQL: "DELETE FROM conversations WHERE origin = ? AND session = ?", Args: []any{k.origin, string(k.id)}}
 }

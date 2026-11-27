@@ -131,8 +131,12 @@ func TestProjectMutationTrackingStaysInsideItsScope(t *testing.T) {
 	if c.rec.ChangesError != "" {
 		t.Fatal(c.rec.ChangesError)
 	}
-	if len(c.rec.Baselines) != 1 || string(c.rec.Baselines["projects/one/index.html"].Data) != "before" {
-		t.Fatalf("incorrect baseline %v", c.rec.Baselines)
+	if len(c.rec.Baselines) != 0 {
+		t.Fatalf("baselines retained in session metadata memory: %d", len(c.rec.Baselines))
+	}
+	base, err := e.loadBaselines(s.ID)
+	if err != nil || len(base) != 1 || string(base["projects/one/index.html"].Data) != "before" {
+		t.Fatalf("incorrect baseline %v (err=%v)", base, err)
 	}
 	c.turn = nil
 }

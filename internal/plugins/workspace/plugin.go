@@ -39,7 +39,7 @@ type Plugin struct {
 	agent agent.Service
 	host  shell.Host
 
-	store   *store // nil when nothing is saved
+	store   *storeQueue // nil when nothing is saved
 	loaded  bool
 	folders []workspace.Folder // by name
 	convs   map[key]workspace.Conversation

@@ -108,15 +108,15 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
 `WADA_STRICT=1` re-panics plugin failures. Always use a temporary `WADA_DATA_DIR`
 for captures and experiments; never reset developer data during verification.
 
-Settings live in `settings.db` (schema 1) under `$WADA_DATA_DIR`, or else
+Settings live in `settings.db` (schema 1, via `wada-kit`) under `$WADA_DATA_DIR`, or else
 `~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
 `wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
-conversations the app started live beside it in `workspace.db` (schema 1). Workflow tasks, queued inputs and review reports live in
-`workflow.db` (schema 1). A
-database of another schema is refused, not migrated; delete it explicitly to start
-over. Conversations' messages belong to PiG's JSONL transcripts in `pig/sessions/`;
-Wada's session metadata is in `pig/metadata/`, and provider credentials and
-configuration in `pig/agent/`.
+conversations the app started live beside it in `workspace.db` (pure-Go SQLite with
+numbered schema migrations). Workflow tasks, queued inputs and review reports live in
+`workflow.db` (pure-Go SQLite with numbered schema migrations). Future unsupported
+schemas are refused. Conversations' messages belong to PiG's JSONL transcripts in
+`pig/sessions/`; Wada's session metadata is in `pig/metadata/`, lazy session diff
+baselines in `pig/baselines/`, and provider credentials and configuration in `pig/agent/`.
 
 Window frame restoration uses `StateKey: "main"`. F12 / Alt+Cmd+I opens the
 inspector; Shift+Cmd+C picks an element.

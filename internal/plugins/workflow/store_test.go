@@ -2,14 +2,15 @@ package workflow
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/plugins/sqlite"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
+	_ "modernc.org/sqlite"
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	wf "wada-desktop-go/internal/contract/workflow"
@@ -67,11 +68,11 @@ func TestRestartKeepsQueuedPayloadAndRequiresExplicitResume(t *testing.T) {
 }
 func TestWorkflowDatabaseRefusesUnknownSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workflow.db")
-	db, err := sqlite.Open(t.Context(), path, sqlite.OpenOptions{})
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Transaction(t.Context(), []sqlite.Statement{{SQL: "PRAGMA user_version=99"}}); err != nil {
+	if _, err = db.ExecContext(t.Context(), "PRAGMA user_version=99"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

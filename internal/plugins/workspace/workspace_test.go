@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -13,10 +14,10 @@ import (
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/plugintest"
 
-	"github.com/egoist/mygo/plugins/sqlite"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
+	_ "modernc.org/sqlite"
 )
 
 type fixture struct {
@@ -179,11 +180,11 @@ func TestRemovingAFolderForgetsItsConversations(t *testing.T) {
 func TestADatabaseOfAnotherSchemaIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	db, err := sqlite.Open(ctx, filepath.Join(dir, "workspace.db"), sqlite.OpenOptions{})
+	db, err := sql.Open("sqlite", filepath.Join(dir, "workspace.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Execute(ctx, "PRAGMA user_version = 9"); err != nil {
+	if _, err := db.ExecContext(ctx, "PRAGMA user_version = 9"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

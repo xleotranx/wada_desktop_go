@@ -26,7 +26,7 @@ type Plugin struct {
 	snapshots agent.Snapshots
 	host      shell.Host
 	lanes     map[agent.SessionID]*lane
-	store     *store
+	store     *workflowStore
 	loaded    bool
 	loadError string
 	sequence  uint64

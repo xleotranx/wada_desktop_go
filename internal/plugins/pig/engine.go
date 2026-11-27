@@ -25,7 +25,7 @@ type record struct {
 	Parent       agent.SessionID
 	Policy       *agent.ToolPolicy
 	Attachments  map[string]attachment
-	Baselines    map[string]fileSnapshot
+	Baselines    map[string]fileSnapshot `json:"Baselines,omitempty"` // legacy inline migration only; never retained in memory
 }
 type attachment struct {
 	Internal bool
@@ -116,6 +116,9 @@ func newEngine(ctx context.Context, root string, spawn func(func(context.Context
 	if err = os.MkdirAll(filepath.Join(root, "metadata"), 0700); err != nil {
 		return nil, err
 	}
+	if err = os.MkdirAll(filepath.Join(root, "baselines"), 0700); err != nil {
+		return nil, err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -159,7 +162,29 @@ func newEngine(ctx context.Context, root string, spawn func(func(context.Context
 				return nil, errors.New("the transcript path leaves PiG storage")
 			}
 		}
-		e.sessions[r.Session.ID] = &conversation{rec: r, allowed: map[string]bool{}}
+		conv := &conversation{rec: r, allowed: map[string]bool{}}
+		if len(conv.rec.Baselines) > 0 {
+			existing, bErr := e.loadBaselines(conv.rec.Session.ID)
+			if bErr != nil {
+				svcs.Close()
+				return nil, bErr
+			}
+			for k, v := range conv.rec.Baselines {
+				if _, ok := existing[k]; !ok {
+					existing[k] = v
+				}
+			}
+			if bErr = e.saveBaselines(conv.rec.Session.ID, existing); bErr != nil {
+				svcs.Close()
+				return nil, bErr
+			}
+			conv.rec.Baselines = nil
+			if bErr = e.saveLocked(conv); bErr != nil {
+				svcs.Close()
+				return nil, bErr
+			}
+		}
+		e.sessions[r.Session.ID] = conv
 	}
 	e.spawn = func(work func(context.Context)) bool {
 		e.mu.Lock()

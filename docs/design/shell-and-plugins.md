@@ -232,14 +232,15 @@ requires no controller, so its consumers keep it when the chat fails.
 - Folders are listed by name. Removing one forgets the record of its conversations
   under every origin; nothing is deleted from the backend or the disk.
 
-The record is kept in `workspace.db` in `shell.Host.DataDir` and read into memory when
+The record is kept in `workspace.db` (pure-Go SQLite with WAL and numbered migrations)
+in `shell.Host.DataDir` and read into memory when
 the plugin starts; until then `Loaded` is false and the lists are empty. Changes apply
 in memory and are announced on `workspace.Changed` at once. One worker writes them in
 order, a transaction per batch, and writes what is still queued when the plugin stops.
 Every statement is an upsert or a delete, so a failed batch is written again with the
-next change; the first failure in a run is reported in a toast. A database of another
-schema is refused, not migrated: the record lives in memory for that run and a toast
-says so. Without a data folder (tests) it always lives in memory.
+next change; the first failure in a run is reported in a toast. An unrecognized
+database or future unsupported schema is refused: the record lives in memory for
+that run and a toast says so. Without a data folder (tests) it always lives in memory.
 
 ```sql
 -- PRAGMA user_version = 1
@@ -589,8 +590,9 @@ create, send and reply mutations are never automatically repeated. Request IDs
 prevent an old turn's events from advancing a retried phase.
 
 The engine saves origin-scoped task state, queued payloads, reports, snapshots and
-prepared requests in `workflow.db`, schema 1, under the shell data directory. A
-database of another schema is refused. Unfinished execution after restart is marked
+prepared requests in `workflow.db` (pure-Go SQLite with WAL and numbered migrations)
+under the shell data directory. An unrecognized database or future unsupported schema
+is refused. Unfinished execution after restart is marked
 interrupted and requires explicit resume. Navigation does not cancel tasks; deletion
 and plugin disposal cancel their lifetimes and abort an active child. Store workers
 serialize snapshots off the UI thread and flush pending writes during shutdown.

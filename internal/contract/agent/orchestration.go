@@ -64,6 +64,17 @@ type Worker struct {
 	Updated       int64
 }
 
+// PRStatus summarizes a GitHub/Forge pull request associated with a worktree branch.
+type PRStatus struct {
+	Number         int
+	Title          string
+	State          string
+	Draft          bool
+	URL            string
+	Checks         string
+	ReviewDecision string
+}
+
 // Worktree describes one Git checkout or linked worktree.
 type Worktree struct {
 	RepoRoot   string
@@ -72,6 +83,7 @@ type Worktree struct {
 	HeadCommit string
 	IsMain     bool
 	Dirty      bool
+	PR         *PRStatus
 }
 
 type Harnesses interface {
@@ -86,4 +98,5 @@ type Worktrees interface {
 	ListWorktrees(ctx context.Context, directory string) ([]Worktree, error)
 	CreateWorktree(ctx context.Context, directory, name, baseRef string) (Worktree, error)
 	RemoveWorktree(ctx context.Context, directory, path string, force bool) error
+	PRStatus(ctx context.Context, directory string) (*PRStatus, error)
 }

@@ -222,7 +222,18 @@ func (p *Plugin) reloadWorkspaceState() {
 		if tsvc, ok := kernel.Use(p.ctx, agent.WorktreesKey); ok {
 			dir := p.conv.Directory
 			kernel.Go(p.ctx, &p.loadTrees, func(ctx context.Context) ([]agent.Worktree, error) {
-				return tsvc.ListWorktrees(ctx, dir)
+				list, err := tsvc.ListWorktrees(ctx, dir)
+				if err != nil {
+					return nil, err
+				}
+				for i := range list {
+					if !list[i].IsMain {
+						if pr, perr := tsvc.PRStatus(ctx, list[i].Path); perr == nil && pr != nil {
+							list[i].PR = pr
+						}
+					}
+				}
+				return list, nil
 			}, func(list []agent.Worktree, err error) {
 				if err != nil || dir != p.conv.Directory {
 					return
@@ -263,7 +274,18 @@ func (p *Plugin) refreshWorktreesOnly() {
 	}
 	dir := p.conv.Directory
 	kernel.Go(p.ctx, &p.loadTrees, func(ctx context.Context) ([]agent.Worktree, error) {
-		return tsvc.ListWorktrees(ctx, dir)
+		list, err := tsvc.ListWorktrees(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+		for i := range list {
+			if !list[i].IsMain {
+				if pr, perr := tsvc.PRStatus(ctx, list[i].Path); perr == nil && pr != nil {
+					list[i].PR = pr
+				}
+			}
+		}
+		return list, nil
 	}, func(list []agent.Worktree, err error) {
 		if err != nil || dir != p.conv.Directory {
 			return

@@ -1,0 +1,55 @@
+services:
+  wada-relay:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.relay
+    restart: unless-stopped
+    environment:
+      WADA_RELAY_LISTEN: ":8787"
+      WADA_RELAY_TOKEN: "${WADA_RELAY_TOKEN:-}"
+    ports:
+      - "${WADA_RELAY_PORT:-8787}:8787"
+    healthcheck:
+      test: ["CMD", "/wada-relay", "-h"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      - wada-relay
+    environment:
+      WADA_RELAY_DOMAIN: "${WADA_RELAY_DOMAIN}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  wadad:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.wadad
+    profiles: ["daemon"]
+    restart: unless-stopped
+    environment:
+      WADA_PASSWORD: "${WADA_PASSWORD:-change-me-in-production}"
+      WADA_HOSTNAMES: "${WADA_HOSTNAMES:-localhost}"
+      WADA_RELAY_URL: "${WADA_RELAY_URL:-}"
+      WADA_RELAY_TOKEN: "${WADA_RELAY_TOKEN:-}"
+      WADA_APP_URL: "${WADA_APP_URL:-https://app.wada.dev}"
+    ports:
+      - "6767:6767"
+    volumes:
+      - wadad_data:/data
+      - "${WADA_WORKSPACES_DIR:-./workspaces}:/workspaces"
+
+volumes:
+  caddy_data:
+  caddy_config:
+  wadad_data:

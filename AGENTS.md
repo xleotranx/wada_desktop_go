@@ -23,7 +23,8 @@ keep its types inside the backend plugin.
 - `internal/relay`: `Noise_NK_25519_ChaChaPoly_SHA256` cipher/handshake, `daemon-keypair.json`, `#offer=` pairing codec, outbound relay connector, and stateless WebSocket relay router.
 - `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, chat/approvals/diffs/terminal views, and static serving from `wadad --web-dir`.
 - `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `DialRelay`, `DialOffer`, `DialHost`, `ConnectOrStartLocal`), saved `hosts.json` registry, binary terminal streams, and platform detached spawn helpers.
-- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree & Forge PR manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
+- `docker/`: self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack (see [self-hosting](docs/self-hosting.md)).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer

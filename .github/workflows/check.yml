@@ -38,3 +38,37 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: "0"
         run: go build ./...
+
+  linux-headless:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: CGO_ENABLED=0 go build ./cmd/wadad ./cmd/wadad-term ./cmd/wada-relay ./cmd/wada
+      - run: go test -race ./internal/protocol/... ./internal/relay/... ./internal/client/... ./internal/daemon/...
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web test
+      - run: pnpm --dir web typecheck
+      - run: pnpm --dir web build

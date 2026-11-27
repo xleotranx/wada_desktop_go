@@ -106,6 +106,22 @@ func fromProtoWorktree(wt protocol.WorktreeInfo) agent.Worktree {
 		HeadCommit: wt.HeadCommit,
 		IsMain:     wt.IsMain,
 		Dirty:      wt.Dirty,
+		PR:         fromProtoPRStatus(wt.PR),
+	}
+}
+
+func fromProtoPRStatus(pr *protocol.PRStatus) *agent.PRStatus {
+	if pr == nil {
+		return nil
+	}
+	return &agent.PRStatus{
+		Number:         pr.Number,
+		Title:          pr.Title,
+		State:          pr.State,
+		Draft:          pr.Draft,
+		URL:            pr.URL,
+		Checks:         pr.Checks,
+		ReviewDecision: pr.ReviewDecision,
 	}
 }
 

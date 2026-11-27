@@ -28,6 +28,7 @@ const maxPatchBytes = 256 << 10
 type Manager struct {
 	dataDir string
 	mu      sync.Mutex
+	forge   *Forge
 }
 
 // New creates a Git worktree manager storing worktrees inside dataDir.

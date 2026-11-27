@@ -58,6 +58,8 @@ func main() {
 		err = runProviders(ctx, c)
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
+	case "pr":
+		err = runPRCmd(ctx, c, args[1:])
 	case "terminal":
 		err = runTerminalCmd(ctx, c, args[1:])
 	case "ls":
@@ -99,6 +101,7 @@ Commands:
   host <ls|add|remove>   Manage saved remote wadad host profiles
   providers              List embedded and external coding-agent harnesses
   workers [--parent ID]  List managed external harness workers
+  pr <status|create>     Inspect or create GitHub pull requests via gh
   terminal <ls|create|attach|capture|kill>
                          Manage detached interactive PTY terminals
   ls [--dir DIR]         List sessions
@@ -277,6 +280,67 @@ func runWorkers(ctx context.Context, c *client.Client, args []string) error {
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", w.ID, w.Provider, w.Status, w.Directory, w.Name)
 	}
 	return nil
+}
+
+func runPRCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: wada pr <status|create>")
+	}
+	switch args[0] {
+	case "status":
+		fs := flag.NewFlagSet("pr status", flag.ContinueOnError)
+		dir := fs.String("dir", ".", "Worktree or repository directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		absDir, err := filepath.Abs(*dir)
+		if err != nil {
+			return err
+		}
+		pr, err := c.WorktreePR(ctx, absDir)
+		if err != nil {
+			return err
+		}
+		if pr == nil {
+			fmt.Println("no pull request (or origin host not authenticated with gh)")
+			return nil
+		}
+		fmt.Printf("#%d\t%s\tchecks=%s\t%s\t%s\n", pr.Number, pr.State, pr.Checks, pr.Title, pr.URL)
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("pr create", flag.ContinueOnError)
+		dir := fs.String("dir", ".", "Worktree or repository directory")
+		title := fs.String("title", "", "Pull request title")
+		body := fs.String("body", "", "Pull request body")
+		base := fs.String("base", "", "Base branch")
+		draft := fs.Bool("draft", false, "Open as draft pull request")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*title) == "" {
+			return fmt.Errorf("usage: wada pr create [--dir DIR] --title TITLE [--body BODY] [--base BRANCH] [--draft]")
+		}
+		absDir, err := filepath.Abs(*dir)
+		if err != nil {
+			return err
+		}
+		pr, err := c.CreateWorktreePR(ctx, protocol.WorktreeCreatePRRequest{
+			Directory: absDir,
+			Title:     *title,
+			Body:      *body,
+			Base:      *base,
+			Draft:     *draft,
+		})
+		if err != nil {
+			return err
+		}
+		if pr != nil {
+			fmt.Printf("#%d\t%s\n", pr.Number, pr.URL)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown pr command %q", args[0])
+	}
 }
 
 func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error {

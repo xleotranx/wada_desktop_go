@@ -79,6 +79,8 @@ type OrchestrationBackend interface {
 	ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error)
 	CreateWorktree(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error)
 	RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error
+	WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error)
+	CreateWorktreePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error)
 }
 
 // TerminalBackend is optionally implemented by Backends that host detached PTYs.
@@ -1094,6 +1096,34 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return map[string]bool{"ok": true}, nil
+	case protocol.MethodWorktreePR:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorktreePRRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		pr, err := orch.WorktreePR(ctx, req.Directory)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return pr, nil
+	case protocol.MethodWorktreeCreatePR:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.WorktreeCreatePRRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, invalidErr(err)
+		}
+		pr, err := orch.CreateWorktreePR(ctx, req)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return pr, nil
 	case protocol.MethodTerminalsList:
 		tb, ok := s.cfg.Backend.(TerminalBackend)
 		if !ok {

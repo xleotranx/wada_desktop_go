@@ -631,6 +631,16 @@ func (c *Client) RemoveWorktree(ctx context.Context, req protocol.WorktreeRemove
 	return c.Call(ctx, protocol.MethodWorktreeRemove, req, nil)
 }
 
+func (c *Client) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {
+	var out *protocol.PRStatus
+	return out, c.Call(ctx, protocol.MethodWorktreePR, protocol.WorktreePRRequest{Directory: dir}, &out)
+}
+
+func (c *Client) CreateWorktreePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error) {
+	var out *protocol.PRStatus
+	return out, c.Call(ctx, protocol.MethodWorktreeCreatePR, req, &out)
+}
+
 type termStream struct {
 	client  *Client
 	termID  string

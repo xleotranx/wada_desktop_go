@@ -20,6 +20,7 @@ type fakeOrchService struct {
 	harnesses []agent.Harness
 	workers   []agent.Worker
 	worktrees []agent.Worktree
+	prs       map[string]*agent.PRStatus
 	removedWT string
 }
 
@@ -73,6 +74,13 @@ func (f *fakeOrchService) CreateWorktree(_ context.Context, dir, name, _ string)
 func (f *fakeOrchService) RemoveWorktree(_ context.Context, _, path string, _ bool) error {
 	f.removedWT = path
 	return nil
+}
+
+func (f *fakeOrchService) PRStatus(_ context.Context, dir string) (*agent.PRStatus, error) {
+	if f.prs == nil {
+		return nil, nil
+	}
+	return f.prs[dir], nil
 }
 
 func waitCond(t *testing.T, h *kerneltest.Harness, what string, cond func() bool) {
@@ -146,6 +154,9 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 		{RepoRoot: "/repo", Path: "/repo", Branch: "main", IsMain: true},
 		{RepoRoot: "/repo", Path: "/tmp/wt/auth", Branch: "wada/auth-1234", Dirty: true},
 	}
+	fa.prs = map[string]*agent.PRStatus{
+		"/tmp/wt/auth": {Number: 42, State: "OPEN", Checks: "pass", URL: "https://github.com/xleotranx/wada_desktop_go/pull/42"},
+	}
 
 	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
 	kernel.Emit(h, agent.WorkerUpdated, agent.Worker{
@@ -158,7 +169,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 		WorktreePath:  "/tmp/wt/auth",
 		Status:        agent.WorkerRunning,
 	})
-	waitCond(t, h, "worktrees loaded", func() bool { return len(p.worktrees) == 2 })
+	waitCond(t, h, "worktrees loaded", func() bool { return len(p.worktrees) == 2 && p.worktrees[1].PR != nil })
 
 	if !p.workShown() {
 		t.Fatal("expected work panel to be shown")
@@ -166,7 +177,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 
 	tt := ui.NewTester(p.workPanelView, 320, 480)
 	tt.Frame()
-	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234", "modified"} {
+	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234", "modified", "#42 · pass"} {
 		if !tt.HasText(want) {
 			t.Fatalf("work panel missing %q in %q", want, tt.Texts())
 		}

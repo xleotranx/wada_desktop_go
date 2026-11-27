@@ -1,0 +1,10 @@
+title = "Wada gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic synthetic Noise NK interoperability test fixture derived from sequential byte patterns (0x10..0x8f)"
+paths = [
+  '''^internal/relay/testdata/noise_nk_vector\.json$''',
+]

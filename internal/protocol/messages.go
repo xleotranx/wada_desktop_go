@@ -39,11 +39,13 @@ const (
 	MethodProviderLoginCancel = "agent.provider.login.cancel"
 	MethodProviderLogout      = "agent.provider.logout"
 
-	MethodHarnessesList  = "agent.harnesses.list"
-	MethodWorkersList    = "agent.workers.list"
-	MethodWorktreesList  = "worktree.list"
-	MethodWorktreeCreate = "worktree.create"
-	MethodWorktreeRemove = "worktree.remove"
+	MethodHarnessesList    = "agent.harnesses.list"
+	MethodWorkersList      = "agent.workers.list"
+	MethodWorktreesList    = "worktree.list"
+	MethodWorktreeCreate   = "worktree.create"
+	MethodWorktreeRemove   = "worktree.remove"
+	MethodWorktreePR       = "worktree.pr"
+	MethodWorktreeCreatePR = "worktree.pr.create"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -425,13 +427,24 @@ type WorkersListRequest struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
 
+type PRStatus struct {
+	Number         int    `json:"number"`
+	Title          string `json:"title,omitempty"`
+	State          string `json:"state"`
+	Draft          bool   `json:"draft,omitempty"`
+	URL            string `json:"url"`
+	Checks         string `json:"checks,omitempty"`         // pass | fail | pending | none
+	ReviewDecision string `json:"reviewDecision,omitempty"`
+}
+
 type WorktreeInfo struct {
-	RepoRoot   string `json:"repoRoot"`
-	Path       string `json:"path"`
-	Branch     string `json:"branch,omitempty"`
-	HeadCommit string `json:"headCommit,omitempty"`
-	IsMain     bool   `json:"isMain,omitempty"`
-	Dirty      bool   `json:"dirty,omitempty"`
+	RepoRoot   string    `json:"repoRoot"`
+	Path       string    `json:"path"`
+	Branch     string    `json:"branch,omitempty"`
+	HeadCommit string    `json:"headCommit,omitempty"`
+	IsMain     bool      `json:"isMain,omitempty"`
+	Dirty      bool      `json:"dirty,omitempty"`
+	PR         *PRStatus `json:"pr,omitempty"`
 }
 
 type WorktreesListRequest struct {
@@ -448,6 +461,18 @@ type WorktreeRemoveRequest struct {
 	Directory string `json:"directory"`
 	Path      string `json:"path"`
 	Force     bool   `json:"force,omitempty"`
+}
+
+type WorktreePRRequest struct {
+	Directory string `json:"directory"`
+}
+
+type WorktreeCreatePRRequest struct {
+	Directory string `json:"directory"`
+	Title     string `json:"title"`
+	Body      string `json:"body,omitempty"`
+	Base      string `json:"base,omitempty"`
+	Draft     bool   `json:"draft,omitempty"`
 }
 
 type TerminalInfo struct {

@@ -85,9 +85,10 @@ requires explicit resume.
 | `cmd/wadad` | Standalone headless coding-agent daemon (`wadad`) |
 | `cmd/wadad-term` | Detached cross-platform PTY terminal worker (`wadad-term`) surviving daemon restarts |
 | `cmd/wada-relay` | Stateless zero-knowledge Noise NK WebSocket relay (`wada-relay`) for remote/mobile pairing |
-| `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `providers`, `workers`, `terminal`, `daemon pair`, `host`) |
+| `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `providers`, `workers`, `pr`, `terminal`, `daemon pair`, `host`) |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
+| `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
 | `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, chat/approvals/diffs/terminal views; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |

@@ -518,6 +518,14 @@ func (o *Orchestrator) RemoveWorktree(ctx context.Context, dir, wtPath string, f
 	return o.worktrees.Remove(ctx, dir, wtPath, force)
 }
 
+func (o *Orchestrator) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {
+	return o.worktrees.PRStatus(ctx, dir)
+}
+
+func (o *Orchestrator) CreateWorktreePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error) {
+	return o.worktrees.CreatePR(ctx, req)
+}
+
 // ---- server.TerminalBackend methods ----
 
 func (o *Orchestrator) ListTerminals(ctx context.Context) ([]protocol.TerminalInfo, error) {

@@ -1,0 +1,4 @@
+{$WADA_RELAY_DOMAIN} {
+	encode gzip
+	reverse_proxy wada-relay:8787
+}

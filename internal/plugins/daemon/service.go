@@ -430,6 +430,18 @@ func (p *Plugin) RemoveWorktree(ctx context.Context, directory, path string, for
 	})
 }
 
+func (p *Plugin) PRStatus(ctx context.Context, directory string) (*agent.PRStatus, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	pr, err := cli.WorktreePR(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	return fromProtoPRStatus(pr), nil
+}
+
 type terminalService struct{ p *Plugin }
 
 func (s terminalService) List(ctx context.Context) ([]terminal.Info, error) {

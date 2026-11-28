@@ -674,6 +674,9 @@ func (o *Orchestrator) Messages(ctx context.Context, id string) ([]protocol.Mess
 
 func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (protocol.SendDisposition, error) {
 	if w := o.getWorker(req.Session); w != nil {
+		if err := harnessCanTake(req); err != nil {
+			return "", fmt.Errorf("%w: %s %w", pig.ErrNotSent, w.snapshot().Provider, err)
+		}
 		// Mark the worker running before the prompt goes out, so a wait right
 		// after this send cannot see the previous turn's result.
 		w.mu.Lock()
@@ -712,6 +715,31 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		return "", fmt.Errorf("%w: %w", pig.ErrNotSent, err)
 	}
 	return o.pig.Send(ctx, req)
+}
+
+// harnessCanTake refuses what an external CLI harness cannot be given: it
+// takes a prompt's text, nothing else.
+func harnessCanTake(req protocol.SendRequest) error {
+	var unsupported []string
+	if len(req.Files) > 0 {
+		unsupported = append(unsupported, "attached files")
+	}
+	if len(req.Skills) > 0 {
+		unsupported = append(unsupported, "skills")
+	}
+	if req.Instructions != "" || req.Internal {
+		unsupported = append(unsupported, "internal instructions")
+	}
+	if req.Policy != nil {
+		unsupported = append(unsupported, "tool policies")
+	}
+	if len(req.ResultSchema) > 0 {
+		unsupported = append(unsupported, "structured results")
+	}
+	if len(unsupported) == 0 {
+		return nil
+	}
+	return fmt.Errorf("sessions take text only, not %s", strings.Join(unsupported, ", "))
 }
 
 // emitWorker reports info to its parent conversation, or to the worker's own
@@ -779,6 +807,9 @@ func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 }
 
 func (o *Orchestrator) Spawn(ctx context.Context, req protocol.SpawnRequest) (protocol.Session, error) {
+	if w := o.getWorker(req.Parent); w != nil {
+		return protocol.Session{}, fmt.Errorf("%s sessions cannot start child conversations", w.snapshot().Provider)
+	}
 	return o.pig.Spawn(ctx, req)
 }
 
@@ -819,8 +850,8 @@ func (o *Orchestrator) DefaultModel(ctx context.Context) (protocol.ModelRef, err
 }
 
 func (o *Orchestrator) SetModel(ctx context.Context, id string, ref protocol.ModelRef) error {
-	if o.getWorker(id) != nil {
-		return nil
+	if w := o.getWorker(id); w != nil {
+		return fmt.Errorf("the model of a %s session is chosen by its CLI", w.snapshot().Provider)
 	}
 	return o.pig.SetModel(ctx, id, ref)
 }

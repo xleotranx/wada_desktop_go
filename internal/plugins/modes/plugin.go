@@ -153,6 +153,9 @@ const (
 // backend without modes still has its own way of chatting, to choose against
 // the targets; with nothing to choose between it shows nothing.
 func (p *Plugin) view(c *ui.Context) {
+	if agent.ExternalHarness(p.chat.Current().Provider) {
+		return // its mode was chosen when it started, and it runs no workflows
+	}
 	targets := kernel.Items(p.ctx, chat.Workflows)
 	if max(len(p.modes), 1)+len(targets) <= 1 {
 		return

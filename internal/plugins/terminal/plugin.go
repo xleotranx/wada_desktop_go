@@ -18,7 +18,20 @@ import (
 const (
 	defaultCols = 80
 	defaultRows = 24
+	minCols     = 20
+	minRows     = 4
+	maxCols     = 400
+	maxRows     = 200
+
+	// outboxLen bounds the input and resizes waiting for the writer.
+	outboxLen = 256
 )
+
+// termOp is one write to an attached terminal, applied in order.
+type termOp struct {
+	input      []byte
+	cols, rows int // a resize when input is nil
+}
 
 // Plugin hosts the right-edge interactive PTY terminal drawer.
 type Plugin struct {
@@ -39,8 +52,11 @@ type Plugin struct {
 	rows int
 
 	screen     *screen
-	lines      []string
 	listState  ui.ListState
+	viewport   ui.Handle
+	cellWidth  float32
+	fitCols    int
+	fitRows    int
 	input      string
 	focusInput bool
 	errText    string
@@ -52,6 +68,7 @@ type Plugin struct {
 	attachScope *kernel.Scope
 	stream      contractterm.Stream
 	streamID    string
+	outbox      chan termOp
 }
 
 // New constructs a terminal plugin instance.
@@ -74,7 +91,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.cols = defaultCols
 	p.rows = defaultRows
 	p.screen = newScreen(defaultCols, defaultRows)
-	p.lines = p.screen.Lines()
 	p.listState.FollowEnd = true
 	p.conv = p.chat.Current()
 
@@ -309,7 +325,6 @@ func (p *Plugin) killTerminal(id string) {
 	if p.activeID == id {
 		p.detach()
 		p.screen.Reset()
-		p.lines = p.screen.Lines()
 	}
 	kernel.Go(p.ctx, &p.killTask, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, svc.Kill(ctx, id)
@@ -340,6 +355,8 @@ func (p *Plugin) attach(id string) {
 	scope := p.ctx.NewScope()
 	p.attachScope = scope
 	cols, rows := p.cols, p.rows
+	outbox := make(chan termOp, outboxLen)
+	p.outbox = outbox
 
 	scope.Spawn(func(ctx context.Context) {
 		st, err := svc.Attach(ctx, contractterm.AttachRequest{
@@ -359,6 +376,7 @@ func (p *Plugin) attach(id string) {
 			return
 		}
 		defer func() { _ = st.Close() }()
+		scope.Spawn(func(ctx context.Context) { p.writeLoop(ctx, scope, st, outbox) })
 
 		info := st.Info()
 		snap := st.Snapshot()
@@ -374,7 +392,11 @@ func (p *Plugin) attach(id string) {
 			p.screen.Resize(cmp.Or(info.Cols, cols), cmp.Or(info.Rows, rows))
 			p.screen.Reset()
 			p.screen.Write(snap)
-			p.lines = p.screen.Lines()
+			if p.cols != cols || p.rows != rows {
+				// The drawer was fitted while this attachment was starting.
+				p.screen.Resize(p.cols, p.rows)
+				p.enqueue(termOp{cols: p.cols, rows: p.rows})
+			}
 			p.listState.ScrollToEnd()
 			p.ctx.Invalidate()
 		})
@@ -408,12 +430,38 @@ func (p *Plugin) attach(id string) {
 					return
 				}
 				p.screen.Write(out)
-				p.lines = p.screen.Lines()
 				p.listState.ScrollToEnd()
 				p.ctx.Invalidate()
 			})
 		}
 	})
+}
+
+// writeLoop applies one attachment's input and resizes in the order the user
+// made them; it is the attachment's only writer.
+func (p *Plugin) writeLoop(ctx context.Context, scope *kernel.Scope, st contractterm.Stream, outbox <-chan termOp) {
+	for {
+		var op termOp
+		select {
+		case <-ctx.Done():
+			return
+		case op = <-outbox:
+		}
+		var err error
+		if op.input != nil {
+			err = st.WriteInput(op.input)
+		} else {
+			err = st.Resize(op.cols, op.rows)
+		}
+		if err != nil && ctx.Err() == nil {
+			scope.Post(func() {
+				if p.attachScope == scope {
+					p.errText = err.Error()
+					p.ctx.Invalidate()
+				}
+			})
+		}
+	}
 }
 
 func (p *Plugin) detach() {
@@ -423,25 +471,66 @@ func (p *Plugin) detach() {
 	}
 	p.stream = nil
 	p.streamID = ""
+	p.outbox = nil
+}
+
+// enqueue hands op to the attachment's writer, or reports that it is
+// backed up rather than blocking the UI thread.
+func (p *Plugin) enqueue(op termOp) {
+	if p.stream == nil || p.outbox == nil {
+		return
+	}
+	select {
+	case p.outbox <- op:
+	default:
+		p.errText = "Terminal is not keeping up; input was not sent"
+		p.ctx.Invalidate()
+	}
 }
 
 func (p *Plugin) sendBytes(data []byte) {
-	if len(data) == 0 || p.stream == nil || p.attachScope == nil {
+	if len(data) == 0 {
 		return
 	}
-	stream := p.stream
-	scope := p.attachScope
-	payload := append([]byte(nil), data...)
-	scope.Spawn(func(ctx context.Context) {
-		if err := stream.WriteInput(payload); err != nil && ctx.Err() == nil {
-			scope.Post(func() {
-				if p.attachScope == scope {
-					p.errText = err.Error()
-					p.ctx.Invalidate()
-				}
-			})
-		}
-	})
+	p.enqueue(termOp{input: append([]byte(nil), data...)})
+}
+
+// fitTo sizes the PTY to the drawer's viewport, as it was laid out last frame.
+func (p *Plugin) fitTo(c *ui.Context) {
+	b := p.viewport.Bounds(c)
+	if b.W <= 0 || b.H <= 0 {
+		return
+	}
+	if p.cellWidth <= 0 {
+		const sample = "MMMMMMMMMM"
+		w, _ := c.MeasureText(0, ui.Span{Text: sample, Font: "monospace", Size: lineFontSize})
+		p.cellWidth = w / float32(len(sample))
+	}
+	if p.cellWidth <= 0 {
+		return
+	}
+	cols, rows := fitSize(b.W-2*viewportPadX, b.H-2*viewportPadY, p.cellWidth)
+	if (cols == p.cols && rows == p.rows) || (cols == p.fitCols && rows == p.fitRows) {
+		return
+	}
+	p.fitCols, p.fitRows = cols, rows
+	p.ctx.Post(func() { p.resize(cols, rows) })
+}
+
+func fitSize(width, height, cellWidth float32) (int, int) {
+	cols := clampInt(int(width/cellWidth), minCols, maxCols)
+	rows := clampInt(int(height/lineHeight), minRows, maxRows)
+	return cols, rows
+}
+
+func (p *Plugin) resize(cols, rows int) {
+	if cols == p.cols && rows == p.rows {
+		return
+	}
+	p.cols, p.rows = cols, rows
+	p.screen.Resize(cols, rows)
+	p.enqueue(termOp{cols: cols, rows: rows})
+	p.ctx.Invalidate()
 }
 
 func (p *Plugin) submitInput() {
@@ -459,7 +548,6 @@ func (p *Plugin) sendControl(b byte) {
 
 func (p *Plugin) clearScreen() {
 	p.screen.Reset()
-	p.lines = p.screen.Lines()
 	p.focusInput = true
 	if info, ok := p.activeTerminal(); ok && info.Running {
 		p.sendBytes([]byte{0x0c})

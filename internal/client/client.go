@@ -113,12 +113,28 @@ func DialOffer(ctx context.Context, rawOffer string, opts Options) (*Client, err
 		if rerr == nil || off.DirectURL == "" {
 			return cli, rerr
 		}
+		opts.Endpoint = off.DirectURL
+		cli, derr := Dial(ctx, opts)
+		if derr != nil {
+			return nil, errors.Join(rerr, derr)
+		}
+		return cli, nil
 	}
 	if off.DirectURL == "" {
 		return nil, errors.New("client: offer has no reachable endpoint")
 	}
 	opts.Endpoint = off.DirectURL
 	return Dial(ctx, opts)
+}
+
+// IsUnauthorized reports that the daemon refused the client's credential or
+// password, or the relay its relay token: dialing again as before is futile.
+func IsUnauthorized(err error) bool {
+	if errors.Is(err, relay.ErrUnauthorized) {
+		return true
+	}
+	var rpcErr *protocol.RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == protocol.ErrCodeUnauthorized
 }
 
 func dialTransport(ctx context.Context, tr relay.Transport, opts Options) (*Client, error) {

@@ -53,3 +53,18 @@ func TestHostsSaveLoadRemove(t *testing.T) {
 		t.Fatalf("after remove LoadHosts = %+v, err=%v", list, err)
 	}
 }
+
+func TestParseHostTarget(t *testing.T) {
+	for target, want := range map[string][2]string{
+		"my-mac.tailnet.ts.net":         {"", "my-mac.tailnet.ts.net:6767"},
+		"100.64.0.4:7000":               {"", "100.64.0.4:7000"},
+		"[fd7a::1]":                     {"", "[fd7a::1]:6767"},
+		"ws://box:6767/ws":              {"", "ws://box:6767/ws"},
+		"https://wada.example/#offer=x": {"https://wada.example/#offer=x", ""},
+	} {
+		offer, endpoint := ParseHostTarget(target)
+		if offer != want[0] || endpoint != want[1] {
+			t.Errorf("ParseHostTarget(%q) = %q, %q; want %q, %q", target, offer, endpoint, want[0], want[1])
+		}
+	}
+}

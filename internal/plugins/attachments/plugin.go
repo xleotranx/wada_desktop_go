@@ -49,6 +49,9 @@ type Plugin struct {
 	made    int // numbers images other plugins attached
 	picking kernel.Task
 	serial  uint64
+	// textOnly is set while an external CLI harness's conversation is open:
+	// it takes no files.
+	textOnly bool
 	// choose asks the user for files, off the UI thread; tests replace it.
 	choose func() ([]string, error)
 }
@@ -105,6 +108,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	// After the transforms that attach files of their own: legends number
 	// images among those already in the draft.
 	kernel.Transform(c, chat.Outgoing, 1000, p.outgoing)
+	kernel.On(c, chat.Changed, func(conv chat.Conversation) { p.textOnly = agent.ExternalHarness(conv.Provider) })
 	kernel.Contribute(c, chat.ComposerAccessory, "attachments.add", -10, shell.View{Render: p.button})
 	kernel.Contribute(c, chat.ComposerAttachments, "attachments.list", 0, shell.View{Render: p.list})
 	kernel.Contribute(c, chat.FileDrop, "attachments.drop", 0, p.add)
@@ -340,6 +344,9 @@ func mimeOf(path string, data []byte) string {
 }
 
 func (p *Plugin) button(c *ui.Context) {
+	if p.textOnly {
+		return
+	}
 	pal := native.PaletteFor(c)
 	label := "Attach files"
 	ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(0, 6, 0, 0).Children(func() {

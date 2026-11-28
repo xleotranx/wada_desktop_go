@@ -38,8 +38,8 @@ func newFakeTermStream(info contractterm.Info, snap string) *fakeTermStream {
 }
 
 func (s *fakeTermStream) Info() contractterm.Info { return s.info }
-func (s *fakeTermStream) Snapshot() []byte      { return s.snap }
-func (s *fakeTermStream) Output() <-chan []byte { return s.out }
+func (s *fakeTermStream) Snapshot() []byte        { return s.snap }
+func (s *fakeTermStream) Output() <-chan []byte   { return s.out }
 
 func (s *fakeTermStream) WriteInput(data []byte) error {
 	s.mu.Lock()
@@ -357,4 +357,42 @@ func TestReattachesAfterDaemonReconnect(t *testing.T) {
 	waitCond(t, h, "reattached after reconnect", func() bool {
 		return p.streamID == "term_1" && strings.Contains(p.screen.PlainText(), "reconnected")
 	})
+}
+
+func TestInputKeepsItsOrder(t *testing.T) {
+	h, p, svc, _ := startTerminalTest(t)
+	p.toggle()
+	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+	st := svc.latestStream("term_1")
+
+	want := make([]string, 100)
+	for i := range want {
+		want[i] = fmt.Sprintf("cmd %d\r", i)
+		p.sendBytes([]byte(want[i]))
+	}
+	p.sendControl(0x03)
+	want = append(want, "\x03")
+	waitCond(t, h, "every input delivered", func() bool { return len(st.sentInputs()) == len(want) })
+	if got := st.sentInputs(); !slices.Equal(got, want) {
+		t.Fatalf("inputs arrived out of order: %q", got)
+	}
+}
+
+func TestDrawerFitsThePTY(t *testing.T) {
+	h, p, svc, _ := startTerminalTest(t)
+	p.toggle()
+	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+	st := svc.latestStream("term_1")
+
+	tt := ui.NewTester(p.drawerView, 480, 600)
+	tt.Frame()
+	tt.Frame()
+	waitCond(t, h, "PTY resized to the drawer", func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.info.Cols != 0 && st.info.Cols < defaultCols
+	})
+	if p.cols >= defaultCols || p.rows <= minRows || p.screen.cols != p.cols {
+		t.Fatalf("fitted size = %dx%d (screen %d cols)", p.cols, p.rows, p.screen.cols)
+	}
 }

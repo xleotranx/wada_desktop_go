@@ -211,6 +211,9 @@ func (p *Plugin) label(ref agent.ModelRef) string {
 // view is the model picker, with the effort picker beside it for a model that
 // has efforts.
 func (p *Plugin) view(c *ui.Context) {
+	if agent.ExternalHarness(p.chat.Current().Provider) {
+		return // its CLI chooses the model
+	}
 	pal := native.PaletteFor(c)
 	ref := p.current()
 	options := make([]onechat.Option, 0, len(p.catalog))

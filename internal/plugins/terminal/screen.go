@@ -4,10 +4,14 @@ package terminal
 import (
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
 const maxScreenScrollback = 2000
+
+// wideTail fills the cell after a double-width rune; lines skip it.
+const wideTail rune = -1
 
 type parseState uint8
 
@@ -15,6 +19,7 @@ const (
 	stateGround parseState = iota
 	stateEsc
 	stateCSI
+	stateEscInter
 	stateOSC
 	stateOSCEsc
 )
@@ -86,11 +91,25 @@ func (s *screen) Resize(cols, rows int) {
 	if c == s.cols && r == s.rows {
 		return
 	}
+	// Keep the cursor's row on screen: rows above it scroll into history.
+	if r < len(s.grid) && s.cy >= r {
+		drop := s.cy - r + 1
+		if !s.altScreen {
+			for y := 0; y < drop; y++ {
+				s.pushScrollback(s.grid[y])
+			}
+		}
+		s.grid = s.grid[drop:]
+		s.cy -= drop
+	}
 	next := makeRuneGrid(c, r)
 	copyRows := min(len(s.grid), r)
 	for y := 0; y < copyRows; y++ {
 		copyCols := min(len(s.grid[y]), c)
 		copy(next[y][:copyCols], s.grid[y][:copyCols])
+		if copyCols > 0 && copyCols < len(s.grid[y]) && s.grid[y][copyCols] == wideTail {
+			next[y][copyCols-1] = ' ' // its second half was cut off
+		}
 	}
 	s.cols = c
 	s.rows = r
@@ -149,23 +168,48 @@ func (s *screen) step(r rune) {
 			}
 		}
 	case stateEsc:
+		s.state = stateGround
 		switch r {
 		case '[':
 			s.csiBuf.Reset()
 			s.state = stateCSI
-		case ']':
+		case ']', 'P', 'X', '^', '_':
+			// OSC, DCS, SOS, PM and APC strings run to BEL or ST unprinted.
 			s.state = stateOSC
+		case '(', ')', '*', '+', '-', '.', '/', '#', '%', ' ':
+			// Charset designators and the like take one more byte.
+			s.state = stateEscInter
 		case 'c':
 			s.Reset()
-		default:
-			s.state = stateGround
+		case '7':
+			s.savedCX, s.savedCY = s.cx, s.cy
+		case '8':
+			s.cx, s.cy = clampInt(s.savedCX, 0, s.cols-1), clampInt(s.savedCY, 0, s.rows-1)
+		case 'D':
+			s.lineFeed()
+		case 'E':
+			s.cx = 0
+			s.lineFeed()
+		case 'M':
+			s.reverseIndex()
+		case 0x1b:
+			s.state = stateEsc
 		}
+	case stateEscInter:
+		s.state = stateGround
 	case stateCSI:
-		if r >= 0x40 && r <= 0x7e {
+		switch {
+		case r >= 0x40 && r <= 0x7e:
 			s.handleCSI(s.csiBuf.String(), r)
 			s.csiBuf.Reset()
 			s.state = stateGround
-		} else {
+		case r == 0x1b:
+			s.csiBuf.Reset()
+			s.state = stateEsc
+		case r == 0x18 || r == 0x1a: // CAN and SUB abort the sequence
+			s.csiBuf.Reset()
+			s.state = stateGround
+		case r >= 0x20:
 			s.csiBuf.WriteRune(r)
 		}
 	case stateOSC:
@@ -185,14 +229,46 @@ func (s *screen) step(r rune) {
 }
 
 func (s *screen) putRune(r rune) {
-	if s.cx >= s.cols {
+	w := runeWidth(r)
+	if w == 0 {
+		return
+	}
+	if w > s.cols {
+		w = 1
+	}
+	if s.cx+w > s.cols {
 		s.cx = 0
 		s.lineFeed()
 	}
-	if s.cy >= 0 && s.cy < s.rows && s.cx >= 0 && s.cx < s.cols {
-		s.grid[s.cy][s.cx] = r
+	if s.cy >= 0 && s.cy < s.rows && s.cx >= 0 && s.cx+w <= s.cols {
+		row := s.grid[s.cy]
+		if row[s.cx] == wideTail && s.cx > 0 {
+			row[s.cx-1] = ' ' // overwrote the second half of a wide rune
+		}
+		row[s.cx] = r
+		if w == 2 {
+			row[s.cx+1] = wideTail
+		} else if s.cx+1 < s.cols && row[s.cx+1] == wideTail {
+			row[s.cx+1] = ' '
+		}
 	}
-	s.cx++
+	s.cx += w
+}
+
+func (s *screen) reverseIndex() {
+	if s.cy > 0 {
+		s.cy--
+		return
+	}
+	copy(s.grid[1:], s.grid[:s.rows-1])
+	s.grid[0] = blankRow(s.cols)
+}
+
+func (s *screen) pushScrollback(row []rune) {
+	s.scrollback = append(s.scrollback, rowText(row))
+	if len(s.scrollback) > maxScreenScrollback {
+		s.scrollback = s.scrollback[len(s.scrollback)-maxScreenScrollback:]
+	}
 }
 
 func (s *screen) lineFeed() {
@@ -201,17 +277,10 @@ func (s *screen) lineFeed() {
 		return
 	}
 	if !s.altScreen && len(s.grid) > 0 {
-		s.scrollback = append(s.scrollback, trimSpacesRight(s.grid[0]))
-		if len(s.scrollback) > maxScreenScrollback {
-			s.scrollback = s.scrollback[len(s.scrollback)-maxScreenScrollback:]
-		}
+		s.pushScrollback(s.grid[0])
 	}
 	copy(s.grid, s.grid[1:])
-	blank := make([]rune, s.cols)
-	for i := range blank {
-		blank[i] = ' '
-	}
-	s.grid[s.rows-1] = blank
+	s.grid[s.rows-1] = blankRow(s.cols)
 }
 
 func (s *screen) handleCSI(params string, cmd rune) {
@@ -283,25 +352,48 @@ func (s *screen) handleCSI(params string, cmd rune) {
 	}
 }
 
-func (s *screen) Lines() []string {
-	var all []string
-	if !s.altScreen && len(s.scrollback) > 0 {
-		all = append(all, s.scrollback...)
-	}
-	screenLines := make([]string, len(s.grid))
-	lastNonEmpty := -1
-	for i, row := range s.grid {
-		line := trimSpacesRight(row)
-		screenLines[i] = line
-		if line != "" || (len(all) == 0 && i == s.cy) {
-			lastNonEmpty = i
+// LineCount is the number of lines Line serves: the scrollback, then the
+// screen down to its last non-blank row (or the cursor's, with no history).
+func (s *screen) LineCount() int {
+	n := s.historyLen()
+	last := -1
+	for y := len(s.grid) - 1; y >= 0; y-- {
+		if !rowBlank(s.grid[y]) {
+			last = y
+			break
 		}
 	}
-	if lastNonEmpty >= 0 {
-		all = append(all, screenLines[:lastNonEmpty+1]...)
+	if n == 0 && s.cy > last {
+		last = s.cy
 	}
-	if len(all) == 0 {
-		return []string{""}
+	return max(1, n+last+1)
+}
+
+// Line is line i of LineCount, without trailing spaces. It copies nothing
+// but that line, so a view can draw just the rows it shows.
+func (s *screen) Line(i int) string {
+	n := s.historyLen()
+	if i < n {
+		return s.scrollback[i]
+	}
+	if y := i - n; y >= 0 && y < len(s.grid) {
+		return rowText(s.grid[y])
+	}
+	return ""
+}
+
+func (s *screen) historyLen() int {
+	if s.altScreen {
+		return 0
+	}
+	return len(s.scrollback)
+}
+
+func (s *screen) Lines() []string {
+	n := s.LineCount()
+	all := make([]string, n)
+	for i := range all {
+		all[i] = s.Line(i)
 	}
 	return all
 }
@@ -344,6 +436,109 @@ func clearRowRange(row []rune, start, end int) {
 	}
 }
 
-func trimSpacesRight(row []rune) string {
-	return strings.TrimRight(string(row), " ")
+func blankRow(cols int) []rune {
+	row := make([]rune, cols)
+	for i := range row {
+		row[i] = ' '
+	}
+	return row
+}
+
+func rowBlank(row []rune) bool {
+	for _, r := range row {
+		if r != ' ' && r != wideTail {
+			return false
+		}
+	}
+	return true
+}
+
+// rowText is a row's text without wide-rune tails or trailing spaces.
+func rowText(row []rune) string {
+	end := len(row)
+	for end > 0 && (row[end-1] == ' ' || row[end-1] == wideTail) {
+		end--
+	}
+	var b strings.Builder
+	b.Grow(end)
+	for _, r := range row[:end] {
+		if r != wideTail {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// runeWidth is the number of cells r takes: 0 for combining and format
+// characters, 2 for East Asian wide and fullwidth characters and emoji.
+func runeWidth(r rune) int {
+	switch {
+	case r < 0x300:
+		return 1
+	case unicode.Is(unicode.Mn, r), unicode.Is(unicode.Me, r), unicode.Is(unicode.Cf, r):
+		return 0
+	}
+	for _, rg := range wideRanges {
+		if r < rg[0] {
+			return 1
+		}
+		if r <= rg[1] {
+			return 2
+		}
+	}
+	return 1
+}
+
+// wideRanges are the main wide and fullwidth blocks, in order.
+var wideRanges = [...][2]rune{
+	{0x1100, 0x115F},   // Hangul Jamo initials
+	{0x231A, 0x231B},   // watch, hourglass
+	{0x23E9, 0x23F3},   // media symbols
+	{0x25FD, 0x25FE},   // small squares
+	{0x2614, 0x2615},   // umbrella, hot beverage
+	{0x2648, 0x2653},   // zodiac
+	{0x26A1, 0x26A1},   // high voltage
+	{0x26AA, 0x26AB},   // circles
+	{0x26BD, 0x26BE},   // balls
+	{0x26C4, 0x26C5},   // snowman, sun
+	{0x26D4, 0x26D4},   // no entry
+	{0x26EA, 0x26EA},   // church
+	{0x26F2, 0x26F5},   // fountain..sailboat
+	{0x26FA, 0x26FD},   // tent..fuel pump
+	{0x2705, 0x2705},   // check mark
+	{0x270A, 0x270B},   // fists
+	{0x2728, 0x2728},   // sparkles
+	{0x274C, 0x274C},   // cross mark
+	{0x2753, 0x2755},   // question marks
+	{0x2757, 0x2757},   // exclamation
+	{0x2795, 0x2797},   // plus, minus, divide
+	{0x27B0, 0x27B0},   // curly loop
+	{0x2B1B, 0x2B1C},   // large squares
+	{0x2B50, 0x2B50},   // star
+	{0x2B55, 0x2B55},   // circle
+	{0x2E80, 0x303E},   // CJK radicals .. CJK symbols
+	{0x3041, 0x33FF},   // kana .. CJK compatibility
+	{0x3400, 0x4DBF},   // CJK extension A
+	{0x4E00, 0x9FFF},   // CJK unified ideographs
+	{0xA000, 0xA4CF},   // Yi
+	{0xA960, 0xA97F},   // Hangul Jamo extended A
+	{0xAC00, 0xD7A3},   // Hangul syllables
+	{0xF900, 0xFAFF},   // CJK compatibility ideographs
+	{0xFE10, 0xFE19},   // vertical forms
+	{0xFE30, 0xFE6F},   // CJK compatibility forms, small forms
+	{0xFF00, 0xFF60},   // fullwidth forms
+	{0xFFE0, 0xFFE6},   // fullwidth signs
+	{0x16FE0, 0x18AFF}, // ideographic symbols, Tangut
+	{0x1B000, 0x1B2FF}, // kana supplement
+	{0x1F004, 0x1F004}, // mahjong
+	{0x1F0CF, 0x1F0CF}, // joker
+	{0x1F18E, 0x1F18E}, // AB button
+	{0x1F191, 0x1F19A}, // squared words
+	{0x1F200, 0x1F251}, // enclosed ideographs
+	{0x1F300, 0x1F64F}, // pictographs, emoticons
+	{0x1F680, 0x1F6FF}, // transport
+	{0x1F7E0, 0x1F7EB}, // colored circles and squares
+	{0x1F90C, 0x1F9FF}, // supplemental pictographs
+	{0x1FA70, 0x1FAFF}, // symbols and pictographs extended A
+	{0x20000, 0x3FFFD}, // CJK extensions B and later
 }

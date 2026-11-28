@@ -12,7 +12,14 @@ import (
 	contractterm "wada-desktop-go/internal/contract/terminal"
 )
 
-const drawerWidth = 460
+const (
+	drawerWidth  = 460
+	lineFontSize = 11.5
+	// lineHeight is one row of output: the text's line height plus the gap.
+	lineHeight   = lineFontSize*1.4 + 1
+	viewportPadX = 12
+	viewportPadY = 10
+)
 
 func (p *Plugin) drawerView(c *ui.Context) {
 	if !p.open {
@@ -113,7 +120,7 @@ func (p *Plugin) drawerTabs(c *ui.Context, pal native.Palette) {
 					ui.Text(c, cmp.Or(term.Name, term.ID)).FontSize(12).FontWeight(500).TextColor(col).SingleLine()
 				})
 
-				kb := ui.ButtonBase(c.Key("kill")).Label("Kill " + cmp.Or(term.Name, term.ID)).Tooltip("Kill terminal").
+				kb := ui.ButtonBase(c.Key("kill")).Label("Kill "+cmp.Or(term.Name, term.ID)).Tooltip("Kill terminal").
 					Size(18, 18).Radius(4).Center().Cursor(ui.CursorPointer).OnClick(func() { p.killTerminal(term.ID) })
 				if kb.Hovered() {
 					kb.Background(pal.Hover)
@@ -125,7 +132,7 @@ func (p *Plugin) drawerTabs(c *ui.Context, pal native.Palette) {
 }
 
 func (p *Plugin) drawerViewport(c *ui.Context, pal native.Palette, hasActive bool) {
-	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Background(pal.DetailBg).Children(func() {
+	ui.Column(c.Key("viewport")).Bind(&p.viewport).FillWidth().Grow(1).MinHeight(0).Background(pal.DetailBg).Children(func() {
 		if p.errText != "" {
 			ui.Box(c).FillWidth().Padding(6, 12).Background(pal.Danger.Alpha(.12)).Children(func() {
 				ui.Text(c, p.errText).FontSize(11.5).TextColor(pal.DangerText)
@@ -142,15 +149,16 @@ func (p *Plugin) drawerViewport(c *ui.Context, pal native.Palette, hasActive boo
 			return
 		}
 
+		p.fitTo(c)
 		listKey := "term-lines:" + p.activeID
-		ui.List(c.Key(listKey), &p.listState, len(p.lines)).Fill().Selectable().Padding(10, 12).Gap(1).
+		ui.List(c.Key(listKey), &p.listState, p.screen.LineCount()).Fill().Selectable().Padding(viewportPadY, viewportPadX).Gap(1).
 			ItemKey(func(i int) any { return i }).
 			Rows(func(r ui.ListRow) {
-				line := p.lines[r.Index]
+				line := p.screen.Line(r.Index)
 				if line == "" {
 					line = " "
 				}
-				ui.Text(r.Context, line).Font("monospace").FontSize(11.5).LineHeight(1.4).TextColor(pal.Text).SingleLine()
+				ui.Text(r.Context, line).Font("monospace").FontSize(lineFontSize).LineHeight(1.4).TextColor(pal.Text).SingleLine()
 			})
 	})
 }

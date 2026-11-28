@@ -47,8 +47,13 @@ type Plugin struct {
 	worktrees    []agent.Worktree
 	loadWorkers  kernel.Task
 	loadTrees    kernel.Task
-	stopTask     kernel.Task
-	removeWTTask kernel.Task
+	// One task per worker stopped and per worktree removed, so one action
+	// never cancels another's.
+	stopTasks   map[agent.SessionID]*kernel.Task
+	removeTasks map[string]*kernel.Task
+	// seen is each worker's last status and worktree, to refresh the
+	// worktrees only when one appears, moves or finishes.
+	seen map[agent.SessionID]workerMark
 
 	inspected      agent.SessionID
 	drawerTab      drawerTab
@@ -58,6 +63,11 @@ type Plugin struct {
 	drawerLive     strings.Builder
 	drawerLoading  bool
 	loadDrawer     kernel.Task
+}
+
+type workerMark struct {
+	status agent.WorkerStatus
+	path   string
 }
 
 func New() kernel.Plugin { return &Plugin{} }
@@ -76,8 +86,11 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.selectedProvider = "pig"
+	p.selectedProvider = agent.EmbeddedHarness
 	p.drawerOpenDiff = map[string]bool{}
+	p.stopTasks = map[agent.SessionID]*kernel.Task{}
+	p.removeTasks = map[string]*kernel.Task{}
+	p.seen = map[agent.SessionID]workerMark{}
 
 	p.follow(p.chat.Current())
 	kernel.On(c, chat.Changed, p.follow)
@@ -99,6 +112,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 
 	// Stamp chosen harness early on new chats before outgoing attachments/models commit.
 	kernel.Transform(c, chat.Outgoing, -15, p.outgoing)
+	// After every transform that adds files, skills or a workflow.
+	kernel.Transform(c, chat.Outgoing, 5000, p.textOnly)
 
 	kernel.Contribute(c, chat.ComposerAccessory, "workers.harness", -5, shell.View{Render: p.harnessPickerView})
 	kernel.Contribute(c, chat.Work, "workers.panel", 15, chat.WorkSection{
@@ -159,7 +174,7 @@ func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, func(), error) {
 		return d, nil, nil
 	}
 	chosen := p.selectedProvider
-	if chosen == "" || chosen == "pig" {
+	if !agent.ExternalHarness(chosen) {
 		return d, nil, nil
 	}
 	for _, h := range p.harnesses {
@@ -171,6 +186,44 @@ func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, func(), error) {
 		d.Provider = chosen
 	}
 	return d, nil, nil
+}
+
+// textOnly refuses what an external CLI harness's conversation cannot take,
+// rather than dropping it on the way: it takes a message's text only.
+func (p *Plugin) textOnly(d chat.Draft) (chat.Draft, func(), error) {
+	provider := d.Provider
+	if d.Session != "" && d.Session == p.conv.Session {
+		provider = cmp.Or(provider, p.conv.Provider)
+	}
+	if !agent.ExternalHarness(provider) {
+		return d, nil, nil
+	}
+	var unsupported []string
+	if len(d.Files) > 0 {
+		unsupported = append(unsupported, "attached files")
+	}
+	if len(d.Skills) > 0 {
+		unsupported = append(unsupported, "skills")
+	}
+	if d.Workflow != "" {
+		unsupported = append(unsupported, "workflow")
+	}
+	if d.Instructions != "" {
+		unsupported = append(unsupported, "instructions")
+	}
+	if len(unsupported) == 0 {
+		return d, nil, nil
+	}
+	return d, nil, fmt.Errorf("%s takes text only; remove the %s", p.harnessName(provider), strings.Join(unsupported, " and "))
+}
+
+func (p *Plugin) harnessName(id string) string {
+	for _, h := range p.harnesses {
+		if h.ID == id {
+			return cmp.Or(h.Name, h.ID)
+		}
+	}
+	return id
 }
 
 func (p *Plugin) reloadHarnesses() {
@@ -262,7 +315,10 @@ func (p *Plugin) onWorkerUpdated(w agent.Worker) {
 		}
 		p.ctx.Invalidate()
 	}
-	if p.conv.Directory != "" && (w.ParentSession == p.conv.Session || w.WorktreePath != "") {
+	prev, known := p.seen[w.ID]
+	p.seen[w.ID] = workerMark{status: w.Status, path: w.WorktreePath}
+	moved := !known || prev.path != w.WorktreePath || (isTerminalWorkerStatus(w.Status) && !isTerminalWorkerStatus(prev.status))
+	if moved && p.conv.Directory != "" && (w.ParentSession == p.conv.Session || w.WorktreePath != "") {
 		p.refreshWorktreesOnly()
 	}
 }
@@ -393,9 +449,18 @@ func (p *Plugin) inspectedWorker() (agent.Worker, bool) {
 
 func (p *Plugin) stopWorker(id agent.SessionID) {
 	backend := p.agent
-	kernel.Go(p.ctx, &p.stopTask, func(ctx context.Context) (struct{}, error) {
+	task := p.stopTasks[id]
+	if task == nil {
+		task = new(kernel.Task)
+		p.stopTasks[id] = task
+	}
+	kernel.Go(p.ctx, task, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, backend.Abort(ctx, id)
-	}, func(struct{}, error) {
+	}, func(_ struct{}, err error) {
+		delete(p.stopTasks, id)
+		if err != nil {
+			p.host.Toast(ui.Toast{Title: "Could not stop the agent", Description: err.Error(), Type: components.ToastError})
+		}
 		p.reloadWorkspaceState()
 	})
 }
@@ -406,9 +471,15 @@ func (p *Plugin) removeWorktree(wtPath string) {
 		return
 	}
 	dir := p.conv.Directory
-	kernel.Go(p.ctx, &p.removeWTTask, func(ctx context.Context) (struct{}, error) {
+	task := p.removeTasks[wtPath]
+	if task == nil {
+		task = new(kernel.Task)
+		p.removeTasks[wtPath] = task
+	}
+	kernel.Go(p.ctx, task, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, tsvc.RemoveWorktree(ctx, dir, wtPath, false)
 	}, func(_ struct{}, err error) {
+		delete(p.removeTasks, wtPath)
 		if err != nil {
 			p.host.Toast(ui.Toast{Title: "Could not remove worktree", Description: err.Error(), Type: components.ToastError})
 			return

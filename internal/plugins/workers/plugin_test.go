@@ -2,7 +2,9 @@ package workers
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ type fakeOrchService struct {
 	worktrees []agent.Worktree
 	prs       map[string]*agent.PRStatus
 	removedWT string
+	lists     atomic.Int32
 }
 
 func (f *fakeOrchService) NewPlugin() kernel.Plugin { return &fakeOrchPlugin{f: f} }
@@ -64,6 +67,7 @@ func (f *fakeOrchService) Workers(_ context.Context, parent agent.SessionID) ([]
 }
 
 func (f *fakeOrchService) ListWorktrees(context.Context, string) ([]agent.Worktree, error) {
+	f.lists.Add(1)
 	return f.worktrees, nil
 }
 
@@ -227,4 +231,79 @@ func TestWorkerDrawerInspectsTranscriptAndDiffAndStops(t *testing.T) {
 
 	tt.Click("Stop")
 	waitCond(t, h, "abort sent", func() bool { return fa.Called("abort wrk_1") == 1 })
+}
+
+func TestHarnessChatsTakeTextOnly(t *testing.T) {
+	h, p, _, _ := startTestPlugin(t)
+
+	// A new chat on Claude Code refuses files, skills and workflows.
+	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi", Files: []agent.File{{Name: "a.png"}}}); err == nil || !strings.Contains(err.Error(), "Claude Code takes text only") {
+		t.Fatalf("new harness chat with a file = %v", err)
+	}
+	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi", Workflow: "plan-code-review"}); err == nil {
+		t.Fatal("new harness chat with a workflow was accepted")
+	}
+	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi"}); err != nil {
+		t.Fatalf("plain text refused: %v", err)
+	}
+
+	// A stored one is recognized by its conversation.
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "w1", Directory: "/repo", Provider: "claude"})
+	if _, _, err := p.textOnly(chatcontract.Draft{Session: "w1", Text: "hi", Skills: []agent.SkillRef{{ID: "review"}}}); err == nil {
+		t.Fatal("stored harness chat with a skill was accepted")
+	}
+
+	// PiG conversations take everything.
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "s1", Directory: "/repo", Provider: "pig"})
+	if _, _, err := p.textOnly(chatcontract.Draft{Session: "s1", Text: "hi", Files: []agent.File{{Name: "a.png"}}, Workflow: "x"}); err != nil {
+		t.Fatalf("PiG draft refused: %v", err)
+	}
+}
+
+func TestStoppingWorkersIsIndependentAndReported(t *testing.T) {
+	h, p, fa, _ := startTestPlugin(t)
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
+
+	p.stopWorker("wrk_1")
+	p.stopWorker("wrk_2")
+	waitCond(t, h, "both aborts sent", func() bool {
+		return fa.Called("abort wrk_1") == 1 && fa.Called("abort wrk_2") == 1
+	})
+
+	fa.Fail["Abort"] = errors.New("worker is not responding")
+	p.stopWorker("wrk_3")
+	host := p.host.(*kittest.Host)
+	waitCond(t, h, "stop failure reported", func() bool {
+		return len(host.Toasts) > 0 && host.Toasts[len(host.Toasts)-1] == "Could not stop the agent"
+	})
+}
+
+func TestWorkerUpdatesRefreshWorktreesOnlyWhenTheyChange(t *testing.T) {
+	h, p, fa, _ := startTestPlugin(t)
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
+	waitCond(t, h, "first listing", func() bool { return fa.lists.Load() >= 1 })
+	h.Flush()
+	base := fa.lists.Load()
+
+	w := agent.Worker{ID: "wrk_1", ParentSession: "chief1", Provider: "claude", WorktreePath: "/tmp/wt/a", Status: agent.WorkerRunning}
+	kernel.Emit(h, agent.WorkerUpdated, w)
+	waitCond(t, h, "listing for the new worker", func() bool { return fa.lists.Load() == base+1 })
+
+	w.Status = agent.WorkerWaitingApproval
+	kernel.Emit(h, agent.WorkerUpdated, w)
+	w.Status = agent.WorkerRunning
+	kernel.Emit(h, agent.WorkerUpdated, w)
+	h.Flush()
+	time.Sleep(20 * time.Millisecond)
+	h.Flush()
+	if got := fa.lists.Load(); got != base+1 {
+		t.Fatalf("status changes listed worktrees %d more times", got-base-1)
+	}
+
+	w.Status = agent.WorkerCompleted
+	kernel.Emit(h, agent.WorkerUpdated, w)
+	waitCond(t, h, "listing when the worker finished", func() bool { return fa.lists.Load() == base+2 })
+	if p.seen["wrk_1"].status != agent.WorkerCompleted {
+		t.Fatalf("seen = %+v", p.seen["wrk_1"])
+	}
 }

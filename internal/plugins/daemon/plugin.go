@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -167,7 +168,8 @@ func (p *Plugin) connect(restartManaged bool) {
 	if p.activeHost != nil {
 		hostName = strings.TrimSpace(p.activeHost.Get())
 	}
-	remotePW := p.remote.connectPassword
+	remotePW := p.remote.passwords[hostName]
+	p.remote.authFailed = false
 
 	run.Spawn(func(ctx context.Context) {
 		if restartManaged && wasManaged && dialFn == nil && hostName == "" {
@@ -231,6 +233,16 @@ func (p *Plugin) connect(restartManaged bool) {
 				downSt := connectingSt
 				downSt.State = agent.Down
 				downSt.Err = err
+				if client.IsUnauthorized(err) {
+					// The same credentials would be refused again: wait for
+					// new ones from Settings rather than retrying.
+					downSt.Err = fmt.Errorf("%s refused the connection; enter its password in Settings → Daemon (%w)", endpointLabel, err)
+					run.Post(func() {
+						p.remote.authFailed = true
+						p.setStatus(downSt)
+					})
+					return
+				}
 				run.Post(func() { p.setStatus(downSt) })
 				wait := backoffs[min(failStreak, len(backoffs)-1)]
 				failStreak++

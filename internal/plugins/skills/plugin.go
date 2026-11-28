@@ -90,7 +90,7 @@ func (p *Plugin) reset() {
 // the word is over the next one lists them again.
 func (p *Plugin) search(typed string, active bool) {
 	p.typed = typed
-	if !active {
+	if !active || agent.ExternalHarness(p.chat.Current().Provider) {
 		p.active = false
 		return
 	}

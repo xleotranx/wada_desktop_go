@@ -205,6 +205,9 @@ func RelayWSURL(baseURL, role, serverHash string) (string, error) {
 	return u.String(), nil
 }
 
+// ErrUnauthorized is returned when the relay refuses the client's relay token.
+var ErrUnauthorized = errors.New("relay: the relay refused this client's relay token")
+
 // DialClientTunnel connects through wada-relay to a daemon identified by
 // serverPub, completes the Noise_NK_25519_ChaChaPoly_SHA256 handshake, and returns
 // an end-to-end encrypted Transport.
@@ -218,8 +221,14 @@ func DialClientTunnel(ctx context.Context, relayURL string, serverPub [keySize]b
 	if relayAuthToken != "" {
 		hdr.Set("Authorization", "Bearer "+relayAuthToken)
 	}
-	ws, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, hdr)
+	ws, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, hdr)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			return nil, fmt.Errorf("%w (HTTP %d)", ErrUnauthorized, resp.StatusCode)
+		}
 		return nil, err
 	}
 

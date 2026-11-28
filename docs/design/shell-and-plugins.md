@@ -794,6 +794,19 @@ hiding the work panel (`chat.HideWork`).
   screen buffer (`2,000`-line scrollback), and reattaches automatically when
   `agent.StatusChanged` reports a new `agent.Ready` attempt. Multiple tabs switch
   between PTYs and `Kill` terminates a terminal permanently.
+- **Screen.** The buffer moves the cursor, erases, switches to the alternate
+  screen, saves and restores the cursor (`ESC 7`/`ESC 8`) and reverse-indexes
+  (`ESC M`). It skips charset designators (`ESC ( B` and the like) and OSC, DCS,
+  SOS, PM and APC strings without printing them. East Asian wide characters and
+  emoji take two cells; combining marks take none. The output list reads each
+  visible line from the buffer as it draws, copying nothing else.
+- **Size.** The PTY follows the drawer: from the viewport's size in the last frame
+  and the measured monospace cell, the plugin resizes the screen and the PTY
+  (at least 20×4) when the columns or rows change, and a new or attached
+  terminal starts at that size.
+- **Input.** Each attachment has one writer that sends input and resizes in the
+  order they were made; when its queue (256) is full, the input is not sent and
+  the drawer says so.
 - **Controls.** Includes a monospace output list, clipboard copy, `Ctrl+C` (`0x03`),
   `Ctrl+D` (`0x04`), `Clear`, and a command input sending `<line>\r`.
 
@@ -806,10 +819,19 @@ and `agent.WorktreesKey`:
 - **Harness picker.** Contributes a `chat.ComposerAccessory` picker on new chats
   (before `Draft.Provider` is stamped at `chat.Outgoing` order `-15`) so users can
   target embedded PiG or an external CLI harness (Claude Code, Codex, ACP).
+- **Text only.** An external harness's conversation (`agent.ExternalHarness`)
+  takes a message's text. At `chat.Outgoing` order `5000`, after every transform
+  that adds files, skills or a workflow, the plugin refuses a draft for one that
+  carries any of them, naming what to remove. While such a conversation is open,
+  the attachments button, the `/skill` completions, the mode and workflow picker
+  and the model picker are hidden.
 - **Work panel section.** Contributes a `chat.Work` section displaying supervised
   workers (with status pill and Stop action) and secondary Git worktrees (with
   modified indicator, clickable authenticated GitHub `#N · pass/fail/pending`
-  PR badge via `Worktrees.PRStatus`, and Remove action).
+  PR badge via `Worktrees.PRStatus`, and Remove action). Each Stop and Remove
+  runs on its own task, and a failure shows a toast. Worktrees and their PR
+  badges are listed again when a worker first appears, moves to another
+  worktree or finishes, not on every status change.
 - **Worker Inspector drawer.** Opening a worker hides the work panel
   (`chat.HideWork`) and opens a 400 px `chat.Drawers` column with Transcript
   and per-worktree Diff tabs.
@@ -820,3 +842,12 @@ and `agent.WorktreesKey`:
 `#offer=` remote pairing link (`daemon.pairing.offer`), set or clear the
 bcrypt remote daemon password (`daemon.password.set`), and switch between
 `Local wadad` and saved remote profiles in `<DataDir>/hosts.json`.
+Add remote host takes a name, an `#offer=` link or endpoint (`client.ParseHostTarget`:
+a host without a port gets `:6767`), and an optional daemon credential, relay
+token and password. The credential and relay token are saved in the profile; a
+password is kept in memory for this run of the app only and is used each time
+that host is connected. When a daemon refuses the credential or password, or a
+relay its relay token (`client.IsUnauthorized`), the plugin stops redialing,
+reports the refusal and asks for the active host's password in Settings →
+Daemon. Starting another provider login sends the cancel of the previous one on
+a task of its own.

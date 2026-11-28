@@ -112,6 +112,29 @@ func TestWorkerSendStatusAndOutcome(t *testing.T) {
 	sess.events <- protocol.Event{Kind: protocol.EventTurnSucceeded}
 	waitStatus(protocol.WorkerCompleted)
 
+	// What a CLI harness cannot take is refused before anything is recorded.
+	for _, req := range []protocol.SendRequest{
+		{Files: []protocol.File{{Name: "a.png"}}},
+		{Skills: []protocol.SkillRef{{ID: "review"}}},
+		{Instructions: "plan first"},
+		{Policy: &protocol.ToolPolicy{}},
+		{ResultSchema: []byte(`{"type":"object"}`)},
+	} {
+		req.Session, req.Text = info.ID, "unsupported"
+		if _, err := o.Send(t.Context(), req); !errors.Is(err, pig.ErrNotSent) {
+			t.Fatalf("send %+v = %v, want ErrNotSent", req, err)
+		}
+	}
+	if st := w.snapshot().Status; st != protocol.WorkerCompleted {
+		t.Fatalf("status after unsupported sends = %s, want completed", st)
+	}
+	if err := o.SetModel(t.Context(), info.ID, protocol.ModelRef{Provider: "openai", ID: "gpt"}); err == nil {
+		t.Fatal("SetModel on a harness session succeeded")
+	}
+	if _, err := o.Spawn(t.Context(), protocol.SpawnRequest{Parent: info.ID, Name: "reviewer"}); err == nil {
+		t.Fatal("Spawn under a harness session succeeded")
+	}
+
 	// Refused before reaching the harness: safe to retry, nothing recorded.
 	sess.sendErr = fmt.Errorf("%w: closed", harness.ErrNotSent)
 	if err := send("refused"); !errors.Is(err, pig.ErrNotSent) {

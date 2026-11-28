@@ -18,17 +18,23 @@ import (
 )
 
 type remoteForm struct {
-	hosts           []client.HostRecord
-	newName         string
-	newTarget       string
-	newPassword     string
-	connectPassword string
-	daemonPassword  string
-	pairingURL      string
-	pairingKey      string
-	requiresPW      bool
-	notice          string
-	err             string
+	hosts         []client.HostRecord
+	newName       string
+	newTarget     string
+	newPassword   string
+	newCredential string
+	newRelayToken string
+	// passwords are the hosts' passwords for this run of the app, by name;
+	// they are never written to disk.
+	passwords      map[string]string
+	authFailed     bool   // the active host refused the connection
+	authPassword   string // typed in answer to that
+	daemonPassword string
+	pairingURL     string
+	pairingKey     string
+	requiresPW     bool
+	notice         string
+	err            string
 
 	loadHostsTask  kernel.Task
 	saveHostTask   kernel.Task
@@ -122,6 +128,18 @@ func (p *Plugin) remoteSettingsSection(c *ui.Context, pal native.Palette, active
 	if p.remote.notice != "" {
 		ui.Text(c, p.remote.notice).FontSize(12).TextColor(pal.GreenBadge)
 	}
+	if p.remote.authFailed && activeHost != "" {
+		ui.Column(c.Key("host-auth")).FillWidth().Gap(6).Padding(8, 0, 0, 0).Children(func() {
+			ui.Text(c, activeHost+" needs its password").FontSize(13).FontWeight(600).TextColor(pal.Text)
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Box(c.Key("host-auth-input")).Grow(1).MinWidth(0).Children(func() {
+					components.TextBox(c, &p.remote.authPassword, components.TextBoxOptions{}).
+						FillWidth().Placeholder("Remote daemon password").Password().OnSubmit(p.retryWithPassword)
+				})
+				components.Button(c, "Connect", components.ButtonPrimary).OnClick(p.retryWithPassword)
+			})
+		})
+	}
 
 	if p.status.State == agent.Ready {
 		ui.Column(c.Key("daemon-pairing")).FillWidth().Gap(8).Padding(8, 0, 0, 0).Children(func() {
@@ -174,6 +192,16 @@ func (p *Plugin) remoteSettingsSection(c *ui.Context, pal native.Palette, active
 					FillWidth().Placeholder("#offer= link or host:port")
 			})
 		})
+		ui.Row(c).FillWidth().Gap(6).Children(func() {
+			ui.Box(c.Key("host-credential")).Grow(1).MinWidth(0).Children(func() {
+				components.TextBox(c, &p.remote.newCredential, components.TextBoxOptions{}).
+					FillWidth().Placeholder("Daemon credential (optional)").Password()
+			})
+			ui.Box(c.Key("host-relay-token")).Grow(1).MinWidth(0).Children(func() {
+				components.TextBox(c, &p.remote.newRelayToken, components.TextBoxOptions{}).
+					FillWidth().Placeholder("Relay token (optional)").Password()
+			})
+		})
 		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Box(c.Key("host-pass")).Grow(1).MinWidth(0).Children(func() {
 				components.TextBox(c, &p.remote.newPassword, components.TextBoxOptions{}).
@@ -197,7 +225,7 @@ func (p *Plugin) hostRow(c *ui.Context, pal native.Palette, label, hostID, detai
 			})
 		} else {
 			id := hostID
-			components.Button(c, "Connect", components.ButtonSecondary).OnClick(func() { p.switchHost(id, "") })
+			components.Button(c, "Connect", components.ButtonSecondary).OnClick(func() { p.switchHost(id) })
 		}
 		if hostID != "" {
 			id := hostID
@@ -221,15 +249,42 @@ func (p *Plugin) loadHosts() {
 	})
 }
 
-func (p *Plugin) switchHost(name, pw string) {
+// switchHost connects to a saved host, with the password given for it in
+// this run of the app, if any.
+func (p *Plugin) switchHost(name string) {
 	if p.activeHost == nil {
 		return
 	}
-	p.remote.connectPassword = pw
 	p.remote.err = ""
 	p.remote.notice = ""
 	_ = p.activeHost.Set(name)
 	p.Reconnect()
+}
+
+func (p *Plugin) setHostPassword(name, pw string) {
+	if p.remote.passwords == nil {
+		p.remote.passwords = map[string]string{}
+	}
+	if pw == "" {
+		delete(p.remote.passwords, name)
+		return
+	}
+	p.remote.passwords[name] = pw
+}
+
+// retryWithPassword reconnects to the active host that refused the
+// connection, with the password typed for it.
+func (p *Plugin) retryWithPassword() {
+	if p.activeHost == nil {
+		return
+	}
+	name := p.activeHost.Get()
+	if name == "" {
+		return
+	}
+	p.setHostPassword(name, p.remote.authPassword)
+	p.remote.authPassword = ""
+	p.switchHost(name)
 }
 
 func (p *Plugin) addAndConnectHost() {
@@ -241,12 +296,12 @@ func (p *Plugin) addAndConnectHost() {
 		p.ctx.Invalidate()
 		return
 	}
-	rec := client.HostRecord{Name: name}
-	if strings.Contains(target, "#offer=") || (!strings.Contains(target, "://") && !strings.Contains(target, ":")) {
-		rec.Offer = target
-	} else {
-		rec.Endpoint = target
+	rec := client.HostRecord{
+		Name:       name,
+		Credential: strings.TrimSpace(p.remote.newCredential),
+		RelayToken: strings.TrimSpace(p.remote.newRelayToken),
 	}
+	rec.Offer, rec.Endpoint = client.ParseHostTarget(target)
 	dataDir := p.host.DataDir()
 	kernel.Go(p.ctx, &p.remote.saveHostTask, func(context.Context) (struct{}, error) {
 		return struct{}{}, client.SaveHost(dataDir, rec)
@@ -259,9 +314,12 @@ func (p *Plugin) addAndConnectHost() {
 		p.remote.newName = ""
 		p.remote.newTarget = ""
 		p.remote.newPassword = ""
+		p.remote.newCredential = ""
+		p.remote.newRelayToken = ""
 		p.remote.err = ""
+		p.setHostPassword(name, pw)
 		p.loadHosts()
-		p.switchHost(name, pw)
+		p.switchHost(name)
 	})
 }
 
@@ -276,9 +334,10 @@ func (p *Plugin) removeHost(name string) {
 			p.ctx.Invalidate()
 			return
 		}
+		p.setHostPassword(name, "")
 		p.loadHosts()
 		if wasActive {
-			p.switchHost("", "")
+			p.switchHost("")
 		}
 	})
 }
@@ -328,6 +387,11 @@ func (p *Plugin) updateDaemonPassword(pw string) {
 			return
 		}
 		p.remote.err = ""
+		p.remote.daemonPassword = ""
+		if host := p.activeHost.Get(); host != "" {
+			// The connection to it stays open; the next one needs the password.
+			p.setHostPassword(host, pw)
+		}
 		if pw == "" {
 			p.remote.notice = "Remote daemon password cleared"
 		} else {
@@ -432,10 +496,13 @@ func (p *Plugin) login(id string, kind protocol.ProviderAuthType) {
 	p.providers.loginID = loginID
 	p.providers.selected = id
 	p.providers.err = ""
-	p.providers.busy = true
 	if p.run == nil {
+		p.resetLoginState()
+		p.providers.err = agent.ErrNotConnected.Error()
+		p.ctx.Invalidate()
 		return
 	}
+	p.providers.busy = true
 	kernel.Go(p.run, &p.providers.loginTask, func(ctx context.Context) (string, error) {
 		cli, err := p.current()
 		if err != nil {
@@ -483,7 +550,12 @@ func (p *Plugin) cancelLogin() {
 	if loginID == "" || p.run == nil {
 		return
 	}
-	kernel.Go(p.run, &p.providers.loginTask, func(ctx context.Context) (struct{}, error) {
+	// The login it ends must not be cancelled or answered meanwhile.
+	p.providers.loginTask.Cancel()
+	p.providers.answerTask.Cancel()
+	// Each cancel has a task of its own: a later login or cancel must not
+	// replace it before it reaches the daemon. The connection's scope ends it.
+	kernel.Go(p.run, new(kernel.Task), func(ctx context.Context) (struct{}, error) {
 		cli, err := p.current()
 		if err != nil {
 			return struct{}{}, err

@@ -65,7 +65,8 @@ worktrees, and PTY terminals on your own workstation or server:
    Or copy the link from Desktop under **Settings → Daemon → Copy Pairing Link**.
    If the relay has a `WADA_RELAY_TOKEN`, enter it as the relay token when
    pairing in the Web/PWA client; the browser sends it as the `token` query
-   parameter, because browsers cannot set WebSocket headers.
+   parameter, because browsers cannot set WebSocket headers. In Desktop, enter it
+   as the relay token under **Settings → Daemon → Add remote host**.
    Everything inside `#offer=...` remains in the browser URL hash fragment and is
    never sent in HTTP requests.
 

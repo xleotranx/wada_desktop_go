@@ -8,7 +8,9 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +33,22 @@ type testDaemonBackend struct {
 	*pig.Runtime
 	rejectText string
 	attempts   atomic.Int32
+
+	mu        sync.Mutex
+	cancelled []string
+}
+
+func (b *testDaemonBackend) CancelProviderLogin(ctx context.Context, loginID string) error {
+	b.mu.Lock()
+	b.cancelled = append(b.cancelled, loginID)
+	b.mu.Unlock()
+	return b.Runtime.CancelProviderLogin(ctx, loginID)
+}
+
+func (b *testDaemonBackend) cancelledLogins() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.cancelled)
 }
 
 func (b *testDaemonBackend) Send(ctx context.Context, req protocol.SendRequest) (protocol.SendDisposition, error) {
@@ -343,4 +361,47 @@ func TestDaemonSettingsPairingAndMultiHost(t *testing.T) {
 	if !tt.HasText("remote-box") || !tt.HasText("Copy Pairing Link") {
 		t.Fatalf("daemonSection missing expected multi-host UI: %q", tt.Texts())
 	}
+}
+
+func TestRefusedCredentialsStopRetryingAndAskForThePassword(t *testing.T) {
+	var dials atomic.Int32
+	var p *Plugin
+	host := &kittest.Host{Data: t.TempDir()}
+	factory := func() kernel.Plugin {
+		p = &Plugin{dial: func(context.Context) (*client.Client, protocol.DaemonStatusResponse, error) {
+			dials.Add(1)
+			return nil, protocol.DaemonStatusResponse{}, &protocol.RPCError{Code: protocol.ErrCodeUnauthorized, Message: "invalid daemon credential or password"}
+		}}
+		return p
+	}
+	h := kerneltest.New(t, host.New, factory)
+	waitFor(t, h, "refusal reported", func() bool { return p.remote.authFailed && p.Status().State == agent.Down })
+	time.Sleep(700 * time.Millisecond) // past the first backoff
+	h.Flush()
+	if n := dials.Load(); n != 1 {
+		t.Fatalf("dialed %d times after a refusal, want 1", n)
+	}
+
+	_ = p.activeHost.Set("box")
+	p.remote.authPassword = "hunter2"
+	p.retryWithPassword()
+	waitFor(t, h, "redialed with the password", func() bool { return dials.Load() == 2 && p.remote.authFailed })
+	if p.remote.passwords["box"] != "hunter2" || p.remote.authPassword != "" {
+		t.Fatalf("passwords = %v, typed = %q", p.remote.passwords, p.remote.authPassword)
+	}
+	tt := ui.NewTester(p.daemonSection, 520, 640)
+	tt.Frame()
+	if !tt.HasText("box needs its password") {
+		t.Fatalf("no password prompt: %q", tt.Texts())
+	}
+}
+
+func TestReplacingALoginCancelsThePreviousOne(t *testing.T) {
+	h, p, _, _, backend := startDaemonHarness(t)
+	p.login("first-provider", protocol.ProviderAuthOAuth)
+	first := p.providers.loginID
+	p.login("second-provider", protocol.ProviderAuthOAuth)
+	waitFor(t, h, "first login cancelled on the daemon", func() bool {
+		return slices.Contains(backend.cancelledLogins(), first)
+	})
 }

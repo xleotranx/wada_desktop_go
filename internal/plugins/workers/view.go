@@ -24,7 +24,7 @@ func (p *Plugin) harnessPickerView(c *ui.Context) {
 	}
 	c.Key("harness")
 	var options []onechat.Option
-	selected := cmp.Or(p.selectedProvider, "pig")
+	selected := cmp.Or(p.selectedProvider, agent.EmbeddedHarness)
 	label := "PiG"
 	for _, h := range p.harnesses {
 		desc := harnessKindLabel(h.Kind)

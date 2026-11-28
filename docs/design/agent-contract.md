@@ -45,13 +45,19 @@ remote `wadad` host via `client.DialHost` (using direct WebSocket or Noise NK E2
 relay); otherwise it attaches to an already running local `wadad` instance (via
 `wadad.pid` and `local-credential`), or spawns a detached
 `os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
-reconnects automatically if the WebSocket drops. One `wadad` serves a data
+reconnects automatically if the WebSocket drops, except after the daemon or
+relay refused its credentials, which it reports instead. One `wadad` serves a data
 directory at a time: it holds an exclusive lock on `<DataDir>/wadad.lock` for its
 whole run, so a replacement waits until the daemon it replaces has shut down and
 removed its runtime files. `wadad.db` tracks server identity,
 startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
 The timeline is for catch-up only: it keeps the current and previous epochs, the
 last 20000 events of each session per epoch, and nothing for deleted sessions.
+
+A conversation on an external CLI harness (Claude Code, Codex, ACP) takes a
+message's text only: the daemon refuses, as not sent, a send with files, skills,
+instructions, a tool policy or a result schema, and refuses `SetModel` and child
+conversations under it. Its mode is the one it was created with.
 
 Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) with Wada's engineering system prompt.

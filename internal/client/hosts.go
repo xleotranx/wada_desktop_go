@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"wada-desktop-go/internal/relay"
@@ -21,6 +23,7 @@ type HostRecord struct {
 	Offer      string `json:"offer,omitempty"`
 	Endpoint   string `json:"endpoint,omitempty"`
 	Credential string `json:"credential,omitempty"`
+	RelayToken string `json:"relayToken,omitempty"` // Bearer token for the relay itself
 	RelayURL   string `json:"relayUrl,omitempty"`
 	ServerID   string `json:"serverId,omitempty"`
 	UpdatedAt  int64  `json:"updatedAt"`
@@ -119,6 +122,30 @@ func RemoveHost(dataDir, name string) error {
 	return writeFileAtomic(filepath.Join(dir, hostsFileName), data, 0o600)
 }
 
+// DefaultPort is wadad's default listening port.
+const DefaultPort = "6767"
+
+// ParseHostTarget reads what a person typed to add a host: a pairing offer
+// (an #offer= link or a bare encoded offer) or a daemon endpoint. An endpoint
+// without a scheme or port gets DefaultPort.
+func ParseHostTarget(target string) (offer, endpoint string) {
+	target = strings.TrimSpace(target)
+	if strings.Contains(target, "#offer=") {
+		return target, ""
+	}
+	if _, err := relay.DecodeOffer(target); err == nil {
+		return target, ""
+	}
+	if !strings.Contains(target, "://") {
+		host := strings.TrimRight(target, "/")
+		if _, _, err := net.SplitHostPort(host); err != nil {
+			host = net.JoinHostPort(strings.Trim(host, "[]"), DefaultPort)
+		}
+		return "", host
+	}
+	return "", target
+}
+
 // DialHost connects to a saved remote host by name using its stored offer or endpoint.
 func DialHost(ctx context.Context, dataDir, name string, opts Options) (*Client, error) {
 	list, err := LoadHosts(dataDir)
@@ -129,6 +156,9 @@ func DialHost(ctx context.Context, dataDir, name string, opts Options) (*Client,
 		if h.Name == name {
 			if opts.Credential == "" && h.Credential != "" {
 				opts.Credential = h.Credential
+			}
+			if opts.RelayAuthToken == "" {
+				opts.RelayAuthToken = h.RelayToken
 			}
 			if h.Offer != "" {
 				return DialOffer(ctx, h.Offer, opts)

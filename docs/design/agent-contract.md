@@ -234,8 +234,9 @@ CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
   all-sessions subscription as a `workspace_updated` event carrying the project or
   workspace. These events are not kept in the timeline: a client lists the record
   again when it connects.
-- `workspace.project.add` returns the active project at a root and its workspace;
-  if there is none it restores the one archived there last, or else makes one.
+- `workspace.project.add` requires an absolute path to an existing directory on
+  the daemon host. It returns the active project and workspace at that root,
+  restores the most recently archived pair there, or creates a new pair.
   `workspace.project.archive` archives a project and its workspaces; their
   conversations stay with the backend. `workspace.projects.list`,
   `workspace.project.rename`, `workspace.list` and `workspace.rename` complete the

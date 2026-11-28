@@ -16,6 +16,30 @@ import (
 	"wada-desktop-go/internal/protocol"
 )
 
+func TestAddProjectRequiresAnExistingHostDirectory(t *testing.T) {
+	dataDir := t.TempDir()
+	startTestServer(t, dataDir)
+	c, err := client.DialLocal(t.Context(), dataDir, client.Options{ClientType: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	root := t.TempDir()
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"relative", filepath.Join(root, "missing"), file} {
+		if _, err := c.AddProject(t.Context(), path); !isCode(err, protocol.ErrCodeInvalid) {
+			t.Fatalf("add project %q = %v, want invalid", path, err)
+		}
+	}
+	projects, err := c.Projects(t.Context(), false)
+	if err != nil || len(projects) != 1 || !projects[0].Inbox {
+		t.Fatalf("projects after rejected paths = %+v, %v", projects, err)
+	}
+}
+
 func TestSessionsArePlacedInWorkspaces(t *testing.T) {
 	dataDir := t.TempDir()
 	_, _, _, _ = startTestServer(t, dataDir)

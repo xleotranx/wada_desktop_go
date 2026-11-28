@@ -488,6 +488,9 @@ func (p *Plugin) AddProject(ctx context.Context, root string) (agent.Project, ag
 	if err != nil {
 		return agent.Project{}, agent.Workspace{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return agent.Project{}, agent.Workspace{}, err
+	}
 	resp, err := cli.AddProject(ctx, root)
 	if err != nil {
 		return agent.Project{}, agent.Workspace{}, err

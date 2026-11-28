@@ -242,10 +242,11 @@ type Status struct {
 	// Attempt increases with every connection attempt. Consumers holding
 	// server state reload it when a new attempt becomes Ready, since events
 	// may have been missed in between.
-	Attempt  uint64
-	Endpoint string // where the backend listens, for display
-	Version  string // the backend's own version, when known
-	Err      error  // why the attempt is Down
+	Attempt    uint64
+	Endpoint   string // where the backend listens, for display
+	RemoteHost string // selected host name, empty for the local backend
+	Version    string // the backend's own version, when known
+	Err        error  // why the attempt is Down
 	// Origin names where the backend keeps its conversations, such as
 	// "pig /path/to/app/pig". A session ID means
 	// something only under the origin it came from. Empty while stopped.

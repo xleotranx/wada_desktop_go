@@ -11,6 +11,7 @@ import (
 	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/plugintest"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
@@ -216,6 +217,47 @@ func TestChooseProjectAddsItOrReportsTheFailure(t *testing.T) {
 	f.until(t, "the dialog closes", func() bool { return !f.p.picking.Running() })
 	if len(got) != 1 || len(f.host.Toasts) != 1 {
 		t.Fatalf("a cancelled dialog did something: %v %q", got, f.host.Toasts)
+	}
+}
+
+func TestRemoteProjectUsesHostPathAndKeepsTheDialogOnError(t *testing.T) {
+	f := start(t)
+	f.a.State.RemoteHost = "dev-box"
+	f.chosen = "/local/wrong"
+	f.record.Fail = map[string]error{"AddProject": errors.New("Folder unavailable")}
+	var got agent.Workspace
+	f.p.ChooseProject(func(w agent.Workspace) { got = w })
+	tt := ui.NewTester(f.p.projectDialog, 600, 480)
+	tt.Frame()
+	if !tt.HasText("Enter the full folder path on dev-box.") {
+		t.Fatalf("dialog does not name the host: %q", tt.Texts())
+	}
+	tt.Type("/srv/wada")
+	tt.Key(0, ui.KeyEnter)
+	f.until(t, "the remote path failure", func() bool { return f.p.remoteProject.err != "" })
+	tt.Frame()
+	if !tt.HasText("Folder unavailable") || f.p.remoteProject.path != "/srv/wada" || got.ID != "" {
+		t.Fatal("the failed add must preserve the path and show the error")
+	}
+	f.record.Fail = nil
+	if err := tt.Click("Add project"); err != nil {
+		t.Fatal(err)
+	}
+	f.until(t, "the remote project is added", func() bool { return got.ID != "" })
+	if got.Directory != "/srv/wada" || f.p.remoteProject.open {
+		t.Fatalf("added %+v, dialog open = %v", got, f.p.remoteProject.open)
+	}
+}
+
+func TestDisconnectClosesRemoteProjectDialog(t *testing.T) {
+	f := start(t)
+	f.a.State.RemoteHost = "dev-box"
+	f.p.ChooseProject(func(agent.Workspace) { t.Error("unexpected project") })
+	f.p.remoteProject.path = "/srv/app"
+	f.a.State = agent.Status{State: agent.Connecting, Attempt: 2, RemoteHost: "other"}
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	if f.p.remoteProject.open || f.p.remoteProject.path != "" {
+		t.Fatal("the previous host's path is still visible")
 	}
 }
 

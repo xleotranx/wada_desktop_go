@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -174,6 +175,17 @@ func (p *Plugin) connect(restartManaged bool) {
 	}
 	remotePW := p.remote.passwords[hostName]
 	p.remote.authFailed = false
+	endpointLabel := cmp.Or(hostName, "Local wadad")
+	nextAttempt := func() agent.Status {
+		return agent.Status{
+			State:      agent.Connecting,
+			Attempt:    attempts.Add(1),
+			Endpoint:   endpointLabel,
+			RemoteHost: hostName,
+		}
+	}
+	firstAttempt := nextAttempt()
+	p.setStatus(firstAttempt)
 
 	run.Spawn(func(ctx context.Context) {
 		if restartManaged && wasManaged && dialFn == nil && hostName == "" {
@@ -183,22 +195,10 @@ func (p *Plugin) connect(restartManaged bool) {
 		backoffs := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 5 * time.Second}
 		failStreak := 0
 
-		endpointLabel := "Local wadad"
-		if hostName != "" {
-			endpointLabel = hostName
-		}
-
-		for {
-			if ctx.Err() != nil {
-				return
+		for connectingSt := firstAttempt; ctx.Err() == nil; connectingSt = nextAttempt() {
+			if connectingSt.Attempt != firstAttempt.Attempt {
+				run.Post(func() { p.setStatus(connectingSt) })
 			}
-			attempt := attempts.Add(1)
-			connectingSt := agent.Status{
-				State:    agent.Connecting,
-				Attempt:  attempt,
-				Endpoint: endpointLabel,
-			}
-			run.Post(func() { p.setStatus(connectingSt) })
 
 			dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 			var (

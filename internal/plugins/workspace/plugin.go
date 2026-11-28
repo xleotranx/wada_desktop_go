@@ -49,6 +49,7 @@ type Plugin struct {
 	picking   kernel.Task
 	archiving kernel.Task
 
+	remoteProject projectForm
 	// choose asks the user for a folder, off the UI thread; tests replace it.
 	choose func() (string, error)
 	// now is the clock, in Unix milliseconds; tests replace it.
@@ -96,7 +97,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, chat.Started, p.started)
 	kernel.Provide[workspace.Service](c, workspace.ServiceKey, p)
 	p.maybeSync()
-	return nil
+	return kernel.Contribute(c, shell.Overlays, "workspace.add-project", 0, shell.View{Render: p.projectDialog})
 }
 
 // ---- workspace.Service
@@ -173,28 +174,48 @@ func (p *Plugin) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
 }
 
 func (p *Plugin) ChooseProject(done func(agent.Workspace)) {
-	if p.picking.Running() {
+	if p.picking.Running() || p.remoteProject.open {
 		return
 	}
+	st := p.agent.Status()
+	if st.State != agent.Ready {
+		p.host.Toast(ui.Toast{Title: "Connect to Wada before adding a project", Type: components.ToastError})
+		return
+	}
+	if st.RemoteHost != "" {
+		p.remoteProject = projectForm{open: true, host: st.RemoteHost, done: done}
+		p.ctx.Invalidate()
+		return
+	}
+	choose := p.choose
+	p.addProject(func(context.Context) (string, error) { return choose() }, done,
+		func(err error) {
+			p.host.Toast(ui.Toast{Title: "The project was not added", Description: err.Error(), Type: components.ToastError})
+		})
+}
+
+func (p *Plugin) addProject(choose func(context.Context) (string, error), done func(agent.Workspace), failed func(error)) {
 	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
 	if !ok {
-		p.host.Toast(ui.Toast{Title: "The agent keeps no projects", Type: components.ToastError})
+		failed(errNoRecord)
 		return
 	}
-	origin := p.origin
 	kernel.Go(p.ctx, &p.picking, func(ctx context.Context) (agent.WorkspaceUpdate, error) {
-		path, err := p.choose()
+		path, err := choose(ctx)
 		if err != nil || path == "" { // failed or cancelled
+			return agent.WorkspaceUpdate{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return agent.WorkspaceUpdate{}, err
 		}
 		pr, w, err := ws.AddProject(ctx, path)
 		return agent.WorkspaceUpdate{Project: &pr, Workspace: &w}, err
 	}, func(up agent.WorkspaceUpdate, err error) {
 		if err != nil {
-			p.host.Toast(ui.Toast{Title: "The project was not added", Description: err.Error(), Type: components.ToastError})
+			failed(err)
 			return
 		}
-		if up.Workspace == nil || origin != p.origin {
+		if up.Workspace == nil {
 			return
 		}
 		p.updated(up)
@@ -483,6 +504,10 @@ func (p *Plugin) events(batch []agent.Event) {
 func (p *Plugin) touch(s *agent.Session) { s.Updated = max(s.Updated, p.now()) }
 
 func (p *Plugin) statusChanged(st agent.Status) {
+	if st.State != agent.Ready || st.Origin != p.origin {
+		p.picking.Cancel()
+		p.remoteProject = projectForm{}
+	}
 	if st.Origin != p.origin {
 		p.origin = st.Origin
 		p.full.Cancel()

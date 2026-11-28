@@ -231,10 +231,11 @@ consumers keep it when the chat fails.
   again.
 - `At` finds the active workspace at a directory, `""` being the inbox's; `Name` is
   its title, else its project's name, else the directory's base name.
-- `ChooseProject` shows the system folder dialog off the UI thread, one at a time,
-  then adds the folder through `AddProject`; its callback gets the project's
-  workspace. `ArchiveProject` archives a project; its callback runs once the backend
-  has. Either failure is reported in a toast and changes nothing. Without
+- `ChooseProject` opens the system folder picker for the local daemon. With a remote
+  host selected, it asks for the full folder path on that host and shows validation
+  errors in the dialog. The daemon checks the path before adding the project.
+  The callback receives the project's workspace. `ArchiveProject` runs its callback
+  after the daemon archives the project and reports failures in a toast. Without
   `agent.WorkspacesKey` nothing is listed.
 
 `internal/plugins/folderpicker` requires `chat.ControllerKey` and

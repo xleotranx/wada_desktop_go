@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"wada-desktop-go/internal/daemon/workspaces"
@@ -32,6 +35,16 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 		var req protocol.ProjectAddRequest
 		if rerr := decode(&req); rerr != nil {
 			return nil, rerr
+		}
+		if !filepath.IsAbs(req.Root) {
+			return nil, invalidErr(errors.New("enter an absolute project folder path"))
+		}
+		info, err := os.Stat(filepath.Clean(req.Root))
+		if err != nil {
+			return nil, invalidErr(err)
+		}
+		if !info.IsDir() {
+			return nil, invalidErr(fmt.Errorf("%q is not a folder", req.Root))
 		}
 		p, w, err := s.workspaces.AddProject(ctx, req.Root)
 		if err != nil {

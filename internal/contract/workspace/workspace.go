@@ -57,8 +57,8 @@ type Service interface {
 	Conversations() []Conversation
 	Lookup(id agent.SessionID) (Conversation, bool)
 
-	// ChooseProject asks the user for a folder with the system dialog and adds
-	// it as a project; done runs on the UI thread with its workspace.
+	// ChooseProject asks for a folder on the connected host and adds it as a
+	// project. done runs on the UI thread with its workspace.
 	ChooseProject(done func(agent.Workspace))
 	// ArchiveProject archives a project and its workspaces; done runs on the
 	// UI thread once the backend has. A failure is reported in a toast.

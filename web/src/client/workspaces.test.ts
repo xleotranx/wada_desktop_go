@@ -35,9 +35,10 @@ describe("groupSessions", () => {
     expect(groups[2].workspaces[0].sessions.map((s) => s.id)).toEqual(["e"]);
   });
 
-  it("leaves out archived workspaces and empty ones", () => {
-    const groups = groupSessions([session("a", "/d/wt/fix", 1)], [app], [main, { ...fix, archived: 9 }]);
-    expect(groups.map((g) => g.name)).toEqual(["Other"]);
+  it("leaves out archived workspaces, keeps empty ones, and the inbox only with sessions", () => {
+    const groups = groupSessions([session("a", "/d/wt/fix", 1)], [app, inbox], [main, box, { ...fix, archived: 9 }]);
+    expect(groups.map((g) => g.name)).toEqual(["app", "Other"]);
+    expect(groups[0].workspaces.map((w) => [w.name, w.sessions.length])).toEqual([["app", 0]]);
   });
 });
 

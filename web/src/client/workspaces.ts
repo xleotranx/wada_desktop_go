@@ -24,9 +24,11 @@ export function workspaceName(w: WorkspaceInfo, project?: ProjectInfo): string {
 
 /**
  * groupSessions files sessions under their project and workspace, matching
- * a session to a workspace by its workspace ID, else by directory. Projects
- * keep the daemon's order with the inbox last; sessions that match no active
- * workspace go in a trailing "Other" group.
+ * a session to a workspace by its workspace ID, else by directory. Every
+ * active project shows with all its active workspaces, so a new one can be
+ * chatted in; the inbox shows only with sessions. Projects keep the daemon's
+ * order with the inbox last; sessions that match no active workspace go in a
+ * trailing "Other" group.
  */
 export function groupSessions(
   sessions: SessionInfo[],
@@ -55,7 +57,7 @@ export function groupSessions(
   const groups: ProjectGroup[] = [];
   for (const p of ordered) {
     const spaces = active
-      .filter((w) => w.project === p.id && inWorkspace.has(w.id))
+      .filter((w) => w.project === p.id && (!p.inbox || inWorkspace.has(w.id)))
       .sort((a, b) => Number(a.isolation !== "project") - Number(b.isolation !== "project") || a.created - b.created)
       .map((w) => ({
         workspace: w,

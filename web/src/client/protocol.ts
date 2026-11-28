@@ -87,6 +87,51 @@ export interface WorkspaceInfo {
   archived?: number;
 }
 
+/** A workspace's wada.json as the daemon read it. */
+export interface WorkspaceConfig {
+  found: boolean;
+  hash?: string;
+  trusted?: boolean;
+  error?: string;
+  setup?: string[];
+  teardown?: string[];
+  setupTerminal?: TerminalInfo;
+  services?: ServiceStatus[];
+}
+
+/** A wada.json service, its port and the terminal it last ran in. */
+export interface ServiceStatus {
+  name: string;
+  command: string;
+  port: number;
+  terminal?: TerminalInfo;
+}
+
+/** How a new worktree workspace starts. */
+export interface WorkspaceCreate {
+  project: string;
+  isolation: "worktree" | "existing";
+  mode?: "branch-off" | "checkout-branch" | "checkout-pr";
+  from?: string;
+  pr?: number;
+  path?: string;
+  slug?: string;
+  title?: string;
+}
+
+/** A named way to start an agent: harness, mode and opening instructions. */
+export interface AgentProfile {
+  name: string;
+  description?: string;
+  provider?: string;
+  mode?: string;
+  instructions?: string;
+  source: "user" | "project";
+}
+
+/** How a message sent while a turn runs reaches the agent. */
+export type Delivery = "steer" | "queue" | "interrupt";
+
 interface ToolInfo {
   id: string;
   name: string;

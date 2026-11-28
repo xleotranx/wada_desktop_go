@@ -36,6 +36,11 @@ worktrees, and PTY terminals on your own workstation or server:
    - Open `http://my-mac.tailnet.ts.net:6767` on your phone or laptop and install it
      as a PWA, or run `wada daemon pair --app-url http://my-mac.tailnet.ts.net:6767`
      to generate an `#offer=` link.
+   - Browsers install and keep a PWA only from a secure origin: HTTPS, or
+     `localhost`. Behind Caddy or `tailscale serve` it works offline once
+     loaded: its service worker keeps this build's shell, scripts and icons, and
+     a new build waits until you choose **Reload** in the app's banner, so a
+     running chat is never swapped out under you.
 
 ---
 

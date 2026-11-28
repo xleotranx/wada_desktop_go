@@ -481,8 +481,8 @@ type Workspace struct {
 	Names   map[string]string // a workspace's name by directory, instead of its base name
 	Chosen  string
 	Pending bool // the record has not been read yet
-	// Archived lists the projects ArchiveProject was asked to archive.
-	Archived []agent.ProjectID
+	// ArchivedProjects lists the projects ArchiveProject was asked to archive.
+	ArchivedProjects []agent.ProjectID
 	// Extra are worktree workspaces, listed after their project's.
 	Extra []agent.Workspace
 	// Made lists CreateWorkspace's requests; it makes the workspace at
@@ -494,6 +494,11 @@ type Workspace struct {
 	Dropped    []string
 	ArchiveErr error
 	RefList    agent.Refs
+	// Gone are the archived workspaces Archived lists: those set here and
+	// those ArchiveWorkspace archived. RestoreWorkspace moves one back to
+	// Extra, or fails with RestoreErr when it is set.
+	Gone       []agent.Workspace
+	RestoreErr error
 }
 
 func (f *Workspace) New() kernel.Plugin { return f }
@@ -565,9 +570,35 @@ func (w *Workspace) ArchiveWorkspace(id agent.WorkspaceID, force bool, done func
 		done(w.ArchiveErr)
 		return
 	}
-	w.Extra = slices.DeleteFunc(w.Extra, func(x agent.Workspace) bool { return x.ID == id })
+	w.Extra = slices.DeleteFunc(w.Extra, func(x agent.Workspace) bool {
+		if x.ID == id {
+			x.Archived = 1
+			w.Gone = append(w.Gone, x)
+		}
+		return x.ID == id
+	})
 	w.changed()
 	done(nil)
+}
+
+func (w *Workspace) Archived(done func([]agent.Workspace, error)) { done(slices.Clone(w.Gone), nil) }
+
+func (w *Workspace) RestoreWorkspace(id agent.WorkspaceID, done func(agent.Workspace, error)) {
+	if w.RestoreErr != nil {
+		done(agent.Workspace{}, w.RestoreErr)
+		return
+	}
+	i := slices.IndexFunc(w.Gone, func(x agent.Workspace) bool { return x.ID == id })
+	if i < 0 {
+		done(agent.Workspace{}, errors.New("no such workspace"))
+		return
+	}
+	x := w.Gone[i]
+	x.Archived = 0
+	w.Gone = slices.Delete(w.Gone, i, i+1)
+	w.Extra = append(w.Extra, x)
+	w.changed()
+	done(x, nil)
 }
 
 func (w *Workspace) Refs(_ agent.ProjectID, done func(agent.Refs, error)) { done(w.RefList, nil) }
@@ -649,7 +680,7 @@ func (w *Workspace) ChooseProject(done func(agent.Workspace)) {
 }
 
 func (w *Workspace) ArchiveProject(id agent.ProjectID, done func()) {
-	w.Archived = append(w.Archived, id)
+	w.ArchivedProjects = append(w.ArchivedProjects, id)
 	d := strings.TrimPrefix(string(id), "prj:")
 	w.Dirs = slices.DeleteFunc(w.Dirs, func(x string) bool { return x == d })
 	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.Directory == d })
@@ -734,7 +765,7 @@ func (f *Projects) Projects(context.Context, bool) ([]agent.Project, error) {
 	return out, nil
 }
 
-func (f *Projects) Workspaces(context.Context, bool) ([]agent.Workspace, error) {
+func (f *Projects) Workspaces(_ context.Context, archived bool) ([]agent.Workspace, error) {
 	if err := f.fail("Workspaces"); err != nil {
 		return nil, err
 	}
@@ -745,7 +776,7 @@ func (f *Projects) Workspaces(context.Context, bool) ([]agent.Workspace, error) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, w := range f.Made {
-		if w.Archived == 0 {
+		if w.Archived == 0 || archived {
 			out = append(out, w)
 		}
 	}

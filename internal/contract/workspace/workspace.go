@@ -70,6 +70,13 @@ type Service interface {
 	// thread with nil once the backend has, or with the error, which may be
 	// agent.ErrWorkUnsaved.
 	ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(error))
+	// Archived reads the archived workspaces of the active projects, newest
+	// first, from the backend; done runs on the UI thread.
+	Archived(done func([]agent.Workspace, error))
+	// RestoreWorkspace makes an archived workspace active again, recreating a
+	// worktree the backend removed; done runs on the UI thread with it, or
+	// with the error, which the caller reports.
+	RestoreWorkspace(id agent.WorkspaceID, done func(agent.Workspace, error))
 	// Refs reads what a project's repository offers a new workspace; done
 	// runs on the UI thread.
 	Refs(project agent.ProjectID, done func(agent.Refs, error))

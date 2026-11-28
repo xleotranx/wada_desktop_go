@@ -457,7 +457,7 @@ func TestRemovingAProjectClosesItsTabs(t *testing.T) {
 	}
 	f.p.confirmRemove()
 	f.h.Flush()
-	if !slices.Equal(f.ws.Archived, []agent.ProjectID{"prj:/w/app"}) || len(f.ws.Dirs) != 1 || slices.ContainsFunc(f.p.Tabs(), func(t tabs.Tab) bool { return t.Folder == "/w/app" }) {
+	if !slices.Equal(f.ws.ArchivedProjects, []agent.ProjectID{"prj:/w/app"}) || len(f.ws.Dirs) != 1 || slices.ContainsFunc(f.p.Tabs(), func(t tabs.Tab) bool { return t.Folder == "/w/app" }) {
 		t.Fatalf("folders %+v tabs %q", f.ws.Dirs, f.summary())
 	}
 }

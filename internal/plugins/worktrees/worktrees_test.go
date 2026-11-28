@@ -158,3 +158,48 @@ func TestAProjectDirectoryHasNoWorkspaceSection(t *testing.T) {
 		t.Fatal("a project's own directory shows the Workspace section")
 	}
 }
+
+func TestRestoreListsArchivedWorkspacesAndOpensAChat(t *testing.T) {
+	f := start(t)
+	w := agent.Workspace{ID: "wks:/w/app-x", Project: "prj:/w/app", Isolation: agent.IsolateWorktree,
+		Directory: "/w/app-x", Branch: "wada/x", Archived: 5}
+	f.ws.Gone = []agent.Workspace{w}
+	f.ws.RestoreErr = errors.New("the branch is gone")
+	f.p.openRestore()
+	f.h.Flush()
+	tt := ui.NewTester(f.p.dialogs, 600, 500)
+	tt.Frame()
+	for _, want := range []string{"Restore workspace", "wada/x", "app · /w/app-x", "Restore"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from %q", want, tt.Texts())
+		}
+	}
+
+	// A failure stays in the dialog.
+	f.p.restore(w.ID)
+	f.h.Flush()
+	if !f.p.restoreOn || f.p.restoreErr != "the branch is gone" || f.chat.Conv.Directory != "" {
+		t.Fatalf("dialog %v problem %q chat %+v", f.p.restoreOn, f.p.restoreErr, f.chat.Conv)
+	}
+
+	f.ws.RestoreErr = nil
+	f.p.restore(w.ID)
+	f.h.Flush()
+	if f.p.restoreOn || f.chat.Conv.Directory != "/w/app-x" || len(f.ws.Gone) != 0 {
+		t.Fatalf("after restoring: dialog %v, chat %+v, archived %+v", f.p.restoreOn, f.chat.Conv, f.ws.Gone)
+	}
+	if got, ok := f.ws.At("/w/app-x"); !ok || got.ID != w.ID {
+		t.Fatalf("the restored workspace isn't active: %+v %v", got, ok)
+	}
+}
+
+func TestRestoreSaysWhenNothingIsArchived(t *testing.T) {
+	f := start(t)
+	f.p.openRestore()
+	f.h.Flush()
+	tt := ui.NewTester(f.p.dialogs, 600, 400)
+	tt.Frame()
+	if !tt.HasText("No workspace is archived.") {
+		t.Fatalf("empty list: %q", tt.Texts())
+	}
+}

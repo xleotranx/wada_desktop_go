@@ -194,6 +194,9 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	if p.hasCommand(newWorkspaceID) {
 		action("New Workspace…", func() { p.runCommand(newWorkspaceID) })
 	}
+	if p.hasCommand(restoreWorkspaceID) {
+		action("Restore Workspace…", func() { p.runCommand(restoreWorkspaceID) })
+	}
 	if w, ok := p.ws.At(space); ok && space != "" {
 		if w.Isolation == agent.IsolateProject {
 			action("Remove “"+p.spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
@@ -389,6 +392,7 @@ func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) 
 const (
 	newWorkspaceID     = "worktrees.new"
 	archiveWorkspaceID = "worktrees.archive"
+	restoreWorkspaceID = "worktrees.restore"
 )
 
 func (p *Plugin) hasCommand(id string) bool {

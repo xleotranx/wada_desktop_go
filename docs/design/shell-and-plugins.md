@@ -267,7 +267,8 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   color, the most urgent state of its conversations, its count of tabs and a check on
   the one on show. Choosing one shows its last tab, else its first, else a new chat in
   it. Below the list: New Chat in the space, Add Project… (which starts a chat in the
-  added project), New Workspace… when the `worktrees.new` command exists, Remove
+  added project), New Workspace… and Restore Workspace… when the `worktrees.new`
+  and `worktrees.restore` commands exist, Remove
   “name”… for a project's own workspace other than the inbox, which asks first,
   counting the conversations that leave the lists, archives its project and then
   closes the tabs of its workspaces; Archive “name”… for a worktree workspace,
@@ -727,6 +728,11 @@ and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
   workspace, asks first. When the backend refuses for uncommitted files or unpushed
   commits (`agent.ErrWorkUnsaved`) it says what would be lost and offers Discard and
   archive. Other failures show a toast.
+- **Restore Workspace…** (`worktrees.restore`, File) reads the archived workspaces
+  of the active projects afresh (`workspace.Service.Archived`), newest first, each
+  with its name, project and directory. Restore asks the backend to make it active
+  again, recreating a worktree it removed, then opens a new chat in it; a failure
+  stays in the dialog.
 - **Work panel section.** Workspace, first in `chat.Work` and shown in a workspace
   other than a project's own: the branch, its base, the directory, a
   `#N · pass/fail/pending` PR badge from `Worktrees.PRStatus` that opens the pull

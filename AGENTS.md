@@ -40,7 +40,7 @@ keep its types inside `internal/daemon/pig`.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (the app's copy of the daemon's projects, workspaces and their
-  conversations, needing no chat), `workers` (harness picker, live supervised workers, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive Workspace…, and the work panel's Workspace section with branch, base and PR), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
+  conversations, needing no chat), `workers` (harness picker, live supervised workers, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, and the work panel's Workspace section with branch, base and PR), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
   in the composer), `tabs` (open chats and pages as tabs across the title
   strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events

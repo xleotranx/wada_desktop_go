@@ -237,6 +237,34 @@ func TestArchiveProjectHidesItOnceTheBackendHas(t *testing.T) {
 	}
 }
 
+func TestArchivedWorkspacesCanBeListedAndRestored(t *testing.T) {
+	f := start(t)
+	var made agent.Workspace
+	f.p.CreateWorkspace(agent.CreateWorkspace{Project: "prj:/w/app", Isolation: agent.IsolateWorktree, Slug: "x"},
+		func(w agent.Workspace, err error) { made = w })
+	f.until(t, "the creation", func() bool { return made.ID != "" })
+	archived := false
+	f.p.ArchiveWorkspace(made.ID, false, func(err error) { archived = err == nil })
+	f.until(t, "the archive", func() bool { return archived })
+	if _, ok := f.p.At(made.Directory); ok {
+		t.Fatal("the archived workspace is still active")
+	}
+
+	var gone []agent.Workspace
+	f.p.Archived(func(list []agent.Workspace, err error) { gone = list })
+	f.until(t, "the archived list", func() bool { return gone != nil })
+	if len(gone) != 1 || gone[0].ID != made.ID {
+		t.Fatalf("archived: %+v", gone)
+	}
+
+	var back agent.Workspace
+	f.p.RestoreWorkspace(made.ID, func(w agent.Workspace, err error) { back = w })
+	f.until(t, "the restore", func() bool { return back.ID != "" })
+	if w, ok := f.p.At(made.Directory); !ok || w.ID != made.ID {
+		t.Fatalf("the restored workspace isn't active: %+v %v", w, ok)
+	}
+}
+
 func TestWithoutABackendRecordNothingIsListed(t *testing.T) {
 	a := plugintest.NewAgent()
 	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Directory: "/w/app"}}}

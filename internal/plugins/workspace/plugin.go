@@ -268,6 +268,55 @@ func (p *Plugin) ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(er
 	})
 }
 
+func (p *Plugin) Archived(done func([]agent.Workspace, error)) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		done(nil, errNoRecord)
+		return
+	}
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) ([]agent.Workspace, error) {
+		list, err := ws.Workspaces(ctx, true)
+		if err != nil {
+			return nil, err
+		}
+		projects, err := ws.Projects(ctx, false)
+		if err != nil {
+			return nil, err
+		}
+		active := map[agent.ProjectID]bool{}
+		for _, pr := range projects {
+			active[pr.ID] = true
+		}
+		var archived []agent.Workspace
+		for _, w := range list {
+			if w.Archived != 0 && active[w.Project] {
+				archived = append(archived, w)
+			}
+		}
+		slices.SortStableFunc(archived, func(a, b agent.Workspace) int { return cmp.Compare(b.Archived, a.Archived) })
+		return archived, nil
+	}, done)
+}
+
+func (p *Plugin) RestoreWorkspace(id agent.WorkspaceID, done func(agent.Workspace, error)) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		done(agent.Workspace{}, errNoRecord)
+		return
+	}
+	origin := p.origin
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Workspace, error) {
+		return ws.RestoreWorkspace(ctx, id)
+	}, func(w agent.Workspace, err error) {
+		if err == nil && origin == p.origin {
+			p.updated(agent.WorkspaceUpdate{Workspace: &w})
+		}
+		done(w, err)
+	})
+}
+
 func (p *Plugin) Refs(project agent.ProjectID, done func(agent.Refs, error)) {
 	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
 	if !ok {

@@ -1,11 +1,13 @@
-// Package worktrees makes and archives the workspaces that live in Git
-// worktrees: the New Workspace dialog, Archive Workspace, and the work
-// panel's Workspace section with the branch, its base and its pull request.
+// Package worktrees makes, archives and restores the workspaces that live in
+// Git worktrees: the New Workspace dialog, Archive Workspace, Restore
+// Workspace, and the work panel's Workspace section with the branch, its base
+// and its pull request.
 package worktrees
 
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -24,6 +26,7 @@ import (
 const (
 	NewID     = "worktrees.new"
 	ArchiveID = "worktrees.archive"
+	RestoreID = "worktrees.restore"
 )
 
 // Plugin is the worktree workspaces' UI.
@@ -54,6 +57,14 @@ type Plugin struct {
 	unsaved     string // why the backend refused; asking to discard
 	archiveBusy bool
 
+	// Restore Workspace.
+	restoreOn  bool
+	gone       []agent.Workspace // the archived workspaces
+	goneState  string            // "", "loading" or a failure
+	goneEpoch  int               // drops a stale read
+	restoring  agent.WorkspaceID
+	restoreErr string
+
 	// The work panel's pull request.
 	pr     *agent.PRStatus
 	prFor  string
@@ -66,7 +77,7 @@ func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "worktrees", Title: "Worktree workspaces",
-		Description: "New Workspace…, Archive Workspace…, and the work panel's Workspace section.",
+		Description: "New Workspace…, Archive Workspace…, Restore Workspace…, and the work panel's Workspace section.",
 		Requires:    []kernel.Named{chat.ControllerKey, workspace.ServiceKey, shell.HostKey},
 	}
 }
@@ -88,6 +99,8 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 				p.askArchive(w)
 			}
 		}})
+	kernel.Contribute(c, kernel.Commands, RestoreID, 4, kernel.Command{
+		Title: "Restore Workspace…", Menu: "File", Run: p.openRestore})
 	kernel.Contribute(c, shell.Overlays, "worktrees.dialogs", 0, shell.View{Render: p.dialogs})
 	return kernel.Contribute(c, chat.Work, "worktrees.workspace", 5, chat.WorkSection{Title: "Workspace",
 		Shown: func() bool { _, ok := p.current(); return ok }, Render: p.section})
@@ -220,6 +233,59 @@ func (p *Plugin) archive(force bool) {
 		}
 		p.ctx.Invalidate()
 	})
+}
+
+// ---- Restore Workspace
+
+// openRestore opens the list of archived workspaces, read afresh.
+func (p *Plugin) openRestore() {
+	p.restoreOn, p.gone, p.goneState, p.restoreErr, p.restoring = true, nil, "loading", "", ""
+	p.goneEpoch++
+	epoch := p.goneEpoch
+	p.ws.Archived(func(list []agent.Workspace, err error) {
+		if epoch != p.goneEpoch {
+			return
+		}
+		p.gone, p.goneState = list, ""
+		if err != nil {
+			p.goneState = err.Error()
+		}
+		p.ctx.Invalidate()
+	})
+}
+
+// restore makes an archived workspace active again and opens a new chat in
+// it; a failure stays in the dialog.
+func (p *Plugin) restore(id agent.WorkspaceID) {
+	if p.restoring != "" {
+		return
+	}
+	p.restoring, p.restoreErr = id, ""
+	p.ws.RestoreWorkspace(id, func(w agent.Workspace, err error) {
+		p.restoring = ""
+		if err != nil {
+			p.restoreErr = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.restoreOn = false
+		p.goneEpoch++
+		p.chat.NewChat(w.Directory)
+	})
+}
+
+// goneName is what the list calls an archived workspace.
+func (p *Plugin) goneName(w agent.Workspace) string {
+	if w.Title != "" {
+		return w.Title
+	}
+	if w.Branch != "" {
+		return w.Branch
+	}
+	if pr, ok := p.ws.Project(w.Project); ok && w.Isolation == agent.IsolateProject {
+		return pr.Name
+	}
+	return filepath.Base(w.Directory)
 }
 
 // ---- The work panel

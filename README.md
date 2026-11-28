@@ -48,7 +48,7 @@ Chat with streaming markdown, tool calls, approvals and stop; open chats and Set
 switcher for the others, each tab showing whether its conversation is working, waiting for you or unread; All
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
-conversation with its context, session or uncommitted Git changes with expandable diffs, cost, and supervised CLI workers; workspaces in Git worktrees made from a branch or pull request (⇧⌘N), with their branch, `gh` PR status and changes since the base, archived with a check for unsaved work; an interactive PTY terminal drawer (⌘J / ⇧⌘J);
+conversation with its context, session or uncommitted Git changes with expandable diffs, cost, and supervised CLI workers; workspaces in Git worktrees made from a branch or pull request (⇧⌘N), with their branch, `gh` PR status and changes since the base, archived with a check for unsaved work and restored from their branch; an interactive PTY terminal drawer (⌘J / ⇧⌘J);
 model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; desktop notifications for conversations in the background; settings
 for appearance, conversation, tabs, daemon, providers, models, notifications, diagnostics, and turning plugins
 on and off.
@@ -89,7 +89,7 @@ Independent mode performs those operations within the selected project folder.
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local or remote `wadad` (`agent.*`, `terminal.*`, pairing, multi-host settings, and provider auth) |
 | `internal/plugins/workers` | Composer harness picker, live supervised worker section, and Worker Inspector drawer |
-| `internal/plugins/worktrees` | New Workspace… and Archive Workspace… dialogs, and the work panel's Workspace section (branch, base, PR badge) |
+| `internal/plugins/worktrees` | New, Archive and Restore Workspace… dialogs, and the work panel's Workspace section (branch, base, PR badge) |
 | `internal/plugins/terminal` | Interactive right-edge PTY terminal drawer (`⌘J` / `⇧⌘J`) backed by `wadad-term` |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |

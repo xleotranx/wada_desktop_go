@@ -27,6 +27,59 @@ func (p *Plugin) dialogs(c *ui.Context) {
 			p.archiving = agent.Workspace{}
 		}
 	}
+	if p.restoreOn {
+		c.Key("restore")
+		native.Dialog(c, &p.restoreOn, 440, "Restore workspace", func() { p.restoreView(c, pal) })
+	}
+}
+
+func (p *Plugin) restoreView(c *ui.Context, pal native.Palette) {
+	ui.Text(c, "Restore workspace").FontSize(14).FontWeight(600)
+	ui.Text(c, "Archived workspaces of your projects. Restoring one makes its worktree again from its branch.").
+		FontSize(12.5).TextColor(pal.Muted)
+	switch {
+	case p.goneState == "loading":
+		ui.Text(c, "Reading archived workspaces…").FontSize(12).TextColor(pal.Faint)
+	case p.goneState != "":
+		ui.Text(c, p.goneState).FontSize(12).TextColor(pal.DangerText)
+	case len(p.gone) == 0:
+		ui.Text(c, "No workspace is archived.").FontSize(12.5).TextColor(pal.Faint)
+	default:
+		ui.Scroll(c.Key("archived")).FillWidth().MaxHeight(320).Children(func() {
+			ui.Column(c).FillWidth().Gap(6).Children(func() {
+				for _, w := range p.gone {
+					c.Key(string(w.ID))
+					p.goneRow(c, pal, w)
+				}
+			})
+		})
+	}
+	if p.restoreErr != "" {
+		ui.Text(c, p.restoreErr).FontSize(12).TextColor(pal.DangerText)
+	}
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		components.Button(c, "Close", components.ButtonSecondary).OnClick(func() { p.restoreOn = false })
+	})
+}
+
+func (p *Plugin) goneRow(c *ui.Context, pal native.Palette, w agent.Workspace) {
+	detail := native.Tilde(w.Directory)
+	if pr, ok := p.ws.Project(w.Project); ok {
+		detail = pr.Name + " · " + detail
+	}
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Padding(8, 10).Radius(8).
+		Background(pal.Raised).Border(1, pal.Hairline).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, p.goneName(w)).FontSize(13).FontWeight(500).TextColor(pal.Text).SingleLine().Ellipsis("…")
+			ui.Text(c, detail).FontSize(11).TextColor(pal.Faint).SingleLine().Ellipsis("…")
+		})
+		title := "Restore"
+		if p.restoring == w.ID {
+			title = "Restoring…"
+		}
+		components.Button(c, title, components.ButtonSecondary).Label("Restore " + p.goneName(w)).
+			Disabled(p.restoring != "").OnClick(func() { p.restore(w.ID) })
+	})
 }
 
 func (p *Plugin) newView(c *ui.Context, pal native.Palette) {

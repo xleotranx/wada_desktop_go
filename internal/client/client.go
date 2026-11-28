@@ -958,3 +958,27 @@ func (c *Client) StartService(ctx context.Context, id, name string) (protocol.Te
 func (c *Client) StopService(ctx context.Context, id, name string) error {
 	return c.Call(ctx, protocol.MethodServiceStop, protocol.WorkspaceServiceRequest{Workspace: id, Name: name}, nil)
 }
+
+// DraftCommit writes a commit message for everything changed in a workspace.
+func (c *Client) DraftCommit(ctx context.Context, id string) (string, error) {
+	var out protocol.CommitDraft
+	return out.Message, c.Call(ctx, protocol.MethodCommitDraft, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// Commit commits everything changed in a workspace.
+func (c *Client) Commit(ctx context.Context, id, message string) (string, error) {
+	var out protocol.CommitResult
+	return out.SHA, c.Call(ctx, protocol.MethodCommit, protocol.WorkspaceCommitRequest{Workspace: id, Message: message}, &out)
+}
+
+// DraftPR writes a pull request's title and body for a workspace.
+func (c *Client) DraftPR(ctx context.Context, id string) (protocol.PRDraft, error) {
+	var out protocol.PRDraft
+	return out, c.Call(ctx, protocol.MethodPRDraft, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// CreateWorkspacePR pushes a workspace's branch and opens a pull request.
+func (c *Client) CreateWorkspacePR(ctx context.Context, req protocol.WorkspacePRRequest) (*protocol.PRStatus, error) {
+	var out *protocol.PRStatus
+	return out, c.Call(ctx, protocol.MethodPRCreate, req, &out)
+}

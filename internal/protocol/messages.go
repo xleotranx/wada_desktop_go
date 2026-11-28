@@ -56,6 +56,10 @@ const (
 	MethodWorkspaceSetup   = "workspace.setup"
 	MethodServiceStart     = "workspace.service.start"
 	MethodServiceStop      = "workspace.service.stop"
+	MethodCommitDraft      = "workspace.commit.draft"
+	MethodCommit           = "workspace.commit"
+	MethodPRDraft          = "workspace.pr.draft"
+	MethodPRCreate         = "workspace.pr.create"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -568,7 +572,7 @@ type WorkspaceInfo struct {
 	Owned        bool      `json:"owned,omitempty"`        // wadad made WorktreeRoot and removes it
 	Branch       string    `json:"branch,omitempty"`
 	BaseRef      string    `json:"baseRef,omitempty"` // what its changes compare against
-	PR           int       `json:"pr,omitempty"`      // the pull request it checks out
+	PR           int       `json:"pr,omitempty"`      // the pull request it checks out or opened
 	Title        string    `json:"title,omitempty"`   // the user's title
 	Created      int64     `json:"created"`
 	Archived     int64     `json:"archived,omitempty"`
@@ -638,6 +642,37 @@ type ServiceStatus struct {
 	Command  string        `json:"command"`
 	Port     int           `json:"port"`
 	Terminal *TerminalInfo `json:"terminal,omitempty"` // the last one started; Running says whether it is up
+}
+
+// WorkspaceCommitRequest commits everything changed in a workspace.
+type WorkspaceCommitRequest struct {
+	Workspace string `json:"workspace"`
+	Message   string `json:"message"`
+}
+
+// CommitDraft is a generated commit message.
+type CommitDraft struct {
+	Message string `json:"message"`
+}
+
+// CommitResult is a commit made.
+type CommitResult struct {
+	SHA string `json:"sha"`
+}
+
+// PRDraft is a generated pull request title and body.
+type PRDraft struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// WorkspacePRRequest pushes a workspace's branch and opens a pull request
+// against its base.
+type WorkspacePRRequest struct {
+	Workspace string `json:"workspace"`
+	Title     string `json:"title"`
+	Body      string `json:"body,omitempty"`
+	Draft     bool   `json:"draft,omitempty"`
 }
 
 type WorkspaceTrustRequest struct {

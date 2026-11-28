@@ -114,6 +114,12 @@ var daemonMigrations = []dbstore.Migration{{
 		}
 		return nil
 	},
+}, {
+	Version: 5,
+	Up: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `ALTER TABLE workspaces ADD COLUMN auto_name INTEGER NOT NULL DEFAULT 0`)
+		return err
+	},
 }}
 
 type CreationReceipt struct {

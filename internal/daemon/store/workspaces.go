@@ -34,6 +34,9 @@ type WorkspaceRow struct {
 	Created      int64
 	Archived     int64 // 0 while active
 	PortBase     int   // the first of its ports; 0 until it needs them
+	// AutoName is set while its branch and title wait to be named from the
+	// first message sent in it.
+	AutoName bool
 }
 
 // Projects reads every project, archived ones included.
@@ -57,7 +60,7 @@ func (s *Store) Projects(ctx context.Context) ([]ProjectRow, error) {
 // Workspaces reads every workspace, archived ones included.
 func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
-		title, created, archived, port_base FROM workspaces`)
+		title, created, archived, port_base, auto_name FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +70,7 @@ func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
 		var w WorkspaceRow
 		var iso string
 		if err := rows.Scan(&w.ID, &w.Project, &iso, &w.Dir, &w.WorktreeRoot, &w.Owned, &w.Branch, &w.BaseRef, &w.PR,
-			&w.Title, &w.Created, &w.Archived, &w.PortBase); err != nil {
+			&w.Title, &w.Created, &w.Archived, &w.PortBase, &w.AutoName); err != nil {
 			return nil, err
 		}
 		w.Isolation = protocol.Isolation(iso)
@@ -90,11 +93,11 @@ func (s *Store) PutProject(ctx context.Context, projects []ProjectRow, workspace
 	for _, w := range workspaces {
 		stmts = append(stmts, dbstore.Statement{
 			SQL: `INSERT INTO workspaces (id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
-					title, created, archived, port_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					title, created, archived, port_base, auto_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT (id) DO UPDATE SET branch = excluded.branch, title = excluded.title, archived = excluded.archived,
-					port_base = excluded.port_base`,
+					port_base = excluded.port_base, auto_name = excluded.auto_name, pr = excluded.pr`,
 			Args: []any{w.ID, w.Project, string(w.Isolation), w.Dir, w.WorktreeRoot, w.Owned, w.Branch, w.BaseRef, w.PR,
-				w.Title, w.Created, w.Archived, w.PortBase}})
+				w.Title, w.Created, w.Archived, w.PortBase, w.AutoName}})
 	}
 	return dbstore.ExecTx(ctx, s.db, stmts)
 }

@@ -156,7 +156,7 @@ preserving empty answers, selections, confirmations and explicit cancellation.
 
 ## Projects and workspaces
 
-`wadad` keeps the record of where the user works in `wadad.db` (schema 4), in
+`wadad` keeps the record of where the user works in `wadad.db` (schema 5), in
 `internal/daemon/workspaces`, read into memory at startup:
 
 ```sql
@@ -181,7 +181,8 @@ CREATE TABLE workspaces (
   branch    TEXT NOT NULL DEFAULT '',
   base_ref  TEXT NOT NULL DEFAULT '',     -- what its changes compare against
   pr        INTEGER NOT NULL DEFAULT 0,   -- the pull request it checks out
-  port_base INTEGER NOT NULL DEFAULT 0);  -- the first of its ports; 0 until it needs them
+  port_base INTEGER NOT NULL DEFAULT 0,   -- the first of its ports; 0 until it needs them
+  auto_name INTEGER NOT NULL DEFAULT 0);  -- waits to be named from its first message
 CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
 ```
 
@@ -232,6 +233,25 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
 - `workspace.refs` lists a project's default ref, local and remote branches, open
   pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
   workspace against the merge base with its base ref, untracked files included.
+
+### Names, commits and pull requests
+
+The daemon asks the embedded runtime's default model for short text through
+`Backend.Generate` (PiG's `CompleteSimple`, outside any conversation).
+
+- **Names.** A worktree workspace made to branch off without a slug or title
+  waits to be named (`auto_name`). After the first message sent in its directory
+  is accepted, the server asks the model for a title and a branch name in the
+  background; the workspace takes the title, and its branch is renamed to
+  `wada/<name>` while no remote has it. It is named once, whether or not this
+  works.
+- **Commits.** `workspace.commit.draft` has the model write a message from
+  `git status` and `git diff HEAD`; `workspace.commit` commits everything,
+  untracked files included, and returns the hash.
+- **Pull requests.** `workspace.pr.draft` has the model write a title and a
+  Markdown body from the commits since the base and their diff stat;
+  `workspace.pr.create` pushes the branch and opens the pull request with `gh`
+  against the base's branch, and records its number as the workspace's `pr`.
 
 ### wada.json
 

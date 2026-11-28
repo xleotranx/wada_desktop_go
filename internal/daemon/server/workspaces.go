@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/protocol"
@@ -158,6 +159,46 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 			return nil, rerr
 		}
 		return s.stopService(ctx, req.Workspace, req.Name)
+	case protocol.MethodCommitDraft:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		msg, err := s.workspaces.DraftCommit(ctx, req.Workspace, s.cfg.Backend.Generate)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return protocol.CommitDraft{Message: msg}, nil
+	case protocol.MethodCommit:
+		var req protocol.WorkspaceCommitRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		sha, err := s.workspaces.Commit(ctx, req.Workspace, req.Message)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return protocol.CommitResult{SHA: sha}, nil
+	case protocol.MethodPRDraft:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		title, body, err := s.workspaces.DraftPR(ctx, req.Workspace, s.cfg.Backend.Generate)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return protocol.PRDraft{Title: title, Body: body}, nil
+	case protocol.MethodPRCreate:
+		var req protocol.WorkspacePRRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		pr, err := s.workspaces.CreatePR(ctx, req.Workspace, req.Title, req.Body, req.Draft)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return pr, nil
 	}
 	return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "unknown method " + method}
 }
@@ -375,4 +416,25 @@ func (s *Server) stopService(ctx context.Context, id, name string) (any, *protoc
 		return nil, internalErr(err)
 	}
 	return struct{}{}, nil
+}
+
+// nameFromSend names the workspace a message was sent in when it waits to be
+// named, in the background: the send has already been answered.
+func (s *Server) nameFromSend(session, text string) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer cancel()
+		page, err := s.cfg.Backend.Sessions(ctx, protocol.SessionQuery{})
+		if err != nil {
+			return
+		}
+		for _, sess := range page.Sessions {
+			if sess.ID == session {
+				_ = s.workspaces.NameFromMessage(ctx, sess.Directory, text, s.cfg.Backend.Generate)
+				return
+			}
+		}
+	}()
 }

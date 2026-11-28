@@ -331,3 +331,55 @@ func TestTheSectionRunsServicesInAProjectsOwnWorkspace(t *testing.T) {
 		t.Fatalf("ran %q", rec.Ran)
 	}
 }
+
+func TestCommitAndPullRequestUseTheModelsDrafts(t *testing.T) {
+	f, rec, _ := startWithRecord(t, agent.WorkspaceConfig{})
+	rec.Drafts = map[string]string{"commit": "Fix the parser", "title": "Fix the parser crash", "body": "Fixes it."}
+	w := agent.Workspace{ID: "wks:/w/app-x", Project: "prj:/w/app", Isolation: agent.IsolateWorktree,
+		Directory: "/w/app-x", Branch: "wada/x", BaseRef: "origin/main"}
+	f.ws.Extra = []agent.Workspace{w}
+	f.chat.Open(agent.Session{ID: "s1", Directory: w.Directory})
+	f.h.Flush()
+
+	st := ui.NewTester(f.p.section, 320, 400)
+	st.Frame()
+	if err := st.Click("Commit…"); err != nil {
+		t.Fatal(err)
+	}
+	f.h.Flush()
+	if !f.p.commitOn || f.p.commitMsg != "Fix the parser" {
+		t.Fatalf("commit dialog %v with %q", f.p.commitOn, f.p.commitMsg)
+	}
+	f.p.commitMsg = "Fix the parser\n\nEdited."
+	f.p.commit()
+	f.h.Flush()
+	if !slices.Equal(rec.Commits, []string{"wks:/w/app-x: Fix the parser\n\nEdited."}) || f.p.commitOn {
+		t.Fatalf("commits %q, dialog %v", rec.Commits, f.p.commitOn)
+	}
+
+	f.p.openPR(w)
+	f.h.Flush()
+	tt := ui.NewTester(f.p.dialogs, 700, 600)
+	tt.Frame()
+	for _, want := range []string{"Create a pull request", "Pushes wada/x and opens a pull request into main.", "Create pull request"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from %q", want, tt.Texts())
+		}
+	}
+	f.p.prDraft = true
+	f.p.createPR()
+	f.h.Flush()
+	if !slices.Equal(rec.PRs, []string{"wks:/w/app-x: Fix the parser crash | Fixes it. | draft=true"}) || f.p.prOn {
+		t.Fatalf("prs %q, dialog %v", rec.PRs, f.p.prOn)
+	}
+
+	// A failed commit stays in the dialog with the reason.
+	rec.Fail = map[string]error{"Commit": errors.New("nothing to commit")}
+	f.p.openCommit(w)
+	f.h.Flush()
+	f.p.commit()
+	f.h.Flush()
+	if !f.p.commitOn || f.p.writeProblem != "nothing to commit" {
+		t.Fatalf("dialog %v problem %q", f.p.commitOn, f.p.writeProblem)
+	}
+}

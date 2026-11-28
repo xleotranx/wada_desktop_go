@@ -60,6 +60,9 @@ type Backend interface {
 	Changes(ctx context.Context, id string) ([]protocol.FileChange, error)
 	Models(ctx context.Context) ([]protocol.Model, error)
 	DefaultModel(ctx context.Context) (protocol.ModelRef, error)
+	// Generate asks the default model for a short piece of text outside any
+	// conversation.
+	Generate(ctx context.Context, system, prompt string) (string, error)
 	SetModel(ctx context.Context, id string, ref protocol.ModelRef) error
 	Modes(ctx context.Context) ([]protocol.Mode, error)
 	FindFiles(ctx context.Context, dir, query string, limit int) ([]protocol.FileEntry, error)
@@ -945,7 +948,11 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, invalidErr(err)
 		}
-		return s.sendWithReceipt(ctx, req)
+		resp, rerr := s.sendWithReceipt(ctx, req)
+		if rerr == nil && s.workspaces.HasAutoNamed() {
+			s.nameFromSend(req.Session, req.Text)
+		}
+		return resp, rerr
 	case protocol.MethodSessionAbort:
 		var req protocol.SessionIDRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -1197,7 +1204,8 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename,
 		protocol.MethodWorkspaceCreate, protocol.MethodWorkspaceArchive, protocol.MethodWorkspaceRestore,
 		protocol.MethodWorkspaceRefs, protocol.MethodWorkspaceChanges, protocol.MethodWorkspaceConfig,
-		protocol.MethodWorkspaceTrust, protocol.MethodWorkspaceSetup, protocol.MethodServiceStart, protocol.MethodServiceStop:
+		protocol.MethodWorkspaceTrust, protocol.MethodWorkspaceSetup, protocol.MethodServiceStart, protocol.MethodServiceStop,
+		protocol.MethodCommitDraft, protocol.MethodCommit, protocol.MethodPRDraft, protocol.MethodPRCreate:
 		return s.dispatchWorkspaces(ctx, method, payload)
 	case protocol.MethodTerminalsList:
 		tb, ok := s.cfg.Backend.(TerminalBackend)

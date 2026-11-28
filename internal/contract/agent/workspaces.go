@@ -184,4 +184,16 @@ type Workspaces interface {
 	StartService(ctx context.Context, id WorkspaceID, name string) (terminal string, err error)
 	// StopService ends a running service.
 	StopService(ctx context.Context, id WorkspaceID, name string) error
+	// DraftCommit has the model write a commit message for everything
+	// changed in the workspace.
+	DraftCommit(ctx context.Context, id WorkspaceID) (string, error)
+	// Commit commits everything changed in the workspace; it returns the
+	// commit's hash.
+	Commit(ctx context.Context, id WorkspaceID, message string) (string, error)
+	// DraftPR has the model write a pull request's title and body for the
+	// workspace's commits since its base.
+	DraftPR(ctx context.Context, id WorkspaceID) (title, body string, err error)
+	// CreatePR pushes the workspace's branch and opens a pull request
+	// against its base.
+	CreatePR(ctx context.Context, id WorkspaceID, title, body string, draft bool) (*PRStatus, error)
 }

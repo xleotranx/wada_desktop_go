@@ -27,6 +27,20 @@ func (p *Plugin) dialogs(c *ui.Context) {
 			p.archiving = agent.Workspace{}
 		}
 	}
+	if p.commitOn {
+		c.Key("commit")
+		native.Dialog(c, &p.commitOn, 520, "Commit", func() { p.commitView(c, pal) })
+		if !p.commitOn {
+			p.closeWriting()
+		}
+	}
+	if p.prOn {
+		c.Key("pr")
+		native.Dialog(c, &p.prOn, 560, "Create pull request", func() { p.prView(c, pal) })
+		if !p.prOn {
+			p.closeWriting()
+		}
+	}
 	if p.trustOn {
 		c.Key("trust")
 		native.Dialog(c, &p.trustOn, 460, "Trust wada.json", func() { p.trustView(c, pal) })
@@ -291,6 +305,14 @@ func (p *Plugin) section(c *ui.Context) {
 			p.configView(c, pal, w)
 		}
 		if w.Isolation != agent.IsolateProject {
+			ui.Row(c).FillWidth().Gap(6).Children(func() {
+				c.Key("commit")
+				components.Button(c, "Commit…", components.ButtonSecondary).OnClick(func() { p.openCommit(w) })
+				if p.pr == nil && w.BaseRef != "" {
+					c.Key("pr")
+					components.Button(c, "Create PR…", components.ButtonSecondary).OnClick(func() { p.openPR(w) })
+				}
+			})
 			c.Key("archive")
 			components.Button(c, "Archive workspace…", components.ButtonSecondary).OnClick(func() { p.askArchive(w) })
 		}
@@ -416,6 +438,55 @@ func (p *Plugin) trustView(c *ui.Context, pal native.Palette) {
 			label = "Trust and run"
 		}
 		components.Button(c, label, components.ButtonPrimary).OnClick(p.trust)
+	})
+}
+
+func (p *Plugin) commitView(c *ui.Context, pal native.Palette) {
+	ui.Text(c, "Commit “"+p.ws.Name(p.commitWs.Directory)+"”").FontSize(14).FontWeight(600).SingleLine().Ellipsis("…")
+	ui.Text(c, "Commits every change in the workspace, new files included.").FontSize(12.5).TextColor(pal.Muted)
+	c.Key("message")
+	box := components.TextBox(c, &p.commitMsg, components.TextBoxOptions{Multiline: true}).FillWidth().Height(160).FontSize(13)
+	if p.drafting && p.commitMsg == "" {
+		box.Placeholder("Writing a message…")
+	} else {
+		box.Placeholder("Commit message")
+	}
+	p.writeFooter(c, pal, "Commit", strings.TrimSpace(p.commitMsg) != "", p.commit)
+}
+
+func (p *Plugin) prView(c *ui.Context, pal native.Palette) {
+	w := p.prWs
+	ui.Text(c, "Create a pull request").FontSize(14).FontWeight(600)
+	ui.Text(c, "Pushes "+cmp.Or(w.Branch, "the branch")+" and opens a pull request into "+strings.TrimPrefix(w.BaseRef, "origin/")+".").
+		FontSize(12.5).TextColor(pal.Muted)
+	placeholder := "Title"
+	if p.drafting && p.prTitle == "" {
+		placeholder = "Writing a title…"
+	}
+	c.Key("title")
+	components.TextBox(c, &p.prTitle, components.TextBoxOptions{}).FillWidth().Placeholder(placeholder).FontSize(13)
+	c.Key("body")
+	components.TextBox(c, &p.prBody, components.TextBoxOptions{Multiline: true}).FillWidth().Height(200).
+		Placeholder("Description").FontSize(13)
+	row(c, pal, "", func() {
+		toggle(c, pal, "Ready for review", !p.prDraft, func() { p.prDraft = false })
+		toggle(c, pal, "Draft", p.prDraft, func() { p.prDraft = true })
+	})
+	p.writeFooter(c, pal, "Create pull request", strings.TrimSpace(p.prTitle) != "", p.createPR)
+}
+
+// writeFooter is a writing dialog's problem and buttons.
+func (p *Plugin) writeFooter(c *ui.Context, pal native.Palette, action string, ready bool, run func()) {
+	if p.writeProblem != "" {
+		ui.Text(c, p.writeProblem).FontSize(12).TextColor(pal.DangerText)
+	}
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		components.Button(c, "Cancel", components.ButtonSecondary).OnClick(p.closeWriting)
+		label := action
+		if p.submitting {
+			label += "…"
+		}
+		components.Button(c, label, components.ButtonPrimary).Disabled(!ready || p.submitting).OnClick(run)
 	})
 }
 

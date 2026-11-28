@@ -74,7 +74,8 @@ func runProjectCmd(ctx context.Context, c *client.Client, remote bool, args []st
 
 func runWorkspaceCmd(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	const use = "usage: wada workspace <ls | create | rename <id> <title> | archive <id> [--force] | restore <id> |\n" +
-		"  config <id> | trust <id> | setup <id> | start <id> <service> | stop <id> <service>>"
+		"  config <id> | trust <id> | setup <id> | start <id> <service> | stop <id> <service> |\n" +
+		"  commit <id> [-m MSG] | pr <id> [--title T] [--body B] [--draft]>"
 	if len(args) == 0 {
 		return errors.New(use)
 	}
@@ -189,6 +190,48 @@ func runWorkspaceCmd(ctx context.Context, c *client.Client, remote bool, args []
 			return errors.New("usage: wada workspace stop <id> <service>")
 		}
 		return c.StopService(ctx, args[1], args[2])
+	case "commit":
+		fs := flag.NewFlagSet("workspace commit", flag.ContinueOnError)
+		msg := fs.String("m", "", "The message (default: one the model writes)")
+		pos, err := parseInterspersed(fs, args[1:])
+		if err != nil || len(pos) != 1 {
+			return errors.New("usage: wada workspace commit <id> [-m MSG]")
+		}
+		if *msg == "" {
+			if *msg, err = c.DraftCommit(ctx, pos[0]); err != nil {
+				return err
+			}
+		}
+		sha, err := c.Commit(ctx, pos[0], *msg)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\n%s\n", sha, *msg)
+		return nil
+	case "pr":
+		fs := flag.NewFlagSet("workspace pr", flag.ContinueOnError)
+		title := fs.String("title", "", "The title (default: the model writes title and body)")
+		body := fs.String("body", "", "The description")
+		draft := fs.Bool("draft", false, "Open it as a draft")
+		pos, err := parseInterspersed(fs, args[1:])
+		if err != nil || len(pos) != 1 {
+			return errors.New("usage: wada workspace pr <id> [--title T] [--body B] [--draft]")
+		}
+		if *title == "" {
+			d, err := c.DraftPR(ctx, pos[0])
+			if err != nil {
+				return err
+			}
+			*title, *body = d.Title, cmpOr(*body, d.Body)
+		}
+		pr, err := c.CreateWorkspacePR(ctx, protocol.WorkspacePRRequest{Workspace: pos[0], Title: *title, Body: *body, Draft: *draft})
+		if err != nil {
+			return err
+		}
+		if pr != nil {
+			fmt.Printf("#%d\t%s\t%s\n", pr.Number, pr.Title, pr.URL)
+		}
+		return nil
 	}
 	return errors.New(use)
 }

@@ -583,3 +583,34 @@ func (r *Runtime) Rewind(ctx context.Context, id, msg string) (string, error) {
 	e.mu.Unlock()
 	return fork.rec.Session.ID, e.saveLocked(fork)
 }
+
+// Generate asks the default model for a short piece of text outside any
+// conversation, such as a branch name or a commit message.
+func (r *Runtime) Generate(ctx context.Context, system, prompt string) (string, error) {
+	e, release, err := r.acquire()
+	defer release()
+	if err != nil {
+		return "", err
+	}
+	model := e.resolveModel(protocol.ModelRef{})
+	if model == nil {
+		return "", errors.New("pig: no model is available")
+	}
+	// Some providers route by session; each request is a session of its own.
+	opts := ai.StreamOptions{SessionID: "wada-generate-" + strconv.FormatInt(time.Now().UnixNano(), 36)}
+	msg := e.models.CompleteSimple(ctx, model, ai.Context{SystemPrompt: system,
+		Messages: []ai.Message{ai.UserMessage{Content: ai.UserText(prompt), Timestamp: time.Now().UnixMilli()}}}, opts)
+	if msg == nil {
+		return "", errors.New("pig: the model returned nothing")
+	}
+	if msg.ErrorMessage != "" {
+		return "", errors.New(msg.ErrorMessage)
+	}
+	var b strings.Builder
+	for _, block := range msg.Content {
+		if t, ok := block.(ai.TextContent); ok {
+			b.WriteString(t.Text)
+		}
+	}
+	return strings.TrimSpace(b.String()), nil
+}

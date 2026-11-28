@@ -108,6 +108,11 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 
 func (o *Orchestrator) Origin() string { return o.pig.Origin() }
 
+// Generate asks the embedded PiG runtime's default model for text.
+func (o *Orchestrator) Generate(ctx context.Context, system, prompt string) (string, error) {
+	return o.pig.Generate(ctx, system, prompt)
+}
+
 func (o *Orchestrator) Events() <-chan protocol.Event { return o.events }
 
 func (o *Orchestrator) Close() error {

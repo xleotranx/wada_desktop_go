@@ -642,3 +642,40 @@ func (p *Plugin) BaseChanges(ctx context.Context, id agent.WorkspaceID) ([]agent
 	}
 	return fromProtoChanges(list), nil
 }
+
+func (p *Plugin) DraftCommit(ctx context.Context, id agent.WorkspaceID) (string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return "", err
+	}
+	return cli.DraftCommit(ctx, string(id))
+}
+
+func (p *Plugin) Commit(ctx context.Context, id agent.WorkspaceID, message string) (string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return "", err
+	}
+	return cli.Commit(ctx, string(id), message)
+}
+
+func (p *Plugin) DraftPR(ctx context.Context, id agent.WorkspaceID) (string, string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return "", "", err
+	}
+	d, err := cli.DraftPR(ctx, string(id))
+	return d.Title, d.Body, err
+}
+
+func (p *Plugin) CreatePR(ctx context.Context, id agent.WorkspaceID, title, body string, draft bool) (*agent.PRStatus, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	pr, err := cli.CreateWorkspacePR(ctx, protocol.WorkspacePRRequest{Workspace: string(id), Title: title, Body: body, Draft: draft})
+	if err != nil {
+		return nil, err
+	}
+	return fromProtoPRStatus(pr), nil
+}

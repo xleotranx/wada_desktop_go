@@ -30,6 +30,8 @@ const (
 	NewID     = "worktrees.new"
 	ArchiveID = "worktrees.archive"
 	RestoreID = "worktrees.restore"
+	CommitID  = "worktrees.commit"
+	PRID      = "worktrees.pr"
 )
 
 // Plugin is the worktree workspaces' UI.
@@ -84,6 +86,16 @@ type Plugin struct {
 	trustCfg  agent.WorkspaceConfig
 	trustFork bool   // the workspace checks out a pull request from a fork
 	trustThen string // what runs once trusted: "setup", "service:<name>" or ""
+
+	// Commit… and Create Pull Request…, with the model's drafts.
+	commitOn, prOn       bool
+	commitWs, prWs       agent.Workspace
+	commitMsg            string
+	prTitle, prBody      string
+	prDraft              bool
+	drafting, submitting bool
+	writeProblem         string
+	draftEpoch           int // drops a draft for a dialog since closed
 }
 
 // New makes the plugin; the kernel makes one for each activation.
@@ -121,6 +133,22 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 		}})
 	kernel.Contribute(c, kernel.Commands, RestoreID, 4, kernel.Command{
 		Title: "Restore Workspace…", Menu: "File", Run: p.openRestore})
+	kernel.Contribute(c, kernel.Commands, CommitID, 5, kernel.Command{
+		Title: "Commit…", Menu: "File", Keys: []string{"alt+cmd+c"},
+		Enabled: func() bool { _, ok := p.current(); return ok },
+		Run: func() {
+			if w, ok := p.current(); ok {
+				p.openCommit(w)
+			}
+		}})
+	kernel.Contribute(c, kernel.Commands, PRID, 6, kernel.Command{
+		Title: "Create Pull Request…", Menu: "File",
+		Enabled: func() bool { w, ok := p.current(); return ok && w.BaseRef != "" },
+		Run: func() {
+			if w, ok := p.current(); ok {
+				p.openPR(w)
+			}
+		}})
 	kernel.Contribute(c, shell.Overlays, "worktrees.dialogs", 0, shell.View{Render: p.dialogs})
 	return kernel.Contribute(c, chat.Work, "worktrees.workspace", 5, chat.WorkSection{Title: "Workspace",
 		Shown: p.sectionShown, Render: p.section})
@@ -476,6 +504,119 @@ func (p *Plugin) run(w agent.Workspace, failed, then string, fn func(context.Con
 		}
 		p.readConfig()
 	})
+}
+
+// ---- Commit and pull request
+
+// openCommit opens Commit… while the model drafts its message.
+func (p *Plugin) openCommit(w agent.Workspace) {
+	p.commitOn, p.commitWs, p.commitMsg, p.writeProblem = true, w, "", ""
+	p.draft(func() bool { return p.commitMsg == "" }, func(ctx context.Context, rec agent.Workspaces) (func(), error) {
+		msg, err := rec.DraftCommit(ctx, w.ID)
+		return func() { p.commitMsg = msg }, err
+	})
+}
+
+// openPR opens Create Pull Request… while the model drafts it.
+func (p *Plugin) openPR(w agent.Workspace) {
+	p.prOn, p.prWs, p.prTitle, p.prBody, p.prDraft, p.writeProblem = true, w, "", "", false, ""
+	p.draft(func() bool { return p.prTitle == "" && p.prBody == "" }, func(ctx context.Context, rec agent.Workspaces) (func(), error) {
+		title, body, err := rec.DraftPR(ctx, w.ID)
+		return func() { p.prTitle, p.prBody = title, body }, err
+	})
+}
+
+// draft runs a model draft for the open dialog and applies it unless the
+// user has typed something meanwhile or the dialog has closed.
+func (p *Plugin) draft(untouched func() bool, fn func(context.Context, agent.Workspaces) (func(), error)) {
+	rec, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		return
+	}
+	p.draftEpoch++
+	epoch := p.draftEpoch
+	p.drafting = true
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (func(), error) {
+		return fn(ctx, rec)
+	}, func(apply func(), err error) {
+		if epoch != p.draftEpoch {
+			return
+		}
+		p.drafting = false
+		switch {
+		case err != nil:
+			p.writeProblem = "Couldn’t write a draft: " + err.Error()
+		case untouched():
+			apply()
+		}
+		p.ctx.Invalidate()
+	})
+}
+
+func (p *Plugin) closeWriting() {
+	p.commitOn, p.prOn, p.drafting, p.submitting = false, false, false, false
+	p.draftEpoch++
+}
+
+// commit commits the workspace with the message as edited.
+func (p *Plugin) commit() {
+	rec, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	msg := strings.TrimSpace(p.commitMsg)
+	if !ok || msg == "" || p.submitting {
+		return
+	}
+	w := p.commitWs
+	p.submitting, p.writeProblem = true, ""
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (string, error) {
+		return rec.Commit(ctx, w.ID, msg)
+	}, func(sha string, err error) {
+		p.submitting = false
+		if err != nil {
+			p.writeProblem = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.closeWriting()
+		p.host.Toast(ui.Toast{Title: "Committed " + shortSHA(sha), Description: firstLine(msg), Type: components.ToastSuccess})
+	})
+}
+
+// createPR pushes the branch and opens the pull request as edited.
+func (p *Plugin) createPR() {
+	rec, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	title := strings.TrimSpace(p.prTitle)
+	if !ok || title == "" || p.submitting {
+		return
+	}
+	w, body, draft := p.prWs, p.prBody, p.prDraft
+	p.submitting, p.writeProblem = true, ""
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (*agent.PRStatus, error) {
+		return rec.CreatePR(ctx, w.ID, title, body, draft)
+	}, func(pr *agent.PRStatus, err error) {
+		p.submitting = false
+		if err != nil {
+			p.writeProblem = err.Error()
+			p.ctx.Invalidate()
+			return
+		}
+		p.closeWriting()
+		if pr != nil {
+			if w.Directory == p.prFor {
+				p.pr = pr
+			}
+			p.host.Toast(ui.Toast{Title: "Opened pull request #" + strconv.Itoa(pr.Number), Description: title, Type: components.ToastSuccess})
+		}
+	})
+}
+
+func shortSHA(sha string) string { return sha[:min(len(sha), 7)] }
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }
 
 // showTerminal opens a terminal's tab in the workspace's space.

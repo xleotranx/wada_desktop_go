@@ -539,3 +539,42 @@ func newID(prefix string) string {
 	_, _ = rand.Read(raw[:])
 	return prefix + hex.EncodeToString(raw[:])
 }
+
+// update changes an active workspace's row, saves it and announces it.
+func (r *Registry) update(ctx context.Context, id string, change func(*store.WorkspaceRow)) (protocol.WorkspaceInfo, error) {
+	r.mu.Lock()
+	w, ok := r.workspaces[id]
+	if !ok || w.Archived != 0 {
+		r.mu.Unlock()
+		return protocol.WorkspaceInfo{}, ErrNotFound
+	}
+	change(&w)
+	err := r.put(ctx, nil, []store.WorkspaceRow{w})
+	r.mu.Unlock()
+	if err != nil {
+		return protocol.WorkspaceInfo{}, err
+	}
+	wi := workspaceInfo(w)
+	r.emit(protocol.Event{Kind: protocol.EventWorkspaceUpdated, Workspace: &wi})
+	return wi, nil
+}
+
+// autoNamed is the active workspace at dir waiting to be named.
+func (r *Registry) autoNamed(dir string) (store.WorkspaceRow, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	w, ok := r.activeAt(clean(dir))
+	return w, ok && w.AutoName
+}
+
+// HasAutoNamed reports a workspace waiting to be named from a message.
+func (r *Registry) HasAutoNamed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, w := range r.workspaces {
+		if w.Archived == 0 && w.AutoName {
+			return true
+		}
+	}
+	return false
+}

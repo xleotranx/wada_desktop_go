@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -80,6 +81,8 @@ func (s *Service) Create(ctx context.Context, req protocol.WorkspaceCreateReques
 		}
 		row.Dir, row.WorktreeRoot, row.Owned = filepath.Join(added.Path, rel), added.Path, true
 		row.Branch, row.BaseRef, row.PR = added.Branch, added.BaseRef, added.PR
+		// A new branch nobody named is named from the first message sent.
+		row.AutoName = req.Slug == "" && req.Title == "" && cmp.Or(req.Mode, protocol.StartBranchOff) == protocol.StartBranchOff
 		w, err := s.addWorkspace(ctx, row)
 		if err != nil {
 			// The worktree is this call's own, with nothing in it yet.

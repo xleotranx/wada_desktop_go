@@ -766,6 +766,13 @@ and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
   exit code) with Output and Run or Run again, and each service with its port and
   Start or Stop, Output, and Open (`http://localhost:<port>`) while it runs.
   Output opens the run's terminal tab in the workspace's space.
+- **Commit… and Create Pull Request…** (`worktrees.commit`, ⌥⌘C, and
+  `worktrees.pr`, File; buttons in the Workspace section of a worktree) open a
+  dialog while the model drafts the commit message, or the pull request's title
+  and description (`agent.WorkspacesKey.DraftCommit`, `DraftPR`). A draft fills
+  only fields still empty; the user edits it and commits, or creates the pull
+  request as ready or as a draft. A failure stays in the dialog. Create PR… is
+  offered while the branch has no pull request and the workspace has a base.
 - **Setup after New Workspace.** Once a workspace is made, its setup runs at once
   when its `wada.json` is trusted. Otherwise the plugin asks first, showing every
   command the file runs, its teardown included; Trust and run trusts that exact file and runs it. A pull

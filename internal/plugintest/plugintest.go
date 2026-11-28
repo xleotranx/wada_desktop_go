@@ -725,6 +725,11 @@ type Projects struct {
 	// "start <id> <name>" and "stop <id> <name>".
 	Configs map[agent.WorkspaceID]agent.WorkspaceConfig
 	Ran     []string
+	// Drafts are what DraftCommit and DraftPR return: "commit", "title" and
+	// "body". Commits and PRs record Commit's and CreatePR's calls.
+	Drafts  map[string]string
+	Commits []string
+	PRs     []string
 }
 
 func (f *Projects) New() kernel.Plugin { return f }
@@ -881,6 +886,35 @@ func (f *Projects) StopService(_ context.Context, id agent.WorkspaceID, name str
 		}
 	}
 	return nil
+}
+
+func (f *Projects) DraftCommit(context.Context, agent.WorkspaceID) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Drafts["commit"], f.Fail["DraftCommit"]
+}
+
+func (f *Projects) Commit(_ context.Context, id agent.WorkspaceID, message string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Commits = append(f.Commits, string(id)+": "+message)
+	return "abc1234", f.Fail["Commit"]
+}
+
+func (f *Projects) DraftPR(context.Context, agent.WorkspaceID) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Drafts["title"], f.Drafts["body"], f.Fail["DraftPR"]
+}
+
+func (f *Projects) CreatePR(_ context.Context, id agent.WorkspaceID, title, body string, draft bool) (*agent.PRStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.PRs = append(f.PRs, fmt.Sprintf("%s: %s | %s | draft=%v", id, title, body, draft))
+	if err := f.Fail["CreatePR"]; err != nil {
+		return nil, err
+	}
+	return &agent.PRStatus{Number: 12, Title: title, URL: "https://example.com/pr/12"}, nil
 }
 
 func (f *Projects) RestoreWorkspace(_ context.Context, id agent.WorkspaceID) (agent.Workspace, error) {

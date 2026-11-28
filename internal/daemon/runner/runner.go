@@ -48,10 +48,15 @@ func Run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("wadad: resolve config dir: %w", err)
 	}
+	defaultBranchPrefix, ok := os.LookupEnv("WADA_BRANCH_PREFIX")
+	if !ok {
+		defaultBranchPrefix = worktree.DefaultBranchPrefix
+	}
 	fs := flag.NewFlagSet("wadad", flag.ContinueOnError)
 	var (
 		dataDir        = fs.String("data-dir", defDir, "Wada data directory")
 		worktreeDir    = fs.String("worktree-dir", os.Getenv("WADA_WORKTREE_DIR"), "Absolute directory for new Git worktrees (default: worktrees under the data directory)")
+		branchPrefix   = fs.String("branch-prefix", defaultBranchPrefix, "Git branch namespace for new worktrees (default wada/, empty disables the prefix)")
 		listen         = fs.String("listen", "127.0.0.1:6767", "HTTP/WebSocket listen address (or \"auto\")")
 		password       = fs.String("password", os.Getenv("WADA_PASSWORD"), "Optional daemon password")
 		hostnames      = fs.String("hostnames", os.Getenv("WADA_HOSTNAMES"), "Comma-separated allowed Host headers")
@@ -65,17 +70,23 @@ func Run(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	wtMgr := worktree.New(*dataDir)
-	if *worktreeDir != "" {
-		if !filepath.IsAbs(*worktreeDir) {
-			return fmt.Errorf("wadad: worktree-dir must be an absolute path")
-		}
-		wtMgr = worktree.NewAt(*worktreeDir)
+	storage := *worktreeDir
+	if storage == "" {
+		storage = filepath.Join(*dataDir, "worktrees")
+	} else if !filepath.IsAbs(storage) {
+		return fmt.Errorf("wadad: worktree-dir must be an absolute path")
 	}
 	// Terminals, harness workers and git inherit this process's environment;
 	// they have no use for the daemon's secrets.
 	for _, name := range []string{"WADA_PASSWORD", "WADA_RELAY_TOKEN"} {
 		_ = os.Unsetenv(name)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	wtMgr, err := worktree.NewAt(ctx, storage, *branchPrefix)
+	if err != nil {
+		return fmt.Errorf("wadad: %w", err)
 	}
 
 	listenAddr := *listen
@@ -86,9 +97,6 @@ func Run(args []string) error {
 			listenAddr = "127.0.0.1:6767"
 		}
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// One daemon per data directory: a replacement waits here while the daemon
 	// it replaces shuts down and removes its runtime files.

@@ -109,10 +109,50 @@ func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
 	}
 }
 
+func TestBranchPrefixAppliesToNewBranchesAndPullRequestCopies(t *testing.T) {
+	root := initTestRepo(t)
+	upstream := initTestRepo(t)
+	runGit(t, upstream, "update-ref", "refs/pull/42/head", "HEAD")
+	runGit(t, root, "remote", "add", "origin", upstream)
+	runGit(t, root, "branch", "existing")
+	manager, err := NewAt(t.Context(), t.TempDir(), "team/agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal, err := manager.Add(t.Context(), root, AddOptions{Slug: "parser"})
+	if err != nil || !strings.HasPrefix(normal.Branch, "team/agents/parser-") {
+		t.Fatalf("new branch = %q, %v", normal.Branch, err)
+	}
+	pr, err := manager.Add(t.Context(), root, AddOptions{Mode: protocol.StartCheckoutPR, PR: 42})
+	if err != nil || pr.Branch != "team/agents/pr-42" {
+		t.Fatalf("PR branch = %q, %v", pr.Branch, err)
+	}
+	another, err := manager.Add(t.Context(), root, AddOptions{Mode: protocol.StartCheckoutPR, PR: 42})
+	if err != nil || !strings.HasPrefix(another.Branch, "team/agents/pr-42-") || !manager.BranchExists(t.Context(), root, pr.Branch) {
+		t.Fatalf("second PR copy = %q, %v", another.Branch, err)
+	}
+	existing, err := manager.Add(t.Context(), root, AddOptions{Mode: protocol.StartCheckoutBranch, From: "existing"})
+	if err != nil || existing.Branch != "existing" {
+		t.Fatalf("existing branch = %q, %v", existing.Branch, err)
+	}
+}
+
+func TestRejectsInvalidBranchPrefixes(t *testing.T) {
+	for _, prefix := range []string{"-team", "/team", "team//", "team..work", "with space"} {
+		if _, err := NewAt(t.Context(), t.TempDir(), prefix); err == nil {
+			t.Errorf("accepted invalid prefix %q", prefix)
+		}
+	}
+}
+
 func TestWorktreesCannotBePlacedInsideTheSourceRepository(t *testing.T) {
 	repo := initTestRepo(t)
 	nested := filepath.Join(repo, "checkouts")
-	_, err := NewAt(nested).Add(t.Context(), repo, AddOptions{Slug: "feature"})
+	manager, err := NewAt(t.Context(), nested, DefaultBranchPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.Add(t.Context(), repo, AddOptions{Slug: "feature"})
 	if err == nil || !strings.Contains(err.Error(), "inside source repository") {
 		t.Fatalf("created a nested worktree or returned an unexpected error: %v", err)
 	}

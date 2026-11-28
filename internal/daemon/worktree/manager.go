@@ -23,21 +23,38 @@ import (
 
 const maxPatchBytes = 256 << 10
 
+// DefaultBranchPrefix is the namespace for branches created by Wada.
+const DefaultBranchPrefix = "wada/"
+
 // Manager manages Git worktrees and the directory for new checkouts.
 type Manager struct {
-	directory string
-	mu        sync.Mutex
-	forge     *Forge
+	directory    string
+	branchPrefix string
+	mu           sync.Mutex
+	forge        *Forge
 }
 
 // New creates a Git worktree manager storing worktrees inside dataDir.
 func New(dataDir string) *Manager {
-	return NewAt(filepath.Join(dataDir, "worktrees"))
+	return newManager(filepath.Join(dataDir, "worktrees"), DefaultBranchPrefix)
 }
 
-// NewAt stores new worktrees under directory.
-func NewAt(directory string) *Manager {
-	return &Manager{directory: filepath.Clean(directory)}
+// NewAt stores new worktrees under directory and prefixes new branch names
+// with branchPrefix. An empty prefix creates unqualified branch names.
+func NewAt(ctx context.Context, directory, branchPrefix string) (*Manager, error) {
+	if branchPrefix != "" && !strings.HasSuffix(branchPrefix, "/") {
+		branchPrefix += "/"
+	}
+	if branchPrefix != "" && branchPrefix != DefaultBranchPrefix {
+		if _, err := gitOut(ctx, ".", "check-ref-format", "--branch", branchPrefix+"wada-check"); err != nil {
+			return nil, fmt.Errorf("worktree: invalid branch prefix %q: %w", branchPrefix, err)
+		}
+	}
+	return newManager(directory, branchPrefix), nil
+}
+
+func newManager(directory, branchPrefix string) *Manager {
+	return &Manager{directory: filepath.Clean(directory), branchPrefix: branchPrefix, forge: newForge()}
 }
 
 // RepoRoot resolves the top-level Git repository root containing dir.

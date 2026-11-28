@@ -62,21 +62,12 @@ func defaultCmdRunner(ctx context.Context, dir, name string, args ...string) (st
 // PRStatus looks up the open/merged PR for dir's current branch via `gh`, or
 // returns (nil, nil) if origin is missing, unauthenticated, or has no PR.
 func (m *Manager) PRStatus(ctx context.Context, dir string) (*protocol.PRStatus, error) {
-	return m.forgeOrDefault().PRStatus(ctx, dir)
+	return m.forge.PRStatus(ctx, dir)
 }
 
 // CreatePR creates a GitHub pull request for dir's current branch via `gh`.
 func (m *Manager) CreatePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error) {
-	return m.forgeOrDefault().CreatePR(ctx, req)
-}
-
-func (m *Manager) forgeOrDefault() *Forge {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.forge == nil {
-		m.forge = newForge()
-	}
-	return m.forge
+	return m.forge.CreatePR(ctx, req)
 }
 
 func (f *Forge) PRStatus(ctx context.Context, dir string) (*protocol.PRStatus, error) {

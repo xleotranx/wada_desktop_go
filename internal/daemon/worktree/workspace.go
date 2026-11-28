@@ -74,7 +74,7 @@ func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, 
 		if opts.PR <= 0 {
 			return Added{}, errors.New("worktree: a pull request number is required")
 		}
-		info := m.forgeOrDefault().prInfo(ctx, root, opts.PR)
+		info := m.forge.prInfo(ctx, root, opts.PR)
 		switch {
 		case info.Head != "" && !info.Fork:
 			// The project's own branch: work on it, so a push updates the
@@ -84,9 +84,13 @@ func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, 
 		default:
 			// Another repository's branch: a local copy without an upstream,
 			// so a push never goes to someone else's branch.
-			local := fmt.Sprintf("wada/pr-%d", opts.PR)
-			if _, err = gitOut(ctx, root, "fetch", "--quiet", "origin", fmt.Sprintf("+pull/%d/head:%s", opts.PR, local)); err == nil {
-				_, err = gitOut(ctx, root, "worktree", "add", "--", dest, local)
+			local := m.branchPrefix + fmt.Sprintf("pr-%d", opts.PR)
+			if m.BranchExists(ctx, root, local) {
+				local += "-" + randomHex(2)
+			}
+			ref := fmt.Sprintf("refs/pull/%d/head", opts.PR)
+			if _, err = gitOut(ctx, root, "fetch", "--quiet", "origin", ref); err == nil {
+				_, err = gitOut(ctx, root, "worktree", "add", "-b", local, "--", dest, "FETCH_HEAD")
 			}
 		}
 		if err != nil {
@@ -98,7 +102,7 @@ func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, 
 		}
 	case protocol.StartBranchOff, "":
 		from := cmpOr(opts.From, defaultRef(ctx, root))
-		branch := "wada/" + wtSlug
+		branch := m.branchPrefix + wtSlug
 		if _, err := gitOut(ctx, root, "worktree", "add", "-b", branch, "--", dest, from); err != nil {
 			return Added{}, fmt.Errorf("worktree: %w", err)
 		}
@@ -219,7 +223,7 @@ func (m *Manager) Refs(ctx context.Context, dir string) (protocol.WorkspaceRefs,
 			}
 		}
 	}
-	refs.PRs = m.forgeOrDefault().openPRs(ctx, root)
+	refs.PRs = m.forge.openPRs(ctx, root)
 	if wts, err := m.List(ctx, root); err == nil {
 		refs.Worktrees = wts
 	}

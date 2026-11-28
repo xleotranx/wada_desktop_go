@@ -83,7 +83,7 @@ Independent mode performs those operations within the selected project folder.
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
 | `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
-| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, new and archived worktree workspaces with their `wada.json` setup and services, schedules and heartbeats, agent profiles, dictation, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
+| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, project registration with host folder suggestions, creating and opening worktrees, workspace archive and restore, and their `wada.json` setup and services, schedules and heartbeats, agent profiles, dictation, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, `ssh://` hosts over `wadad --stdio-bridge`, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline/project SQLite store (`wadad.db`), projects and workspaces registry, Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |
@@ -155,6 +155,9 @@ Production settings and app records live under
 - `terminal-worker/`: detached PTY worker IPC descriptors.
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
   `pig/baselines/`: lazy on-disk session diff baselines; `pig/agent/`: provider credentials and configuration.
+
+New worktree branches use the `wada/` prefix by default. Set `wadad --branch-prefix`
+or `WADA_BRANCH_PREFIX` to change it, or use an empty value to omit it.
 
 Treat these directories as sensitive. Messages, attachments and tool results sent
 to a model go to your chosen provider. Do not include credentials or private

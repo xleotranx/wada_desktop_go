@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"wada-desktop-go/internal/daemon/store"
@@ -53,10 +54,13 @@ func (s *Service) NameFromMessage(ctx context.Context, dir, text string, gen Gen
 	}
 	title := strings.TrimSpace(name.Title)
 	branch := w.Branch
-	if slug := worktree.SanitizeSlug(name.Branch); slug != "" && strings.HasPrefix(w.Branch, "wada/") {
-		want := "wada/" + slug
-		for i := 2; s.git.BranchExists(ctx, w.Dir, want) && i < 10; i++ {
-			want = "wada/" + slug + "-" + string(rune('0'+i))
+	if w.Owned && w.Branch != "" {
+		// Keep the prefix the branch was created with across daemon restarts.
+		prefix := w.Branch[:strings.LastIndexByte(w.Branch, '/')+1]
+		base := prefix + worktree.SanitizeSlug(name.Branch)
+		want := base
+		for i := 2; i < 10 && s.git.BranchExists(ctx, w.Dir, want); i++ {
+			want = base + "-" + strconv.Itoa(i)
 		}
 		if err := s.git.RenameBranch(ctx, w.Dir, w.Branch, want); err == nil {
 			branch = want

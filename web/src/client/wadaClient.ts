@@ -37,6 +37,7 @@ import {
   type WorkspaceConfig,
   type WorkspaceCreate,
   type WorkspaceInfo,
+  type WorkspaceRefs,
   type SessionMessage,
   type TerminalInfo,
   type WorkerInfo,
@@ -465,8 +466,24 @@ export class WadaClient {
     return this.call("workspace.projects.list", {});
   }
 
-  listWorkspaces(): Promise<WorkspaceInfo[]> {
-    return this.call("workspace.list", {});
+  listWorkspaces(archived = false): Promise<WorkspaceInfo[]> {
+    return this.call("workspace.list", { archived: archived || undefined });
+  }
+
+  projectFolders(prefix: string): Promise<string[]> {
+    return this.call("workspace.project.folders", { prefix });
+  }
+
+  addProject(root: string): Promise<{ project: ProjectInfo; workspace: WorkspaceInfo }> {
+    return this.call("workspace.project.add", { root });
+  }
+
+  workspaceRefs(project: string): Promise<WorkspaceRefs> {
+    return this.call("workspace.refs", { project });
+  }
+
+  restoreWorkspace(workspace: string): Promise<WorkspaceInfo> {
+    return this.call("workspace.restore", { workspace });
   }
 
   createSession(

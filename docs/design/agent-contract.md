@@ -260,10 +260,12 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
   `worktree` fetches `origin`, then makes a worktree under the daemon's
   configured worktree directory, using a repository hash to group its checkouts.
   The default is `<DataDir>/worktrees`. The new worktree branches off a ref (`branch-off`, default
-  origin's default branch, as `wada/<slug>`), checks out a branch (`checkout-branch`,
-  tracking `origin/<branch>` when it is only remote), or checks out a pull request
+  origin's default branch), checks out a branch (`checkout-branch`, tracking
+  `origin/<branch>` when it is only remote), or checks out a pull request
   (`checkout-pr`: the head branch for one from the same repository, else
-  `pull/N/head` as `wada/pr-N`), and copies the files `.worktreeinclude` lists.
+  a local copy of `refs/pull/N/head`). It copies the files `.worktreeinclude` lists.
+  The daemon's `--branch-prefix` or `WADA_BRANCH_PREFIX` applies to new branches
+  and local PR copies. It defaults to `wada/` and accepts an empty value.
   `existing` records a worktree already on disk. A project inside a repository
   gets the same subfolder of the worktree. A worktree whose recording fails is
   removed again.
@@ -286,9 +288,9 @@ The daemon asks the embedded runtime's default model for short text through
 - **Names.** A worktree workspace made to branch off without a slug or title
   waits to be named (`auto_name`). After the first message sent in its directory
   is accepted, the server asks the model for a title and a branch name in the
-  background; the workspace takes the title, and its branch is renamed to
-  `wada/<name>` while no remote has it. It is named once, whether or not this
-  works.
+  background. The workspace takes the title and renames an unpublished branch,
+  keeping its original prefix even if the daemon's setting has changed. It
+  attempts automatic naming once.
 - **Commits.** `workspace.commit.draft` has the model write a message from
   `git status` and `git diff HEAD`; `workspace.commit` commits everything,
   untracked files included, and returns the hash.

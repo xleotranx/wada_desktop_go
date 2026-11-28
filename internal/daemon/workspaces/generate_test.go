@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -55,6 +56,44 @@ func TestAnUnnamedWorkspaceIsNamedFromItsFirstMessage(t *testing.T) {
 	}
 	if err := s.NameFromMessage(t.Context(), w.Directory, "again", model.gen); err != nil || len(model.asked) != 1 {
 		t.Fatalf("named twice: %v %q", err, model.asked)
+	}
+}
+
+func TestAutomaticNamingPreservesTheOriginalBranchPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefix, want string
+	}{
+		{"nested", "team/agents/", "team/agents/fix-parser-crash"},
+		{"unprefixed", "", "fix-parser-crash"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, root := t.TempDir(), repo(t)
+			reg := open(t, data, nil)
+			manager, err := worktree.NewAt(t.Context(), filepath.Join(data, "worktrees"), tc.prefix)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := NewService(reg, manager)
+			p, _, err := s.AddProject(t.Context(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w, err := s.Create(t.Context(), protocol.WorkspaceCreateRequest{Project: p.ID, Isolation: protocol.IsolationWorktree})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(w.Branch, tc.prefix) || strings.Contains(strings.TrimPrefix(w.Branch, tc.prefix), "/") {
+				t.Fatalf("unexpected temporary branch %q", w.Branch)
+			}
+			s = NewService(reg, worktree.New(data))
+			if err := s.NameFromMessage(t.Context(), w.Directory, "fix the parser", (&fakeModel{}).gen); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := s.Workspace(w.ID)
+			if got.Branch != tc.want || !s.git.BranchExists(t.Context(), root, tc.want) {
+				t.Fatalf("branch = %q, want %q in Git and the workspace", got.Branch, tc.want)
+			}
+		})
 	}
 }
 

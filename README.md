@@ -64,7 +64,7 @@ choose **Use marked-up image**. The marked PNG goes with your next message;
 the source file stays unchanged. Images are limited to 16 megapixels and 16,384
 pixels per side, in addition to the attachment byte limits.
 
-Ordinary PiG chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and Chief Agent orchestration tools (`list_providers`, `create_workspace`, `list_workspaces`, `archive_workspace`, `spawn_agent`, `send_agent`, `wait_agent`, `inspect_agent_diff`, `stop_agent`) inside the selected project folder. Wada does not automatically load repository agent instructions; skills are included when explicitly selected. Without a selected folder, new conversations use a dedicated Inbox rather than the user's home folder.
+Ordinary PiG chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and Chief Agent orchestration tools (`list_providers`, `create_workspace`, `list_workspaces`, `archive_workspace`, `spawn_agent`, `send_agent`, `wait_agent`, `inspect_agent_diff`, `stop_agent`) inside the selected project folder; external Claude Code, Codex and ACP workers reach the same tools through a loopback MCP server, each with its own token. Wada does not automatically load repository agent instructions; skills are included when explicitly selected. Without a selected folder, new conversations use a dedicated Inbox rather than the user's home folder.
 
 The composer offers **Ask before changes** (the default) and **Work independently**.
 Ask mode permits reads and searches, and asks before edits, shell commands, or web requests.

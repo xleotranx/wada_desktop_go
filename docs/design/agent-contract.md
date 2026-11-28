@@ -70,6 +70,18 @@ workspace tools act on the conversation's own project and refuse the inbox.
 `spawn_agent` runs a worker in the conversation's folder, a folder inside it
 (`directory`), or a workspace of the same project (`workspace_id`); `stop_agent`
 leaves the workspace in place.
+
+External workers get the same tools over MCP. The orchestrator serves a
+streamable-HTTP MCP server (`internal/daemon/mcp`) on a free loopback port,
+apart from wadad's own listener, and gives each worker its own bearer token
+when it starts: Claude Code through `--mcp-config`, Codex through
+`-c mcp_servers.wada.*` with the token in `WADA_MCP_TOKEN`, and an ACP agent
+through `session/new`'s `mcpServers` when its `initialize` says it takes HTTP
+servers. A worker calls the tools as itself: its folder is the conversation's
+folder, what it spawns is its own child, and its children run in ask mode
+unless it runs without approvals. Stopping a worker revokes its token and
+stops its children. The server answers each request with one JSON response
+and opens no event stream.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
 conversation directories remain as recorded. The daemon's PiG storage root is `<DataDir>/pig`:
 

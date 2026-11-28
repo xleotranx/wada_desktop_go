@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"wada-desktop-go/internal/daemon/harness"
+	"wada-desktop-go/internal/daemon/mcp"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/daemon/workspaces"
@@ -43,6 +44,8 @@ type managedWorker struct {
 	msgSeq      int
 	// approvals are the ones still waiting for a reply, by ID.
 	approvals map[string]protocol.Approval
+	// mcpToken is the worker's token on the orchestrator's MCP server.
+	mcpToken string
 }
 
 // Orchestrator implements server.Backend and server.OrchestrationBackend across
@@ -53,6 +56,9 @@ type Orchestrator struct {
 	workspaces *workspaces.Service
 	registry   *harness.Registry
 	terminals  *terminal.Supervisor
+	// mcp serves the Chief tools to external workers; nil when it could not
+	// listen.
+	mcp *mcp.Server
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -88,6 +94,9 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		events:     make(chan protocol.Event, 512),
 		workers:    map[string]*managedWorker{},
 		waiters:    map[string][]chan struct{}{},
+	}
+	if srv, err := mcp.Start("wadad"); err == nil {
+		o.mcp = srv
 	}
 
 	pigEvents := o.pig.Events()
@@ -132,6 +141,9 @@ func (o *Orchestrator) Close() error {
 	}
 
 	err := o.pig.Close()
+	if o.mcp != nil {
+		_ = o.mcp.Close()
+	}
 	if o.terminals != nil {
 		if terr := o.terminals.Close(); err == nil {
 			err = terr
@@ -451,15 +463,31 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 	}
 
 	workerID := "wrk_" + uuid.NewString()[:12]
-	sess, err := prov.Start(ctx, harness.SessionOptions{
+	opts := harness.SessionOptions{
 		SessionID: workerID,
 		Directory: dir,
 		Mode:      mode,
 		Command:   args.Command,
 		Args:      args.Args,
 		Env:       args.Env,
-	})
+	}
+	var token string
+	if o.mcp != nil {
+		// The worker calls the Chief tools as itself: what it spawns is its
+		// own, and it gets no more access than it has.
+		cc := pig.ChiefContext{SessionID: workerID, Dir: dir, FullAccess: mode == "full"}
+		ep, err := o.mcp.Register(mcpTools(o.ChiefTools(func() pig.ChiefContext { return cc })))
+		if err != nil {
+			return protocol.WorkerInfo{}, err
+		}
+		token = ep.Token
+		opts.MCP = &harness.MCPServer{Name: mcp.Name, URL: ep.URL, Token: ep.Token}
+	}
+	sess, err := prov.Start(ctx, opts)
 	if err != nil {
+		if token != "" {
+			o.mcp.Revoke(token)
+		}
 		return protocol.WorkerInfo{}, err
 	}
 
@@ -475,12 +503,15 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 		Status:        protocol.WorkerIdle,
 		Updated:       time.Now().UnixMilli(),
 	}
-	w := &managedWorker{info: info, sess: sess}
+	w := &managedWorker{info: info, sess: sess, mcpToken: token}
 
 	o.mu.Lock()
 	if o.closed {
 		o.mu.Unlock()
 		_ = sess.Close()
+		if token != "" {
+			o.mcp.Revoke(token)
+		}
 		return protocol.WorkerInfo{}, errors.New("orchestrator is shutting down")
 	}
 	o.workers[workerID] = w
@@ -854,15 +885,37 @@ func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// removeWorker stops w's process and forgets it.
+// removeWorker stops w's process and forgets it, and the workers it spawned
+// through its MCP tools.
 func (o *Orchestrator) removeWorker(w *managedWorker) {
 	id := w.id()
 	_ = w.sess.Close()
+	if w.mcpToken != "" {
+		o.mcp.Revoke(w.mcpToken)
+	}
 	o.mu.Lock()
 	delete(o.workers, id)
+	rest := make([]*managedWorker, 0, len(o.workers))
+	for _, c := range o.workers {
+		rest = append(rest, c)
+	}
 	o.mu.Unlock()
 	o.notifyWaiters(id)
 	o.emit(protocol.Event{Kind: protocol.EventSessionDeleted, Session: id})
+	for _, c := range rest {
+		if c.snapshot().ParentSession == id {
+			o.removeWorker(c)
+		}
+	}
+}
+
+// mcpTools are the Chief tools as MCP tools.
+func mcpTools(tools []pig.Tool) []mcp.Tool {
+	out := make([]mcp.Tool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: t.Parameters, Call: t.Execute})
+	}
+	return out
 }
 
 func (o *Orchestrator) Spawn(ctx context.Context, req protocol.SpawnRequest) (protocol.Session, error) {

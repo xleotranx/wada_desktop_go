@@ -103,13 +103,13 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 		ID:     "claude-mock",
 		Name:   "Mock Claude",
 		Binary: exe,
-		Args:   []string{"-test.run=TestHelperProcess"},
+		Args:   []string{"-test.run=TestHelperProcess", "--"},
 	}))
 	reg.Register(harness.NewACPProvider(harness.ACPConfig{
 		ID:     "acp-mock",
 		Name:   "Mock ACP",
 		Binary: exe,
-		Args:   []string{"-test.run=TestHelperProcess"},
+		Args:   []string{"-test.run=TestHelperProcess", "--"},
 	}))
 
 	// Inject per-provider helper env via a tiny wrapper provider so both work cleanly in the same test.

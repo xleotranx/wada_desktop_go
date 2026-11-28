@@ -53,6 +53,14 @@ func claudeArgs(mode string) []string {
 	return append(args, "--permission-prompt-tool", "stdio")
 }
 
+// claudeMCPConfig is --mcp-config's JSON for one HTTP server.
+func claudeMCPConfig(m MCPServer) string {
+	b, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{m.Name: map[string]any{
+		"type": "http", "url": m.URL, "headers": map[string]string{"Authorization": "Bearer " + m.Token},
+	}}})
+	return string(b)
+}
+
 type claudeSession struct {
 	id     string
 	proc   *ManagedProcess
@@ -90,6 +98,9 @@ func (p *ClaudeProvider) Start(_ context.Context, opts SessionOptions) (Session,
 		args = slices.Clone(p.cfg.Args)
 	} else {
 		args = claudeArgs(opts.Mode)
+	}
+	if opts.MCP != nil {
+		args = append(args, "--mcp-config", claudeMCPConfig(*opts.MCP))
 	}
 
 	sctx, cancel := context.WithCancel(context.Background())

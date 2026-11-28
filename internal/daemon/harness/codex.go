@@ -23,6 +23,14 @@ type CodexConfig struct {
 	Description string
 }
 
+// codexMCPArgs are the -c overrides that add one streamable-HTTP server,
+// whose token Codex reads from mcpTokenEnv.
+func codexMCPArgs(m MCPServer) []string {
+	key := "mcp_servers." + m.Name
+	url, _ := json.Marshal(m.URL)
+	return []string{"-c", key + ".url=" + string(url), "-c", key + `.bearer_token_env_var="` + mcpTokenEnv + `"`}
+}
+
 type CodexProvider struct {
 	cfg CodexConfig
 }
@@ -68,6 +76,10 @@ func (p *CodexProvider) Start(_ context.Context, opts SessionOptions) (Session, 
 	baseArgs := slices.Clone(p.cfg.Args)
 	if len(opts.Args) > 0 {
 		baseArgs = slices.Clone(opts.Args)
+	}
+	if opts.MCP != nil {
+		baseArgs = append(baseArgs, codexMCPArgs(*opts.MCP)...)
+		opts.Env = append(slices.Clone(opts.Env), mcpTokenEnv+"="+opts.MCP.Token)
 	}
 	sctx, cancel := context.WithCancel(context.Background())
 	return &codexSession{

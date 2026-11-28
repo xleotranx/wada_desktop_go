@@ -39,6 +39,7 @@ import {
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
 import { groupSessions, workspaceName } from "./client/workspaces";
 import { dictationSupported, joinDictation, startDictation } from "./dictation";
+import { type FileBuffer, FilesPanel } from "./FilesPanel";
 import { NewWorkspace } from "./NewWorkspace";
 import { applyUpdate, onUpdateReady } from "./pwa";
 import { SchedulesPanel } from "./Schedules";
@@ -50,7 +51,7 @@ type WorkspaceAction =
   | { kind: "add" | "restore"; cli: WadaClient }
   | { kind: "create"; cli: WadaClient; project: ProjectInfo };
 
-type RightTab = "chat" | "workspace" | "schedules" | "diffs" | "terminal";
+type RightTab = "chat" | "files" | "workspace" | "schedules" | "diffs" | "terminal";
 
 // ShownApproval is an approval with the conversation that shows it: its own,
 // or the parent of the worker that asked. Replies go to approval.session.
@@ -97,6 +98,7 @@ export function App() {
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [fileBuffers, setFileBuffers] = useState<Record<string, FileBuffer>>({});
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const groups = useMemo(() => groupSessions(sessions, projects, workspaces), [sessions, projects, workspaces]);
   const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
@@ -110,6 +112,7 @@ export function App() {
   const [busySessions, setBusySessions] = useState<ReadonlySet<string>>(() => new Set());
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
   const [changes, setChanges] = useState<FileChange[]>([]);
+  const [chatBesideFiles, setChatBesideFiles] = useState(false);
   const [rightTab, setRightTab] = useState<RightTab>("chat");
 
   const [promptText, setPromptText] = useState("");
@@ -280,6 +283,7 @@ export function App() {
     setSessions([]);
     setProjects([]);
     setWorkspaces([]);
+    setSchedules([]);
     setNewWorkspaceId("");
     setShownWorkspaceId("");
     setMessages([]);
@@ -720,6 +724,7 @@ export function App() {
       activeWorkspaces.find((w) => w.directory === activeSession.directory));
   const shownWorkspace =
     activeWorkspaces.find((w) => w.id === shownWorkspaceId) || sessionWorkspace || newWorkspace;
+  const fileBufferKey = JSON.stringify([hostRef.current?.id, shownWorkspace?.id]);
   const shownProject = shownWorkspace && projects.find((p) => p.id === shownWorkspace.project);
   const directHost = (() => {
     const url = hostRef.current?.directUrl;
@@ -961,6 +966,12 @@ export function App() {
               Chat {workers.length > 0 ? `(${workers.length} workers)` : ""}
             </button>
             <button
+              className={rightTab === "files" ? "tab active" : "tab"}
+              onClick={() => setRightTab("files")}
+            >
+              Files
+            </button>
+            <button
               className={rightTab === "workspace" ? "tab active" : "tab"}
               onClick={() => setRightTab("workspace")}
               disabled={!shownWorkspace}
@@ -987,7 +998,9 @@ export function App() {
             </button>
           </div>
 
-          {rightTab === "chat" && (
+          {(rightTab === "chat" || rightTab === "files") && (
+          <div className={rightTab === "files" && chatBesideFiles ? "chat-files chat-files-split" : "chat-files"}>
+          {(rightTab === "chat" || chatBesideFiles) && (
             <div className="panel">
               {workers.length > 0 && (
                 <div className="worker-strip">
@@ -1188,6 +1201,21 @@ export function App() {
             </div>
           )}
 
+          {rightTab === "files" && (
+            shownWorkspace && workspaceClient ? (
+              <FilesPanel
+                key={fileBufferKey}
+                cli={workspaceClient}
+                workspace={shownWorkspace}
+                buffer={fileBuffers[fileBufferKey] || {}}
+                showChat={chatBesideFiles}
+                onToggleChat={() => setChatBesideFiles((show) => !show)}
+                onBuffer={(buffer) => setFileBuffers((previous) => ({ ...previous, [fileBufferKey]: buffer }))}
+              />
+            ) : <p className="muted pad">Connect and pick a workspace to open its files.</p>
+          )}
+          </div>
+          )}
           {rightTab === "workspace" && shownWorkspace && clientRef.current && (
             <WorkspacePanel
               cli={clientRef.current}
@@ -1200,16 +1228,21 @@ export function App() {
             />
           )}
 
-          {rightTab === "schedules" && clientRef.current && (
+          {rightTab === "schedules" && workspaceClient && (
             <SchedulesPanel
-              cli={clientRef.current}
+              key={activeHostId}
+              cli={workspaceClient}
               schedules={schedules}
               session={selectedSessionId}
               sessionTitle={activeSession?.title || ""}
               directory={activeSession ? (sessionWorkspace ? sessionWorkspace.directory : activeSession.directory) : newChatDir}
               workspace={activeSession ? sessionWorkspace?.id || "" : newWorkspaceId}
-              onChanged={applySchedule}
-              onError={setConnError}
+              onChanged={(sc) => {
+                if (clientRef.current === workspaceClient) applySchedule(sc);
+              }}
+              onError={(error) => {
+                if (clientRef.current === workspaceClient) setConnError(error);
+              }}
             />
           )}
 

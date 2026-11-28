@@ -10,6 +10,7 @@ import (
 	"wada-desktop-go/internal/plugins/browser"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/daemon"
+	"wada-desktop-go/internal/plugins/editor"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
 	"wada-desktop-go/internal/plugins/folderpicker"
@@ -67,6 +68,7 @@ func main() {
 		models.New,
 		modes.New, // the mode for outgoing messages
 		usage.New,
+		editor.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
 		workers.New,     // harness picker and supervised CLI workers
 		schedules.New,   // heartbeats in the work panel and the Schedules tab

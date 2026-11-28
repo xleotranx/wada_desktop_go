@@ -639,3 +639,91 @@ textarea {
 .folder-suggestions button { width: 100%; text-align: left; overflow-wrap: anywhere; }
 .restore-workspaces li { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
 .restore-workspaces small { display: block; overflow-wrap: anywhere; }
+
+.workspace-files {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.workspace-file-list,
+.workspace-file-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.workspace-file-list form {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-file-list ul {
+  overflow: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.workspace-file-list li button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.workspace-file-editor h3 {
+  overflow-wrap: anywhere;
+}
+
+.workspace-file-editor textarea {
+  flex: 1;
+  min-height: 9rem;
+  width: 100%;
+  resize: none;
+  font-family: monospace;
+  white-space: pre;
+  overflow: auto;
+}
+
+@media (max-width: 660px) {
+  .workspace-files {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .workspace-file-list ul {
+    max-height: 8rem;
+  }
+}
+
+.chat-files {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.chat-files > .panel {
+  min-width: 0;
+}
+
+.chat-files-split > .workspace-files {
+  border-left: 1px solid var(--border);
+}
+
+.workspace-files {
+  padding: 12px;
+}
+
+@media (max-width: 840px) {
+  .chat-files-split {
+    flex-direction: column;
+  }
+
+  .chat-files-split > .workspace-files {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}

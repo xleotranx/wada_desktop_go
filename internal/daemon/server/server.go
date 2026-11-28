@@ -179,6 +179,7 @@ type Server struct {
 	ln        net.Listener
 	relayConn *relay.DaemonConnector
 
+	editorMu  sync.Mutex
 	schedules *schedules.Service
 	turnsMu   sync.Mutex
 	turns     map[string]bool // conversations with a turn going
@@ -1238,6 +1239,8 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return pr, nil
+	case protocol.MethodWorkspaceFiles, protocol.MethodWorkspaceFileOpen, protocol.MethodWorkspaceFileSave:
+		return s.dispatchEditor(ctx, method, payload)
 	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectFolders, protocol.MethodProjectRename,
 		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename,
 		protocol.MethodWorkspaceCreate, protocol.MethodWorkspaceArchive, protocol.MethodWorkspaceRestore,

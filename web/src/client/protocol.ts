@@ -108,6 +108,11 @@ export interface ServiceStatus {
   terminal?: TerminalInfo;
 }
 
+export interface WorkspaceFile {
+  text: string;
+  revision: string;
+}
+
 export interface WorkspaceRefs {
   worktrees?: { path: string; branch?: string; isMain?: boolean }[];
 }

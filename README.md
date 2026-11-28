@@ -58,6 +58,11 @@ opens in a drawer beside the conversation with the selection quoted in its own
 composer; it can read files but not change them, and **Add to main chat** puts an
 answer in the original chat's draft.
 
+Open **File → Workspace Files** (⇧⌘E) on desktop or **Files** on the web to find,
+open, and save workspace text files. On the web, **Chat beside files** keeps the
+chat visible while you edit. A stale save keeps your draft if the file has
+changed on disk.
+
 For visual instructions, capture the screen (⌘⇧2 / ⌃⌘⇧2 on macOS) or paste/attach a screenshot and choose **Mark up**
 beside its image chip. Draw boxes, arrows, pins, freehand lines, highlights, or pixel redactions, add per-mark notes and optional full-resolution detail crops, then
 choose **Use marked-up image**. The marked PNG goes with your next message;
@@ -83,7 +88,7 @@ Independent mode performs those operations within the selected project folder.
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
 | `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
-| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, project registration with host folder suggestions, creating and opening worktrees, workspace archive and restore, and their `wada.json` setup and services, schedules and heartbeats, agent profiles, dictation, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
+| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, project registration with host folder suggestions, creating and opening worktrees, workspace archive and restore, and their `wada.json` setup and services, editable schedules and heartbeats, agent profiles, dictation, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, `ssh://` hosts over `wadad --stdio-bridge`, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline/project SQLite store (`wadad.db`), projects and workspaces registry, Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |

@@ -46,27 +46,30 @@ const (
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
 
-	MethodProjectsList     = "workspace.projects.list"
-	MethodProjectAdd       = "workspace.project.add"
-	MethodProjectFolders   = "workspace.project.folders"
-	MethodProjectRename    = "workspace.project.rename"
-	MethodProjectArchive   = "workspace.project.archive"
-	MethodWorkspacesList   = "workspace.list"
-	MethodWorkspaceRename  = "workspace.rename"
-	MethodWorkspaceCreate  = "workspace.create"
-	MethodWorkspaceArchive = "workspace.archive"
-	MethodWorkspaceRestore = "workspace.restore"
-	MethodWorkspaceRefs    = "workspace.refs"
-	MethodWorkspaceChanges = "workspace.changes"
-	MethodWorkspaceConfig  = "workspace.config"
-	MethodWorkspaceTrust   = "workspace.trust"
-	MethodWorkspaceSetup   = "workspace.setup"
-	MethodServiceStart     = "workspace.service.start"
-	MethodServiceStop      = "workspace.service.stop"
-	MethodCommitDraft      = "workspace.commit.draft"
-	MethodCommit           = "workspace.commit"
-	MethodPRDraft          = "workspace.pr.draft"
-	MethodPRCreate         = "workspace.pr.create"
+	MethodProjectsList      = "workspace.projects.list"
+	MethodProjectAdd        = "workspace.project.add"
+	MethodProjectFolders    = "workspace.project.folders"
+	MethodProjectRename     = "workspace.project.rename"
+	MethodProjectArchive    = "workspace.project.archive"
+	MethodWorkspacesList    = "workspace.list"
+	MethodWorkspaceRename   = "workspace.rename"
+	MethodWorkspaceCreate   = "workspace.create"
+	MethodWorkspaceArchive  = "workspace.archive"
+	MethodWorkspaceFiles    = "workspace.files.find"
+	MethodWorkspaceFileOpen = "workspace.file.open"
+	MethodWorkspaceFileSave = "workspace.file.save"
+	MethodWorkspaceRestore  = "workspace.restore"
+	MethodWorkspaceRefs     = "workspace.refs"
+	MethodWorkspaceChanges  = "workspace.changes"
+	MethodWorkspaceConfig   = "workspace.config"
+	MethodWorkspaceTrust    = "workspace.trust"
+	MethodWorkspaceSetup    = "workspace.setup"
+	MethodServiceStart      = "workspace.service.start"
+	MethodServiceStop       = "workspace.service.stop"
+	MethodCommitDraft       = "workspace.commit.draft"
+	MethodCommit            = "workspace.commit"
+	MethodPRDraft           = "workspace.pr.draft"
+	MethodPRCreate          = "workspace.pr.create"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -703,6 +706,27 @@ type WorkspaceArchiveRequest struct {
 	// Force discards a wadad-made worktree's uncommitted changes and
 	// unpushed commits; without it such a worktree is refused (conflict).
 	Force bool `json:"force,omitempty"`
+}
+
+type WorkspaceFilesRequest struct {
+	Workspace string `json:"workspace"`
+	Query     string `json:"query"`
+}
+
+type WorkspaceFileRequest struct {
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+}
+
+type WorkspaceFileSaveRequest struct {
+	WorkspaceFileRequest
+	Text     string `json:"text"`
+	Revision string `json:"revision"`
+}
+
+type WorkspaceFile struct {
+	Text     string `json:"text"`
+	Revision string `json:"revision"`
 }
 
 type WorkspaceIDRequest struct {

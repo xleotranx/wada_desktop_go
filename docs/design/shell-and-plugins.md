@@ -838,6 +838,40 @@ backend is ready and updated from `agent.ScheduleUpdated`.
   access mode and a profile. A new schedule's conversations start in the open
   conversation's folder. A failed save stays in the form and is not retried.
 
+## Browser
+
+`internal/plugins/browser` requires `shell.HostKey` and uses optional
+`tabs.ServiceKey`. It contributes the `tabs.Panes` kind `browser.PaneKind`
+(`internal/contract/browser`), whose tab's `Ref` is the address it opened, and
+**Open Address…** (⇧⌘L), which opens one in the space on show. The worktrees
+plugin opens a running service's **Open** in such a tab of its workspace's
+space, or in the desktop's browser where there are no tabs.
+
+- Each tab gets a web page from `Host.NewWebView` the first time it shows, and
+  the page closes once its tab has closed or the plugin is disposed.
+- The shell's pages load local files, and a page from a file may not navigate
+  away, so a tab's page is a local file written once to
+  `<DataDir>/browser/blank.html` whose frame fills it; the address goes to the
+  frame. Back and Forward move through the frame's history, Reload opens the
+  address again, and the address field shows what was last opened.
+- A site that refuses to be framed shows nothing there; **Open in your
+  browser** shows it in the desktop's.
+- An address without a scheme gets `http://` for `localhost`, IP addresses,
+  `.local` and single-label names, and `https://` otherwise.
+
+## Dictation
+
+`internal/plugins/voice` requires `chat.ControllerKey` and `shell.HostKey`. A
+`chat.ComposerAccessory` button and **Dictate** (⇧⌘M) start and stop dictation.
+It uses the web engine's speech recognition in a page that never shows,
+`<DataDir>/voice/dictation.html`, made the first time the user dictates. While
+it listens, what it has heard so far follows the draft as it was when dictation
+began, through `chat.Controller.SetDraft`. Moving to another conversation stops
+it. A recognizer that is missing, refused the microphone or failed ends it with
+a toast. The macOS bundle carries `NSMicrophoneUsageDescription` and
+`NSSpeechRecognitionUsageDescription` (`mygo.json`), without which macOS would
+end the app when it asks for the microphone.
+
 ## Daemon pairing & multi-host settings
 
 `internal/plugins/daemon` contributes Settings → Daemon controls to copy a

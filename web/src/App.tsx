@@ -38,6 +38,7 @@ import {
 } from "./client/storage";
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
 import { groupSessions, workspaceName } from "./client/workspaces";
+import { dictationSupported, joinDictation, startDictation } from "./dictation";
 import { NewWorkspace } from "./NewWorkspace";
 import { applyUpdate, onUpdateReady } from "./pwa";
 import { SchedulesPanel } from "./Schedules";
@@ -118,6 +119,27 @@ export function App() {
   const [shownWorkspaceId, setShownWorkspaceId] = useState("");
   const [creatingIn, setCreatingIn] = useState<ProjectInfo | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [dictating, setDictating] = useState(false);
+  const stopDictationRef = useRef<(() => void) | null>(null);
+  const canDictate = useMemo(() => dictationSupported(), []);
+
+  // toggleDictation listens and puts what it hears after the draft.
+  function toggleDictation(): void {
+    if (stopDictationRef.current) {
+      stopDictationRef.current();
+      return;
+    }
+    const base = promptText;
+    setDictating(true);
+    stopDictationRef.current = startDictation(
+      (heard) => setPromptText(joinDictation(base, heard)),
+      (err) => {
+        stopDictationRef.current = null;
+        setDictating(false);
+        if (err) setConnError(err);
+      }
+    );
+  }
   const [mode, setMode] = useState<"ask" | "full">("ask");
 
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -1062,6 +1084,18 @@ export function App() {
                   }
                   disabled={connState !== "connected"}
                 />
+                {canDictate && (
+                  <button
+                    type="button"
+                    className={dictating ? "btn btn-danger" : "btn"}
+                    title={dictating ? "Stop dictating" : "Dictate"}
+                    aria-label={dictating ? "Stop dictating" : "Dictate"}
+                    disabled={connState !== "connected"}
+                    onClick={toggleDictation}
+                  >
+                    {dictating ? "■" : "🎤"}
+                  </button>
+                )}
                 {busyTurn ? (
                   <>
                     <button

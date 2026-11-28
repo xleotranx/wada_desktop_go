@@ -387,7 +387,7 @@ func (p *Plugin) serviceRow(c *ui.Context, pal native.Palette, w agent.Workspace
 		if running {
 			url := "http://localhost:" + strconv.Itoa(svc.Port)
 			c.Key("open")
-			link(c, pal, "Open", "Open "+url, func() { p.host.OpenURL(url) })
+			link(c, pal, "Open", "Open "+url+" in a tab", func() { p.openService(w, url) })
 		}
 		if svc.Run != nil {
 			c.Key("show")

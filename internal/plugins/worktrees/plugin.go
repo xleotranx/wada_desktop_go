@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/browser"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/tabs"
 	contractterm "wada-desktop-go/internal/contract/terminal"
@@ -470,6 +471,16 @@ func (p *Plugin) startService(w agent.Workspace, name string) {
 	p.run(w, "“"+name+"” didn’t start", "service:"+name, func(ctx context.Context, rec agent.Workspaces) (string, error) {
 		return rec.StartService(ctx, w.ID, name)
 	})
+}
+
+// openService shows a running service's page in a browser tab of the
+// workspace's space, or in the desktop's browser where there are no tabs.
+func (p *Plugin) openService(w agent.Workspace, url string) {
+	if t, ok := kernel.Use(p.ctx, tabs.ServiceKey); ok {
+		t.Open(browser.PaneKind, url, w.Directory)
+		return
+	}
+	p.host.OpenURL(url)
 }
 
 func (p *Plugin) stopService(w agent.Workspace, name string) {

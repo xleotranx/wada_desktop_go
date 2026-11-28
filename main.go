@@ -7,6 +7,7 @@ import (
 	"wada-desktop-go/internal/daemon/runner"
 	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/plugins/attachments"
+	"wada-desktop-go/internal/plugins/browser"
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/daemon"
 	"wada-desktop-go/internal/plugins/explore"
@@ -24,6 +25,7 @@ import (
 	"wada-desktop-go/internal/plugins/tabs"
 	terminalplugin "wada-desktop-go/internal/plugins/terminal"
 	"wada-desktop-go/internal/plugins/usage"
+	"wada-desktop-go/internal/plugins/voice"
 	"wada-desktop-go/internal/plugins/workers"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugins/worktrees"
@@ -68,6 +70,8 @@ func main() {
 		filechanges.New, // session or local Git changes, below Context in the work panel
 		workers.New,     // harness picker and supervised CLI workers
 		schedules.New,   // heartbeats in the work panel and the Schedules tab
+		browser.New,     // web pages as tabs, such as a workspace's service
+		voice.New,       // dictate into the composer
 		terminalplugin.New,
 		attachments.New,
 		markup.New,       // annotate attached screenshots before sending

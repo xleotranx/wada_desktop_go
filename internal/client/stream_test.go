@@ -257,8 +257,14 @@ func TestUnreadEventsDoNotStallRPCs(t *testing.T) {
 func TestSilentServerClosesConnection(t *testing.T) {
 	tr := newPipeTransport()
 	fakeServer(t, tr)
+	c, err := dialTransport(t.Context(), tr, Options{PingInterval: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	// Swallow pings without answering, like a half-open connection. This
+	// starts after the dial, so the fake server gets the hello.
 	go func() {
-		// Swallow pings without answering, like a half-open connection.
 		for {
 			select {
 			case <-tr.toServer:
@@ -267,11 +273,6 @@ func TestSilentServerClosesConnection(t *testing.T) {
 			}
 		}
 	}()
-	c, err := dialTransport(t.Context(), tr, Options{PingInterval: 20 * time.Millisecond})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
 	select {
 	case <-c.Done():
 	case <-time.After(5 * time.Second):

@@ -511,6 +511,18 @@ func TestCannotSendWhileHistoryIsLoading(t *testing.T) {
 	}
 }
 
+func TestCannotSendWhileATurnRuns(t *testing.T) {
+	h, p, f, _ := start(t)
+	openTurn(t, h, p, f)
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}})
+	p.draft = "next"
+	p.send()
+	h.Flush()
+	if f.Called("send") != 0 || p.draft != "next" {
+		t.Fatalf("sent during a turn: calls=%q draft=%q", f.Calls(), p.draft)
+	}
+}
+
 func TestAChatLeftWhileStartingIsStillAnnouncedAndSent(t *testing.T) {
 	h, p, f, _ := start(t)
 	var started []chat.Conversation

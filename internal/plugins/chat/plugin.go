@@ -513,6 +513,7 @@ func (p *Plugin) stop() {
 }
 
 func (p *Plugin) reply(a agent.Approval, d agent.Decision) {
+	// A child's approval travels on its parent's stream: answer it against its own session.
 	parent, id := p.conv.Session, p.conv.Session
 	if a.Session != "" {
 		id = a.Session

@@ -16,8 +16,8 @@ const (
 	MethodSessionRename   = "agent.session.rename"
 	MethodSessionDelete   = "agent.session.delete"
 	MethodSessionSpawn    = "agent.session.spawn"
-	MethodSessionRewind  = "agent.session.rewind"
-	MethodSessionChanges = "agent.session.changes"
+	MethodSessionRewind   = "agent.session.rewind"
+	MethodSessionChanges  = "agent.session.changes"
 
 	MethodModelsList      = "agent.models.list"
 	MethodModelsDefault   = "agent.models.default"

@@ -19,8 +19,8 @@ import (
 var (
 	ServiceKey = kernel.NewKey[Service]("agent.service")
 	Deleted    = kernel.NewTopic[SessionID]("agent.deleted")
-	ModelsKey    = kernel.NewKey[Models]("agent.models") // optional
-	ModesKey     = kernel.NewKey[Modes]("agent.modes")   // optional
+	ModelsKey  = kernel.NewKey[Models]("agent.models") // optional
+	ModesKey   = kernel.NewKey[Modes]("agent.modes")   // optional
 	// FileTypesKey is provided by a backend that takes only some kinds of
 	// files. Without it, a backend takes any file.
 	FileTypesKey = kernel.NewKey[FileTypes]("agent.file-types") // optional

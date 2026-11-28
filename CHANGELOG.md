@@ -14,7 +14,7 @@
   daemon password authentication, multi-host Desktop switcher, and Docker
   self-hosting packaging (`docker/`).
 - Folder-scoped conversation tabs, file diffs, usage tracking, screenshot
-  annotation, read-only side chats, and reviewed Plan → Work → Review workflows.
+  annotation, and read-only side chats.
 - Independently versioned MIT-licensed `wada-kit` core and shell.
 - Third-party license inventory, secret/vulnerability scans, and multi-platform
   CI/release workflows.

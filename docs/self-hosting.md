@@ -22,6 +22,12 @@ directory outside your source repositories. For example, a repository at
 by repository under that directory. Archives and restores use the path already
 recorded for each workspace.
 
+Set `WADA_BRANCH_PREFIX` on the daemon or pass `--branch-prefix team/agents` to
+choose the namespace for new worktree branches and local pull request copies.
+Wada uses `wada/` by default and adds the trailing slash when needed. Set
+`--branch-prefix=` or an empty `WADA_BRANCH_PREFIX` for names without a prefix.
+Git validates the prefix when the daemon starts.
+
 ## 1. Direct Tailscale / LAN Access
 
 1. Build the static Web/PWA bundle once:

@@ -156,6 +156,9 @@ Production settings and app records live under
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
   `pig/baselines/`: lazy on-disk session diff baselines; `pig/agent/`: provider credentials and configuration.
 
+New worktree branches use the `wada/` prefix by default. Set `wadad --branch-prefix`
+or `WADA_BRANCH_PREFIX` to change it, or use an empty value to omit it.
+
 Treat these directories as sensitive. Messages, attachments and tool results sent
 to a model go to your chosen provider. Do not include credentials or private
 conversation content in issues or screenshots. **Ask before changes** is a tool

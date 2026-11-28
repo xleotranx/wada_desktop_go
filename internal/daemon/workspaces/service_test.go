@@ -97,7 +97,11 @@ func TestArchiveAndRestoreKeepTheOriginalWorktreeLocation(t *testing.T) {
 	data := t.TempDir()
 	storage := filepath.Join(t.TempDir(), "Wada checkouts ü")
 	reg := open(t, data, nil)
-	s := NewService(reg, worktree.NewAt(storage))
+	manager, err := worktree.NewAt(t.Context(), storage, worktree.DefaultBranchPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(reg, manager)
 	p, _, err := s.AddProject(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)

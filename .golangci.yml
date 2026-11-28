@@ -58,14 +58,15 @@ linters:
             - "github.com/gorilla/websocket"
             - "golang.org/x/crypto"
             - "wada-desktop-go/internal/relay"
+        # PiG's types stay in internal/daemon/pig, its only importer; the
+        # rest of the daemon reaches PiG through that package's own types.
         daemon:
-          files: ["**/internal/daemon/**/*.go", "!$test"]
+          files: ["**/internal/daemon/**/*.go", "!**/internal/daemon/pig/*.go", "!$test"]
           list-mode: strict
           allow:
             - "$gostd"
             - "github.com/creack/pty"
             - "github.com/Microsoft/go-winio"
-            - "github.com/MichaelKinsy/PiG"
             - "github.com/gorilla/websocket"
             - "github.com/google/uuid"
             - "golang.org/x/crypto"
@@ -74,6 +75,14 @@ linters:
             - "wada-desktop-go/internal/protocol"
             - "wada-desktop-go/internal/relay"
             - "wada-desktop-go/internal/store"
+        daemon_pig:
+          files: ["**/internal/daemon/pig/*.go", "!$test"]
+          list-mode: strict
+          allow:
+            - "$gostd"
+            - "github.com/MichaelKinsy/PiG"
+            - "github.com/google/uuid"
+            - "wada-desktop-go/internal/protocol"
         daemon_plugin:
           files: ["**/internal/plugins/daemon/*.go", "!$test"]
           list-mode: strict

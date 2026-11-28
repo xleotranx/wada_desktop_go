@@ -7,57 +7,28 @@ import (
 	"fmt"
 	"time"
 
-	pa "github.com/MichaelKinsy/PiG/agent"
-	"github.com/MichaelKinsy/PiG/ai"
+	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/protocol"
 )
 
-type chiefTool struct {
-	name    string
-	label   string
-	desc    string
-	params  map[string]any
-	execute func(ctx context.Context, params json.RawMessage) (any, error)
-}
-
-func (t *chiefTool) Name() string                        { return t.name }
-func (t *chiefTool) Label() string                       { return t.label }
-func (t *chiefTool) ExecutionMode() pa.ToolExecutionMode { return pa.ToolModeParallel }
-func (t *chiefTool) Schema() ai.ToolSchema {
-	return ai.ToolSchema{Name: t.name, Description: t.desc, Parameters: t.params}
-}
-func (t *chiefTool) Execute(ctx context.Context, _ string, params json.RawMessage, _ pa.ToolUpdateCallback) (pa.AgentToolResult, error) {
-	res, err := t.execute(ctx, params)
-	if err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	data, err := json.MarshalIndent(res, "", "  ")
-	if err != nil {
-		return pa.AgentToolResult{}, err
-	}
-	return pa.AgentToolResult{
-		Content: []ai.ToolResultMessageContent{ai.TextContent{Text: string(data)}},
-	}, nil
-}
-
 // ChiefTools constructs PiG's Chief Agent orchestration tools bound to the
 // calling conversation's session ID and workspace directory.
-func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.AgentTool {
-	return []pa.AgentTool{
-		&chiefTool{
-			name:   "list_providers",
-			label:  "List coding agent harnesses",
-			desc:   "List available coding-agent providers/harnesses (embedded PiG, Claude Code, Codex, ACP CLIs) and their availability.",
-			params: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
-			execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
+func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.Tool {
+	return []pig.Tool{
+		{
+			Name:        "list_providers",
+			Label:       "List coding agent harnesses",
+			Description: "List available coding-agent providers/harnesses (embedded PiG, Claude Code, Codex, ACP CLIs) and their availability.",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return o.Harnesses(ctx)
 			},
 		},
-		&chiefTool{
-			name:  "create_worktree",
-			label: "Create Git worktree",
-			desc:  "Create an isolated Git worktree and branch for parallel agent work in the current repository.",
-			params: map[string]any{
+		{
+			Name:        "create_worktree",
+			Label:       "Create Git worktree",
+			Description: "Create an isolated Git worktree and branch for parallel agent work in the current repository.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name":     map[string]any{"type": "string", "description": "Short task/branch slug for the worktree"},
@@ -66,7 +37,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"name"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					Name    string `json:"name"`
 					BaseRef string `json:"base_ref"`
@@ -78,21 +49,21 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				return o.worktrees.Create(ctx, dir, in.Name, in.BaseRef)
 			},
 		},
-		&chiefTool{
-			name:   "list_worktrees",
-			label:  "List Git worktrees",
-			desc:   "List Git worktrees and dirty status for the current repository.",
-			params: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
-			execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
+		{
+			Name:        "list_worktrees",
+			Label:       "List Git worktrees",
+			Description: "List Git worktrees and dirty status for the current repository.",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				_, dir := getCtx()
 				return o.worktrees.List(ctx, dir)
 			},
 		},
-		&chiefTool{
-			name:  "spawn_agent",
-			label: "Spawn external CLI worker",
-			desc:  "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in the specified worktree directory.",
-			params: map[string]any{
+		{
+			Name:        "spawn_agent",
+			Label:       "Spawn external CLI worker",
+			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in the specified worktree directory.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"provider":      map[string]any{"type": "string"},
@@ -104,7 +75,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"provider", "name"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					Provider     string `json:"provider"`
 					Name         string `json:"name"`
@@ -131,11 +102,11 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				})
 			},
 		},
-		&chiefTool{
-			name:  "send_agent",
-			label: "Send prompt to worker",
-			desc:  "Send a prompt/task to a spawned worker agent.",
-			params: map[string]any{
+		{
+			Name:        "send_agent",
+			Label:       "Send prompt to worker",
+			Description: "Send a prompt/task to a spawned worker agent.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"worker_id": map[string]any{"type": "string"},
@@ -144,7 +115,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"worker_id", "prompt"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					WorkerID string `json:"worker_id"`
 					Prompt   string `json:"prompt"`
@@ -163,11 +134,11 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				return map[string]string{"status": "sent", "workerId": in.WorkerID}, nil
 			},
 		},
-		&chiefTool{
-			name:  "wait_agent",
-			label: "Wait for workers",
-			desc:  "Wait until all specified workers finish their active turn (completed, failed, or stopped), or timeout.",
-			params: map[string]any{
+		{
+			Name:        "wait_agent",
+			Label:       "Wait for workers",
+			Description: "Wait until all specified workers finish their active turn (completed, failed, or stopped), or timeout.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"worker_ids":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -176,7 +147,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"worker_ids"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					WorkerIDs      []string `json:"worker_ids"`
 					TimeoutSeconds int      `json:"timeout_seconds"`
@@ -203,11 +174,11 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				return results, nil
 			},
 		},
-		&chiefTool{
-			name:  "inspect_agent_diff",
-			label: "Inspect worker Git diff",
-			desc:  "Inspect uncommitted file changes produced by a worker in its worktree.",
-			params: map[string]any{
+		{
+			Name:        "inspect_agent_diff",
+			Label:       "Inspect worker Git diff",
+			Description: "Inspect uncommitted file changes produced by a worker in its worktree.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"worker_id": map[string]any{"type": "string"},
@@ -215,7 +186,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"worker_id"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					WorkerID string `json:"worker_id"`
 				}
@@ -230,11 +201,11 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				return o.Changes(ctx, in.WorkerID)
 			},
 		},
-		&chiefTool{
-			name:  "stop_agent",
-			label: "Stop worker",
-			desc:  "Stop a worker agent session and optionally remove its worktree.",
-			params: map[string]any{
+		{
+			Name:        "stop_agent",
+			Label:       "Stop worker",
+			Description: "Stop a worker agent session and optionally remove its worktree.",
+			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"worker_id":       map[string]any{"type": "string"},
@@ -244,7 +215,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pa.Ag
 				"required":             []string{"worker_id"},
 				"additionalProperties": false,
 			},
-			execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
 					WorkerID       string `json:"worker_id"`
 					RemoveWorktree bool   `json:"remove_worktree"`

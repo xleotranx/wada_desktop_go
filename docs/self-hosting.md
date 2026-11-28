@@ -51,6 +51,9 @@ worktrees, and PTY terminals on your own workstation or server:
    cd docker
    docker compose --env-file .env --profile tls up -d --build
    ```
+   Clients and daemons reach the relay through Caddy on port 443. The relay's
+   own plaintext port 8787 is published on `127.0.0.1` only; set
+   `WADA_RELAY_BIND` only when another TLS proxy of yours fronts it.
 3. Point your workstation's `wadad` at your relay:
    ```sh
    wadad \

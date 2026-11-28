@@ -7,8 +7,11 @@ services:
     environment:
       WADA_RELAY_LISTEN: ":8787"
       WADA_RELAY_TOKEN: "${WADA_RELAY_TOKEN:-}"
+    # Loopback only unless WADA_RELAY_BIND says otherwise: with the tls
+    # profile, Caddy reaches the relay over the compose network, and a public
+    # plaintext port would carry the relay token unencrypted.
     ports:
-      - "${WADA_RELAY_PORT:-8787}:8787"
+      - "${WADA_RELAY_BIND:-127.0.0.1}:${WADA_RELAY_PORT:-8787}:8787"
     healthcheck:
       test: ["CMD", "/wada-relay", "-h"]
       interval: 30s

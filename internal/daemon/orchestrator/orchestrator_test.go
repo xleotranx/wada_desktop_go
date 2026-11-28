@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/daemon/harness"
@@ -121,7 +120,7 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	var orch *Orchestrator
 	rt, err := pig.New(t.Context(), pig.Options{
 		Root: filepath.Join(dataDir, "pig"),
-		ChiefTools: func(getCtx func() (string, string)) []pa.AgentTool {
+		ChiefTools: func(getCtx func() (string, string)) []pig.Tool {
 			return orch.ChiefTools(getCtx)
 		},
 	})

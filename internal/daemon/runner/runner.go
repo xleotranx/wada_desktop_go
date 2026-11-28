@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	pa "github.com/MichaelKinsy/PiG/agent"
 	"golang.org/x/crypto/bcrypt"
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/orchestrator"
@@ -99,7 +98,7 @@ func Run(args []string) error {
 	var orch *orchestrator.Orchestrator
 	rt, err := pig.New(ctx, pig.Options{
 		Root: filepath.Join(*dataDir, "pig"),
-		ChiefTools: func(getCtx func() (string, string)) []pa.AgentTool {
+		ChiefTools: func(getCtx func() (string, string)) []pig.Tool {
 			if orch == nil {
 				return nil
 			}

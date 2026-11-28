@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding"
 	"wada-desktop-go/internal/protocol"
 )
@@ -23,7 +22,9 @@ var ErrNotConnected = errors.New("the agent runtime is closed")
 type Options struct {
 	Root         string
 	Instructions string
-	ChiefTools   func(contextFn func() (sessionID, dir string)) []pa.AgentTool
+	// ChiefTools gives a top-level conversation's extra tools; contextFn
+	// reports that conversation's session ID and folder at call time.
+	ChiefTools func(contextFn func() (sessionID, dir string)) []Tool
 }
 
 // Runtime owns a headless PiG engine and its lifecycle.

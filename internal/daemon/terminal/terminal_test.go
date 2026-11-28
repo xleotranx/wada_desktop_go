@@ -336,3 +336,19 @@ func TestExitEndsAttachedStreams(t *testing.T) {
 		t.Fatal("stream of an exited terminal stayed open")
 	}
 }
+
+func TestVTBufferLeavingAltScreenAfterResize(t *testing.T) {
+	for _, size := range [][2]int{{120, 20}, {40, 4}} {
+		b := NewVTBuffer(80, 10)
+		b.Write([]byte("hi\r\n\x1b[?1049h"))
+		b.Resize(size[0], size[1])
+		b.Write([]byte("\x1b[?1049l"))
+		long := strings.Repeat("0123456789", 15)
+		for range 30 {
+			b.Write([]byte(long + "\r\n"))
+		}
+		if got := b.CaptureText(1000); !strings.HasPrefix(got, "hi\n") {
+			t.Fatalf("%v: capture starts %q, want the main screen's first line", size, got[:min(len(got), 20)])
+		}
+	}
+}

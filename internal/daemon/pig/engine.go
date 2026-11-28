@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -84,12 +87,34 @@ type engine struct {
 	logins        map[string]*providerLogin
 	dirLocksMu    sync.Mutex
 	dirLocks      map[string]*sync.Mutex
+	dirRepos      map[string]string
 }
 
-func (e *engine) mutationLock(dir string) *sync.Mutex {
-	key := filepath.Clean(dir)
+// mutationLock is the lock for tracking changes under dir. It belongs to
+// dir's Git repository, so conversations in a repository and in its
+// subfolders take the same one.
+func (e *engine) mutationLock(ctx context.Context, dir string) *sync.Mutex {
+	dir = filepath.Clean(dir)
+	e.dirLocksMu.Lock()
+	key, known := e.dirRepos[dir]
+	e.dirLocksMu.Unlock()
+	if !known {
+		key = dir
+		gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := exec.CommandContext(gctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+		cancel()
+		if top := strings.TrimSpace(string(out)); err == nil && top != "" {
+			key = filepath.Clean(top)
+		}
+	}
 	e.dirLocksMu.Lock()
 	defer e.dirLocksMu.Unlock()
+	if e.dirRepos == nil {
+		e.dirRepos = map[string]string{}
+	}
+	if !known && ctx.Err() == nil {
+		e.dirRepos[dir] = key
+	}
 	if e.dirLocks == nil {
 		e.dirLocks = map[string]*sync.Mutex{}
 	}

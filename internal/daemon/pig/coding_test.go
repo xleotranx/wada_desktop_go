@@ -1,8 +1,12 @@
 package pig
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -75,7 +79,7 @@ func TestPerDirectoryMutationLockAllowsConcurrentWorkspaces(t *testing.T) {
 	cA, _ := e.get(sA.ID)
 	cB, _ := e.get(sB.ID)
 
-	if e.mutationLock(dirA) != e.mutationLock(filepath.Join(dirA, ".")) {
+	if e.mutationLock(t.Context(), dirA) != e.mutationLock(t.Context(), filepath.Join(dirA, ".")) {
 		t.Fatal("normalized paths did not share a mutation lock")
 	}
 	if err := e.beginMutation(t.Context(), cA, "mA", "write", json.RawMessage(`{"path":"a.go"}`)); err != nil {
@@ -252,5 +256,85 @@ func TestProvidersListAndLoginCancel(t *testing.T) {
 
 	if err := rt.CancelProviderLogin(t.Context(), loginID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestShellCommandsDoNotHoldTheFolderAndUntrackableFilesAreSkipped(t *testing.T) {
+	rt, _ := newTestRuntime(t)
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, 9<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	model := protocol.ModelRef{Provider: "wada-test", ID: "test-model"}
+	sA, err := rt.Create(t.Context(), protocol.CreateSessionRequest{Directory: dir, Model: model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sB, err := rt.Create(t.Context(), protocol.CreateSessionRequest{Directory: dir, Model: model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, release, err := rt.acquire()
+	defer release()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cA, _ := e.get(sA.ID)
+	cB, _ := e.get(sB.ID)
+
+	if e.mutationLock(t.Context(), dir) != e.mutationLock(t.Context(), filepath.Join(dir, "sub")) {
+		t.Fatal("a repository and its subfolder took different locks")
+	}
+	// A running shell command in A neither fails on the large file nor
+	// keeps B from editing.
+	if err := e.beginMutation(t.Context(), cA, "shA", "bash", json.RawMessage(`{"command":"make"}`)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if err := e.beginMutation(ctx, cB, "edB", "write", json.RawMessage(`{"path":"small.go"}`)); err != nil {
+		t.Fatalf("an edit waited for another conversation's running command: %v", err)
+	}
+	e.finishMutation(cB, "edB")
+	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("package a\n// changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.finishMutation(cA, "shA")
+	changes, err := rt.Changes(t.Context(), sA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Path != "small.go" {
+		t.Fatalf("changes = %+v, want small.go only", changes)
+	}
+}
+
+func TestProjectFilesStopsAWalkAtTheCap(t *testing.T) {
+	dir := t.TempDir()
+	for i := range maxWalkedFiles + 5 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%05d", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, truncated, err := projectFiles(t.Context(), dir)
+	if err != nil || !truncated || len(files) != maxWalkedFiles {
+		t.Fatalf("projectFiles = %d files, truncated %v, err %v", len(files), truncated, err)
+	}
+	if _, err := workspaceSnapshot(t.Context(), dir); !errors.Is(err, errTooManyFiles) {
+		t.Fatalf("workspaceSnapshot of a truncated walk = %v", err)
 	}
 }

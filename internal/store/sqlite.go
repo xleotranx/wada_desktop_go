@@ -25,8 +25,8 @@ type Statement struct {
 	Args []any
 }
 
-// Open opens or creates a SQLite database at path, applies WAL/busy/foreign-key
-// pragmas, refuses unrecognized non-empty databases or future schema versions,
+// Open opens or creates a SQLite database at path, applies WAL/synchronous/busy/
+// foreign-key pragmas, refuses unrecognized non-empty databases or future schema versions,
 // and runs pending migrations in version order.
 func Open(ctx context.Context, path, name string, migrations []Migration) (*sql.DB, error) {
 	if len(migrations) == 0 {
@@ -53,6 +53,10 @@ func Open(ctx context.Context, path, name string, migrations []Migration) (*sql.
 	}
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
+		// In WAL mode, NORMAL syncs at checkpoints rather than on every
+		// commit; a crash of the app loses nothing, a power cut at most the
+		// latest commits.
+		"PRAGMA synchronous=NORMAL",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA foreign_keys=ON",
 	} {

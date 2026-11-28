@@ -67,16 +67,24 @@ func contained(root, path string) (string, error) {
 	return resolved, nil
 }
 
-func projectFiles(ctx context.Context, dir string) ([]string, error) {
+// maxWalkedFiles bounds the walk of a folder outside Git.
+const maxWalkedFiles = 25000
+
+var errTooManyFiles = errors.New("the folder contains more than 25,000 files")
+
+// projectFiles lists dir's files: Git's tracked and unignored files, or else
+// the first maxWalkedFiles regular files of a walk, with truncated set when
+// the walk stopped there.
+func projectFiles(ctx context.Context, dir string) (files []string, truncated bool, err error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if data, err := cmd.Output(); err == nil {
 		files := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
 		files = slices.DeleteFunc(files, func(s string) bool { return s == "" })
 		slices.Sort(files)
-		return slices.Compact(files), nil
+		return slices.Compact(files), false, nil
 	}
 	var paths []string
-	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -98,14 +106,15 @@ func projectFiles(ctx context.Context, dir string) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			paths = append(paths, filepath.ToSlash(rel))
-			if len(paths) > 25000 {
-				return errors.New("the folder contains more than 25,000 files")
+			if len(paths) == maxWalkedFiles {
+				truncated = true
+				return filepath.SkipAll
 			}
+			paths = append(paths, filepath.ToSlash(rel))
 		}
 		return nil
 	})
-	return paths, err
+	return paths, truncated, err
 }
 
 func (r *Runtime) FindFiles(ctx context.Context, dir, query string, limit int) ([]protocol.FileEntry, error) {
@@ -118,16 +127,17 @@ func (r *Runtime) FindFiles(ctx context.Context, dir, query string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	files, err := projectFiles(ctx, root)
-	if err != nil {
-		return nil, err
-	}
 	if limit <= 0 {
 		return nil, nil
 	}
+	// A folder too large to walk whole still offers the files it walked.
+	files, _, err := projectFiles(ctx, root)
+	if err != nil {
+		return nil, err
+	}
 	query = strings.ToLower(query)
 	seen := map[string]bool{}
-	out := []protocol.FileEntry{}
+	var matches []protocol.FileEntry
 	for _, file := range files {
 		paths := []protocol.FileEntry{{Path: file}}
 		for parent := filepath.ToSlash(filepath.Dir(file)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
@@ -135,16 +145,24 @@ func (r *Runtime) FindFiles(ctx context.Context, dir, query string, limit int) (
 		}
 		for _, entry := range paths {
 			if !seen[entry.Path] && strings.Contains(strings.ToLower(entry.Path), query) {
-				if _, err = contained(root, entry.Path); err != nil {
-					continue
-				}
 				seen[entry.Path] = true
-				out = append(out, entry)
+				matches = append(matches, entry)
 			}
 		}
 	}
-	slices.SortFunc(out, func(a, b protocol.FileEntry) int { return strings.Compare(a.Path, b.Path) })
-	return out[:min(limit, len(out))], nil
+	slices.SortFunc(matches, func(a, b protocol.FileEntry) int { return strings.Compare(a.Path, b.Path) })
+	// Resolving symlinks costs a stat per path element, so only the entries
+	// returned are checked.
+	out := []protocol.FileEntry{}
+	for _, entry := range matches {
+		if len(out) == limit {
+			break
+		}
+		if _, err := contained(root, entry.Path); err == nil {
+			out = append(out, entry)
+		}
+	}
+	return out, nil
 }
 
 func (r *Runtime) ReadFile(ctx context.Context, dir, path string) ([]byte, error) {

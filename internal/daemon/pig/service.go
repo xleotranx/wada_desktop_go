@@ -465,15 +465,18 @@ func (r *Runtime) Delete(ctx context.Context, id string) error {
 	c.deleted = true
 	path := c.rec.Path
 	c.mu.Unlock()
+	// The metadata is what lists the conversation, so it goes first: once it
+	// is gone the conversation is deleted even if its transcript lingers.
+	if err = os.Remove(filepath.Join(e.root, "metadata", id+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		c.mu.Lock()
+		c.deleted = false
+		c.mu.Unlock()
+		return err
+	}
 	e.forget(c)
 	c.closeResources()
 	if path != "" {
-		if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	if err = os.Remove(filepath.Join(e.root, "metadata", id+".json")); err != nil {
-		return err
+		_ = os.Remove(path)
 	}
 	e.removeBaselines(id)
 	e.mu.Lock()

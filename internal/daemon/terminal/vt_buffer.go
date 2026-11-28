@@ -261,7 +261,9 @@ func (b *VTBuffer) execCSI(seq string, cmd rune) {
 		if private && containsParam(params, 1049) && b.altScreen {
 			b.altScreen = false
 			if b.mainSave != nil {
-				b.screen = b.mainSave
+				// The main screen keeps the size it had when the alternate
+				// one opened: fit it to the size the buffer has now.
+				b.screen = fitGrid(b.mainSave, b.cols, b.rows)
 				b.mainSave = nil
 			} else {
 				b.screen = makeGrid(b.cols, b.rows)
@@ -310,16 +312,19 @@ func (b *VTBuffer) Resize(cols, rows int) {
 	if c == b.cols && r == b.rows {
 		return
 	}
-	next := makeGrid(c, r)
-	copyRows := min(r, b.rows)
-	for y := 0; y < copyRows; y++ {
-		copyCols := min(c, len(b.screen[y]))
-		copy(next[y], b.screen[y][:copyCols])
-	}
 	b.cols, b.rows = c, r
-	b.screen = next
+	b.screen = fitGrid(b.screen, c, r)
 	b.cx = min(b.cx, c-1)
 	b.cy = min(b.cy, r-1)
+}
+
+// fitGrid copies grid, whatever its shape, into a new cols x rows grid.
+func fitGrid(grid [][]rune, cols, rows int) [][]rune {
+	next := makeGrid(cols, rows)
+	for y := 0; y < min(rows, len(grid)); y++ {
+		copy(next[y], grid[y][:min(cols, len(grid[y]))])
+	}
+	return next
 }
 
 // CaptureText returns up to lastLines lines of plain terminal text (scrollback + active screen).

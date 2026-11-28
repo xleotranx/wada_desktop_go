@@ -323,3 +323,40 @@ func (p recordingProvider) Start(_ context.Context, opts harness.SessionOptions)
 	p.start(opts)
 	return &scriptedSession{events: make(chan protocol.Event, 1)}, nil
 }
+
+func TestDeletingAConversationStopsItsWorkers(t *testing.T) {
+	dataDir := t.TempDir()
+	rt, err := pig.New(t.Context(), pig.Options{Root: filepath.Join(dataDir, "pig")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &scriptedSession{events: make(chan protocol.Event, 16)}
+	reg := harness.NewRegistry()
+	reg.Register(&scriptedProvider{sess: sess})
+	o, err := New(t.Context(), Options{DataDir: dataDir, PiG: rt, Worktrees: worktree.New(dataDir), Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	go func() {
+		for range o.Events() {
+		}
+	}()
+	parent, err := o.Create(t.Context(), protocol.CreateSessionRequest{Directory: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := o.spawnWorker(t.Context(), spawnWorkerArgs{ParentSession: parent.ID, Provider: "scripted", Directory: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Delete(t.Context(), parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if o.getWorker(info.ID) != nil {
+		t.Fatal("the deleted conversation's worker is still registered")
+	}
+	if _, open := <-sess.events; open {
+		t.Fatal("the worker's session was not closed")
+	}
+}

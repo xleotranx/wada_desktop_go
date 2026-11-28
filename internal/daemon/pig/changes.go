@@ -28,7 +28,17 @@ type mutationCapture struct {
 	before map[string]fileSnapshot
 	all    bool
 	lock   *sync.Mutex
+	// held reports that lock is held while the tool runs: for an edit, which
+	// is quick. A shell command can run for minutes, so it takes the lock
+	// only to snapshot before and after, and another conversation's changes
+	// while it runs may be attributed to it too.
+	held bool
 }
+
+// errUntrackable marks a path session changes leave out: a file over 8 MiB,
+// something other than a regular file (a submodule, say), or a link out of
+// the folder. Leaving one out does not stop the others being tracked.
+var errUntrackable = errors.New("not tracked")
 
 func snapshotFile(root, path string) (fileSnapshot, error) {
 	full, err := contained(root, path)
@@ -36,7 +46,7 @@ func snapshotFile(root, path string) (fileSnapshot, error) {
 		return fileSnapshot{}, nil
 	}
 	if err != nil {
-		return fileSnapshot{}, err
+		return fileSnapshot{}, fmt.Errorf("%w: %w", errUntrackable, err)
 	}
 	info, err := os.Stat(full)
 	if errors.Is(err, os.ErrNotExist) {
@@ -46,24 +56,30 @@ func snapshotFile(root, path string) (fileSnapshot, error) {
 		return fileSnapshot{}, err
 	}
 	if !info.Mode().IsRegular() {
-		return fileSnapshot{}, errors.New("cannot snapshot a non-regular file")
+		return fileSnapshot{}, fmt.Errorf("%w: not a regular file", errUntrackable)
 	}
 	if info.Size() > 8<<20 {
-		return fileSnapshot{}, errors.New("cannot track a file larger than 8 MiB")
+		return fileSnapshot{}, fmt.Errorf("%w: larger than 8 MiB", errUntrackable)
 	}
 	data, err := os.ReadFile(full)
 	return fileSnapshot{Exists: true, Data: data}, err
 }
 
 func workspaceSnapshot(ctx context.Context, root string) (map[string]fileSnapshot, error) {
-	files, err := projectFiles(ctx, root)
+	files, truncated, err := projectFiles(ctx, root)
 	if err != nil {
 		return nil, err
+	}
+	if truncated {
+		return nil, errTooManyFiles
 	}
 	out := map[string]fileSnapshot{}
 	var size int
 	for _, path := range files {
 		snap, err := snapshotFile(root, path)
+		if errors.Is(err, errUntrackable) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("could not track %s: %w", path, err)
 		}
@@ -80,7 +96,7 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 	c.mu.Lock()
 	root := c.rec.Session.Directory
 	c.mu.Unlock()
-	lock := e.mutationLock(root)
+	lock := e.mutationLock(ctx, root)
 	for !lock.TryLock() {
 		select {
 		case <-ctx.Done():
@@ -113,6 +129,9 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 			}
 		}
 		snap, err := snapshotFile(root, path)
+		if errors.Is(err, errUntrackable) {
+			return nil // the edit runs untracked
+		}
 		if err != nil {
 			return err
 		}
@@ -124,10 +143,11 @@ func (e *engine) beginMutation(ctx context.Context, c *conversation, id, name st
 			return err
 		}
 	}
+	held := singleFileMutation(name)
 	c.captureMu.Lock()
-	c.capture = &mutationCapture{root: root, id: id, before: before, all: !singleFileMutation(name), lock: lock}
+	c.capture = &mutationCapture{root: root, id: id, before: before, all: !held, lock: lock, held: held}
 	c.captureMu.Unlock()
-	release = false
+	release = !held
 	return nil
 }
 
@@ -141,6 +161,9 @@ func (e *engine) finishMutation(c *conversation, id string) {
 	c.capture = nil
 	c.captureMu.Unlock()
 	if capture.lock != nil {
+		if !capture.held {
+			capture.lock.Lock()
+		}
 		defer capture.lock.Unlock()
 	}
 	c.mu.Lock()
@@ -169,7 +192,7 @@ func (e *engine) finishMutation(c *conversation, id string) {
 		paths[path] = true
 	}
 	if capture.all {
-		if files, err := projectFiles(e.ctx, root); err == nil {
+		if files, _, err := projectFiles(e.ctx, root); err == nil {
 			for _, path := range files {
 				if _, ok := capture.before[path]; !ok {
 					paths[path] = true
@@ -183,8 +206,16 @@ func (e *engine) finishMutation(c *conversation, id string) {
 	} else {
 		updated := false
 		for path := range paths {
-			before := capture.before[path]
+			before, tracked := capture.before[path]
 			after, err := snapshotFile(root, path)
+			if errors.Is(err, errUntrackable) {
+				if !tracked {
+					continue // untracked before and after
+				}
+				// It was tracked and is now too large or not a file: its
+				// before is still the baseline, shown without a patch.
+				after, err = fileSnapshot{Exists: true}, nil
+			}
 			if err != nil {
 				c.rec.ChangesError = "Session changes are unavailable: " + err.Error()
 				continue
@@ -236,8 +267,14 @@ func (r *Runtime) Changes(ctx context.Context, id string) ([]protocol.FileChange
 			return nil, err
 		}
 		after, err := snapshotFile(root, path)
-		if err != nil {
+		untracked := errors.Is(err, errUntrackable)
+		if err != nil && !untracked {
 			return nil, err
+		}
+		if untracked {
+			// Too large or no longer a file to diff: listed without a patch.
+			out = append(out, protocol.FileChange{Path: path, Status: protocol.FileModified})
+			continue
 		}
 		if before.Exists == after.Exists && bytes.Equal(before.Data, after.Data) {
 			continue

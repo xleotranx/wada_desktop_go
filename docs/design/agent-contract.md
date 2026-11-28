@@ -181,21 +181,26 @@ Project-local SDK settings are untrusted. The explicit skill picker discovers
 references are checked against that catalog before their content is attached. Mentions use local
 file reads; absolute paths, traversal and symlinks leaving the project are refused.
 Git projects use Git's tracked/untracked, non-ignored file list. Other folders are
-walked excluding `.git`, `node_modules` and `.cache`.
+walked excluding `.git`, `node_modules` and `.cache`, up to 25,000 files; file
+search offers what that walk found.
 
 ## File changes
 
 Before file write/edit/shell calls, Wada records the target's current bytes and
 compares them after execution to identify changes. Mutating calls serialize per
-conversation directory for baseline attribution; model streaming, reads, and
-mutations in distinct directories remain concurrent. SDK tool batches execute
+Git repository (or per directory outside Git) for baseline attribution: a write
+or edit holds the lock for the whole call, a shell command only while its
+before-snapshot is taken. Model streaming, reads, and mutations in distinct
+repositories remain concurrent. SDK tool batches execute
 sequentially so a later tool's approval/snapshot cannot block an earlier execution.
 Pre-existing edits form the baseline, rather than being counted as agent changes.
 Baselines persist across launches. The separate uncommitted Git view remains local.
 
-Snapshots accept regular files up to 8 MiB and project workspaces up to 128 MiB;
-a snapshot that exceeds these limits (or a walk of 25,000 files) marks session
-changes unavailable, while the permitted tool action can still execute. Git ignores apply
+Snapshots skip files that are not regular, larger than 8 MiB, or reached through
+a symlink leaving the folder; such a file the agent changes is listed as modified
+without a diff. A project workspace over 128 MiB, a walk that stops at 25,000
+files, or a failed read marks session changes unavailable, while the permitted
+tool action can still execute. Git ignores apply
 to workspace snapshots. Session diffs compare tracked baselines with the current files;
 subsequent external edits to those same files are reflected too. This is change
 tracking, not filesystem isolation.

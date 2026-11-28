@@ -817,15 +817,37 @@ func (o *Orchestrator) Rename(ctx context.Context, id, title string) error {
 
 func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 	if w := o.getWorker(id); w != nil {
-		_ = w.sess.Close()
-		o.mu.Lock()
-		delete(o.workers, id)
-		o.mu.Unlock()
-		o.notifyWaiters(id)
-		o.emit(protocol.Event{Kind: protocol.EventSessionDeleted, Session: id})
+		o.removeWorker(w)
 		return nil
 	}
-	return o.pig.Delete(ctx, id)
+	if err := o.pig.Delete(ctx, id); err != nil {
+		return err
+	}
+	// Workers the conversation spawned would otherwise run on with nothing
+	// left that shows them.
+	o.mu.Lock()
+	workers := make([]*managedWorker, 0, len(o.workers))
+	for _, w := range o.workers {
+		workers = append(workers, w)
+	}
+	o.mu.Unlock()
+	for _, w := range workers {
+		if w.snapshot().ParentSession == id {
+			o.removeWorker(w)
+		}
+	}
+	return nil
+}
+
+// removeWorker stops w's process and forgets it.
+func (o *Orchestrator) removeWorker(w *managedWorker) {
+	id := w.id()
+	_ = w.sess.Close()
+	o.mu.Lock()
+	delete(o.workers, id)
+	o.mu.Unlock()
+	o.notifyWaiters(id)
+	o.emit(protocol.Event{Kind: protocol.EventSessionDeleted, Session: id})
 }
 
 func (o *Orchestrator) Spawn(ctx context.Context, req protocol.SpawnRequest) (protocol.Session, error) {

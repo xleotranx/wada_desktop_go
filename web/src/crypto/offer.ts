@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8Bytes } from "./noise";
 
-export interface WadaOffer {
+interface WadaOffer {
   v: number;
   relayUrl?: string;
   directUrl?: string;
@@ -33,7 +33,7 @@ export function encodeBase64Url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function serverPubHash(pubKeyBytes: Uint8Array): string {
+function serverPubHash(pubKeyBytes: Uint8Array): string {
   const digest = sha256(pubKeyBytes);
   return bytesToHex(digest.slice(0, 16));
 }
@@ -88,7 +88,7 @@ export function relayClientWSURL(baseURL: string, serverPubKey: Uint8Array, auth
   return u.toString();
 }
 
-export const DEFAULT_DAEMON_PORT = 6767;
+const DEFAULT_DAEMON_PORT = 6767;
 
 // parseHostTarget reads what a person typed to pair: a pairing offer (an
 // #offer= link or a bare encoded offer) or a daemon endpoint. An endpoint

@@ -8,14 +8,14 @@ plugins, PiG backend, storage, branding and packaging. The kit never imports Wad
 ## Adopted release
 
 Wada pins wada-kit v0.3.1 with MyGo v0.10.0 and Onevra v0.2026.19. The shell
-leaves automatic plugin restart disabled, and the PiG backend explicitly opts
+leaves automatic plugin restart disabled, and the `daemon` plugin explicitly opts
 out even if a host configures a default. Backend recovery stays explicit; failed
 create/send/reply/rename/delete operations are not automatically retried.
 
-Shutdown cancels plugin lifetimes before UI disposal. SDK cleanup stays in its
-tracked worker; UI resources close in OnDispose, and navigation work stays in
-child scopes. Cleanup does not depend on events or pipelines from disposed scopes.
-Settings schemas and app data paths are unchanged by this upgrade. See the kit's
+Shutdown cancels plugin lifetimes before UI disposal. The `daemon` plugin drops its
+WebSocket connection in `OnDispose` while `wadad` keeps running independently; UI
+resources close in `OnDispose`, and navigation work stays in child scopes. Cleanup
+does not depend on events or pipelines from disposed scopes. See the kit's
 [changelog](https://github.com/xleotranx/wada-kit/blob/v0.3.1/CHANGELOG.md).
 
 ## Reproducible builds
@@ -46,13 +46,13 @@ than copied source or edits under the module cache.
    requirements and settings format.
 2. Update with `GOWORK=off go get github.com/xleotranx/wada-kit@<version>`,
    then run `GOWORK=off go mod tidy`.
-3. Update the versioned kit documentation links in `README.md`, `AGENTS.md` and
-   `docs/design/shell-and-plugins.md` to the adopted tag.
+3. Update the versioned kit documentation links in `README.md`, `AGENTS.md`,
+   `docs/design/kit-dependency.md`, and `docs/design/shell-and-plugins.md` to the
+   adopted tag.
 4. Run `make licenses` to refresh notices for the selected module graph.
 5. Run `GOWORK=off make check` and `GOWORK=off go build ./...`, then commit the
    dependency, checks and documentation together. CI also runs with workspaces off.
 
 App and kit releases are independent. During kit v0, breaking changes use a minor
 bump with upgrade notes. A v1 stability commitment follows public API review and
-validation by another independent app. Extraction changes no APIs or database
-schemas.
+validation by another independent app.

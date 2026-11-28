@@ -577,13 +577,6 @@ func (o *Orchestrator) AttachTerminal(ctx context.Context, clientID string, req 
 	return o.terminals.Attach(ctx, clientID, req)
 }
 
-func (o *Orchestrator) DetachTerminal(ctx context.Context, _, id string) error {
-	if o.terminals == nil {
-		return errors.New("terminal subsystem is unavailable")
-	}
-	return o.terminals.Detach(ctx, id)
-}
-
 func (o *Orchestrator) TerminalInput(ctx context.Context, id string, data []byte) error {
 	if o.terminals == nil {
 		return errors.New("terminal subsystem is unavailable")

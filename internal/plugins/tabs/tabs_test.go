@@ -216,21 +216,6 @@ func TestClosingTabs(t *testing.T) {
 	}
 }
 
-func TestMovingATabKeepsItInItsGroup(t *testing.T) {
-	f := start(t, nil, record())
-	f.open("s1")
-	f.chat.NewChat("/w/app")
-	f.open("s4")
-	f.chat.NewChat("")
-	f.open("s3")
-	f.want(t, "First", "Fourth", "[Third]")
-	f.p.Move(f.tab("Fourth").ID, 0)
-	f.want(t, "Fourth", "First", "[Third]")
-	// Past the group's end is its last place, not another group's.
-	f.p.Move(f.tab("Fourth").ID, 9)
-	f.want(t, "First", "Fourth", "[Third]")
-}
-
 func TestTabsComeBackAfterARestart(t *testing.T) {
 	store := kerneltest.NewStore()
 	f := start(t, store, record())
@@ -552,44 +537,6 @@ func TestANewChatInAnotherFolderLeavesUnsentTextInItsTab(t *testing.T) {
 	}
 	if f.chat.Draft != "for web" || f.chat.Conv.Directory != "/w/web" {
 		t.Fatalf("web draft %q in %q", f.chat.Draft, f.chat.Conv.Directory)
-	}
-}
-
-// looksPlugin marks the tabs of s1 and of new chats as designs.
-type looksPlugin struct{}
-
-func (f *looksPlugin) New() kernel.Plugin      { return f }
-func (*looksPlugin) Manifest() kernel.Manifest { return kernel.Manifest{ID: "looks"} }
-func (*looksPlugin) Setup(c *kernel.Context) error {
-	return kernel.Contribute(c, tabs.Looks, "looks.design", 0, tabs.Look{
-		Applies: func(t tabs.Tab) bool { return t.Session == "s1" || t.Kind == tabs.Draft },
-		Icon:    func() *ui.SVG { return nil }, Name: "Design", Draft: "New design"})
-}
-
-func TestALookGivesTabsItsIconAndNewChatsItsTitle(t *testing.T) {
-	looks := &looksPlugin{}
-	f := start(t, nil, record(), looks.New)
-	f.open("s1")
-	f.open("s2")
-	f.chat.NewChat("/w/app")
-	f.h.Flush()
-	tt := ui.NewTester(f.p.strip, 1100, 50)
-	tt.Frame()
-	if !tt.HasText("New design") {
-		t.Fatalf("texts %q", tt.Texts())
-	}
-	if _, ok := tt.Find("Close New design"); !ok {
-		t.Fatal("the close button names the tab otherwise")
-	}
-	f.want(t, "First", "[New chat]", "Second") // the tab's own title is unchanged
-	if _, ok := tt.Find("Design"); !ok {
-		t.Fatal("no design icon")
-	}
-	f.a.Emit(agent.Event{Kind: agent.TurnStarted, Session: "s1"})
-	f.h.Flush()
-	tt.Frame()
-	if _, ok := tt.Find("Working"); !ok {
-		t.Fatal("a working design shows no work")
 	}
 }
 

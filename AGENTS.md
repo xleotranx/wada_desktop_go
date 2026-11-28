@@ -5,7 +5,7 @@ that started it, with the agent's work reviewed in the conversation. Everything 
 plugin on a small kernel; all UI is Go, with Onevra components and theme. PiG is
 the embedded agent backend. This is development software with no users: replace
 internal APIs directly and remove obsolete paths. Use PiG's pinned public Go SDK;
-keep its types inside the backend plugin.
+keep its types inside `internal/daemon/pig`.
 
 ## Source map
 
@@ -18,7 +18,7 @@ keep its types inside the backend plugin.
   Do not edit cached dependencies or add a permanent local `replace`. See
   [kit dependency maintenance](docs/design/kit-dependency.md).
 - `main.go`: composition only — Wada's `shell.App`, `--daemon` / `--terminal-worker` subprocess dispatch, and the plugins this build installs.
-- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary, detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`daemon pair`, `daemon set-password`, `host`).
+- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary, detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`ls`, `run`, `logs`, `abort`, `delete`, `providers`, `workers`, `pr`, `terminal`, `daemon status|pair|set-password|stop`, `host`).
 - `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
 - `internal/relay`: `Noise_NK_25519_ChaChaPoly_SHA256` cipher/handshake, `daemon-keypair.json`, `#offer=` pairing codec, outbound relay connector, and stateless WebSocket relay router.
 - `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, chat/approvals/diffs/terminal views, and static serving from `wadad --web-dir`.
@@ -28,13 +28,13 @@ keep its types inside the backend plugin.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs, the looks that mark a kind of conversation's tabs, and the
+  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs and the
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
   `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement),
   `terminal` (detached PTY terminal management contract and stream lifecycle).
-- `internal/plugins/*`: every feature. `daemon` (connects to local `wadad` over WebSocket RPC, auto-spawns `wadad`, and hosts first-run/settings provider auth), `chat` (conversation
+- `internal/plugins/*`: every feature. `daemon` (connects to local or remote `wadad` over WebSocket RPC via `hosts.json`, auto-spawns local `wadad`, provides `agent.*` and `terminal.ServiceKey`, and hosts Settings → Daemon pairing/password/host switcher and first-run/settings provider auth), `chat` (conversation
   page, which asks for a work folder before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
@@ -97,7 +97,8 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
   tests and no-cgo tests for Wada; also CI. The kit runs its own gate.
 - `make licenses`: refresh third-party notices after dependency or Go changes.
 - `make audit` and `make secrets`: vulnerability and committed-history secret scans.
-  See [source publication](docs/source-publication.md) before changing visibility.
+- `make web-test` and `make web-build`: Vitest, TypeScript typecheck, and Vite production build for `web/`.
+- `make package`: checks license notices and runs `go tool mygo build`.
 - `go run ./examples/notes` in a separate kit checkout: its reference app.
 - `go test ./...`; focused: `go test -run TestFirstMessage ./internal/plugins/chat`.
 - `go test -run NONE -bench . -benchtime 30x .`: draw and time whole-app
@@ -105,7 +106,7 @@ Depguard enforces the import boundaries; `exhaustive` covers enum switches.
   real-window recipe).
 - `go tool mygo build`: production app/DMG in gitignored `build/`.
 - `make demo`: the app on throwaway data from `scripts/seed.py` (many folders, chats,
-  long conversations and open tabs), loaded by embedded PiG from a temporary folder.
+  long conversations and open tabs), loaded by `wadad`'s embedded PiG runtime from a temporary folder.
   `seed.py --heavy` adds change baselines, images, large tool outputs and a 200 MB project.
 - `python3 -I scripts/measure.py [--heavy] text|working|background`: CPU, frames and
   footprint of the real window under a replayed workload (docs/performance.md).
@@ -124,7 +125,10 @@ numbered schema migrations). Workflow tasks, queued inputs and review reports li
 `workflow.db` (pure-Go SQLite with numbered schema migrations). Daemon server identity,
 epoch counters, idempotent creation/delivery receipts, and sequenced timeline events
 live in `wadad.db`. Future unsupported
-schemas are refused. Conversations' messages belong to PiG's JSONL transcripts in
+schemas are refused. Runtime, pairing, and isolation state under the data directory
+also includes `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`,
+`daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`, `worktrees/`,
+and `terminal-worker/`. Conversations' messages belong to PiG's JSONL transcripts in
 `pig/sessions/`; Wada's session metadata is in `pig/metadata/`, lazy session diff
 baselines in `pig/baselines/`, and provider credentials and configuration in `pig/agent/`.
 

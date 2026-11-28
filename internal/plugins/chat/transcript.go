@@ -29,7 +29,6 @@ type row struct {
 	text        string
 	files       []agent.File // rowUser: what went with the words
 	stream      *strings.Builder
-	message     agent.MessageID
 	tool        *toolRow
 	approval    *agent.Approval
 	interaction *interactionState
@@ -130,7 +129,7 @@ func (t *transcript) load(messages []agent.Message, sum uint64) {
 				switch part.Kind {
 				case agent.PartText:
 					if text := strings.TrimSpace(part.Text); text != "" {
-						t.add(&row{kind: rowText, text: text, message: m.ID})
+						t.add(&row{kind: rowText, text: text})
 					}
 				case agent.PartTool:
 					if part.Tool != nil {
@@ -210,7 +209,7 @@ func (t *transcript) liveText(message agent.MessageID, ordinal int) *row {
 	if r := t.live[key]; r != nil {
 		return r
 	}
-	r := t.add(&row{kind: rowStream, message: message})
+	r := t.add(&row{kind: rowStream})
 	t.live[key] = r
 	return r
 }

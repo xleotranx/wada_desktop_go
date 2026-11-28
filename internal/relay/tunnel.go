@@ -83,11 +83,10 @@ type NoiseTransport struct {
 	recvFn   func(deadline time.Time) ([]byte, error)
 	sendFn   func(data []byte, deadline time.Time) error
 	closeFn  func() error
-	dlMu     sync.Mutex
-	readDL   time.Time
-	writeDL  time.Time
-	closedCh chan struct{}
-	once     sync.Once
+	dlMu    sync.Mutex
+	readDL  time.Time
+	writeDL time.Time
+	once    sync.Once
 }
 
 func newNoiseTransport(
@@ -97,12 +96,11 @@ func newNoiseTransport(
 	closeFn func() error,
 ) *NoiseTransport {
 	return &NoiseTransport{
-		send:     send,
-		recv:     recv,
-		recvFn:   recvFn,
-		sendFn:   sendFn,
-		closeFn:  closeFn,
-		closedCh: make(chan struct{}),
+		send:    send,
+		recv:    recv,
+		recvFn:  recvFn,
+		sendFn:  sendFn,
+		closeFn: closeFn,
 	}
 }
 
@@ -175,7 +173,6 @@ func (t *NoiseTransport) WriteMessage(msgType int, data []byte) error {
 func (t *NoiseTransport) Close() error {
 	var err error
 	t.once.Do(func() {
-		close(t.closedCh)
 		if t.closeFn != nil {
 			err = t.closeFn()
 		}
@@ -473,8 +470,6 @@ func (dc *DaemonConnector) runOnce(wsURL string) (registered bool, err error) {
 		switch op {
 		case RelayOpPong:
 			// Liveness only: lastRecv is already updated.
-		case RelayOpPing:
-			_ = mc.writeBinary(EncodeMuxFrame(RelayOpPong, sid, payload))
 		case RelayOpOpen:
 			mc.openSession(sid, string(payload))
 		case RelayOpData:

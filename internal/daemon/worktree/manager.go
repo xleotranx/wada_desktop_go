@@ -1,5 +1,5 @@
 // Package worktree manages isolated Git worktrees, .worktreeinclude file copies,
-// per-worktree diffs, and repo setup trust records for wadad.
+// and per-worktree diffs for wadad.
 package worktree
 
 import (

@@ -167,7 +167,6 @@ func dialTransport(ctx context.Context, tr relay.Transport, opts Options) (*Clie
 		opts.Capabilities = []string{
 			protocol.CapOwnedSubscriptions,
 			protocol.CapCreationReceipts,
-			protocol.CapBinaryTransfer,
 		}
 	}
 	if opts.PingInterval <= 0 {
@@ -692,13 +691,6 @@ func (c *Client) PendingInteractions(ctx context.Context, id string) ([]protocol
 	return out, c.Call(ctx, protocol.MethodInteractionsPending, protocol.SessionIDRequest{Session: id}, &out)
 }
 
-// PendingApprovals lists every approval still waiting for an answer, each
-// with the conversation that shows it.
-func (c *Client) PendingApprovals(ctx context.Context) ([]protocol.PendingApproval, error) {
-	var out []protocol.PendingApproval
-	return out, c.Call(ctx, protocol.MethodApprovalsPending, struct{}{}, &out)
-}
-
 func (c *Client) AnswerInteraction(ctx context.Context, ans protocol.InteractionAnswer) error {
 	return c.Call(ctx, protocol.MethodInteractionsAnswer, ans, nil)
 }
@@ -759,7 +751,6 @@ type TerminalStream struct {
 	ts *termStream
 }
 
-func (s *TerminalStream) Channel() uint8              { return s.ts.channel }
 func (s *TerminalStream) Info() protocol.TerminalInfo { return s.ts.info }
 func (s *TerminalStream) Snapshot() []byte            { return s.ts.snap }
 
@@ -802,7 +793,7 @@ func (c *Client) handleBinary(raw []byte) {
 		return
 	}
 	switch op {
-	case protocol.OpTermOutput, protocol.OpTermSnapshot:
+	case protocol.OpTermOutput:
 	case protocol.OpTermExit:
 		// The server released the channel after the terminal's last output.
 		c.mu.Lock()

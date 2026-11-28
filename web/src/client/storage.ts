@@ -27,7 +27,7 @@ export function loadSavedHosts(): SavedHost[] {
   }
 }
 
-export function saveHosts(list: SavedHost[]): void {
+function saveHosts(list: SavedHost[]): void {
   localStorage.setItem(HOSTS_KEY, JSON.stringify(list));
 }
 

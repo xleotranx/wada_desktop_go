@@ -423,7 +423,6 @@ func (b *exitingTerminals) AttachTerminal(_ context.Context, _ string, req proto
 	return protocol.TerminalInfo{ID: req.ID, Running: true}, nil, b.out, func() {}, nil
 }
 
-func (*exitingTerminals) DetachTerminal(context.Context, string, string) error { return nil }
 func (*exitingTerminals) TerminalInput(context.Context, string, []byte) error  { return nil }
 func (*exitingTerminals) TerminalResize(context.Context, string, int, int) error {
 	return nil

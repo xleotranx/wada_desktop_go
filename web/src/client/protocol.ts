@@ -1,9 +1,8 @@
 export const PROTOCOL_VERSION = 1;
 
-export type FrameOp = 0x01 | 0x02 | 0x03;
+type FrameOp = 0x01 | 0x02;
 export const OP_TERM_OUTPUT = 0x01;
 export const OP_TERM_INPUT = 0x02;
-export const OP_TERM_RESIZE = 0x03;
 
 // Envelope types, as internal/protocol/envelope.go spells them.
 export const ENV_HELLO = "hello";
@@ -15,7 +14,6 @@ export const ENV_RPC_RESPONSE = "rpc.response";
 export const ENV_EVENT = "event";
 
 // Event kinds, as internal/protocol/messages.go spells them.
-export const EV_TEXT_STARTED = "text_started";
 export const EV_TEXT_DELTA = "text_delta";
 export const EV_APPROVAL_REQUESTED = "approval_requested";
 export const EV_INTERACTION_REQUESTED = "interaction_requested";
@@ -61,7 +59,7 @@ export interface SessionInfo {
   updated?: number;
 }
 
-export interface ToolInfo {
+interface ToolInfo {
   id: string;
   name: string;
   kind?: string;
@@ -70,7 +68,7 @@ export interface ToolInfo {
   output?: string[];
 }
 
-export interface MessagePart {
+interface MessagePart {
   kind: "text" | "reasoning" | "tool" | "other";
   text?: string;
   tool?: ToolInfo;
@@ -191,12 +189,4 @@ export function decodeBinaryFrame(raw: Uint8Array): {
     channel: raw[1],
     payload: raw.slice(2),
   };
-}
-
-export function encodeTermResize(cols: number, rows: number): Uint8Array {
-  const out = new Uint8Array(4);
-  const view = new DataView(out.buffer);
-  view.setUint16(0, cols, false);
-  view.setUint16(2, rows, false);
-  return out;
 }

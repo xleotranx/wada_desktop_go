@@ -28,8 +28,6 @@ type RouterConfig struct {
 	// client, such as a TLS proxy in front of the relay. Otherwise a
 	// client's address is the connection's own.
 	TrustedProxies []netip.Prefix
-	// CheckOrigin optionally restricts WebSocket Upgrade Origin headers (e.g. for web app origins).
-	CheckOrigin func(*http.Request) bool
 }
 
 // Router forwards opaque Noise NK ciphertext frames between daemons and
@@ -43,7 +41,6 @@ type Router struct {
 }
 
 type daemonSlot struct {
-	hash    string
 	ws      *websocket.Conn
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -54,7 +51,6 @@ type daemonSlot struct {
 type clientSlot struct {
 	id         [SessionIDSize]byte
 	ws         *websocket.Conn
-	daemon     *daemonSlot
 	mu         sync.Mutex
 	queue      [][]byte
 	queuedByte int
@@ -68,14 +64,10 @@ func NewRouter(cfg RouterConfig) *Router {
 	if cfg.MaxClientsPerDaemon <= 0 {
 		cfg.MaxClientsPerDaemon = defaultMaxClientsPerDaemon
 	}
-	checkOrigin := cfg.CheckOrigin
-	if checkOrigin == nil {
-		checkOrigin = func(*http.Request) bool { return true }
-	}
 	return &Router{
 		cfg: cfg,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: checkOrigin,
+			CheckOrigin: func(*http.Request) bool { return true },
 		},
 		daemons: map[string]*daemonSlot{},
 	}
@@ -133,7 +125,6 @@ func (rt *Router) handleDaemon(w http.ResponseWriter, r *http.Request, hash stri
 	// Only a daemon that proved it holds the key replaces the current slot,
 	// which is how a reconnecting daemon takes over from a dead connection.
 	slot := &daemonSlot{
-		hash:    hash,
 		ws:      ws,
 		clients: map[[SessionIDSize]byte]*clientSlot{},
 	}
@@ -263,11 +254,10 @@ func (rt *Router) handleClient(w http.ResponseWriter, r *http.Request, hash stri
 	ws.SetReadLimit(maxRelayFrameBytes)
 
 	cs := &clientSlot{
-		id:     sid,
-		ws:     ws,
-		daemon: d,
-		wake:   make(chan struct{}, 1),
-		done:   make(chan struct{}),
+		id:   sid,
+		ws:   ws,
+		wake: make(chan struct{}, 1),
+		done: make(chan struct{}),
 	}
 	d.clients[sid] = cs
 	d.mu.Unlock()

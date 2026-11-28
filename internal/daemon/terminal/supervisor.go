@@ -25,7 +25,6 @@ type SupervisorOptions struct {
 
 type supSub struct {
 	ch     chan []byte
-	done   chan struct{}
 	closed bool
 }
 
@@ -163,7 +162,7 @@ func (s *Supervisor) Create(ctx context.Context, req protocol.TerminalCreateRequ
 func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error) {
 	subKey := clientKey + ":" + uuid.NewString()
 	ch := make(chan []byte, 128)
-	sub := &supSub{ch: ch, done: make(chan struct{})}
+	sub := &supSub{ch: ch}
 
 	s.attachMu.Lock()
 	defer s.attachMu.Unlock()
@@ -208,20 +207,6 @@ func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.
 	return resp.Info, resp.Snapshot, ch, detach, nil
 }
 
-// Detach stops the worker streaming termID to wadad, unless a local
-// subscription still needs it.
-func (s *Supervisor) Detach(ctx context.Context, termID string) error {
-	s.attachMu.Lock()
-	defer s.attachMu.Unlock()
-	s.subMu.Lock()
-	inUse := len(s.subs[termID]) > 0
-	s.subMu.Unlock()
-	if inUse {
-		return nil
-	}
-	return s.callExisting(ctx, "detach", protocol.TerminalDetachRequest{ID: termID}, nil)
-}
-
 func (s *Supervisor) Input(ctx context.Context, termID string, data []byte) error {
 	return s.call(ctx, "input", protocol.TerminalInputRequest{ID: termID, Data: data}, nil)
 }
@@ -246,7 +231,6 @@ func (s *Supervisor) Kill(ctx context.Context, termID string) error {
 func (sub *supSub) close() {
 	if !sub.closed {
 		sub.closed = true
-		close(sub.done)
 		close(sub.ch)
 	}
 }

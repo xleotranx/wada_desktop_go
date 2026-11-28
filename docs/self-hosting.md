@@ -33,8 +33,8 @@ worktrees, and PTY terminals on your own workstation or server:
    ```
    - `Host` / `Origin` checks block DNS-rebinding attacks against unlisted
      hostnames.
-   - Open `http://my-mac.tailnet.ts:6767` on your phone or laptop and install it
-     as a PWA, or run `wada daemon pair --app-url http://my-mac.tailnet.ts:6767`
+   - Open `http://my-mac.tailnet.ts.net:6767` on your phone or laptop and install it
+     as a PWA, or run `wada daemon pair --app-url http://my-mac.tailnet.ts.net:6767`
      to generate an `#offer=` link.
 
 ---
@@ -56,7 +56,7 @@ worktrees, and PTY terminals on your own workstation or server:
    `WADA_RELAY_BIND` only when another TLS proxy of yours fronts it.
    The relay tells `wadad` each client's address, taken from
    `X-Forwarded-For` only when the connection comes from a network in
-   `WADA_RELAY_TRUSTED_PROXIES` (`wada-relay -trusted-proxies`). Compose
+   `WADA_RELAY_TRUSTED_PROXIES` (`wada-relay --trusted-proxies`). Compose
    trusts the private ranges Caddy connects from; behind another proxy, list
    its network instead.
 3. Point your workstation's `wadad` at your relay:

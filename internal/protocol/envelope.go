@@ -1,6 +1,6 @@
 // Package protocol defines Wada's append-only WebSocket JSON wire envelopes,
 // capability flags, RPC schemas, and binary stream frames shared between the
-// headless daemon (wadad), Go clients, CLI, and future Web/PWA clients.
+// headless daemon (wadad), Go clients, CLI, and Web/PWA clients.
 package protocol
 
 import "encoding/json"
@@ -11,7 +11,6 @@ const ProtocolVersion = 1
 const (
 	CapOwnedSubscriptions = "owned_subscriptions"
 	CapCreationReceipts   = "creation_receipts"
-	CapBinaryTransfer     = "binary_transfer"
 )
 
 // Top-level WebSocket text envelope types.

@@ -9,5 +9,5 @@ import (
 )
 
 // measured adds the replay plugin, which only measurement builds install
-// (scripts/measure.sh).
+// (scripts/measure.py).
 var measured = []kernel.Factory{replay.New}

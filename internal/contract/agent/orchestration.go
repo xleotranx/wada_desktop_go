@@ -107,7 +107,6 @@ type Workers interface {
 
 type Worktrees interface {
 	ListWorktrees(ctx context.Context, directory string) ([]Worktree, error)
-	CreateWorktree(ctx context.Context, directory, name, baseRef string) (Worktree, error)
 	RemoveWorktree(ctx context.Context, directory, path string, force bool) error
 	PRStatus(ctx context.Context, directory string) (*PRStatus, error)
 }

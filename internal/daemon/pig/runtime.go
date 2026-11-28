@@ -20,8 +20,7 @@ var ErrNotConnected = errors.New("the agent runtime is closed")
 
 // Options configures a headless PiG runtime.
 type Options struct {
-	Root         string
-	Instructions string
+	Root string
 	// ChiefTools gives a top-level conversation's extra tools; contextFn
 	// reports that conversation's session, folder and mode at call time.
 	ChiefTools func(contextFn func() ChiefContext) []Tool
@@ -67,11 +66,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		cancel()
 		return nil, err
 	}
-	if opts.Instructions != "" {
-		e.instructions = opts.Instructions
-	} else {
-		e.instructions = "You are Wada, a focused software engineering assistant and Chief Agent. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder. For multi-part or parallel engineering tasks, you can also create isolated Git worktrees and spawn/supervise external CLI worker agents (such as Claude Code, Codex, or ACP harnesses) via your orchestration tools."
-	}
+	e.instructions = "You are Wada, a focused software engineering assistant and Chief Agent. Read the codebase before editing, make minimal verified changes, and use the selected workspace folder. For multi-part or parallel engineering tasks, you can also create isolated Git worktrees and spawn/supervise external CLI worker agents (such as Claude Code, Codex, or ACP harnesses) via your orchestration tools."
 	e.chiefTools = opts.ChiefTools
 	e.modelsChanged = func() {
 		e.emit(protocol.Event{Kind: protocol.EventModelsChanged})
@@ -86,7 +81,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 // Origin returns the backend origin identifier for this PiG storage root.
 func (r *Runtime) Origin() string { return r.origin }
 
-// ModelRuntime exposes PiG's ModelRuntime (e.g. for provider auth or tests).
+// ModelRuntime exposes PiG's ModelRuntime (used by tests to register faux providers).
 func (r *Runtime) ModelRuntime() *coding.ModelRuntime {
 	r.mu.Lock()
 	defer r.mu.Unlock()

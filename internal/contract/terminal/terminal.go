@@ -47,12 +47,6 @@ type AttachRequest struct {
 	Rows int
 }
 
-// CaptureResult holds a point-in-time plain text and ANSI snapshot capture.
-type CaptureResult struct {
-	Text     string
-	Snapshot []byte
-}
-
 // Stream represents an active bidirectional PTY attachment.
 type Stream interface {
 	Info() Info
@@ -68,6 +62,5 @@ type Service interface {
 	List(ctx context.Context) ([]Info, error)
 	Create(ctx context.Context, req CreateRequest) (Info, error)
 	Attach(ctx context.Context, req AttachRequest) (Stream, error)
-	Capture(ctx context.Context, id string, lines int) (CaptureResult, error)
 	Kill(ctx context.Context, id string) error
 }

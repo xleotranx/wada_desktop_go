@@ -141,29 +141,11 @@ func TestBaselinesAreLazyOnDiskAndSurviveRestartDeleteRewind(t *testing.T) {
 	}
 doneTurn:
 	e, release, _ := rt.acquire()
-	c, _ := e.get(s.ID)
-	if len(c.rec.Baselines) != 0 {
-		release()
-		t.Fatalf("baselines retained in RAM: %d", len(c.rec.Baselines))
-	}
 	if _, err := os.Stat(e.baselinePath(s.ID)); err != nil {
 		release()
 		t.Fatalf("baseline file missing: %v", err)
 	}
-
-	// Simulate legacy inline Baselines in metadata/<id>.json to verify migration on restart.
-	c.mu.Lock()
-	c.rec.Baselines = map[string]fileSnapshot{"legacy.txt": {Exists: true, Data: []byte("old\n")}}
-	if err := e.saveLocked(c); err != nil {
-		c.mu.Unlock()
-		release()
-		t.Fatal(err)
-	}
-	c.mu.Unlock()
 	release()
-	if err := os.WriteFile(filepath.Join(dir, "legacy.txt"), []byte("new\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	_ = rt.Close()
 
 	rt, err = New(t.Context(), Options{Root: root})
@@ -171,17 +153,10 @@ doneTurn:
 		t.Fatal(err)
 	}
 	defer rt.Close()
-	e, release, _ = rt.acquire()
-	c, _ = e.get(s.ID)
-	if len(c.rec.Baselines) != 0 {
-		release()
-		t.Fatalf("migrated baselines still kept in RAM: %d", len(c.rec.Baselines))
-	}
-	release()
 
 	changes, err := rt.Changes(t.Context(), s.ID)
-	if err != nil || len(changes) != 2 {
-		t.Fatalf("expected 2 changes after restart & legacy migration, got %+v, err=%v", changes, err)
+	if err != nil || len(changes) != 1 || changes[0].Path != "main.go" {
+		t.Fatalf("expected 1 change after restart, got %+v, err=%v", changes, err)
 	}
 
 	msgs, err := rt.Messages(t.Context(), s.ID)
@@ -202,7 +177,7 @@ doneTurn:
 	}
 	release()
 	forkChanges, err := rt.Changes(t.Context(), forkID)
-	if err != nil || len(forkChanges) != 2 {
+	if err != nil || len(forkChanges) != 1 || forkChanges[0].Path != "main.go" {
 		t.Fatalf("fork lost baselines after original delete: %+v, err=%v", forkChanges, err)
 	}
 }

@@ -3,7 +3,7 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-export const NOISE_PROTOCOL_NAME = "Noise_NK_25519_ChaChaPoly_SHA256";
+const NOISE_PROTOCOL_NAME = "Noise_NK_25519_ChaChaPoly_SHA256";
 const KEY_SIZE = 32;
 const MAX_NONCE = 0xffff_ffff_ffff_ffffn;
 
@@ -50,16 +50,11 @@ function makeNoiseNonce(n: bigint): Uint8Array {
   return nonce;
 }
 
-export class CipherState {
+class CipherState {
   private keyBytes: Uint8Array | null = null;
   private nonce = 0n;
 
-  initializeKey(key: Uint8Array | null): void {
-    if (!key) {
-      this.keyBytes = null;
-      this.nonce = 0n;
-      return;
-    }
+  initializeKey(key: Uint8Array): void {
     if (key.length !== KEY_SIZE) {
       throw new Error("Noise key must be 32 bytes");
     }

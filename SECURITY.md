@@ -14,10 +14,13 @@ bug-bounty commitment is offered.
 
 ## Local data and provider access
 
-Provider configuration, credentials and conversation transcripts live under the
+Provider configuration, credentials, daemon identity and auth files
+(`local-credential`, `daemon-keypair.json`, `remote-token`, `password.hash`,
+`hosts.json`), and conversation transcripts live under the
 app's data directory. Wada's own settings and records live beside them in SQLite.
 These files are sensitive: do not attach the whole data directory to a report.
-See the README for the exact locations and how to use temporary data.
+See the README for the exact locations and how to use temporary data, and
+[docs/self-hosting.md](docs/self-hosting.md) for the remote/relay security model.
 
 Messages, attachments and tool results sent to a model are handled by the chosen
 provider. Review that provider's privacy and retention terms. The repository does

@@ -66,7 +66,6 @@ type Plugin struct {
 	killTask   kernel.Task
 
 	attachScope *kernel.Scope
-	stream      contractterm.Stream
 	streamID    string
 	outbox      chan termOp
 }
@@ -385,7 +384,6 @@ func (p *Plugin) attach(id string) {
 			if p.attachScope != scope {
 				return
 			}
-			p.stream = st
 			p.streamID = id
 			p.errText = ""
 			p.upsertTerminal(info)
@@ -469,7 +467,6 @@ func (p *Plugin) detach() {
 		p.attachScope.Dispose()
 		p.attachScope = nil
 	}
-	p.stream = nil
 	p.streamID = ""
 	p.outbox = nil
 }

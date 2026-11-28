@@ -34,17 +34,15 @@ import (
 	"github.com/xleotranx/wada-kit/shell"
 )
 
-// wada names the app, where its data lives (the folder and the WADA_
-// variables) and its window and menus. The Folder stays wada-desktop-go so
-// existing local data is kept.
+// wada names the app, its data directory and env prefix (WADA_*), and its window and menus.
 var wada = shell.App{
 	Name: "Wada", Folder: "wada-desktop-go", Env: "WADA",
 	Width: 1400, Height: 900, MinWidth: 900, MinHeight: 600,
 	Menus: []string{"File", "Chat", "View", "Agent", "Help"},
 }
 
-// main launches either the headless daemon subprocess (`--daemon`) or the
-// desktop shell composed of plugins in order.
+// main launches the headless daemon subprocess (--daemon), detached PTY
+// terminal worker (--terminal-worker), or desktop shell composed of plugins in order.
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -76,7 +74,7 @@ func main() {
 		skills.New,       // type / to attach a skill; needs a backend that has them
 		workspace.New,    // folders and the conversations started here, in workspace.db
 		folderpicker.New, // Open Folder… and the new chat's folder in the composer
-		tabs.New,         // open chats as tabs across the window; replaces the sidebar
+		tabs.New,         // open chats and pages as tabs across the title strip
 		explore.New,      // read-only side chats in a drawer, from selected text
 		workflow.New,     // owns conversational tasks and fresh reviewer children
 		flows.New,        // plan, code, review, from the composer or command palette

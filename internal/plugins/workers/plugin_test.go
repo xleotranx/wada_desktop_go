@@ -71,10 +71,6 @@ func (f *fakeOrchService) ListWorktrees(context.Context, string) ([]agent.Worktr
 	return f.worktrees, nil
 }
 
-func (f *fakeOrchService) CreateWorktree(_ context.Context, dir, name, _ string) (agent.Worktree, error) {
-	return agent.Worktree{RepoRoot: dir, Path: "/tmp/wt/" + name, Branch: "wada/" + name}, nil
-}
-
 func (f *fakeOrchService) RemoveWorktree(_ context.Context, _, path string, _ bool) error {
 	f.removedWT = path
 	return nil

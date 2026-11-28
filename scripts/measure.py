@@ -50,7 +50,7 @@ tb = Timebase()
 libc.mach_timebase_info(ctypes.byref(tb))
 RUSAGE_INFO_V4 = 4
 # rusage_info_v4 after its 16-byte UUID, as uint64s (sys/resource.h).
-USER, SYSTEM, IDLE_WAKEUPS, FOOTPRINT, LIFETIME_MAX, INTERVAL_MAX = 0, 1, 2, 7, 28, 33
+USER, SYSTEM, IDLE_WAKEUPS, FOOTPRINT, INTERVAL_MAX = 0, 1, 2, 7, 33
 
 
 def rusage(pid):
@@ -60,7 +60,7 @@ def rusage(pid):
     v = buf[2:]  # skip the UUID
     cpu = (v[USER] + v[SYSTEM]) * tb.numer / tb.denom / 1e9
     return {"cpu": cpu, "wakeups": v[IDLE_WAKEUPS], "footprint": v[FOOTPRINT],
-            "lifetime_max": v[LIFETIME_MAX], "interval_max": v[INTERVAL_MAX], "t": time.monotonic()}
+            "interval_max": v[INTERVAL_MAX], "t": time.monotonic()}
 
 
 def reset_interval(pid):
@@ -89,7 +89,6 @@ def run_once(binary, data):
     proc = subprocess.Popen([binary], env=env, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
     marks, frames, phase = {"launch": rusage(proc.pid)}, {"startup": [], "replay": [], "settled": []}, ["startup"]
     peaks = {}
-    footprints = {"startup": [], "replay": [], "settled": []}
     lock = threading.Lock()
 
     def read():
@@ -116,12 +115,7 @@ def run_once(binary, data):
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
-    while proc.poll() is None:
-        r = rusage(proc.pid)
-        if r:
-            with lock:
-                footprints[phase[0]].append(r["footprint"])
-        time.sleep(.25)
+    proc.wait()
     reader.join(5)
     if "settled" not in marks:
         sys.exit(f"the app exited ({proc.returncode}) before the replay finished")

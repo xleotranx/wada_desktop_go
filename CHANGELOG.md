@@ -16,7 +16,7 @@
 - Folder-scoped conversation tabs, file diffs, usage tracking, screenshot
   annotation, read-only side chats, and reviewed Plan → Work → Review workflows.
 - Independently versioned MIT-licensed `wada-kit` core and shell.
-- Source publication documentation, third-party license inventory, secret/vulnerability
-  scans, and multi-platform CI/release workflows.
+- Third-party license inventory, secret/vulnerability scans, and multi-platform
+  CI/release workflows.
 
 The packaging version is `0.1.0`.

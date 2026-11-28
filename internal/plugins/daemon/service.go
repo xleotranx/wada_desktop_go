@@ -394,22 +394,6 @@ func (p *Plugin) ListWorktrees(ctx context.Context, directory string) ([]agent.W
 	return out, nil
 }
 
-func (p *Plugin) CreateWorktree(ctx context.Context, directory, name, baseRef string) (agent.Worktree, error) {
-	cli, err := p.current()
-	if err != nil {
-		return agent.Worktree{}, err
-	}
-	wt, err := cli.CreateWorktree(ctx, protocol.WorktreeCreateRequest{
-		Directory: directory,
-		Name:      name,
-		BaseRef:   baseRef,
-	})
-	if err != nil {
-		return agent.Worktree{}, err
-	}
-	return fromProtoWorktree(wt), nil
-}
-
 func (p *Plugin) RemoveWorktree(ctx context.Context, directory, path string, force bool) error {
 	cli, err := p.current()
 	if err != nil {
@@ -484,21 +468,6 @@ func (s terminalService) Attach(ctx context.Context, req terminal.AttachRequest)
 		return nil, err
 	}
 	return terminalStreamAdapter{s: st}, nil
-}
-
-func (s terminalService) Capture(ctx context.Context, id string, lines int) (terminal.CaptureResult, error) {
-	cli, err := s.p.current()
-	if err != nil {
-		return terminal.CaptureResult{}, err
-	}
-	res, err := cli.CaptureTerminal(ctx, id, lines)
-	if err != nil {
-		return terminal.CaptureResult{}, err
-	}
-	return terminal.CaptureResult{
-		Text:     res.Text,
-		Snapshot: res.Snapshot,
-	}, nil
 }
 
 func (s terminalService) Kill(ctx context.Context, id string) error {

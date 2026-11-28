@@ -2,8 +2,9 @@
 
 Wada is an experimental native Go desktop app. The supported development platform
 is macOS; Windows compilation is checked, but interactive Windows behavior has
-not been verified. Install the Go version in `go.mod` and Apple's Command Line
-Tools (`xcode-select --install`) and Python 3 before building on macOS. MyGo downloads its
+not been verified. Install the Go version in `go.mod`, Apple's Command Line
+Tools (`xcode-select --install`), and Python 3 before building on macOS, plus Node 22
+and pnpm 10 if changing `web/`. MyGo downloads its
 native dependencies on first use, so the first run needs network access.
 
 ## Start locally
@@ -40,6 +41,9 @@ from `native.PaletteFor`. Update design notes alongside public behavior changes.
 GOWORK=off make check
 GOWORK=off go build ./...
 make audit
+make secrets
+make web-test
+make web-build
 ```
 
 `make check` runs MyGo lifetime vet, pinned lint, license inventory verification,

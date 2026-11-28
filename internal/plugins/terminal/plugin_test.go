@@ -171,13 +171,6 @@ func (f *fakeTermService) Attach(_ context.Context, req contractterm.AttachReque
 	return st, nil
 }
 
-func (f *fakeTermService) Capture(_ context.Context, id string, _ int) (contractterm.CaptureResult, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	snap := f.snapshots[id]
-	return contractterm.CaptureResult{Text: snap, Snapshot: []byte(snap)}, nil
-}
-
 func (f *fakeTermService) Kill(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -362,7 +355,7 @@ func TestReattachesAfterDaemonReconnect(t *testing.T) {
 func TestInputKeepsItsOrder(t *testing.T) {
 	h, p, svc, _ := startTerminalTest(t)
 	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
 	st := svc.latestStream("term_1")
 
 	want := make([]string, 100)
@@ -381,7 +374,7 @@ func TestInputKeepsItsOrder(t *testing.T) {
 func TestDrawerFitsThePTY(t *testing.T) {
 	h, p, svc, _ := startTerminalTest(t)
 	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
 	st := svc.latestStream("term_1")
 
 	tt := ui.NewTester(p.drawerView, 480, 600)
@@ -400,11 +393,11 @@ func TestDrawerFitsThePTY(t *testing.T) {
 func TestInputWhileAttachingWaitsForTheAttachment(t *testing.T) {
 	h, p, svc, _ := startTerminalTest(t)
 	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
 
 	// Re-attach and type before the attachment has been posted back.
 	p.attach("term_1")
-	if p.stream != nil {
+	if p.streamID != "" {
 		t.Fatal("attachment finished synchronously; the test needs it pending")
 	}
 	p.input = "echo early"

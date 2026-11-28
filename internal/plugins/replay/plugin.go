@@ -1,7 +1,7 @@
 // Package replay feeds the window synthetic agent events at a steady rate, so
 // that its CPU, frames and memory can be measured on the real window with every
 // feature installed. Only builds tagged wadareplay install it (replay.go in the
-// main package); scripts/measure.sh drives it.
+// main package); scripts/measure.py drives it.
 //
 // WADA_REPLAY picks what it replays:
 //

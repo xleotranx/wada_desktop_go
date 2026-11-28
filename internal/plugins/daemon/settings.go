@@ -32,7 +32,6 @@ type remoteForm struct {
 	daemonPassword string
 	pairingURL     string
 	pairingKey     string
-	requiresPW     bool
 	notice         string
 	err            string
 
@@ -367,7 +366,6 @@ func (p *Plugin) copyPairingLink() {
 		p.remote.err = ""
 		p.remote.pairingURL = resp.URL
 		p.remote.pairingKey = resp.ServerPubKey
-		p.remote.requiresPW = resp.RequiresPassword
 		if cerr := p.host.Copy(resp.URL); cerr == nil {
 			p.remote.notice = "Copied pairing link to clipboard"
 			p.host.Toast(ui.Toast{Title: "Copied pairing link", Type: "success"})

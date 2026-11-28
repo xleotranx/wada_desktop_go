@@ -25,7 +25,7 @@ plugins have no PiG dependency.
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
-| `WorktreesKey` | Git worktree creation, listing (including dirty state), safe secondary removal, and authenticated `gh` PR status (`PRStatus`) |
+| `WorktreesKey` | Git worktree listing (including dirty state), safe secondary removal, and authenticated `gh` PR status (`PRStatus`) |
 
 See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
 
@@ -60,7 +60,10 @@ instructions, a tool policy or a result schema, and refuses `SetModel` and child
 conversations under it. Its mode is the one it was created with.
 
 Ordinary chats use PiG's built-in coding tools
-(`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) with Wada's engineering system prompt.
+(`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and, on top-level
+conversations, Chief Agent orchestration tools (`list_providers`, `create_worktree`,
+`list_worktrees`, `spawn_agent`, `send_agent`, `wait_agent`, `inspect_agent_diff`,
+`stop_agent`) with Wada's engineering system prompt.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
 conversation directories remain as recorded. The daemon's PiG storage root is `<DataDir>/pig`:
 
@@ -68,8 +71,7 @@ conversation directories remain as recorded. The daemon's PiG storage root is `<
 - `sessions/`: SDK-owned JSONL transcripts;
 - `metadata/`: atomic Wada records containing session identity, title, folder,
   access mode, parent and child policy, and attachment display metadata;
-- `baselines/`: lazy on-disk original file contents used by session diffs (legacy
-  inline baselines in `metadata/` migrate here automatically on startup).
+- `baselines/`: lazy on-disk original file contents used by session diffs.
 
 The origin is `pig <absolute storage root>`. Session IDs are meaningful only within
 that origin. Workspace records and tabs remain scoped by origin. The plugin reads
@@ -137,8 +139,8 @@ result state are cleared at settlement.
 continuation prompts out of visible user history; the model still sees them.
 
 `Send.Policy` adds a restrictive policy for one turn. It cannot weaken fixed child
-policies or the conversation's access mode. Turn restrictions apply even in Full
-access and cannot be bypassed by previously remembered approvals. Planning/routing
+policies or the conversation's access mode. Turn restrictions apply even in **Work
+independently** and cannot be bypassed by previously remembered approvals. Planning/routing
 and review deny edits; shell commands still require approval. Ordinary implementation
 turns without a policy retain their access mode. Cleanup occurs before the terminal
 event publishes so the next admitted turn cannot inherit restrictions.
@@ -158,8 +160,9 @@ grants apply only to that conversation and exact action. Stopping cancels waiter
 
 A child gets a separate history and persisted parent/policy metadata. Deny wins
 over Allow; unlisted tool kinds ask. Its fixed policy takes precedence over ordinary
-chat modes. Children are excluded from backend top-level lists. Workflow reviewers remain hidden. The side-conversation plugin can record its
-read-only children through `chat.Started` so they appear in tabs and All chats.
+chat modes. Children are excluded from backend top-level lists. Workflow reviewers remain hidden.
+Side chats live in a drawer beside their parent conversation, are not emitted on
+`chat.Started`, and do not appear in tabs or All chats.
 General SDK UI questions use the existing interaction contract,
 preserving empty answers, selections, confirmations and explicit cancellation.
 

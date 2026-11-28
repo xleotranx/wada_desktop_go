@@ -33,7 +33,7 @@ make package            # checks notices; output under build/; ad-hoc signing
 ```
 
 A distributable macOS binary needs the maintainer's signing and notarization
-configuration. Source publication does not supply those credentials.
+configuration. This repository does not supply those credentials.
 
 The public [wada-kit](https://github.com/xleotranx/wada-kit) module is pinned in
 `go.mod` and downloaded through normal Go module resolution. It needs no GitHub
@@ -48,10 +48,10 @@ Chat with streaming markdown, tool calls, approvals and stop; open chats and Set
 switcher for the others, each tab showing whether its conversation is working, waiting for you or unread; All
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
-conversation with its context, session or uncommitted Git changes with expandable diffs, and cost;
-model, effort and mode pickers; file and image attachments; workflows such as plan,
+conversation with its context, session or uncommitted Git changes with expandable diffs, cost, and supervised CLI workers/Git worktrees with `gh` PR status; an interactive PTY terminal drawer (⌘J / ⇧⌘J);
+model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; workflows such as plan,
 work, review in the current chat; desktop notifications for conversations in the background; settings
-for appearance, tabs, daemon, providers, notifications, and turning plugins
+for appearance, conversation, tabs, daemon, providers, models, notifications, diagnostics, and turning plugins
 on and off.
 
 Select text in a conversation for **Start a side chat** or **Reply**. A side chat
@@ -59,13 +59,13 @@ opens in a drawer beside the conversation with the selection quoted in its own
 composer; it can read files but not change them, and **Add to main chat** puts an
 answer in the original chat's draft.
 
-For visual instructions, paste or attach a screenshot and choose **Mark up**
-beside its image chip. Draw arrows or boxes, add an optional instruction, then
-choose **Use annotated image**. The marked PNG goes with your next message;
+For visual instructions, capture the screen (⌘⇧2 / ⌃⌘⇧2 on macOS) or paste/attach a screenshot and choose **Mark up**
+beside its image chip. Draw boxes, arrows, pins, freehand lines, highlights, or pixel redactions, add per-mark notes and optional full-resolution detail crops, then
+choose **Use marked-up image**. The marked PNG goes with your next message;
 the source file stays unchanged. Images are limited to 16 megapixels and 16,384
 pixels per side, in addition to the attachment byte limits.
 
-Ordinary chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) inside the selected project folder. Wada does not automatically load repository agent instructions; skills are included when explicitly selected. Without a selected folder, new conversations use a dedicated Inbox rather than the user's home folder.
+Ordinary PiG chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and Chief Agent orchestration tools (`list_providers`, `create_worktree`, `list_worktrees`, `spawn_agent`, `send_agent`, `wait_agent`, `inspect_agent_diff`, `stop_agent`) inside the selected project folder. Wada does not automatically load repository agent instructions; skills are included when explicitly selected. Without a selected folder, new conversations use a dedicated Inbox rather than the user's home folder.
 
 The composer offers **Ask before changes** (the default) and **Work independently**.
 Ask mode permits reads and searches, and asks before edits, shell commands, or web requests.
@@ -80,12 +80,12 @@ requires explicit resume.
 
 | Package | Responsibility |
 | --- | --- |
-| `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
+| `github.com/xleotranx/wada-kit` | Independently released kit: kernel, window shell, color palette, settings page and plugin diagnostics ([repository](https://github.com/xleotranx/wada-kit)) |
 | `main.go` | Wada's name, window and menus, `--daemon` / `--terminal-worker` dispatch, and the plugins this build installs |
 | `cmd/wadad` | Standalone headless coding-agent daemon (`wadad`) |
 | `cmd/wadad-term` | Detached cross-platform PTY terminal worker (`wadad-term`) surviving daemon restarts |
 | `cmd/wada-relay` | Stateless zero-knowledge Noise NK WebSocket relay (`wada-relay`) for remote/mobile pairing |
-| `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `providers`, `workers`, `pr`, `terminal`, `daemon pair`, `host`) |
+| `cmd/wada` | CLI client (`wada`) talking to local or remote `wadad` (`ls`, `run`, `logs`, `abort`, `delete`, `providers`, `workers`, `pr`, `terminal`, `daemon`, `host`) |
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
 | `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
@@ -102,7 +102,9 @@ requires explicit resume.
 | `internal/plugins/usage` | Context and cost, in the work panel or the composer |
 | `internal/plugins/filechanges` | Session or local uncommitted Git changes and expandable diffs below Context |
 | `internal/plugins/attachments` | Files and images sent with a message |
-| `internal/plugins/markup` | Arrows and boxes drawn on pending screenshots, exported as PNG attachments |
+| `internal/plugins/markup` | Screen capture and annotated screenshots (boxes, arrows, pins, lines, highlights, redaction), exported as PNG attachments |
+| `internal/plugins/mentions` | `@file` and `@folder` completions and contained file attachments in the composer |
+| `internal/plugins/skills` | `/skill` completions and skill attachments in the composer |
 | `internal/plugins/workspace` | Folders and the conversations started here, in `workspace.db` |
 | `internal/plugins/folderpicker` | Open Folder and the new conversation's folder picker |
 | `internal/plugins/tabs` | Tabs across the title strip, one folder's space at a time; the switcher and menus |
@@ -154,7 +156,7 @@ Production settings and app records live under
 
 - `settings.db`: settings; `workspace.db`: folder and conversation records;
   `workflow.db`: tasks and queued inputs; `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
-- `wadad.pid`, `local-credential`, `wadad.log`: local daemon discovery and authentication files.
+- `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`: local daemon discovery, lock, and authentication files.
 - `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`: E2EE relay identity keys, optional remote password hash, and saved remote host profiles.
 - `worktrees/`, `terminal-worker/`: managed secondary Git worktrees and detached PTY worker IPC descriptors.
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
@@ -181,6 +183,8 @@ GOWORK=off make check   # lifetime vet, lint, notices, race and no-cgo tests
 GOWORK=off go build ./...
 make audit             # known Go vulnerabilities
 make secrets           # committed source history
+make web-test          # web client tests and TypeScript typecheck
+make web-build         # web client production bundle
 ```
 
 Tests run plugins in `kerneltest` harnesses with fakes from `internal/plugintest`,

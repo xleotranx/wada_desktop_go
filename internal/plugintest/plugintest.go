@@ -591,7 +591,6 @@ func (t *Tabs) Tabs() []tabs.Tab {
 func (t *Tabs) Active() (tabs.Tab, bool) { return t.Current, t.Current.ID != "" }
 func (t *Tabs) Select(string)            {}
 func (t *Tabs) Close(string)             {}
-func (t *Tabs) Move(string, int)         {}
 func (t *Tabs) Space() string            { return t.Current.Folder }
 
 // Images provides attachment.ServiceKey in memory for tests.

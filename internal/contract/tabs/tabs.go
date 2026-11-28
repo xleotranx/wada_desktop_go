@@ -15,15 +15,6 @@ import (
 var (
 	ServiceKey = kernel.NewKey[Service]("tabs.service")
 
-	// Changed is emitted on the UI thread after the tabs, their order, their
-	// titles or states, or the active tab change.
-	Changed = kernel.NewTopic[struct{}]("tabs.changed")
-
-	// Looks mark the tabs of a kind of conversation, such as a worker chat: the
-	// first whose Applies holds gives the tab its icon and, while it is a
-	// new chat, its title.
-	Looks = kernel.NewPoint[Look]("tabs.looks")
-
 	// EndActions are buttons at the end of the strip, before Settings, such as
 	// the search of All chats.
 	EndActions = kernel.NewPoint[EndAction]("tabs.end-actions")
@@ -36,20 +27,6 @@ type EndAction struct {
 	Tooltip string // such as "All chats  ⌘K"
 	Icon    func() *ui.SVG
 	Run     func()
-}
-
-// Look is how the tabs of a kind of conversation show. Applies runs on the UI
-// thread while drawing, so it only reads state.
-type Look struct {
-	Applies func(t Tab) bool
-	// Icon shows before the title while the conversation is idle, and in
-	// place of a new chat's plus; Name is what assistive technology calls
-	// it, such as "Worker".
-	Icon func() *ui.SVG
-	Name string
-	// Draft is a new chat's title, such as "New worker"; empty keeps
-	// "New chat".
-	Draft string
 }
 
 // Kind is what a tab shows.
@@ -94,8 +71,6 @@ type Service interface {
 	// shows its right neighbor on the strip, else its left one, else a new
 	// chat in its space.
 	Close(id string)
-	// Move puts a tab at index among its folder's tabs.
-	Move(id string, index int)
 	// Space is the folder whose tabs the strip shows; empty for the agent's
 	// default folder.
 	Space() string

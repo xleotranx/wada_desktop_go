@@ -94,7 +94,6 @@ type TerminalBackend interface {
 	ListTerminals(ctx context.Context) ([]protocol.TerminalInfo, error)
 	CreateTerminal(ctx context.Context, req protocol.TerminalCreateRequest) (protocol.TerminalInfo, error)
 	AttachTerminal(ctx context.Context, clientID string, req protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error)
-	DetachTerminal(ctx context.Context, clientID, termID string) error
 	TerminalInput(ctx context.Context, termID string, data []byte) error
 	TerminalResize(ctx context.Context, termID string, cols, rows int) error
 	CaptureTerminal(ctx context.Context, termID string, lines int) (protocol.TerminalCaptureResponse, error)
@@ -254,15 +253,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) ServerID() string   { return s.serverID }
-func (s *Server) Epoch() uint64      { return s.epoch }
-func (s *Server) Credential() string { return s.credential }
+func (s *Server) ServerID() string { return s.serverID }
 func (s *Server) RemoteToken() string {
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.remoteToken
 }
-func (s *Server) RelayKeypair() relay.Keypair { return s.keypair }
 func (s *Server) Addr() string {
 	if s.ln == nil {
 		return ""
@@ -467,7 +463,6 @@ func (s *Server) ServeTransport(tr relay.Transport, peer string) {
 		Features: []string{
 			protocol.CapOwnedSubscriptions,
 			protocol.CapCreationReceipts,
-			protocol.CapBinaryTransfer,
 		},
 	}
 	rawInfo, _ := json.Marshal(info)
@@ -1264,32 +1259,6 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, invalidErr(err)
 		}
 		c.unbindTerminalChannel(req.ID)
-		return map[string]bool{"ok": true}, nil
-	case protocol.MethodTerminalInput:
-		tb, ok := s.cfg.Backend.(TerminalBackend)
-		if !ok {
-			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
-		}
-		var req protocol.TerminalInputRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		if err := tb.TerminalInput(ctx, req.ID, req.Data); err != nil {
-			return nil, internalErr(err)
-		}
-		return map[string]bool{"ok": true}, nil
-	case protocol.MethodTerminalResize:
-		tb, ok := s.cfg.Backend.(TerminalBackend)
-		if !ok {
-			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
-		}
-		var req protocol.TerminalResizeRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		if err := tb.TerminalResize(ctx, req.ID, req.Cols, req.Rows); err != nil {
-			return nil, internalErr(err)
-		}
 		return map[string]bool{"ok": true}, nil
 	case protocol.MethodTerminalCapture:
 		tb, ok := s.cfg.Backend.(TerminalBackend)

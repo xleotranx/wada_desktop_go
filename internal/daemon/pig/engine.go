@@ -28,7 +28,6 @@ type record struct {
 	Parent       string
 	Policy       *protocol.ToolPolicy
 	Attachments  map[string]attachment
-	Baselines    map[string]fileSnapshot `json:"Baselines,omitempty"` // legacy inline migration only
 }
 
 type attachment struct {
@@ -206,27 +205,6 @@ func newEngine(ctx context.Context, root string, spawn func(func(context.Context
 			}
 		}
 		conv := &conversation{rec: r, allowed: map[string]bool{}}
-		if len(conv.rec.Baselines) > 0 {
-			existing, bErr := e.loadBaselines(conv.rec.Session.ID)
-			if bErr != nil {
-				svcs.Close()
-				return nil, bErr
-			}
-			for k, v := range conv.rec.Baselines {
-				if _, ok := existing[k]; !ok {
-					existing[k] = v
-				}
-			}
-			if bErr = e.saveBaselines(conv.rec.Session.ID, existing); bErr != nil {
-				svcs.Close()
-				return nil, bErr
-			}
-			conv.rec.Baselines = nil
-			if bErr = e.saveLocked(conv); bErr != nil {
-				svcs.Close()
-				return nil, bErr
-			}
-		}
 		e.sessions[r.Session.ID] = conv
 	}
 	e.spawn = func(work func(context.Context)) bool {

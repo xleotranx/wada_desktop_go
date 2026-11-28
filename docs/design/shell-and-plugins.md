@@ -1,8 +1,8 @@
 # Shell and the built-in plugins
 
-Declared in `internal/contract/chat`, `internal/contract/tabs`,
-`internal/contract/workspace`, `internal/contract/workflow`, and
-`internal/contract/terminal`, beside the kit's `contract/shell` and
+Declared in `internal/contract/attachments`, `internal/contract/chat`,
+`internal/contract/tabs`, `internal/contract/workspace`, `internal/contract/workflow`,
+and `internal/contract/terminal`, beside the kit's `contract/shell` and
 `contract/settings`; implemented by the plugins named below.
 
 ## Shell
@@ -308,11 +308,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   record keep titles current. States are kept for conversations without a tab as
   well; only a change to a tab on the strip asks for a frame.
 - A tab's marker is its state: a spinner while working, a square while waiting, a
-  dot while unread; a new chat shows a plus. The first `tabs.Looks` entry whose
-  `Applies` holds marks a kind of conversation: its icon, named for
-  assistive technology, shows in place of the plus and while the conversation is
-  idle, and its `Draft` title in place of "New chat" for a new chat. The tab's own
-  title, as `tabs.Service` reports it, is unchanged.
+  dot while unread; a new chat shows a plus.
 - Each tab keeps the text typed and not sent in it. On `chat.Leaving` the text is
   kept under the tab the chat leaves (a new chat's is the last draft tab shown), and
   `chat.Controller.SetDraft` gives it back when that tab is shown again. It is kept
@@ -332,7 +328,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   shadow, the others only while hovered. The close button sits over a tab's end and
   shows on the active tab, on hover and on focus; only the active tab keeps room for it.
   Then a "+" that opens a new chat in the space, then each `tabs.EndActions` entry
-  (All chats' search), whose `Run` is posted after the click, and Settings (shows
+  (All chats' search and Terminal), whose `Run` is posted after the click, and Settings (shows
   `settings.PageID` when contributed).
 - The strip fits its tabs to the width their row had in the previous frame (the first
   frame draws everything and asks for another). Tabs shrink to 80 px; past that, tabs
@@ -349,7 +345,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 ## Settings
 
-The kit's settings page shows as a tab. The tabs, chat, daemon, models, workers and
+The kit's settings page shows as a tab. The tabs, chat, daemon, models and
 notifications plugins contribute their own sections.
 
 ## Model picker

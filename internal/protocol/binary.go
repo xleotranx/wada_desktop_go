@@ -7,21 +7,13 @@ import (
 
 // Binary WebSocket frame opcodes.
 const (
-	OpTermOutput   byte = 0x01
-	OpTermInput    byte = 0x02
-	OpTermResize   byte = 0x03
-	OpTermSnapshot byte = 0x04
+	OpTermOutput byte = 0x01
+	OpTermInput  byte = 0x02
+	OpTermResize byte = 0x03
 	// OpTermExit (server → client, empty payload) ends a channel: the
 	// terminal exited and the server released the channel after its output.
 	OpTermExit byte = 0x05
-
-	OpFileBegin byte = 0x10
-	OpFileChunk byte = 0x11
-	OpFileEnd   byte = 0x12
 )
-
-// FileTransferChunkSize is the standard chunk size for binary file transfers.
-const FileTransferChunkSize = 256 << 10
 
 var errInvalidBinaryFrame = errors.New("protocol: invalid binary frame")
 

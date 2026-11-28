@@ -245,10 +245,6 @@ func (p *Plugin) spaceDot(c *ui.Context, pal native.Palette, folder string) {
 // tab keeps room for it.
 func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 	active := t.ID == p.active
-	look, looked := p.look(t)
-	if looked && t.Kind == tabs.Draft && look.Draft != "" {
-		t.Title = look.Draft
-	}
 	b := ui.ButtonBase(c).Label(t.Title).MaxWidth(tabMaxWidth).MinWidth(tabMinWidth).Shrink(1).Height(tabHeight).
 		Radius(8).Cursor(ui.CursorPointer)
 	fill := pal.StripBg
@@ -270,7 +266,7 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 			end = 4 + closeSize + 4
 		}
 		ui.Row(c).Fill().MinWidth(0).AlignItems(ui.Center).Gap(5).Padding(0, end, 0, 10).Children(func() {
-			p.marker(c, pal, t, look, looked)
+			p.marker(c, pal, t)
 			text := pal.Muted
 			if active {
 				text = pal.Text
@@ -293,8 +289,7 @@ func (p *Plugin) tab(c *ui.Context, pal native.Palette, t tabs.Tab) {
 }
 
 // marker shows what a tab's conversation is doing; a new chat shows a plus.
-// A tab with a look shows its icon instead of the plus, and while idle.
-func (p *Plugin) marker(c *ui.Context, pal native.Palette, t tabs.Tab, look tabs.Look, looked bool) {
+func (p *Plugin) marker(c *ui.Context, pal native.Palette, t tabs.Tab) {
 	state := tabs.Idle
 	if t.Kind != tabs.Draft {
 		state = p.state(t)
@@ -302,23 +297,9 @@ func (p *Plugin) marker(c *ui.Context, pal native.Palette, t tabs.Tab, look tabs
 	switch {
 	case state != tabs.Idle:
 		stateMark(c, pal, state)
-	case looked && look.Icon != nil:
-		ui.Icon(c, look.Icon()).FontSize(12).TextColor(pal.Muted).Shrink(0).Label(look.Name)
 	case t.Kind == tabs.Draft:
 		ui.Icon(c, lucide.Plus()).FontSize(12).TextColor(pal.Muted).Shrink(0)
 	}
-}
-
-// look is the first Look that applies to the tab.
-func (p *Plugin) look(t tabs.Tab) (tabs.Look, bool) {
-	for _, e := range kernel.Items(p.ctx, tabs.Looks) {
-		applies := false
-		kernel.Invoke(p.ctx, e, func(l tabs.Look) { applies = l.Applies != nil && l.Applies(t) })
-		if applies {
-			return e.Value, true
-		}
-	}
-	return tabs.Look{}, false
 }
 
 // stateMark is a conversation's state as a small mark; idle shows none.

@@ -26,7 +26,6 @@ import {
   OP_TERM_INPUT,
   type PendingApproval,
   OP_TERM_OUTPUT,
-  OP_TERM_RESIZE,
   PROTOCOL_VERSION,
   type ServerInfo,
   type SessionInfo,
@@ -35,7 +34,6 @@ import {
   type WorkerInfo,
   decodeBinaryFrame,
   encodeBinaryFrame,
-  encodeTermResize,
 } from "./protocol";
 
 const WS_TEXT = 1;
@@ -44,7 +42,7 @@ const WS_BINARY = 2;
 // as a dead connection.
 const PING_INTERVAL_MS = 10_000;
 
-export interface ConnectConfig {
+interface ConnectConfig {
   offer?: string;
   endpoint?: string;
   credential?: string;
@@ -53,10 +51,7 @@ export interface ConnectConfig {
 }
 
 export interface AttachedTerminal {
-  info: TerminalInfo;
-  channel: number;
   writeInput: (data: Uint8Array) => void;
-  resize: (cols: number, rows: number) => void;
   close: () => Promise<void>;
 }
 
@@ -76,7 +71,6 @@ export class WadaClient {
   // live is true from a completed connect until the socket is torn down.
   private live = false;
   private subId = "";
-  public serverInfo: ServerInfo | null = null;
   public mode: "relay" | "direct" = "direct";
 
   constructor(private readonly cfg: ConnectConfig) {
@@ -174,7 +168,7 @@ export class WadaClient {
         appVersion: "0.1.0-dev",
         credential: cred || undefined,
         password: password || undefined,
-        capabilities: ["owned_subscriptions", "creation_receipts", "binary_transfer"],
+        capabilities: ["owned_subscriptions", "creation_receipts"],
       },
     };
     this.sendEnvelope(helloEnv);
@@ -186,7 +180,7 @@ export class WadaClient {
     if (infoEnv.type !== ENV_SERVER_INFO || !infoEnv.payload) {
       throw new Error(`Unexpected handshake frame: ${infoEnv.type}`);
     }
-    this.serverInfo = infoEnv.payload as ServerInfo;
+    const serverInfo = infoEnv.payload as ServerInfo;
 
     // Only the current socket may drive the client: a socket that was torn
     // down can still deliver frames or a late close.
@@ -206,7 +200,7 @@ export class WadaClient {
     this.live = true;
 
     for (const cb of this.statusListeners) cb("connected");
-    return this.serverInfo;
+    return serverInfo;
   }
 
   close(): void {
@@ -549,13 +543,8 @@ export class WadaClient {
     if (res.snapshot) onChunk(decodeBase64Url(res.snapshot));
     this.termListeners.set(res.channel, onChunk);
     return {
-      info: res.info,
-      channel: res.channel,
       writeInput: (data: Uint8Array) => {
         this.sendWire(WS_BINARY, encodeBinaryFrame(OP_TERM_INPUT, res.channel, data));
-      },
-      resize: (c: number, r: number) => {
-        this.sendWire(WS_BINARY, encodeBinaryFrame(OP_TERM_RESIZE, res.channel, encodeTermResize(c, r)));
       },
       close: async () => {
         this.termListeners.delete(res.channel);

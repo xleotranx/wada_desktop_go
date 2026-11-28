@@ -238,32 +238,6 @@ func (p *Plugin) Close(id string) {
 	p.Select(shown[min(at, len(shown)-1)].ID)
 }
 
-func (p *Plugin) Move(id string, index int) {
-	i := p.find(id)
-	if i < 0 {
-		return
-	}
-	t := p.tabs[i]
-	p.tabs = slices.Delete(p.tabs, i, i+1)
-	var group []int
-	for j, o := range p.tabs {
-		if o.Folder == t.Folder {
-			group = append(group, j)
-		}
-	}
-	var at int
-	switch {
-	case len(group) == 0:
-		at = min(i, len(p.tabs))
-	case index < len(group):
-		at = group[max(index, 0)]
-	default:
-		at = group[len(group)-1] + 1
-	}
-	p.tabs = slices.Insert(p.tabs, at, t)
-	p.changed()
-}
-
 func (p *Plugin) Space() string { return p.space }
 
 // step selects the tab of the space by off from the active one, wrapping
@@ -668,7 +642,6 @@ func (p *Plugin) changed() {
 	}
 	p.saved.Set(keep)
 	p.savedActive.Set(active)
-	kernel.Emit(p.ctx, tabs.Changed, struct{}{})
 }
 
 // ensureColor gives a folder the first project color no other folder has.

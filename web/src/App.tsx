@@ -608,9 +608,9 @@ export function App() {
           {e2eeMode === "direct" && <span className="pill">Direct WS</span>}
           <span className={`pill pill-${connState}`}>{connState}</span>
         </div>
-        <div className="topbar-actions">
+        <div className="row">
           <button
-            className="btn btn-secondary"
+            className="btn"
             onClick={() => {
               setPairName("My Workstation");
               setPairInput("");
@@ -776,7 +776,7 @@ export function App() {
                 ))}
 
                 {liveDelta && (
-                  <div className="msg msg-assistant">
+                  <div className="msg">
                     <div className="msg-role">Agent (streaming)</div>
                     <pre className="msg-text">{liveDelta}</pre>
                   </div>
@@ -858,7 +858,7 @@ export function App() {
           )}
 
           {rightTab === "terminal" && (
-            <div className="panel terminal-pane">
+            <div className="panel">
               <div className="term-bar">
                 {terminals.map((t) => (
                   <div key={t.id} className={`term-tab ${t.id === activeTermId ? "active" : ""}`}>
@@ -941,7 +941,7 @@ export function App() {
               />
             </label>
             <div className="row end">
-              <button type="button" className="btn btn-secondary" onClick={() => setPairOpen(false)}>
+              <button type="button" className="btn" onClick={() => setPairOpen(false)}>
                 Cancel
               </button>
               <button type="submit" className="btn btn-primary">

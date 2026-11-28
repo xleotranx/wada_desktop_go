@@ -114,7 +114,6 @@ type termSub struct {
 type Worker struct {
 	dataDir string
 	secret  string
-	ln      net.Listener
 	cleanup func()
 
 	ctx    context.Context
@@ -166,7 +165,6 @@ func RunWorker(ctx context.Context, dataDir string) error {
 	w := &Worker{
 		dataDir: dataDir,
 		secret:  secret,
-		ln:      ln,
 		cleanup: cleanup,
 		ctx:     wctx,
 		cancel:  cancel,

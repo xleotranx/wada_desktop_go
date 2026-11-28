@@ -584,7 +584,6 @@ func (r *Runtime) Rewind(ctx context.Context, id, msg string) (string, error) {
 	}
 	copyRec := c.rec
 	copyRec.Attachments = maps.Clone(c.rec.Attachments)
-	copyRec.Baselines = nil
 	copyRec.Path = c.session.Path()
 	fork := &conversation{rec: copyRec, allowed: map[string]bool{}}
 	fork.lifetime.RLock()

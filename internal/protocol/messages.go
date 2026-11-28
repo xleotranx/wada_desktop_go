@@ -51,8 +51,6 @@ const (
 	MethodTerminalCreate  = "terminal.create"
 	MethodTerminalAttach  = "terminal.attach"
 	MethodTerminalDetach  = "terminal.detach"
-	MethodTerminalInput   = "terminal.input"
-	MethodTerminalResize  = "terminal.resize"
 	MethodTerminalCapture = "terminal.capture"
 	MethodTerminalKill    = "terminal.kill"
 

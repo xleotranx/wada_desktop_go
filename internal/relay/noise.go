@@ -36,13 +36,6 @@ type CipherState struct {
 }
 
 func (cs *CipherState) initializeKey(k *[keySize]byte) error {
-	if k == nil {
-		cs.hasKey = false
-		cs.nonce = 0
-		cs.aead = nil
-		cs.key = [keySize]byte{}
-		return nil
-	}
 	aead, err := chacha20poly1305.New(k[:])
 	if err != nil {
 		return err

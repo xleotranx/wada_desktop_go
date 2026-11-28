@@ -117,6 +117,7 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 		Text:      req.Text,
 		Files:     files,
 		Skills:    skills,
+		Deliver:   toProtoDelivery(req.Deliver),
 	})
 	if err != nil {
 		var rpcErr *protocol.RPCError

@@ -449,8 +449,12 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				p.editBanner(c, pal)
 			}
 			p.completionList(c, pal)
+			sendLabel, placeholder := "Send", "Message the agent"
+			if p.running() && p.conv.Session != "" {
+				sendLabel, placeholder = "Steer", "Steer the agent — ⇧⌘↩ after this turn, ⌥⌘↩ to interrupt"
+			}
 			options := onechat.ComposerOptions{
-				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send", StopLabel: "Stop",
+				Label: "Compose", Placeholder: placeholder, SendLabel: sendLabel, StopLabel: "Stop",
 				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
 			}
 			if len(attachments) > 0 {

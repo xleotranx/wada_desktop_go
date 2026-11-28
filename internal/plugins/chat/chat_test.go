@@ -511,18 +511,6 @@ func TestCannotSendWhileHistoryIsLoading(t *testing.T) {
 	}
 }
 
-func TestCannotSendWhileATurnRuns(t *testing.T) {
-	h, p, f, _ := start(t)
-	openTurn(t, h, p, f)
-	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}})
-	p.draft = "next"
-	p.send()
-	h.Flush()
-	if f.Called("send") != 0 || p.draft != "next" {
-		t.Fatalf("sent during a turn: calls=%q draft=%q", f.Calls(), p.draft)
-	}
-}
-
 func TestAChatLeftWhileStartingIsStillAnnouncedAndSent(t *testing.T) {
 	h, p, f, _ := start(t)
 	var started []chat.Conversation
@@ -1086,5 +1074,42 @@ func TestPendingRequestsSurviveHistoryReload(t *testing.T) {
 	}
 	if questions != 1 || approvals != 1 {
 		t.Fatalf("requests lost: questions=%d approvals=%d", questions, approvals)
+	}
+}
+
+func TestMessagesDuringATurnSteerQueueOrInterrupt(t *testing.T) {
+	h, p, f, _ := start(t)
+	var delivered []agent.Delivery
+	f.OnSend = func(req agent.Send) { delivered = append(delivered, req.Deliver) }
+	p.Open(agent.Session{ID: "s1", Directory: "/work"})
+	h.Flush()
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}})
+	if !p.running() {
+		t.Fatal("the turn isn't running")
+	}
+	p.draft = "keep it short"
+	p.send()
+	h.Flush()
+	p.draft = "then add tests"
+	p.sendDuring(agent.DeliverQueue)
+	h.Flush()
+	p.draft = "stop, do this instead"
+	p.sendDuring(agent.DeliverInterrupt)
+	h.Flush()
+	if !slices.Equal(delivered, []agent.Delivery{agent.DeliverSteer, agent.DeliverQueue, agent.DeliverInterrupt}) {
+		t.Fatalf("delivered %v", delivered)
+	}
+	if got := f.Calls(); !slices.Contains(got, "send s1 keep it short") || p.draft != "" || !p.reloadAfterTurn {
+		t.Fatalf("calls %q, draft %q, reload %v", got, p.draft, p.reloadAfterTurn)
+	}
+
+	// A refusal is said in the transcript.
+	f.Fail = map[string]error{"Send": fmt.Errorf("%w: a message for a running turn takes text only", agent.ErrNotSent)}
+	p.draft = "more"
+	p.send()
+	h.Flush()
+	last := p.t.rows[len(p.t.rows)-1]
+	if !strings.Contains(last.text, "The message was not sent: a message for a running turn takes text only.") {
+		t.Fatalf("last row %+v", last)
 	}
 }

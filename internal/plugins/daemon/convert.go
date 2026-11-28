@@ -511,3 +511,16 @@ func fromProtoTerminal(t protocol.TerminalInfo) terminal.Info {
 		CreatedAt: created,
 	}
 }
+
+func toProtoDelivery(d agent.Delivery) protocol.Delivery {
+	switch d {
+	case agent.DeliverSteer:
+		return protocol.DeliverSteer
+	case agent.DeliverQueue:
+		return protocol.DeliverQueue
+	case agent.DeliverInterrupt:
+		return protocol.DeliverInterrupt
+	case agent.DeliverAlone:
+	}
+	return ""
+}

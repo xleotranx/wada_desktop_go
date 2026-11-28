@@ -688,6 +688,9 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		if err := harnessCanTake(req); err != nil {
 			return "", fmt.Errorf("%w: %s %w", pig.ErrNotSent, w.snapshot().Provider, err)
 		}
+		if err := o.clearWorker(ctx, w, req.Deliver); err != nil {
+			return "", err
+		}
 		// Mark the worker running before the prompt goes out, so a wait right
 		// after this send cannot see the previous turn's result.
 		w.mu.Lock()
@@ -730,6 +733,37 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 
 // harnessCanTake refuses what an external CLI harness cannot be given: it
 // takes a prompt's text, nothing else.
+// clearWorker readies a running worker for a message: an interrupt stops
+// its turn and waits for it to end. External harnesses can't be steered, so
+// a steer or a queue is refused; a plain send goes to the harness as before.
+func (o *Orchestrator) clearWorker(ctx context.Context, w *managedWorker, deliver protocol.Delivery) error {
+	busy := func() bool {
+		st := w.snapshot().Status
+		return st == protocol.WorkerRunning || st == protocol.WorkerWaitingApproval
+	}
+	if deliver == "" || !busy() {
+		return nil
+	}
+	if deliver != protocol.DeliverInterrupt {
+		return fmt.Errorf("%w: %s is running and can only be interrupted", pig.ErrNotSent, w.snapshot().Provider)
+	}
+	if err := w.sess.Abort(ctx); err != nil {
+		return fmt.Errorf("%w: %v", pig.ErrNotSent, err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for busy() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: the running turn didn't stop", pig.ErrNotSent)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
 func harnessCanTake(req protocol.SendRequest) error {
 	var unsupported []string
 	if len(req.Files) > 0 {

@@ -113,9 +113,17 @@ bounded backpressure: at most 64 events or 256 KiB per batch, collected for at m
 
 `Send` reports admission through `SendAccepted`, `SendQueued` or `SendHandled`;
 execution is observed through events. PiG's prompt preflight callback supplies the
-disposition. A turn owns its lifetime independently of navigation. Chat prevents
-concurrent prompts to one session, and the backend refuses a busy session before
-sending. Different sessions can run independently.
+disposition. A turn owns its lifetime independently of navigation. Different
+sessions can run independently.
+
+A message sent while a session's turn runs goes as its `Deliver` says; without
+one the backend refuses it with `ErrNotSent`. `DeliverSteer` hands it to PiG's
+`Steer`, before the turn's next model call; `DeliverQueue` to `FollowUp`, as the
+next turn once this one ends; both take text only and report `SendQueued`.
+`DeliverInterrupt` aborts the running turn, waits up to 15 seconds for it to
+end, then sends as a turn of its own. External harness workers can't be steered:
+a steer or a queue to a running worker is refused, an interrupt aborts its turn
+first, and a plain send goes to the harness as it is.
 
 The first send binds extension UI and dispatches `session_start` outside the
 metadata lock. Later prompts reuse successful bindings for that SDK session;

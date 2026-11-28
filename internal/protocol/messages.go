@@ -308,7 +308,20 @@ type SendRequest struct {
 	Text      string     `json:"text"`
 	Files     []File     `json:"files,omitempty"`
 	Skills    []SkillRef `json:"skills,omitempty"`
+	// Deliver says what happens to a message sent while a turn runs: steer
+	// it into the turn, queue it after the turn, or interrupt the turn and
+	// send it. Empty refuses it as not sent.
+	Deliver Delivery `json:"deliver,omitempty"`
 }
+
+// Delivery is how a message sent during a turn reaches the agent.
+type Delivery string
+
+const (
+	DeliverSteer     Delivery = "steer"     // before the turn's next model call
+	DeliverQueue     Delivery = "queue"     // once the turn ends, as the next turn
+	DeliverInterrupt Delivery = "interrupt" // stop the turn, then send
+)
 
 type SendResponse struct {
 	Disposition SendDisposition `json:"disposition"`

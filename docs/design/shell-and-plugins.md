@@ -25,8 +25,17 @@ window title.
 
 `internal/plugins/chat` (locked) requires `agent.ServiceKey` and `shell.HostKey`,
 provides `chat.ControllerKey`, and contributes the `chat.PageID` page with the
-"Toggle Work Panel" (⌘B, View) and "Stop the Agent" (⌘.) commands, and a
-Conversation settings section with the work panel's switch.
+"Toggle Work Panel" (⌘B, View), "Stop the Agent" (⌘.), "Send After This Turn"
+(⇧⌘↩) and "Interrupt and Send" (⌥⌘↩) commands, and a Conversation settings
+section with the work panel's switch.
+
+- While a turn runs, the composer's Send becomes Steer: the message joins the
+  running turn (`agent.DeliverSteer`). Send After This Turn queues it as the next
+  turn, and Interrupt and Send stops the turn and sends it. The message shows in
+  the transcript at once, and the transcript is read again when the turn ends,
+  where the agent took it. Steering and queueing take text only; a draft the
+  outgoing pipeline gave files or skills is refused with a toast. A refusal or a
+  failure is said in the transcript.
 
 - A chat with nothing in it yet centers the composer between a greeting (with the
   chosen folder) and, for a new chat, the `chat.Starters` views. A new chat with no

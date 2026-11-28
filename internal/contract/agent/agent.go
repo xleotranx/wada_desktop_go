@@ -312,7 +312,20 @@ type Send struct {
 	Text    string
 	Files   []File
 	Skills  []SkillRef // skills the backend attaches to this message
+	// Deliver says what happens to a message sent while a turn runs; the
+	// default refuses it with ErrNotSent.
+	Deliver Delivery
 }
+
+// Delivery is how a message sent during a running turn reaches the agent.
+type Delivery uint8
+
+const (
+	DeliverAlone     Delivery = iota // only when no turn runs
+	DeliverSteer                     // into the running turn, before its next model call
+	DeliverQueue                     // as the next turn, once the running one ends
+	DeliverInterrupt                 // stop the running turn, then send
+)
 
 // SkillRef is one skill attached to a message.
 type SkillRef struct {

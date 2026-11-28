@@ -148,6 +148,8 @@ type Workspaces interface {
 	// Workspaces lists every project's active workspaces, and with archived
 	// the archived ones.
 	Workspaces(ctx context.Context, archived bool) ([]Workspace, error)
+	// ProjectFolders returns directory suggestions for an absolute path prefix on the backend.
+	ProjectFolders(ctx context.Context, prefix string) ([]string, error)
 	// AddProject returns the active project at root and its project-directory
 	// workspace, restoring an archived one or creating one.
 	AddProject(ctx context.Context, root string) (Project, Workspace, error)

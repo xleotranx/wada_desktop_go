@@ -249,6 +249,32 @@ func TestRemoteProjectUsesHostPathAndKeepsTheDialogOnError(t *testing.T) {
 	}
 }
 
+func TestRemoteProjectFillsThePathFromASuggestion(t *testing.T) {
+	f := start(t)
+	f.a.State.RemoteHost = "dev-box"
+	f.record.Dirs = append(f.record.Dirs, "/srv/demo project")
+	var got agent.Workspace
+	f.p.ChooseProject(func(w agent.Workspace) { got = w })
+	tt := ui.NewTester(f.p.projectDialog, 650, 500)
+	tt.Frame()
+	tt.Type("/srv/de")
+	f.until(t, "suggestions", func() bool { return len(f.p.remoteProject.folders) == 1 })
+	tt.Frame()
+	if err := tt.Click("/srv/demo project"); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "" || f.p.remoteProject.path != "/srv/demo project" {
+		t.Fatalf("selecting a suggestion added %+v, input %q", got, f.p.remoteProject.path)
+	}
+	if err := tt.Click("Add project"); err != nil {
+		t.Fatal(err)
+	}
+	f.until(t, "the selected project is added", func() bool { return got.ID != "" })
+	if got.Directory != "/srv/demo project" {
+		t.Fatalf("added %+v", got)
+	}
+}
+
 func TestDisconnectClosesRemoteProjectDialog(t *testing.T) {
 	f := start(t)
 	f.a.State.RemoteHost = "dev-box"

@@ -49,7 +49,8 @@ type Plugin struct {
 	picking   kernel.Task
 	archiving kernel.Task
 
-	remoteProject projectForm
+	remoteProject  projectForm
+	projectFolders kernel.Task
 	// choose asks the user for a folder, off the UI thread; tests replace it.
 	choose func() (string, error)
 	// now is the clock, in Unix milliseconds; tests replace it.
@@ -183,6 +184,7 @@ func (p *Plugin) ChooseProject(done func(agent.Workspace)) {
 		return
 	}
 	if st.RemoteHost != "" {
+		p.projectFolders.Cancel()
 		p.remoteProject = projectForm{open: true, host: st.RemoteHost, done: done}
 		p.ctx.Invalidate()
 		return
@@ -506,6 +508,7 @@ func (p *Plugin) touch(s *agent.Session) { s.Updated = max(s.Updated, p.now()) }
 func (p *Plugin) statusChanged(st agent.Status) {
 	if st.State != agent.Ready || st.Origin != p.origin {
 		p.picking.Cancel()
+		p.projectFolders.Cancel()
 		p.remoteProject = projectForm{}
 	}
 	if st.Origin != p.origin {

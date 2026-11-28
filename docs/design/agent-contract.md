@@ -234,6 +234,10 @@ CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
   all-sessions subscription as a `workspace_updated` event carrying the project or
   workspace. These events are not kept in the timeline: a client lists the record
   again when it connects.
+- `workspace.project.folders` suggests up to eight matching directory paths on
+  the daemon host from an absolute path prefix. A trailing separator lists
+  children. Suggestions skip hidden folders unless the name prefix starts with
+  a dot.
 - `workspace.project.add` requires an absolute path to an existing directory on
   the daemon host. It returns the active project and workspace at that root,
   restores the most recently archived pair there, or creates a new pair.

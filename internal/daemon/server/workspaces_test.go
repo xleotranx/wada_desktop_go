@@ -16,6 +16,43 @@ import (
 	"wada-desktop-go/internal/protocol"
 )
 
+func TestProjectFoldersSuggestsDirectoriesOnTheDaemon(t *testing.T) {
+	dataDir := t.TempDir()
+	startTestServer(t, dataDir)
+	c, err := client.DialLocal(t.Context(), dataDir, client.Options{ClientType: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	root := t.TempDir()
+	for _, name := range []string{"demo-b", ".local", "demo-a"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "demo-file"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		prefix string
+		want   []string
+	}{
+		{filepath.Join(root, "demo"), []string{filepath.Join(root, "demo-a"), filepath.Join(root, "demo-b")}},
+		{root + string(os.PathSeparator), []string{filepath.Join(root, "demo-a"), filepath.Join(root, "demo-b")}},
+		{filepath.Join(root, ".l"), []string{filepath.Join(root, ".local")}},
+		{filepath.Join(root, "absent") + string(os.PathSeparator), nil},
+		{filepath.Join(root, "demo-file") + string(os.PathSeparator), nil},
+	} {
+		got, err := c.ProjectFolders(t.Context(), tc.prefix)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Fatalf("folders for %q = %v, %v; want %v", tc.prefix, got, err, tc.want)
+		}
+	}
+	if _, err := c.ProjectFolders(t.Context(), "relative"); !isCode(err, protocol.ErrCodeInvalid) {
+		t.Fatalf("relative prefix = %v, want invalid", err)
+	}
+}
+
 func TestAddProjectRequiresAnExistingHostDirectory(t *testing.T) {
 	dataDir := t.TempDir()
 	startTestServer(t, dataDir)

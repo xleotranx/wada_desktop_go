@@ -51,6 +51,16 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 			return nil, workspaceErr(err)
 		}
 		return protocol.ProjectAddResponse{Project: p, Workspace: w}, nil
+	case protocol.MethodProjectFolders:
+		var req protocol.ProjectFoldersRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		folders, err := projectFolders(ctx, req.Prefix)
+		if err != nil {
+			return nil, invalidErr(err)
+		}
+		return folders, nil
 	case protocol.MethodProjectRename:
 		var req protocol.ProjectRenameRequest
 		if rerr := decode(&req); rerr != nil {

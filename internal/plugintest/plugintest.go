@@ -947,6 +947,18 @@ func (f *Projects) BaseChanges(context.Context, agent.WorkspaceID) ([]agent.File
 	return slices.Clone(f.Base), nil
 }
 
+func (f *Projects) ProjectFolders(_ context.Context, prefix string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var matches []string
+	for _, dir := range f.Dirs {
+		if strings.HasPrefix(dir, prefix) && dir != prefix {
+			matches = append(matches, dir)
+		}
+	}
+	return matches, f.Fail["ProjectFolders"]
+}
+
 func (f *Projects) AddProject(_ context.Context, root string) (agent.Project, agent.Workspace, error) {
 	if err := f.fail("AddProject"); err != nil {
 		return agent.Project{}, agent.Workspace{}, err

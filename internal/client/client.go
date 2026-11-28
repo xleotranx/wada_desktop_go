@@ -894,6 +894,12 @@ func (c *Client) Projects(ctx context.Context, archived bool) ([]protocol.Projec
 	return out, c.Call(ctx, protocol.MethodProjectsList, protocol.ProjectsListRequest{Archived: archived}, &out)
 }
 
+// ProjectFolders suggests absolute directory paths on the daemon host.
+func (c *Client) ProjectFolders(ctx context.Context, prefix string) ([]string, error) {
+	var out []string
+	return out, c.Call(ctx, protocol.MethodProjectFolders, protocol.ProjectFoldersRequest{Prefix: prefix}, &out)
+}
+
 func (c *Client) AddProject(ctx context.Context, root string) (protocol.ProjectAddResponse, error) {
 	var out protocol.ProjectAddResponse
 	return out, c.Call(ctx, protocol.MethodProjectAdd, protocol.ProjectAddRequest{Root: root}, &out)

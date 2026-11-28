@@ -242,7 +242,6 @@ func TestStreamingApprovalsChangesAndImageFit(t *testing.T) {
 
 	disp := call(t, h, func(ctx context.Context) (agent.SendDisposition, error) {
 		return p.Send(ctx, agent.Send{
-			ID:      "turn-req-1",
 			Session: s.ID,
 			Text:    "Update app.go",
 			Files:   []agent.File{{Name: "note.txt", MIME: "text/plain", Data: []byte("attached")}},

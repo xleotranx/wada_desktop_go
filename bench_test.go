@@ -18,7 +18,6 @@ import (
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
-	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/markup"
 	"wada-desktop-go/internal/plugins/mentions"
 	"wada-desktop-go/internal/plugins/models"
@@ -27,7 +26,6 @@ import (
 	"wada-desktop-go/internal/plugins/skills"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
-	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -138,7 +136,7 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	s, err := shell.New(shell.Options{Post: post, Strict: true,
 		Store: kerneltest.NewStore()}, f.New, ws.New, plugintest.NewFiles(nil).New, plugintest.NewSkills().New,
 		chat.New, models.New, usage.New, filechanges.New, attachments.New, markup.New, mentions.New, skills.New,
-		tabs.New, explore.New, workflow.New, flows.New, palette.New, notifications.New, inspector.New, settings.New)
+		tabs.New, explore.New, palette.New, notifications.New, inspector.New, settings.New)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -102,10 +102,6 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 	if err != nil {
 		return 0, err
 	}
-	msgID := req.ID
-	if msgID == "" {
-		msgID = uuid.NewString()
-	}
 	files := make([]protocol.File, len(req.Files))
 	for i, f := range req.Files {
 		files[i] = toProtoFile(f)
@@ -115,17 +111,12 @@ func (p *Plugin) Send(ctx context.Context, req agent.Send) (agent.SendDispositio
 		skills[i] = protocol.SkillRef{ID: s.ID}
 	}
 	disp, err := cli.Send(ctx, protocol.SendRequest{
-		ID:           req.ID,
-		MessageID:    msgID,
-		Session:      string(req.Session),
-		Mode:         req.Mode,
-		Text:         req.Text,
-		Instructions: req.Instructions,
-		Policy:       toProtoToolPolicy(req.Policy),
-		ResultSchema: req.ResultSchema,
-		Internal:     req.Internal,
-		Files:        files,
-		Skills:       skills,
+		MessageID: uuid.NewString(),
+		Session:   string(req.Session),
+		Mode:      req.Mode,
+		Text:      req.Text,
+		Files:     files,
+		Skills:    skills,
 	})
 	if err != nil {
 		var rpcErr *protocol.RPCError
@@ -276,30 +267,6 @@ func (p *Plugin) Changes(ctx context.Context, id agent.SessionID) ([]agent.FileC
 		return nil, err
 	}
 	changes, err := cli.Changes(ctx, string(id))
-	if err != nil {
-		return nil, err
-	}
-	return fromProtoChanges(changes), nil
-}
-
-func (p *Plugin) Snapshot(ctx context.Context, id agent.SessionID) (agent.Snapshot, error) {
-	cli, err := p.current()
-	if err != nil {
-		return nil, err
-	}
-	files, err := cli.Snapshot(ctx, string(id))
-	if err != nil {
-		return nil, err
-	}
-	return agent.Snapshot(files), nil
-}
-
-func (p *Plugin) Diff(ctx context.Context, id agent.SessionID, before agent.Snapshot) ([]agent.FileChange, error) {
-	cli, err := p.current()
-	if err != nil {
-		return nil, err
-	}
-	changes, err := cli.Diff(ctx, string(id), map[string][]byte(before))
 	if err != nil {
 		return nil, err
 	}

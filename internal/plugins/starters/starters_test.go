@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -47,13 +46,8 @@ func TestAProjectOffersCodeStarters(t *testing.T) {
 			t.Fatalf("missing %q: %q", want, tt.Texts())
 		}
 	}
-	selected := "unset"
-	kernel.On(h, chat.WorkflowSelected, func(id string) { selected = id })
 	if err := tt.Click("Explain this project"); err != nil {
 		t.Fatal(err)
-	}
-	if selected != "" {
-		t.Fatalf("a code starter kept a workflow: %q", selected)
 	}
 	if !strings.HasPrefix(ctl.Draft, "Give me a tour") {
 		t.Fatalf("draft %q", ctl.Draft)

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path"
 	"slices"
@@ -20,7 +18,6 @@ import (
 	"wada-desktop-go/internal/plugins/chat"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
-	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/folderpicker"
 	"wada-desktop-go/internal/plugins/markup"
 	"wada-desktop-go/internal/plugins/mentions"
@@ -30,7 +27,6 @@ import (
 	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
-	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 	"wada-desktop-go/internal/plugintest"
 
@@ -91,7 +87,7 @@ func startApp(t *testing.T) *app {
 	}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a.New, files.New, chat.New, models.New, modes.New, usage.New, filechanges.New, attachments.New, markup.New, mentions.New,
-		workspace.New, folderpicker.New, tabs.New, explore.New, workflow.New, flows.New, starters.New, palette.New, inspector.New, settings.New)
+		workspace.New, folderpicker.New, tabs.New, explore.New, starters.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,20 +290,6 @@ func TestMentionedFilesGoWithTheMessage(t *testing.T) {
 	}
 }
 
-// completeWorkflow scripts the same main session through all phases and a
-// distinct reviewer. The protocol is exercised through the composed native UI.
-func completeWorkflow(a *plugintest.Agent, req agent.Send) {
-	result := `{"status":"ready","summary":"Implemented and checked."}`
-	if strings.Contains(string(req.ResultSchema), `"findings"`) {
-		result = `{"status":"pass","summary":"Independent review passed.","findings":[]}`
-	}
-	if strings.Contains(string(req.ResultSchema), `"action"`) {
-		result = `{"action":"answer","summary":"Because the parser needs it."}`
-	}
-	a.Emit(agent.Event{Kind: agent.TurnStarted, Session: req.Session, RequestID: req.ID},
-		agent.Event{Kind: agent.TextEnded, Session: req.Session, RequestID: req.ID, Text: &agent.TextEvent{Message: agent.MessageID(req.ID), Text: "Implemented and checked."}},
-		agent.Event{Kind: agent.TurnSucceeded, Session: req.Session, RequestID: req.ID, Result: json.RawMessage(result)})
-}
 func TestACodeStarterFillsTheComposer(t *testing.T) {
 	a := startApp(t)
 	dir := t.TempDir()
@@ -328,102 +310,6 @@ func TestACodeStarterFillsTheComposer(t *testing.T) {
 	a.settle()
 	if !strings.HasPrefix(ctl.DraftText(), "Give me a tour") {
 		t.Fatalf("draft %q", ctl.DraftText())
-	}
-}
-
-func TestPlanCodeReviewCommandSelectsCurrentComposer(t *testing.T) {
-	a := startApp(t)
-	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
-	a.agent.OnSend = func(req agent.Send) { completeWorkflow(a.agent, req) }
-	a.command("flows.plan-work-review")
-	if a.tt.HasText("Start a workflow") || !a.tt.HasText("Plan, code, review") {
-		t.Fatalf("command did not select composer: %q", a.tt.Texts())
-	}
-	if err := a.tt.Click("Compose"); err != nil {
-		t.Fatal(err)
-	}
-	a.tt.Type("add a verbose flag")
-	a.settle()
-	if err := a.tt.Click("Send"); err != nil {
-		t.Fatal(err)
-	}
-	a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
-	children := a.agent.SpawnRequests()
-	if len(children) != 1 {
-		t.Fatalf("children %+v", children)
-	}
-	if a.agent.Called("send "+string(children[0].Parent)+" ") != 3 {
-		t.Fatalf("main execution %v", a.agent.Calls())
-	}
-	if err := a.tt.Click("Details"); err != nil {
-		t.Fatal(err)
-	}
-	a.settle()
-	if !a.tt.HasText("pass · Independent review passed.") {
-		t.Fatalf("missing review detail: %q", a.tt.Texts())
-	}
-}
-func TestTheModePickerRunsWorkflowInsideNewAndExistingChat(t *testing.T) {
-	for _, existing := range []bool{false, true} {
-		t.Run(fmt.Sprint(existing), func(t *testing.T) {
-			a := startApp(t)
-			a.agent.Numbered = true
-			a.agent.OnSend = func(req agent.Send) { completeWorkflow(a.agent, req) }
-			if existing {
-				a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
-			} else {
-				a.newChatIn("docs")
-			}
-			if err := a.tt.Click("Compose"); err != nil {
-				t.Fatal(err)
-			}
-			a.tt.Type("outline the guide")
-			a.settle()
-			if err := a.tt.Click("Build"); err != nil {
-				t.Fatal(err)
-			}
-			a.settle()
-			if err := a.tt.Click("Plan, code, review"); err != nil {
-				t.Fatal(err)
-			}
-			a.settle()
-			if err := a.tt.Click("Send"); err != nil {
-				t.Fatal(err)
-			}
-			a.until("review completion", func() bool { return a.tt.HasText("Plan, code, review · Passed") })
-			ctl, _ := kernel.Use(a.shell.Kernel, chatcontract.ControllerKey)
-			current := ctl.Current()
-			if existing && current.Session != "s2" {
-				t.Fatal("workflow left existing chat")
-			}
-			if !a.tt.HasText("Build") || !a.tt.HasText("outline the guide") {
-				t.Fatalf("chat and reset picker missing: %q", a.tt.Texts())
-			}
-			children := a.agent.SpawnRequests()
-			if len(children) != 1 || children[0].Parent != current.Session {
-				t.Fatalf("children %+v", children)
-			}
-			ws, _ := kernel.Use(a.shell.Kernel, wscontract.ServiceKey)
-			if _, ok := ws.Lookup(children[0].Parent); !ok {
-				t.Fatal("main conversation unrecorded")
-			}
-			if _, ok := ws.Lookup("child-1"); ok {
-				t.Fatal("reviewer listed as top-level chat")
-			}
-			if err := a.tt.Click("Compose"); err != nil {
-				t.Fatal(err)
-			}
-			a.tt.Type("why this approach?")
-			a.settle()
-			if err := a.tt.Click("Send"); err != nil {
-				t.Fatal(err)
-			}
-			a.until("follow-up answered", func() bool { return a.agent.Called("send "+string(current.Session)+" why this approach?") == 1 })
-			a.settle()
-			if len(a.agent.SpawnRequests()) != 1 {
-				t.Fatal("question restarted review")
-			}
-		})
 	}
 }
 
@@ -481,40 +367,5 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	a.settle()
 	if !a.tt.HasText("+new") {
 		t.Fatalf("file diff did not open: %q", a.tt.Texts())
-	}
-}
-
-func TestFollowupCanBeQueuedAndRemovedWhilePlanRuns(t *testing.T) {
-	a := startApp(t)
-	a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
-	a.agent.OnSend = func(req agent.Send) {}
-	a.command("flows.plan-work-review")
-	if err := a.tt.Click("Compose"); err != nil {
-		t.Fatal(err)
-	}
-	a.tt.Type("implement a flag")
-	a.settle()
-	if err := a.tt.Click("Send"); err != nil {
-		t.Fatal(err)
-	}
-	a.until("planning", func() bool { return a.agent.Called("send s2 implement a flag") == 1 })
-	if err := a.tt.Click("Compose"); err != nil {
-		t.Fatal(err)
-	}
-	a.tt.Type("why this approach?")
-	a.settle()
-	if err := a.tt.Click("Send"); err != nil {
-		t.Fatal(err)
-	}
-	a.until("queue visible", func() bool { return a.tt.HasText("Queued · handled after the active turn") })
-	if a.agent.Called("send s2 why this approach?") != 0 {
-		t.Fatal("followup bypassed safe boundary")
-	}
-	if err := a.tt.Click("Remove"); err != nil {
-		t.Fatal(err)
-	}
-	a.settle()
-	if a.tt.HasText("why this approach?") || a.tt.HasText("Queued · handled after the active turn") {
-		t.Fatalf("removed queue input remains visible: %q", a.tt.Texts())
 	}
 }

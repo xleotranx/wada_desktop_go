@@ -50,7 +50,6 @@ func TestHeadlessRuntimeApprovalAndChanges(t *testing.T) {
 	})
 
 	disp, err := rt.Send(t.Context(), protocol.SendRequest{
-		ID:      "req-1",
 		Session: s.ID,
 		Text:    "Update main.go",
 	})

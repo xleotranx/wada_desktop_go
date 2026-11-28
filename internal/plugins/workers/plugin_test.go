@@ -232,12 +232,9 @@ func TestWorkerDrawerInspectsTranscriptAndDiffAndStops(t *testing.T) {
 func TestHarnessChatsTakeTextOnly(t *testing.T) {
 	h, p, _, _ := startTestPlugin(t)
 
-	// A new chat on Claude Code refuses files, skills and workflows.
+	// A new chat on Claude Code refuses files and skills.
 	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi", Files: []agent.File{{Name: "a.png"}}}); err == nil || !strings.Contains(err.Error(), "Claude Code takes text only") {
 		t.Fatalf("new harness chat with a file = %v", err)
-	}
-	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi", Workflow: "plan-code-review"}); err == nil {
-		t.Fatal("new harness chat with a workflow was accepted")
 	}
 	if _, _, err := p.textOnly(chatcontract.Draft{Provider: "claude", Text: "hi"}); err != nil {
 		t.Fatalf("plain text refused: %v", err)
@@ -251,7 +248,7 @@ func TestHarnessChatsTakeTextOnly(t *testing.T) {
 
 	// PiG conversations take everything.
 	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "s1", Directory: "/repo", Provider: "pig"})
-	if _, _, err := p.textOnly(chatcontract.Draft{Session: "s1", Text: "hi", Files: []agent.File{{Name: "a.png"}}, Workflow: "x"}); err != nil {
+	if _, _, err := p.textOnly(chatcontract.Draft{Session: "s1", Text: "hi", Files: []agent.File{{Name: "a.png"}}}); err != nil {
 		t.Fatalf("PiG draft refused: %v", err)
 	}
 }

@@ -31,14 +31,11 @@ type record struct {
 }
 
 type attachment struct {
-	Internal bool
-	Text     string
-	Files    []protocol.File
+	Text  string
+	Files []protocol.File
 }
 
 type conversation struct {
-	turnMu     sync.Mutex
-	turn       *turnState
 	lifetime   sync.RWMutex
 	ops        sync.Mutex
 	captureMu  sync.Mutex
@@ -331,7 +328,7 @@ func (e *engine) openLocked(c *conversation) error {
 		_ = rt.Close()
 		return err
 	}
-	tools := []pa.AgentTool{&resultTool{c: c}}
+	var tools []pa.AgentTool
 	if c.rec.Parent == "" && e.chiefTools != nil {
 		for _, t := range e.chiefTools(func() ChiefContext {
 			c.mu.Lock()
@@ -388,7 +385,6 @@ func (e *engine) openLocked(c *conversation) error {
 		svcs.Close()
 		return errors.New("the transcript belongs to another conversation")
 	}
-	s.SetActiveToolsByName(withoutTurnTools(s.ActiveToolNames()))
 	s.Agent().SetToolExecution(pa.ToolModeSequential)
 	c.rec.Path = s.Path()
 	c.session, c.services, c.runtime, c.loader = s, svcs, rt, loader

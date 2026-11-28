@@ -136,9 +136,6 @@ func TestWorkerSendStatusAndOutcome(t *testing.T) {
 	for _, req := range []protocol.SendRequest{
 		{Files: []protocol.File{{Name: "a.png"}}},
 		{Skills: []protocol.SkillRef{{ID: "review"}}},
-		{Instructions: "plan first"},
-		{Policy: &protocol.ToolPolicy{}},
-		{ResultSchema: []byte(`{"type":"object"}`)},
 	} {
 		req.Session, req.Text = info.ID, "unsupported"
 		if _, err := o.Send(t.Context(), req); !errors.Is(err, pig.ErrNotSent) {

@@ -3,7 +3,7 @@
 //
 // A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
 // FileTypesKey, ImagesKey, FilesKey, SkillsKey, RewindKey, ChangesKey and
-// ChildrenKey and SnapshotsKey.
+// ChildrenKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -11,16 +11,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/xleotranx/wada-kit/kernel"
 )
 
 var (
-	ServiceKey   = kernel.NewKey[Service]("agent.service")
-	SnapshotsKey = kernel.NewKey[Snapshots]("agent.snapshots")
-	Deleted      = kernel.NewTopic[SessionID]("agent.deleted")
+	ServiceKey = kernel.NewKey[Service]("agent.service")
+	Deleted    = kernel.NewTopic[SessionID]("agent.deleted")
 	ModelsKey    = kernel.NewKey[Models]("agent.models") // optional
 	ModesKey     = kernel.NewKey[Modes]("agent.modes")   // optional
 	// FileTypesKey is provided by a backend that takes only some kinds of
@@ -307,27 +305,12 @@ type CreateSession struct {
 	Mode      string   // empty for the backend's default
 }
 
-// Snapshot is a bounded copy of the project files at a task boundary.
-type Snapshot map[string][]byte
-
-// Snapshots compares task changes against the working files, including existing edits.
-type Snapshots interface {
-	Snapshot(context.Context, SessionID) (Snapshot, error)
-	Diff(context.Context, SessionID, Snapshot) ([]FileChange, error)
-}
-
 type Send struct {
-	ID string // correlates this admission with its events
-	// Instructions and Policy apply to this turn only. Internal prompts stay out of user history.
-	Instructions string
-	Policy       *ToolPolicy
-	ResultSchema json.RawMessage // optional schema for the host submit_result tool
-	Internal     bool
-	Session      SessionID
-	Mode         string // select a mode before sending; empty keeps the session's current mode
-	Text         string
-	Files        []File
-	Skills       []SkillRef // skills the backend attaches to this message
+	Session SessionID
+	Mode    string // select a mode before sending; empty keeps the session's current mode
+	Text    string
+	Files   []File
+	Skills  []SkillRef // skills the backend attaches to this message
 }
 
 // SkillRef is one skill attached to a message.
@@ -462,7 +445,6 @@ const (
 // Event is one normalized backend event. Only the payload of its kind is set.
 // Events are immutable once emitted.
 type Event struct {
-	RequestID   string // the Send.ID that owns this event, empty for unmanaged events
 	Kind        EventKind
 	Session     SessionID
 	Text        *TextEvent
@@ -471,9 +453,8 @@ type Event struct {
 	Interaction *Interaction
 	Model       ModelRef
 	Title       string
-	Error       string          // TurnFailed: the backend's reason, for the user
-	Result      json.RawMessage // TurnSucceeded: validated structured result, if requested
-	Bytes       int             // wire size, for batching
+	Error       string // TurnFailed: the backend's reason, for the user
+	Bytes       int    // wire size, for batching
 }
 
 type TextEvent struct {

@@ -621,7 +621,6 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 
 	reqID := "cli_" + uuid.NewString()
 	if _, err := c.Send(ctx, protocol.SendRequest{
-		ID:        reqID,
 		MessageID: reqID,
 		Session:   sess.ID,
 		Mode:      *mode,

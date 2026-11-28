@@ -93,20 +93,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.attempt = p.agent.Status().Attempt
 	p.switchTo(chat.Conversation{})
 	kernel.On(c, agent.Events, p.events)
-	kernel.On(c, chat.Incoming, p.events)
-	kernel.On(c, chat.UserAdmitted, p.userAdmitted)
-	kernel.On(c, chat.QueueRemoved, p.queueRemoved)
-	kernel.On(c, chat.DeliveryChanged, func(id agent.SessionID) {
-		if id == p.conv.Session {
-			p.sending = false
-		}
-	})
-	kernel.On(c, chat.DeliveryError, func(f chat.DeliveryFailure) {
-		if f.Session == p.conv.Session {
-			p.sending = false
-			p.t.note(f.Text)
-		}
-	})
 	kernel.On(c, agent.StatusChanged, p.statusChanged)
 	kernel.Provide[chat.Controller](c, chat.ControllerKey, p)
 	kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{Title: p.title, Render: p.view})
@@ -301,14 +287,7 @@ func (p *Plugin) load() {
 // ---- Sending
 
 func (p *Plugin) running() bool {
-	if d, ok := kernel.Use(p.ctx, chat.DeliveryKey); ok && d.Busy(p.conv.Session) {
-		return true
-	}
 	return p.sending || p.t.busy
-}
-func (p *Plugin) queueable() bool {
-	_, ok := kernel.Use(p.ctx, chat.DeliveryKey)
-	return ok && p.conv.Session != "" && !p.sending
 }
 
 // send hands the composer's words to the backend: through the Outgoing
@@ -316,7 +295,7 @@ func (p *Plugin) queueable() bool {
 // A failed send is reported, never retried: it may have reached the agent.
 func (p *Plugin) send() {
 	text := strings.TrimSpace(p.draft)
-	if text == "" || (p.running() && !p.queueable()) || p.loading.Running() {
+	if text == "" || p.running() || p.loading.Running() {
 		return
 	}
 	draftID := uint64(0)
@@ -330,21 +309,6 @@ func (p *Plugin) send() {
 	}
 	if strings.TrimSpace(d.Text) == "" {
 		return
-	}
-	if delivery, ok := kernel.Use(p.ctx, chat.DeliveryKey); ok {
-		if err := delivery.Validate(d); err != nil {
-			p.host.Toast(ui.Toast{Title: "The message was not sent", Description: err.Error()})
-			return
-		}
-	} else if d.Workflow != "" {
-		p.host.Toast(ui.Toast{Title: "The workflow is unavailable"})
-		return
-	}
-	d.Anchor = 1
-	for _, r := range p.t.rows {
-		if r.kind == rowUser {
-			d.Anchor++
-		}
 	}
 	commit()
 	replace := p.replacing && d.Session != ""
@@ -491,13 +455,10 @@ func lastUserMessage(messages []agent.Message) agent.MessageID {
 // sendAway sends the first message of a conversation the user left while it
 // was being created. Nothing of it is on show, so a failure is a toast.
 func (p *Plugin) sendAway(id agent.SessionID, d chat.Draft) {
-	if p.admit(id, d) {
-		return
-	}
 	backend := p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills})
 	}, func(_ agent.SendDisposition, err error) {
 		switch {
 		case err == nil:
@@ -511,14 +472,10 @@ func (p *Plugin) sendAway(id agent.SessionID, d chat.Draft) {
 }
 
 func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
-	if p.admit(id, d) {
-		p.sending = false
-		return
-	}
 	seq, backend := p.sendSeq, p.agent
 	var task kernel.Task
 	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SendDisposition, error) {
-		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Instructions: d.Instructions})
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills})
 	}, func(disposition agent.SendDisposition, err error) {
 		finish := func() {
 			if p.sendSeq == seq {
@@ -543,10 +500,6 @@ func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
 func (p *Plugin) stop() {
 	id := p.conv.Session
 	if id == "" || !p.running() {
-		return
-	}
-	if d, ok := kernel.Use(p.ctx, chat.DeliveryKey); ok {
-		d.Stop(id)
 		return
 	}
 	var task kernel.Task
@@ -577,7 +530,6 @@ func (p *Plugin) reply(a agent.Approval, d agent.Decision) {
 			}
 			return
 		}
-		kernel.Emit(p.ctx, chat.RequestAnswered, chat.Answered{Session: id, Approval: a.ID})
 		if p.conv.Session == parent {
 			p.t.removeApproval(a.ID)
 		} else if kept := p.kept.find(parent); kept != nil {
@@ -657,52 +609,4 @@ func errText(err error) string {
 		return "the backend returned no conversation"
 	}
 	return err.Error()
-}
-
-// admit is the optional delivery owner's UI-thread admission path.
-func (p *Plugin) admit(id agent.SessionID, d chat.Draft) bool {
-	delivery, ok := kernel.Use(p.ctx, chat.DeliveryKey)
-	if !ok {
-		return false
-	}
-	d.Session = id
-	if err := delivery.Admit(d); err != nil {
-		kernel.Emit(p.ctx, chat.DeliveryError, chat.DeliveryFailure{Session: id, Text: err.Error()})
-	}
-	return true
-}
-
-// Reconcile optimistically displayed messages with the delivery queue when a
-// conversation was reopened before its queued input reached the backend.
-func (p *Plugin) userAdmitted(d chat.Draft) {
-	if d.Session != p.conv.Session {
-		return
-	}
-	ordinal := 0
-	for _, r := range p.t.rows {
-		if r.kind == rowUser {
-			ordinal++
-			if ordinal == d.Anchor && r.text == d.Text {
-				return
-			}
-		}
-	}
-	p.t.addUser(d.Text, d.Files)
-	p.list.ScrollToEnd()
-}
-func (p *Plugin) queueRemoved(d chat.Draft) {
-	if d.Session != p.conv.Session {
-		return
-	}
-	ordinal := 0
-	for i, r := range p.t.rows {
-		if r.kind == rowUser {
-			ordinal++
-			if ordinal == d.Anchor && r.text == d.Text {
-				p.t.rows = slices.Delete(p.t.rows, i, i+1)
-				p.t.read = 0
-				return
-			}
-		}
-	}
 }

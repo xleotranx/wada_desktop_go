@@ -31,21 +31,18 @@ keep its types inside `internal/daemon/pig`.
   slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs and the
   buttons at the strip's end),
   `workspace` (folders and the conversations the app started),
-  `workflow` (conversational workflow definitions and phase instructions),
   `attachments` (images waiting in the composer, their actions and replacement),
   `terminal` (detached PTY terminal management contract and stream lifecycle).
 - `internal/plugins/*`: every feature. `daemon` (connects to local or remote `wadad` over WebSocket RPC via `hosts.json`, auto-spawns local `wadad`, provides `agent.*` and `terminal.ServiceKey`, and hosts Settings → Daemon pairing/password/host switcher and first-run/settings provider auth), `chat` (conversation
   page, which asks for a work folder before the composer), `starters` (the new chat's folder
-  starters), `models` (the composer's model and effort), `modes` (the composer's mode, or a workflow for the next message), `usage` (cost and context in the work panel or the composer), `filechanges`
+  starters), `models` (the composer's model and effort), `modes` (the composer's mode), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (folders and the app's conversation record in
   `workspace.db`, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Open Folder… and the new chat's folder
   in the composer), `tabs` (open chats and pages as tabs across the title
-  strip, one folder's space at a time, with the space switcher and the tab menus), `workflow` (the engine
-  that runs tasks in the main conversation with independent reviewer children), `flows` (the app's flows,
-  such as plan → code → review), `palette` (All chats, ⌘K), `notifications`
+  strip, one folder's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),
@@ -121,8 +118,7 @@ Settings live in `settings.db` (schema 1, via `wada-kit`) under `$WADA_DATA_DIR`
 `~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
 `wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
 conversations the app started live beside it in `workspace.db` (pure-Go SQLite with
-numbered schema migrations). Workflow tasks, queued inputs and review reports live in
-`workflow.db` (pure-Go SQLite with numbered schema migrations). Daemon server identity,
+numbered schema migrations). Daemon server identity,
 epoch counters, idempotent creation/delivery receipts, and sequenced timeline events
 live in `wadad.db`. Future unsupported
 schemas are refused. Runtime, pairing, and isolation state under the data directory

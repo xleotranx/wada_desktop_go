@@ -115,21 +115,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, chat.Leaving, p.leaving)
 	kernel.On(c, shell.PageChanged, p.followPage)
 	kernel.On(c, agent.Events, p.events)
-	kernel.On(c, chat.Incoming, p.events)
-	kernel.On(c, chat.DeliveryChanged, func(id agent.SessionID) {
-		d, ok := kernel.Use(c, chat.DeliveryKey)
-		if !ok {
-			return
-		}
-		kind := agent.TurnSucceeded
-		if d.Busy(id) {
-			if p.states[id] == tabs.Waiting {
-				return
-			}
-			kind = agent.TurnStarted
-		}
-		p.events([]agent.Event{{Session: id, Kind: kind}})
-	})
 	kernel.On(c, workspace.Changed, func(struct{}) { p.recordChanged() })
 	kernel.On(c, kernel.PointChanged, func(point string) {
 		if point == shell.Pages.Name() {

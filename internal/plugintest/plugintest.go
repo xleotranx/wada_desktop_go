@@ -66,7 +66,7 @@ func NewAgent() *Agent {
 
 func (f *Agent) New() kernel.Plugin { return f }
 func (*Agent) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ChildrenKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey, agent.ChangesKey, agent.SnapshotsKey}}
+	return kernel.Manifest{ID: "fake-agent", Provides: []kernel.Named{agent.ServiceKey, agent.ChildrenKey, agent.ModelsKey, agent.ModesKey, agent.InteractionsKey, agent.RewindKey, agent.ChangesKey}}
 }
 
 func (a *Agent) Setup(c *kernel.Context) error {
@@ -89,7 +89,6 @@ func (a *Agent) Setup(c *kernel.Context) error {
 	if err := kernel.Provide[agent.Changes](c, agent.ChangesKey, a); err != nil {
 		return err
 	}
-	kernel.Provide[agent.Snapshots](c, agent.SnapshotsKey, a)
 	return kernel.Provide[agent.Interactions](c, agent.InteractionsKey, a)
 }
 
@@ -535,16 +534,6 @@ func (w *Workspace) Retitle(id agent.SessionID, title string) {
 func (w *Workspace) Forget(id agent.SessionID) {
 	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.ID == id })
 	w.changed()
-}
-
-func (a *Agent) Snapshot(ctx context.Context, id agent.SessionID) (agent.Snapshot, error) {
-	if err := a.record("Snapshot", "snapshot "+string(id)); err != nil {
-		return nil, err
-	}
-	return agent.Snapshot{}, nil
-}
-func (a *Agent) Diff(ctx context.Context, id agent.SessionID, before agent.Snapshot) ([]agent.FileChange, error) {
-	return a.Changes(ctx, id)
 }
 
 // Send runs the chat.Outgoing pipeline as the chat does, committing what it accepts.

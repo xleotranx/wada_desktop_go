@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/chat"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -38,7 +37,6 @@ func (p *Plugin) answer(state *interactionState, answer agent.InteractionAnswer)
 			p.t.note("The answer may not have reached the agent: " + err.Error())
 			return
 		}
-		kernel.Emit(p.ctx, chat.RequestAnswered, chat.Answered{Session: answer.Session, Interaction: answer.ID})
 		if p.conv.Session == parent {
 			p.t.rows = slices.DeleteFunc(p.t.rows, func(r *row) bool { return r.interaction == state })
 		} else if kept := p.kept.find(parent); kept != nil {

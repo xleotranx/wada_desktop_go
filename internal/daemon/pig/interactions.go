@@ -34,42 +34,17 @@ func (e *engine) nextID() string {
 
 func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 	return func(ctx context.Context, id, name string, args json.RawMessage) pa.ToolCallHookResult {
-		c.turnMu.Lock()
-		turn := c.turn
-		submitted := turn != nil && len(turn.result) > 0
-		var policy *protocol.ToolPolicy
-		if turn != nil {
-			policy = turn.policy
-		}
-		structured := turn != nil && len(turn.schema) > 0
-		requestID := ""
-		if turn != nil {
-			requestID = turn.id
-		}
-		c.turnMu.Unlock()
-		if submitted {
-			return pa.ToolCallHookResult{Block: true, Reason: "The turn result has already been submitted."}
-		}
-		if name == resultToolName && structured {
-			return pa.ToolCallHookResult{}
-		}
 		kind := toolKind(name)
 		key := actionKey(name, args)
 		c.mu.Lock()
 		choice := permissionFor(c.rec.Mode, c.rec.Policy, kind)
-		if policy != nil {
-			restricted := permissionFor(c.rec.Mode, policy, kind)
-			if restricted == deny || choice == permit {
-				choice = restricted
-			}
-		}
 		allowed := c.allowed[key]
 		sid := c.rec.Session.ID
 		c.mu.Unlock()
 		if choice == deny {
-			return pa.ToolCallHookResult{Block: true, Reason: "This tool is denied by the workflow policy."}
+			return pa.ToolCallHookResult{Block: true, Reason: "This tool is denied by the conversation policy."}
 		}
-		if choice == ask && (!allowed || policy != nil) {
+		if choice == ask && !allowed {
 			aid := e.nextID()
 			approval := protocol.Approval{Session: sid, ID: aid, Kind: kind, Action: name, Resources: []string{string(args)}, Save: []string{key}}
 			wait := &approvalWait{session: sid, request: approval, done: make(chan protocol.Decision, 1)}
@@ -78,10 +53,9 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 			e.mu.Unlock()
 			defer func() { e.mu.Lock(); delete(e.approvals, aid); e.mu.Unlock() }()
 			e.emit(protocol.Event{
-				Kind:      protocol.EventApprovalRequested,
-				Session:   sid,
-				RequestID: requestID,
-				Approval:  &approval,
+				Kind:     protocol.EventApprovalRequested,
+				Session:  sid,
+				Approval: &approval,
 			})
 			var decision protocol.Decision
 			select {
@@ -233,12 +207,6 @@ func (e *engine) question(ctx context.Context, c *conversation, in protocol.Inte
 		c.mu.Unlock()
 		e.spawn(func(context.Context) { e.trimIdle() })
 	}()
-	c.turnMu.Lock()
-	requestID := ""
-	if c.turn != nil {
-		requestID = c.turn.id
-	}
-	c.turnMu.Unlock()
 	in.ID = e.nextID()
 	w := &interactionWait{session: sid, request: in, done: make(chan protocol.InteractionAnswer, 1)}
 	e.mu.Lock()
@@ -250,9 +218,9 @@ func (e *engine) question(ctx context.Context, c *conversation, in protocol.Inte
 		e.mu.Unlock()
 		settled := in
 		settled.Settled = true
-		e.emit(protocol.Event{Kind: protocol.EventInteractionRequested, Session: sid, RequestID: requestID, Interaction: &settled})
+		e.emit(protocol.Event{Kind: protocol.EventInteractionRequested, Session: sid, Interaction: &settled})
 	}()
-	e.emit(protocol.Event{Kind: protocol.EventInteractionRequested, Session: sid, RequestID: requestID, Interaction: &in})
+	e.emit(protocol.Event{Kind: protocol.EventInteractionRequested, Session: sid, Interaction: &in})
 	select {
 	case answer := <-w.done:
 		if answer.Cancelled {

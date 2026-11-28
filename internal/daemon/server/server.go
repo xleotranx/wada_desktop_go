@@ -56,8 +56,6 @@ type Backend interface {
 	Spawn(ctx context.Context, req protocol.SpawnRequest) (protocol.Session, error)
 	Rewind(ctx context.Context, id, msg string) (string, error)
 	Changes(ctx context.Context, id string) ([]protocol.FileChange, error)
-	Snapshot(ctx context.Context, id string) (map[string][]byte, error)
-	Diff(ctx context.Context, id string, before map[string][]byte) ([]protocol.FileChange, error)
 	Models(ctx context.Context) ([]protocol.Model, error)
 	DefaultModel(ctx context.Context) (protocol.ModelRef, error)
 	SetModel(ctx context.Context, id string, ref protocol.ModelRef) error
@@ -952,26 +950,6 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, invalidErr(err)
 		}
 		changes, err := s.cfg.Backend.Changes(ctx, req.Session)
-		if err != nil {
-			return nil, internalErr(err)
-		}
-		return changes, nil
-	case protocol.MethodSessionSnapshot:
-		var req protocol.SessionIDRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		snap, err := s.cfg.Backend.Snapshot(ctx, req.Session)
-		if err != nil {
-			return nil, internalErr(err)
-		}
-		return protocol.SnapshotResponse{Files: snap}, nil
-	case protocol.MethodSessionDiff:
-		var req protocol.DiffRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		changes, err := s.cfg.Backend.Diff(ctx, req.Session, req.Before)
 		if err != nil {
 			return nil, internalErr(err)
 		}

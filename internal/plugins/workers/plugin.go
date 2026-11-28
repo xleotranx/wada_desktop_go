@@ -112,7 +112,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 
 	// Stamp chosen harness early on new chats before outgoing attachments/models commit.
 	kernel.Transform(c, chat.Outgoing, -15, p.outgoing)
-	// After every transform that adds files, skills or a workflow.
+	// After every transform that adds files or skills.
 	kernel.Transform(c, chat.Outgoing, 5000, p.textOnly)
 
 	kernel.Contribute(c, chat.ComposerAccessory, "workers.harness", -5, shell.View{Render: p.harnessPickerView})
@@ -204,12 +204,6 @@ func (p *Plugin) textOnly(d chat.Draft) (chat.Draft, func(), error) {
 	}
 	if len(d.Skills) > 0 {
 		unsupported = append(unsupported, "skills")
-	}
-	if d.Workflow != "" {
-		unsupported = append(unsupported, "workflow")
-	}
-	if d.Instructions != "" {
-		unsupported = append(unsupported, "instructions")
 	}
 	if len(unsupported) == 0 {
 		return d, nil, nil

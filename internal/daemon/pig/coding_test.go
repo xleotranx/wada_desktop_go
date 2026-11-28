@@ -46,7 +46,6 @@ func TestCodingIdentityAndBuiltinToolsEnabled(t *testing.T) {
 			t.Fatalf("missing built-in coding tool %s: %v", name, names)
 		}
 	}
-	c.turn = &turnState{}
 	if result := e.toolHook(c)(t.Context(), "read", "read", json.RawMessage(`{"path":"main.go"}`)); result.Block {
 		t.Fatalf("read was blocked in ask mode: %s", result.Reason)
 	}
@@ -56,7 +55,6 @@ func TestCodingIdentityAndBuiltinToolsEnabled(t *testing.T) {
 	if got := permissionFor(modeAsk, nil, toolKind("write")); got != ask {
 		t.Fatalf("write permission in ask mode = %v, want ask", got)
 	}
-	c.turn = nil
 }
 
 func TestPerDirectoryMutationLockAllowsConcurrentWorkspaces(t *testing.T) {

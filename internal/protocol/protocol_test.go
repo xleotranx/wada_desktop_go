@@ -8,12 +8,11 @@ import (
 
 func TestEnvelopeAndEventRoundTrip(t *testing.T) {
 	ev := Event{
-		Epoch:     2,
-		Seq:       14,
-		RequestID: "req-1",
-		Kind:      EventToolCalled,
-		Session:   "s1",
-		Tool:      &Tool{ID: "t1", Name: "bash", Kind: ToolShell, Command: "go test ./..."},
+		Epoch:   2,
+		Seq:     14,
+		Kind:    EventToolCalled,
+		Session: "s1",
+		Tool:    &Tool{ID: "t1", Name: "bash", Kind: ToolShell, Command: "go test ./..."},
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {

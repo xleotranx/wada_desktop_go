@@ -1,7 +1,5 @@
 package protocol
 
-import "encoding/json"
-
 // Dotted RPC method names.
 const (
 	MethodDaemonStatus       = "daemon.status"
@@ -18,10 +16,8 @@ const (
 	MethodSessionRename   = "agent.session.rename"
 	MethodSessionDelete   = "agent.session.delete"
 	MethodSessionSpawn    = "agent.session.spawn"
-	MethodSessionRewind   = "agent.session.rewind"
-	MethodSessionChanges  = "agent.session.changes"
-	MethodSessionSnapshot = "agent.session.snapshot"
-	MethodSessionDiff     = "agent.session.diff"
+	MethodSessionRewind  = "agent.session.rewind"
+	MethodSessionChanges = "agent.session.changes"
 
 	MethodModelsList      = "agent.models.list"
 	MethodModelsDefault   = "agent.models.default"
@@ -269,17 +265,12 @@ type SkillRef struct {
 }
 
 type SendRequest struct {
-	ID           string          `json:"id,omitempty"`
-	MessageID    string          `json:"messageId,omitempty"`
-	Session      string          `json:"session"`
-	Mode         string          `json:"mode,omitempty"`
-	Text         string          `json:"text"`
-	Instructions string          `json:"instructions,omitempty"`
-	Policy       *ToolPolicy     `json:"policy,omitempty"`
-	ResultSchema json.RawMessage `json:"resultSchema,omitempty"`
-	Internal     bool            `json:"internal,omitempty"`
-	Files        []File          `json:"files,omitempty"`
-	Skills       []SkillRef      `json:"skills,omitempty"`
+	MessageID string     `json:"messageId,omitempty"`
+	Session   string     `json:"session"`
+	Mode      string     `json:"mode,omitempty"`
+	Text      string     `json:"text"`
+	Files     []File     `json:"files,omitempty"`
+	Skills    []SkillRef `json:"skills,omitempty"`
 }
 
 type SendResponse struct {
@@ -566,15 +557,6 @@ type FileChange struct {
 	Patch   string     `json:"patch,omitempty"`
 }
 
-type SnapshotResponse struct {
-	Files map[string][]byte `json:"files"`
-}
-
-type DiffRequest struct {
-	Session string            `json:"session"`
-	Before  map[string][]byte `json:"before"`
-}
-
 type Tokens struct {
 	Input      int `json:"input,omitempty"`
 	Output     int `json:"output,omitempty"`
@@ -675,7 +657,6 @@ type InteractionAnswer struct {
 type Event struct {
 	Epoch        uint64             `json:"epoch,omitempty"`
 	Seq          uint64             `json:"seq,omitempty"`
-	RequestID    string             `json:"requestId,omitempty"`
 	Kind         EventKind          `json:"kind"`
 	Session      string             `json:"session,omitempty"`
 	Text         *TextEvent         `json:"text,omitempty"`
@@ -688,7 +669,6 @@ type Event struct {
 	Model        ModelRef           `json:"model"`
 	Title        string             `json:"title,omitempty"`
 	Error        string             `json:"error,omitempty"`
-	Result       json.RawMessage    `json:"result,omitempty"`
 }
 
 type SubscribeRequest struct {

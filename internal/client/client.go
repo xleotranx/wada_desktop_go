@@ -611,17 +611,6 @@ func (c *Client) Changes(ctx context.Context, id string) ([]protocol.FileChange,
 	return out, c.Call(ctx, protocol.MethodSessionChanges, protocol.SessionIDRequest{Session: id}, &out)
 }
 
-func (c *Client) Snapshot(ctx context.Context, id string) (map[string][]byte, error) {
-	var out protocol.SnapshotResponse
-	err := c.Call(ctx, protocol.MethodSessionSnapshot, protocol.SessionIDRequest{Session: id}, &out)
-	return out.Files, err
-}
-
-func (c *Client) Diff(ctx context.Context, id string, before map[string][]byte) ([]protocol.FileChange, error) {
-	var out []protocol.FileChange
-	return out, c.Call(ctx, protocol.MethodSessionDiff, protocol.DiffRequest{Session: id, Before: before}, &out)
-}
-
 func (c *Client) Models(ctx context.Context) ([]protocol.Model, error) {
 	var out []protocol.Model
 	return out, c.Call(ctx, protocol.MethodModelsList, nil, &out)

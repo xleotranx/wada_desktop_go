@@ -56,7 +56,6 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.ModelsKey,
 			agent.ModesKey,
 			agent.ChildrenKey,
-			agent.SnapshotsKey,
 			agent.FilesKey,
 			agent.SkillsKey,
 			agent.FileTypesKey,
@@ -79,7 +78,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Service](c, agent.ServiceKey, p)
 	kernel.Provide[agent.Models](c, agent.ModelsKey, p)
 	kernel.Provide[agent.Modes](c, agent.ModesKey, p)
-	kernel.Provide[agent.Snapshots](c, agent.SnapshotsKey, p)
 	kernel.Provide[agent.Children](c, agent.ChildrenKey, p)
 	kernel.Provide[agent.Files](c, agent.FilesKey, p)
 	kernel.Provide[agent.Skills](c, agent.SkillsKey, p)

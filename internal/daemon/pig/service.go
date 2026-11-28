@@ -3,7 +3,6 @@ package pig
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -201,17 +200,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 	if !validMode(req.Mode) {
 		return "", fmt.Errorf("%w: unknown access mode", ErrNotSent)
 	}
-	if len(req.ResultSchema) > 0 {
-		var schema map[string]any
-		if err := json.Unmarshal(req.ResultSchema, &schema); err != nil || schema["type"] != "object" {
-			return "", fmt.Errorf("%w: result schema must describe an object", ErrNotSent)
-		}
-		req.ResultSchema = slices.Clone(req.ResultSchema)
-	}
-	if req.Policy != nil {
-		cp := protocol.ToolPolicy{Allow: slices.Clone(req.Policy.Allow), Deny: slices.Clone(req.Policy.Deny)}
-		req.Policy = &cp
-	}
 	text, images, err := promptContent(req)
 	if err != nil {
 		return "", err
@@ -275,7 +263,7 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 	for i := range files {
 		files[i].Data = nil
 	}
-	c.rec.Attachments[index] = attachment{Text: req.Text, Files: files, Internal: req.Internal}
+	c.rec.Attachments[index] = attachment{Text: req.Text, Files: files}
 	if err = e.saveLocked(c); err != nil {
 		c.mu.Unlock()
 		return "", fmt.Errorf("%w: could not save prompt metadata", ErrNotSent)
@@ -283,9 +271,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 	turn, cancel := context.WithCancel(e.ctx)
 	c.cancel = cancel
 	c.busy = true
-	c.turnMu.Lock()
-	c.turn = &turnState{id: req.ID, schema: slices.Clone(req.ResultSchema), policy: req.Policy}
-	c.turnMu.Unlock()
 	c.lifetime.RLock()
 	s := c.session
 	bind := !c.bound
@@ -300,7 +285,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 		defer cancel()
 		c.translator.mu.Lock()
 		c.translator.managed = true
-		c.translator.request = req.ID
 		c.translator.mu.Unlock()
 		var started atomic.Bool
 		opts := &coding.PromptOptions{Images: images, PreflightResult: func(d coding.PromptDisposition) {
@@ -321,14 +305,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 			default:
 			}
 		}}
-		names := withoutTurnTools(s.ActiveToolNames())
-		c.turnMu.Lock()
-		c.turn.tools = slices.Clone(names)
-		c.turnMu.Unlock()
-		if len(req.ResultSchema) > 0 {
-			names = append(names, resultToolName)
-		}
-		s.SetActiveToolsByName(names)
 		var runErr error
 		if bind {
 			runErr = s.BindExtensions(turn, coding.ExtensionBindings{UIContext: &dialogUI{UIContext: noopUI(), engine: e, conversation: c}})
@@ -378,12 +354,6 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 
 func promptContent(req protocol.SendRequest) (string, []ai.ImageContent, error) {
 	text := req.Text
-	if req.Instructions != "" {
-		text += "\n\n<turn_instructions>\nThese instructions apply only to this turn, not to later messages.\n" + req.Instructions + "\n</turn_instructions>"
-	}
-	if len(req.ResultSchema) > 0 {
-		text += "\nBefore ending this turn, call submit_result exactly once with the requested structured result. Write any user-facing explanation before calling it. Do not end with text alone: if the tool cannot be called, end your reply with a single fenced json block containing exactly the requested object."
-	}
 	var images []ai.ImageContent
 	for _, f := range req.Files {
 		switch {

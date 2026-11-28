@@ -21,7 +21,6 @@ type translator struct {
 	running  bool
 	failure  string
 	terminal *protocol.Event
-	request  string
 	managed  bool
 }
 
@@ -29,7 +28,7 @@ func (e *engine) onEvent(c *conversation, event pa.AgentEvent) {
 	t := &c.translator
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	emit := func(ev protocol.Event) { ev.Session = t.session; ev.RequestID = t.request; e.emit(ev) }
+	emit := func(ev protocol.Event) { ev.Session = t.session; e.emit(ev) }
 	text := func(kind protocol.EventKind, index int, delta, full string) {
 		emit(protocol.Event{Kind: kind, Text: &protocol.TextEvent{Message: t.message, Ordinal: index, Delta: delta, Text: full}})
 	}
@@ -187,13 +186,7 @@ func storedMessages(c *conversation) []protocol.Message {
 				m.Text = meta.Text
 				m.Files = append([]protocol.File(nil), meta.Files...)
 			}
-			internal := c.rec.Attachments[strconv.Itoa(user)].Internal
 			user++
-			if internal {
-				m.Role = protocol.RoleOther
-				m.Text = ""
-				m.Files = nil
-			}
 			out = append(out, m)
 		} else if a := raw.Message.Assistant; a != nil {
 			m.Role = protocol.RoleAssistant
@@ -242,50 +235,10 @@ func actionKey(name string, args json.RawMessage) string {
 
 func toolCommand(args ai.JsonObject) string { data, _ := json.Marshal(args); return commandOf(data) }
 
-func lastAssistantText(c *conversation) string {
-	messages := storedMessages(c)
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		if m.Role != protocol.RoleAssistant {
-			continue
-		}
-		var text strings.Builder
-		for _, part := range m.Parts {
-			if part.Kind == protocol.PartText {
-				text.WriteString(part.Text)
-			}
-		}
-		return text.String()
-	}
-	return ""
-}
-
 func (e *engine) finishTurn(c *conversation, started, stopped bool, runErr, saveErr error) {
-	names := withoutTurnTools(c.session.ActiveToolNames())
-	c.turnMu.Lock()
-	var result, schema json.RawMessage
-	if c.turn != nil {
-		result, schema = c.turn.result, c.turn.schema
-		if c.turn.tools != nil {
-			names = c.turn.tools
-		}
-	}
-	c.turn = nil
-	c.turnMu.Unlock()
-	if len(result) == 0 && len(schema) > 0 {
-		if text := lastAssistantText(c); text != "" {
-			if parsed, ok := resultFromText(text, schema); ok {
-				result = parsed
-			}
-		}
-	}
-	c.session.SetActiveToolsByName(names)
 	t := &c.translator
 	t.mu.Lock()
 	terminal := t.terminal
-	if terminal != nil {
-		terminal.RequestID = t.request
-	}
 	t.terminal = nil
 	t.managed = false
 	if started || terminal != nil {
@@ -293,7 +246,7 @@ func (e *engine) finishTurn(c *conversation, started, stopped bool, runErr, save
 	}
 	t.mu.Unlock()
 	if terminal == nil && started {
-		terminal = &protocol.Event{Session: t.session, Kind: protocol.EventTurnSucceeded, RequestID: t.request}
+		terminal = &protocol.Event{Session: t.session, Kind: protocol.EventTurnSucceeded}
 	}
 	if terminal == nil {
 		return
@@ -307,9 +260,6 @@ func (e *engine) finishTurn(c *conversation, started, stopped bool, runErr, save
 	} else if saveErr != nil {
 		terminal.Kind = protocol.EventTurnFailed
 		terminal.Error = "could not save conversation metadata"
-	}
-	if terminal.Kind == protocol.EventTurnSucceeded {
-		terminal.Result = result
 	}
 	e.emit(*terminal)
 }

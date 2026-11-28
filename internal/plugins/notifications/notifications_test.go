@@ -101,37 +101,3 @@ func TestNoticesWaitForTheWorkspaceRecord(t *testing.T) {
 		t.Fatalf("notices %+v", host.Notices)
 	}
 }
-
-type taskDelivery struct{ busy bool }
-
-func (d *taskDelivery) New() kernel.Plugin { return d }
-func (*taskDelivery) Manifest() kernel.Manifest {
-	return kernel.Manifest{ID: "task-delivery", Provides: []kernel.Named{chat.DeliveryKey}}
-}
-func (d *taskDelivery) Setup(c *kernel.Context) error {
-	return kernel.Provide[chat.Delivery](c, chat.DeliveryKey, d)
-}
-
-func (*taskDelivery) Validate(chat.Draft) error   { return nil }
-func (*taskDelivery) Admit(chat.Draft) error      { return nil }
-func (d *taskDelivery) Busy(agent.SessionID) bool { return d.busy }
-func (*taskDelivery) Stop(agent.SessionID)        {}
-func TestWorkflowPhasesNotifyOnlyWhenTaskFinishes(t *testing.T) {
-	d := &taskDelivery{busy: true}
-	h, _, _, host := start(t, d.New)
-	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "s2", RequestID: "phase"})
-	if len(host.Notices) != 0 {
-		t.Fatal("intermediate phase notified completion")
-	}
-	d.busy = false
-	emit(h, agent.Event{Kind: agent.TurnSucceeded, Session: "s2", RequestID: "final"})
-	h.WaitPosts(1)
-	if len(host.Notices) != 1 {
-		t.Fatalf("completion notices %+v", host.Notices)
-	}
-	kernel.Emit(h, chat.Incoming, []agent.Event{{Kind: agent.ApprovalRequested, Session: "s2", Approval: &agent.Approval{Session: "child", Kind: agent.ToolShell}}})
-	h.Flush()
-	if len(host.Notices) != 2 || host.Notices[1].ID != "chat:s2" {
-		t.Fatal("reviewer approval not announced under parent")
-	}
-}

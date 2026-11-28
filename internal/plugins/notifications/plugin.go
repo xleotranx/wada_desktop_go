@@ -63,13 +63,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.approvals = kernel.NewSetting(c, "approvals", true)
 	p.known = map[agent.SessionID]agent.Session{}
 	kernel.On(c, agent.Events, p.events)
-	kernel.On(c, chat.Incoming, func(batch []agent.Event) {
-		for _, e := range batch {
-			if e.Kind == agent.ApprovalRequested || e.Kind == agent.InteractionRequested {
-				p.events([]agent.Event{e})
-			}
-		}
-	})
 	kernel.On(c, workspace.Changed, func(struct{}) { p.flush() })
 	kernel.On(c, shell.NoticeClicked, p.clicked)
 	return kernel.Contribute(c, settings.Sections, "notifications.section", 50, settings.Section{
@@ -82,11 +75,11 @@ func (p *Plugin) events(batch []agent.Event) {
 		switch e.Kind {
 		case agent.TurnSucceeded:
 			if p.finished.Get() {
-				p.turnNotice(e, "The turn finished.")
+				p.notify(e.Session, "The turn finished.")
 			}
 		case agent.TurnFailed:
 			if p.finished.Get() {
-				p.turnNotice(e, "The turn stopped with an error.")
+				p.notify(e.Session, "The turn stopped with an error.")
 			}
 		case agent.ApprovalRequested:
 			if p.approvals.Get() && e.Approval != nil {
@@ -237,19 +230,4 @@ func (p *Plugin) section(c *ui.Context) {
 			}
 		})
 	}
-}
-
-// Correlated turns can be phases of one conversational task. Wait until all
-// event listeners have advanced delivery before announcing completion.
-func (p *Plugin) turnNotice(e agent.Event, body string) {
-	if e.RequestID == "" {
-		p.notify(e.Session, body)
-		return
-	}
-	p.ctx.Post(func() {
-		if d, ok := kernel.Use(p.ctx, chat.DeliveryKey); ok && d.Busy(e.Session) {
-			return
-		}
-		p.notify(e.Session, body)
-	})
 }

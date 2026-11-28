@@ -279,7 +279,6 @@ func TestLiveStreamingApprovalAndTimelineCatchup(t *testing.T) {
 	})
 
 	disp, err := c.Send(t.Context(), protocol.SendRequest{
-		ID:        "req-ws-1",
 		MessageID: "msg-ws-1",
 		Session:   s.ID,
 		Text:      "Update app.go",

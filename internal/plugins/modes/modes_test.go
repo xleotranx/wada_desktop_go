@@ -1,7 +1,6 @@
 package modes
 
 import (
-	"fmt"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
@@ -93,7 +92,7 @@ func TestThePickerSitsWithTheSecondaryControls(t *testing.T) {
 	}
 }
 
-func TestWithoutWorkflowsOneModeShowsNoPicker(t *testing.T) {
+func TestOneModeShowsNoPicker(t *testing.T) {
 	h, p, a, _ := start(t, kerneltest.NewStore())
 	a.ModeList = a.ModeList[:1]
 	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
@@ -145,63 +144,5 @@ func TestModesFollowAProviderThatComesAndGoes(t *testing.T) {
 	h.Flush()
 	if d := plugintest.Outgoing(t, h, chat.Draft{Text: "hi"}); d.Mode != "build" {
 		t.Fatalf("a provider enabled later was not noticed: %+v", d)
-	}
-}
-
-func TestWorkflowSelectionKeepsAccessModeAndAllTransforms(t *testing.T) {
-	h, p, _, _ := start(t, kerneltest.NewStore())
-	id := kernel.HostPrefix + "workflow"
-	if err := kernel.Contribute(h, chat.Workflows, id, 0, chat.Workflow{Title: "Plan, code, review"}); err != nil {
-		t.Fatal(err)
-	}
-	p.pick("plan")
-	p.pick(workflowPrefix + id)
-	var prepared, committed bool
-	kernel.Transform(h, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, func(), error) {
-		prepared = true
-		d.Files = []agent.File{{Name: "reference.txt", Data: []byte("context")}}
-		return d, func() { committed = true }, nil
-	})
-	d, commit, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "implement"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Workflow != id || d.Mode != "plan" || !prepared || len(d.Files) != 1 || committed || p.selectedWorkflow != id {
-		t.Fatalf("prepared %+v", d)
-	}
-	commit()
-	if p.selectedWorkflow != "" || !committed {
-		t.Fatal("selection did not reset at commit")
-	}
-	next := plugintest.Outgoing(t, h, chat.Draft{Text: "why?"})
-	if next.Workflow != "" || next.Mode != "plan" {
-		t.Fatalf("next %+v", next)
-	}
-}
-func TestRejectedPreparationPreservesWorkflowSelection(t *testing.T) {
-	h, p, _, _ := start(t, kerneltest.NewStore())
-	id := kernel.HostPrefix + "workflow"
-	kernel.Contribute(h, chat.Workflows, id, 0, chat.Workflow{Title: "Reviewed task"})
-	p.pick(workflowPrefix + id)
-	kernel.Transform(h, chat.Outgoing, 0, func(d chat.Draft) (chat.Draft, func(), error) { return d, nil, fmt.Errorf("attachment failed") })
-	if _, _, err := kernel.Run(h, chat.Outgoing, chat.Draft{Text: "implement"}); err == nil {
-		t.Fatal("preparation accepted")
-	}
-	if p.selectedWorkflow != id {
-		t.Fatal("failed preparation consumed selection")
-	}
-}
-func TestWorkflowSelectionClearsOnNavigationAndUnavailableChoiceRejects(t *testing.T) {
-	h, p, _, ctl := start(t, kerneltest.NewStore())
-	id := kernel.HostPrefix + "workflow"
-	kernel.Contribute(h, chat.Workflows, id, 0, chat.Workflow{Title: "Reviewed task"})
-	p.pick(workflowPrefix + id)
-	ctl.NewChat("/different")
-	if p.selectedWorkflow != "" {
-		t.Fatal("selection survived navigation")
-	}
-	p.pick(workflowPrefix + "missing")
-	if _, err := plugintest.Send(h, chat.Draft{Text: "implement"}); err == nil {
-		t.Fatal("missing workflow silently fell back")
 	}
 }

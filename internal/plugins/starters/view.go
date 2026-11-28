@@ -4,12 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"wada-desktop-go/internal/contract/chat"
-
 	"github.com/egoist/mygo/ui"
 	onechat "github.com/oneo-me/onevra/source/components/chat"
 	"github.com/oneo-me/onevra/source/icons/lucide"
-	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/native"
 )
 
@@ -102,9 +99,8 @@ func (p *Plugin) starterButton(c *ui.Context, pal native.Palette, s starter) {
 	})
 }
 
-// useStarter fills the draft and clears any stale workflow selection.
+// useStarter fills the draft.
 func (p *Plugin) useStarter(s starter) {
-	kernel.Emit(p.ctx, chat.WorkflowSelected, "")
 	p.chat.SetDraft(s.Prompt)
 	p.ctx.Invalidate()
 }

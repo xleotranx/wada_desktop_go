@@ -33,8 +33,8 @@ const EmbeddedHarness = "pig"
 
 // ExternalHarness reports that a conversation's provider is an external CLI
 // harness (Claude Code, Codex, ACP). Such a conversation takes a message's
-// text only: no files, skills, workflows, tool policies, result schemas,
-// child conversations or model changes. Its mode is chosen when it starts.
+// text only: no files, skills, child conversations or model changes. Its mode
+// is chosen when it starts.
 func ExternalHarness(provider string) bool {
 	return provider != "" && provider != EmbeddedHarness
 }

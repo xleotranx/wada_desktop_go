@@ -1,6 +1,6 @@
 # Wada
 
-A native desktop coding-agent workspace: explore codebases, edit files, run commands, inspect diffs, and run reviewed engineering workflows (`Plan, code, review`) inside the conversation. Built with Go, MyGo and Onevra; the headless `wadad` daemon embeds PiG so coding turns keep running even when the desktop window closes.
+A native desktop coding-agent workspace: explore codebases, edit files, run commands, and inspect diffs beside the conversation. Built with Go, MyGo and Onevra; the headless `wadad` daemon embeds PiG so coding turns keep running even when the desktop window closes.
 Chat and controls are native.
 
 ![Wada's native desktop chat interface](docs/images/new_dekstop.png)
@@ -49,8 +49,7 @@ switcher for the others, each tab showing whether its conversation is working, w
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
 conversation with its context, session or uncommitted Git changes with expandable diffs, cost, and supervised CLI workers/Git worktrees with `gh` PR status; an interactive PTY terminal drawer (⌘J / ⇧⌘J);
-model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; workflows such as plan,
-work, review in the current chat; desktop notifications for conversations in the background; settings
+model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; desktop notifications for conversations in the background; settings
 for appearance, conversation, tabs, daemon, providers, models, notifications, diagnostics, and turning plugins
 on and off.
 
@@ -70,11 +69,6 @@ Ordinary PiG chats use PiG's built-in coding tools (`read`, `bash`, `edit`, `wri
 The composer offers **Ask before changes** (the default) and **Work independently**.
 Ask mode permits reads and searches, and asks before edits, shell commands, or web requests.
 Independent mode performs those operations within the selected project folder.
-Workflow planning and review deny edits in either mode; reviewer
-children retain their fixed policies. Questions do not restart the workflow, while
-related changes receive another independent review. Queued follow-ups are handled
-after the active turn. Tasks and queues persist in `workflow.db`; interrupted work
-requires explicit resume.
 
 ## Architecture
 
@@ -92,13 +86,13 @@ requires explicit resume.
 | `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, chat/approvals/diffs/terminal views; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
-| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workflow`, `workspace` |
+| `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local or remote `wadad` (`agent.*`, `terminal.*`, pairing, multi-host settings, and provider auth) |
 | `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section (with PR badges), and Worker Inspector drawer |
 | `internal/plugins/terminal` | Interactive right-edge PTY terminal drawer (`⌘J` / `⇧⌘J`) backed by `wadad-term` |
 | `internal/plugins/chat` | Conversation page: transcript, composer, approvals |
 | `internal/plugins/models` | Model and effort pickers in the composer |
-| `internal/plugins/modes` | Access mode and one-task workflow selection |
+| `internal/plugins/modes` | Access mode selection |
 | `internal/plugins/usage` | Context and cost, in the work panel or the composer |
 | `internal/plugins/filechanges` | Session or local uncommitted Git changes and expandable diffs below Context |
 | `internal/plugins/attachments` | Files and images sent with a message |
@@ -110,8 +104,6 @@ requires explicit resume.
 | `internal/plugins/tabs` | Tabs across the title strip, one folder's space at a time; the switcher and menus |
 | `internal/plugins/explore` | Read-only side chats in a drawer, started from selected text, with answers added to the original draft |
 | `internal/plugins/palette` | All chats (⌘K): conversations, folders and commands |
-| `internal/plugins/workflow` | Runs conversational tasks with fresh reviewer children |
-| `internal/plugins/flows` | The app's flows, such as plan, code, review |
 | `internal/plugins/starters` | Folder-aware coding starters on new chats |
 | `internal/plugins/notifications` | Desktop notices for conversations in the background |
 
@@ -155,7 +147,7 @@ Production settings and app records live under
 `wada-desktop-go-dev/`. Set `WADA_DATA_DIR` to choose another directory.
 
 - `settings.db`: settings; `workspace.db`: folder and conversation records;
-  `workflow.db`: tasks and queued inputs; `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
+  `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
 - `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`: local daemon discovery, lock, and authentication files.
 - `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`: E2EE relay identity keys, optional remote password hash, and saved remote host profiles.
 - `worktrees/`, `terminal-worker/`: managed secondary Git worktrees and detached PTY worker IPC descriptors.

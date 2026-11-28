@@ -16,10 +16,7 @@ import (
 const PageID = "chat.conversation"
 
 var (
-	RequestAnswered = kernel.NewTopic[Answered]("chat.request-answered")
-	UserAdmitted    = kernel.NewTopic[Draft]("chat.user-admitted")
-	QueueRemoved    = kernel.NewTopic[Draft]("chat.queue-removed")
-	ControllerKey   = kernel.NewKey[Controller]("chat.controller")
+	ControllerKey = kernel.NewKey[Controller]("chat.controller")
 
 	// Changed is emitted when the open conversation, its title, its folder
 	// or its model changes.
@@ -73,14 +70,6 @@ var (
 	// place of the folder gate and composer. Needed and Render run on the UI
 	// thread while drawing and only read state.
 	Requirements = kernel.NewPoint[Requirement]("chat.requirements")
-	// Workflows are one-task behaviors listed after the access modes.
-	Workflows        = kernel.NewPoint[Workflow]("chat.workflows")
-	WorkflowSelected = kernel.NewTopic[string]("chat.workflow-selected")
-	Incoming         = kernel.NewTopic[[]agent.Event]("chat.incoming") // external child approvals/questions shown in their parent
-	DeliveryKey      = kernel.NewKey[Delivery]("chat.delivery")
-	DeliveryError    = kernel.NewTopic[DeliveryFailure]("chat.delivery-error")
-	DeliveryChanged  = kernel.NewTopic[agent.SessionID]("chat.delivery-changed")
-	Activities       = kernel.NewPoint[Activity]("chat.activities")
 	// Work sections fill the work panel beside a stored conversation, top to
 	// bottom by Order, such as its usage or the files it changed.
 	Work = kernel.NewPoint[WorkSection]("chat.work")
@@ -127,33 +116,6 @@ type WorkSection struct {
 	// always. The panel shows while at least one section does.
 	Shown  func() bool
 	Render func(c *ui.Context)
-}
-
-// Workflow is a one-message selection. It never changes the backend access mode.
-type Workflow struct{ Title, Summary string }
-
-// Delivery owns admission and serialization on the UI thread. Validate runs
-// before outgoing commits; Admit receives the fully prepared, created session.
-type DeliveryFailure struct {
-	Session agent.SessionID
-	Text    string
-}
-
-type Delivery interface {
-	Validate(Draft) error
-	Admit(Draft) error
-	Busy(agent.SessionID) bool
-	Stop(agent.SessionID)
-}
-
-// Activity contributes stable transcript entries after a visible user message.
-type Activity struct {
-	Items func(agent.SessionID) []ActivityItem
-}
-type ActivityItem struct {
-	ID     string
-	After  int // one-based visible user-message ordinal
-	Render func(*ui.Context)
 }
 
 // Completion suggests words for the composer. While the caret is in a word
@@ -215,18 +177,15 @@ type Unsent struct {
 
 // Draft is one message on its way out.
 type Draft struct {
-	Instructions string          // internal per-turn context supplied by feature plugins
-	Workflow     string          // selected for this submitted task only
-	Anchor       int             // one-based visible user message for transcript activities
-	DraftID      uint64          // the source new chat's identity; zero for stored conversations
-	Session      agent.SessionID // empty starts a new conversation
-	Directory    string          // the chat's working folder
-	Provider     string          // optional agent harness ID; empty uses default embedded PiG
-	Model        agent.ModelRef  // for a new conversation; zero for the default
-	Mode         string          // mode for this message; empty keeps the backend's choice
-	Text         string
-	Files        []agent.File     // sent with the message
-	Skills       []agent.SkillRef // attached to the message
+	DraftID   uint64          // the source new chat's identity; zero for stored conversations
+	Session   agent.SessionID // empty starts a new conversation
+	Directory string          // the chat's working folder
+	Provider  string          // optional agent harness ID; empty uses default embedded PiG
+	Model     agent.ModelRef  // for a new conversation; zero for the default
+	Mode      string          // mode for this message; empty keeps the backend's choice
+	Text      string
+	Files     []agent.File     // sent with the message
+	Skills    []agent.SkillRef // attached to the message
 }
 
 // Controller navigates the chat view. Call it on the UI thread.
@@ -249,11 +208,4 @@ type Controller interface {
 	// WorkShown reports that the work panel is on show beside the open
 	// conversation. Call it on the UI thread; it only reads state.
 	WorkShown() bool
-}
-
-// Answered names a successfully delivered response, including a child's owner.
-type Answered struct {
-	Session     agent.SessionID
-	Approval    agent.ApprovalID
-	Interaction agent.InteractionID
 }

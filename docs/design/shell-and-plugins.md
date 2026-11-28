@@ -1,7 +1,7 @@
 # Shell and the built-in plugins
 
 Declared in `internal/contract/attachments`, `internal/contract/chat`,
-`internal/contract/tabs`, `internal/contract/workspace`, `internal/contract/workflow`,
+`internal/contract/tabs`, `internal/contract/workspace`,
 and `internal/contract/terminal`, beside the kit's `contract/shell` and
 `contract/settings`; implemented by the plugins named below.
 
@@ -126,19 +126,6 @@ Conversation settings section with the work panel's switch.
   paragraph per line. The popover closes when an action runs, the selection goes,
   or the pointer goes down outside it, as in the composer; a new selection brings
   it back. The pointer's place is asked for only while a selection is being made.
-- `chat.Workflows` lists one-task behaviors in the mode picker. The outgoing draft
-  carries the selected `Workflow` through all transforms, including attachments,
-  mentions and skills. Selection clears on commit. The optional `chat.DeliveryKey`
-  validates before commits, admits prepared drafts after conversation creation,
-  serializes execution, reports busy state and handles Stop. Without it chat sends
-  directly to the backend; a selected workflow is refused rather than silently ignored.
-- `chat.Activities` contributes stable transcript entries after a one-based user
-  message ordinal. Contributions render through `kernel.Invoke`; plugin state and
-  widget identity stay with the contributor. `UserAdmitted` reconciles queued inputs
-  after navigation, and `QueueRemoved` removes an unsent queued input from the view.
-  `chat.Incoming` presents child approvals and questions inside their parent, while
-  preserving the real owner for replies. `RequestAnswered` removes successfully
-  answered child requests from replay state, including after navigation.
 - `chat.Completions` entries offer words while the user types. When the caret is in a
   word that starts with an entry's trigger (at the start of the text or after
   whitespace) the composer lists the entry's candidates in a panel that hangs above
@@ -181,8 +168,7 @@ symlinks. Code is a source extension or a project marker such as `go.mod`,
 `package.json` or `Cargo.toml`. A folder with a marker or source files gets
 code starters; an empty folder gets scaffold/explore starters; any other folder
 gets general folder starters. The first three code names show above the list,
-with the rest counted. Choosing a starter clears any stale workflow selection and
-fills the composer; the user sends it.
+with the rest counted. Choosing a starter fills the composer; the user sends it.
 
 ## All chats
 
@@ -380,18 +366,11 @@ has a subtle filled background; effort uses a quieter text control.
 works with a backend that has no model catalog. It reads the backend's optional
 `agent.ModesKey` when a new connection attempt is ready, and again when a provider of
 it comes or goes. Its picker goes in `chat.ComposerAccessory`, as a quiet text control,
-when there is more than one choice across backend modes and workflows; a backend without
-modes shows "Chat" when workflows exist. A choice applies once the frame is done.
+when there is more than one choice across backend modes. A choice applies once the frame is done.
 The mode choice is saved in settings and applied to every message through
 `chat.Outgoing`. With no valid saved choice, the first offered mode is used; a backend
 without modes keeps its own behavior. Chat passes `Draft.Mode` to `Send.Mode`; the
 backend selects it before sending the prompt.
-The picker lists `chat.Workflows` after the access modes. Choosing a workflow
-stamps the next outgoing draft, preserving its access mode. The choice clears only
-when outgoing preparation and delivery validation succeed and the pipeline commits.
-Navigation or choosing a later access mode clears an unsent workflow selection.
-`chat.WorkflowSelected` lets an Agent-menu command select a workflow and focus the
-current composer without starting it or opening another page.
 
 ## Usage
 
@@ -528,70 +507,6 @@ the record has been read, notices wait and are shown on `workspace.Changed`. An 
 the user's own doing and isn't notified. A conversation whose title it doesn't know is
 looked up in the backend's first page of sessions. The notice ID is `chat:<session>`;
 clicking it opens that conversation. Its settings section turns each kind off.
-
-## Workflows
-
-The **Workflow engine** plugin provides `chat.DeliveryKey`; **Built-in workflows**
-contributes `workflow.Definitions`, composer choices and Agent-menu commands.
-`workflow.Flow` contains phase instructions and the review limit. The engine requires
-backend child sessions and task snapshots; it owns transitions and knows no built-in
-flow's prompt text. Plugins communicate through contracts and kernel registrations.
-
-**Plan, code, review** is a one-task selection. The ordinary conversation is the
-main agent throughout planning, work, fixes, and final reporting. Planning
-is read-only and proceeds to work automatically unless clarification is
-needed. Each independent review creates a fresh child under that main session,
-inheriting the task's model and effort. Reviewers receive requirements, reference
-attachments, plan, deliverable/check evidence, earlier findings and task-start
-changes, and inspect the deliverable and its sources. They never inherit the main history.
-
-A task snapshot contains project files before work begins, including pre-existing
-edits and untracked, non-ignored files. Comparisons against that snapshot identify
-additions, modifications and deletions. Snapshot limits or read failures fail the
-phase explicitly; they are not treated as an empty diff. This attribution does not
-isolate concurrent external edits.
-
-Each phase requests a structured result through the backend. The model calls the
-host's `submit_result` tool; a model that answers in text may end with a fenced JSON
-block, which the backend validates and accepts instead. Planning, work and
-fixes return ready or blocked with a summary; routing returns answer, continue,
-new_task or resume; reviewers return pass, issues or incomplete with file, severity
-and evidence for each finding. Missing, invalid or contradictory results fail the
-phase. Findings go to the main agent to substantiate, fix or reject with evidence.
-At most three reviews run in one cycle. The final report distinguishes **Passed**,
-**Issues remain** and **Review incomplete** from execution failure.
-
-Tab activity spans the whole task, including child review. Completion notices wait
-until delivery is idle, while reviewer questions and approvals notify under the parent.
-
-The composer remains usable during execution. Prepared inputs queue in order, with
-files and skills retained. The current main/reviewer turn finishes before queued
-messages are routed, and the queue takes precedence over the next automatic phase.
-Questions are answered normally before execution continues. Related changes update
-the requirements and start another implementation/review cycle with a fresh budget.
-Unrelated work pauses the old task and clears its automatic review association;
-that message is handled as ordinary chat. Resume explicitly restores the paused task.
-
-Tasks appear as transcript activities anchored to their initiating message. A task
-card shows the files its review's task-start diff found, each with **Open**, and a
-**Sources** row naming the work folder and any reference attachments with **Reveal**;
-the reviewer's summary stays above the card. Details expand the request, plan, work
-summary, phase results, review findings, check evidence and finding dispositions. The
-card is the deliverable, so the work panel is not needed to find it.
-Approvals and questions from a reviewer appear in the main chat and replies target
-the real child; they are not dismissed. Reviewers have no top-level tabs or chats.
-The queue shows removable pending inputs. Stop aborts the active session and cancels
-continuation, preserving pending inputs. Retry and Resume are explicit actions;
-create, send and reply mutations are never automatically repeated. Request IDs
-prevent an old turn's events from advancing a retried phase.
-
-The engine saves origin-scoped task state, queued payloads, reports, snapshots and
-prepared requests in `workflow.db` (pure-Go SQLite with WAL and numbered migrations)
-under the shell data directory. An unrecognized database or future unsupported schema
-is refused. Unfinished execution after restart is marked
-interrupted and requires explicit resume. Navigation does not cancel tasks; deletion
-and plugin disposal cancel their lifetimes and abort an active child. Store workers
-serialize snapshots off the UI thread and flush pending writes during shutdown.
 
 ## Side chats
 
@@ -817,9 +732,9 @@ and `agent.WorktreesKey`:
   target embedded PiG or an external CLI harness (Claude Code, Codex, ACP).
 - **Text only.** An external harness's conversation (`agent.ExternalHarness`)
   takes a message's text. At `chat.Outgoing` order `5000`, after every transform
-  that adds files, skills or a workflow, the plugin refuses a draft for one that
+  that adds files or skills, the plugin refuses a draft for one that
   carries any of them, naming what to remove. While such a conversation is open,
-  the attachments button, the `/skill` completions, the mode and workflow picker
+  the attachments button, the `/skill` completions, the mode picker
   and the model picker are hidden.
 - **Work panel section.** Contributes a `chat.Work` section displaying supervised
   workers (with status pill and Stop action) and secondary Git worktrees (with

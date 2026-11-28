@@ -741,15 +741,6 @@ func harnessCanTake(req protocol.SendRequest) error {
 	if len(req.Skills) > 0 {
 		unsupported = append(unsupported, "skills")
 	}
-	if req.Instructions != "" || req.Internal {
-		unsupported = append(unsupported, "internal instructions")
-	}
-	if req.Policy != nil {
-		unsupported = append(unsupported, "tool policies")
-	}
-	if len(req.ResultSchema) > 0 {
-		unsupported = append(unsupported, "structured results")
-	}
 	if len(unsupported) == 0 {
 		return nil
 	}
@@ -868,14 +859,6 @@ func (o *Orchestrator) Changes(ctx context.Context, id string) ([]protocol.FileC
 		return diff, nil
 	}
 	return o.pig.Changes(ctx, id)
-}
-
-func (o *Orchestrator) Snapshot(ctx context.Context, id string) (map[string][]byte, error) {
-	return o.pig.Snapshot(ctx, id)
-}
-
-func (o *Orchestrator) Diff(ctx context.Context, id string, before map[string][]byte) ([]protocol.FileChange, error) {
-	return o.pig.Diff(ctx, id, before)
 }
 
 func (o *Orchestrator) Models(ctx context.Context) ([]protocol.Model, error) {

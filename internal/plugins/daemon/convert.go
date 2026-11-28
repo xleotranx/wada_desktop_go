@@ -384,13 +384,11 @@ func fromProtoApproval(a *protocol.Approval) *agent.Approval {
 
 func fromProtoEvent(ev protocol.Event) agent.Event {
 	out := agent.Event{
-		RequestID: ev.RequestID,
-		Session:   agent.SessionID(ev.Session),
-		Model:     fromProtoModelRef(ev.Model),
-		Title:     ev.Title,
-		Error:     ev.Error,
-		Result:    ev.Result,
-		Bytes:     128 + len(ev.Error) + len(ev.Title) + len(ev.Result),
+		Session: agent.SessionID(ev.Session),
+		Model:   fromProtoModelRef(ev.Model),
+		Title:   ev.Title,
+		Error:   ev.Error,
+		Bytes:   128 + len(ev.Error) + len(ev.Title),
 	}
 	if ev.Text != nil {
 		out.Text = &agent.TextEvent{

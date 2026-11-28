@@ -21,7 +21,6 @@ plugins have no PiG dependency.
 | `FilesKey` | Local project file/folder lookup and contained file reads |
 | `SkillsKey` | Skills discovered by PiG for the conversation's project |
 | `RewindKey` | Fork before a selected user message, retaining the original conversation and files |
-| `SnapshotsKey` | Bounded project snapshots and task-start diffs, including pre-existing working files |
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
@@ -31,8 +30,8 @@ See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updat
 
 `Events` carries immutable ordered normalized batches on the UI thread, in a
 `Scope.PostQuiet` closure: a listener whose view a batch changed calls
-`Invalidate`, so events of conversations out of sight (other tabs, side chats,
-workflow reviewers) draw no frames.
+`Invalidate`, so events of conversations out of sight (other tabs, side chats)
+draw no frames.
 `StatusChanged` describes startup/readiness/failure, `ModelsChanged` invalidates
 the provider/model catalog, and `WorkerUpdated` announces supervised worker
 status transitions. Consumers depend on these declarations, not the SDK.
@@ -55,9 +54,9 @@ The timeline is for catch-up only: it keeps the current and previous epochs, the
 last 20000 events of each session per epoch, and nothing for deleted sessions.
 
 A conversation on an external CLI harness (Claude Code, Codex, ACP) takes a
-message's text only: the daemon refuses, as not sent, a send with files, skills,
-instructions, a tool policy or a result schema, and refuses `SetModel` and child
-conversations under it. Its mode is the one it was created with.
+message's text only: the daemon refuses, as not sent, a send with files or
+skills, and refuses `SetModel` and child conversations under it. Its mode is
+the one it was created with.
 
 Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and, on top-level
@@ -107,9 +106,9 @@ bounded backpressure: at most 64 events or 256 KiB per batch, collected for at m
 
 `Send` reports admission through `SendAccepted`, `SendQueued` or `SendHandled`;
 execution is observed through events. PiG's prompt preflight callback supplies the
-disposition. A turn owns its lifetime independently of navigation. The delivery service serializes queued inputs, and chat without it
-prevents concurrent prompts to one session, and the backend refuses a busy session
-before sending. Different sessions can run independently.
+disposition. A turn owns its lifetime independently of navigation. Chat prevents
+concurrent prompts to one session, and the backend refuses a busy session before
+sending. Different sessions can run independently.
 
 The first send binds extension UI and dispatches `session_start` outside the
 metadata lock. Later prompts reuse successful bindings for that SDK session;
@@ -127,24 +126,6 @@ text, reasoning, tools, cost and usage; reasoning tokens are separated from outp
 Images use SDK image content, text files are appended as named fenced blocks, and
 Wada preserves the original user text and attachment names for display.
 
-`Send.ID` is echoed as `Event.RequestID`, including turn-owned approvals and
-questions. `TurnSucceeded.Result` carries an optional validated JSON result.
-`Send.ResultSchema` activates the reserved host `submit_result` SDK tool for that
-turn. It validates its arguments, accepts one result, blocks later tool execution,
-and terminates the tool batch. The prompt tells the model not to end with text
-alone; a model that still answers in text may end with one fenced JSON block, which
-PiG validates the same way and uses when no tool result was submitted. The tool and
-result state are cleared at settlement.
-`Send.Instructions` are scoped to the current prompt. `Send.Internal` keeps generated
-continuation prompts out of visible user history; the model still sees them.
-
-`Send.Policy` adds a restrictive policy for one turn. It cannot weaken fixed child
-policies or the conversation's access mode. Turn restrictions apply even in **Work
-independently** and cannot be bypassed by previously remembered approvals. Planning/routing
-and review deny edits; shell commands still require approval. Ordinary implementation
-turns without a policy retain their access mode. Cleanup occurs before the terminal
-event publishes so the next admitted turn cannot inherit restrictions.
-
 `Deleted` announces a successfully deleted session on the UI thread. Consumers use
 it to cancel related task scopes. Approvals and interactions can name their actual
 `Session` when rendered in another conversation; answers must target that owner.
@@ -160,9 +141,9 @@ grants apply only to that conversation and exact action. Stopping cancels waiter
 
 A child gets a separate history and persisted parent/policy metadata. Deny wins
 over Allow; unlisted tool kinds ask. Its fixed policy takes precedence over ordinary
-chat modes. Children are excluded from backend top-level lists. Workflow reviewers remain hidden.
-Side chats live in a drawer beside their parent conversation, are not emitted on
-`chat.Started`, and do not appear in tabs or All chats.
+chat modes. Children are excluded from backend top-level lists. Side chats live in
+a drawer beside their parent conversation, are not emitted on `chat.Started`, and do
+not appear in tabs or All chats.
 General SDK UI questions use the existing interaction contract,
 preserving empty answers, selections, confirmations and explicit cancellation.
 
@@ -207,10 +188,3 @@ tool action can still execute. Git ignores apply
 to workspace snapshots. Session diffs compare tracked baselines with the current files;
 subsequent external edits to those same files are reflected too. This is change
 tracking, not filesystem isolation.
-
-
-`SnapshotsKey` captures task-wide baselines independently of per-session mutation
-tracking. `Snapshot(ctx, session)` returns immutable file bytes; `Diff` compares a
-baseline with the current project through the same contained-file and size limits.
-Wada's workflow plugin persists its task snapshots in its own database. Snapshot
-failure blocks that workflow phase rather than authorizing an unreviewed completion.

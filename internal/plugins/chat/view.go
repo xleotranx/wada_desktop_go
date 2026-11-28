@@ -127,46 +127,8 @@ func (p *Plugin) greeting(c *ui.Context, pal native.Palette) {
 	})
 }
 
-type displayItem struct {
-	key      any
-	item     *item
-	activity *chat.ActivityItem
-}
-
-func (p *Plugin) displayItems() []displayItem {
-	items := p.t.items()
-	var activities []chat.ActivityItem
-	for _, e := range kernel.Items(p.ctx, chat.Activities) {
-		kernel.Invoke(p.ctx, e, func(a chat.Activity) { activities = append(activities, a.Items(p.conv.Session)...) })
-	}
-	var out []displayItem
-	user := 0
-	used := map[string]bool{}
-	for i := range items {
-		it := &items[i]
-		out = append(out, displayItem{key: it.key, item: it})
-		if it.row != nil && it.row.kind == rowUser {
-			user++
-			for j := range activities {
-				a := &activities[j]
-				if a.After == user {
-					out = append(out, displayItem{key: "activity:" + a.ID, activity: a})
-					used[a.ID] = true
-				}
-			}
-		}
-	}
-	for j := range activities {
-		a := &activities[j]
-		if !used[a.ID] {
-			out = append(out, displayItem{key: "activity:" + a.ID, activity: a})
-		}
-	}
-	return out
-}
-
 func (p *Plugin) transcriptView(c *ui.Context, pal native.Palette) {
-	items := p.displayItems()
+	items := p.t.items()
 	count := len(items)
 	if p.working() {
 		count++
@@ -183,12 +145,7 @@ func (p *Plugin) transcriptView(c *ui.Context, pal native.Palette) {
 				column(r.Context).Children(func() { p.waiting(r.Context, pal) })
 				return
 			}
-			entry := items[r.Index]
-			if entry.activity != nil {
-				column(r.Context).Children(func() { entry.activity.Render(r.Context) })
-				return
-			}
-			it := entry.item
+			it := items[r.Index]
 			if it.work != nil {
 				p.workView(r.Context, pal, it.work)
 			} else {
@@ -492,12 +449,9 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				p.editBanner(c, pal)
 			}
 			p.completionList(c, pal)
-			if p.queueable() && p.running() {
-				components.Button(c, "Stop", components.ButtonSecondary).OnClick(p.stop)
-			}
 			options := onechat.ComposerOptions{
 				Label: "Compose", Placeholder: "Message the agent", SendLabel: "Send", StopLabel: "Stop",
-				Running: p.running() && !p.queueable(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
+				Running: p.running(), SendDisabled: p.agent.Status().State != agent.Ready || p.loading.Running(),
 			}
 			if len(attachments) > 0 {
 				options.Attachments = func(c *ui.Context) {

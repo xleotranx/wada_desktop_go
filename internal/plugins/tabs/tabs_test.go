@@ -464,7 +464,7 @@ func TestRemovingAFolderClosesItsTabs(t *testing.T) {
 	}
 }
 
-// runPages contributes a page while its scope lives, as a workflow run does.
+// runPages contributes a page while its scope lives.
 type runPages struct{ ctx *kernel.Context }
 
 func (f *runPages) New() kernel.Plugin            { return f }

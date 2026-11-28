@@ -11,7 +11,6 @@ import (
 	"wada-desktop-go/internal/plugins/daemon"
 	"wada-desktop-go/internal/plugins/explore"
 	"wada-desktop-go/internal/plugins/filechanges"
-	"wada-desktop-go/internal/plugins/flows"
 	"wada-desktop-go/internal/plugins/folderpicker"
 	"wada-desktop-go/internal/plugins/markup"
 	"wada-desktop-go/internal/plugins/mentions"
@@ -25,7 +24,6 @@ import (
 	terminalplugin "wada-desktop-go/internal/plugins/terminal"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workers"
-	"wada-desktop-go/internal/plugins/workflow"
 	"wada-desktop-go/internal/plugins/workspace"
 
 	"github.com/xleotranx/wada-kit/kernel"
@@ -63,7 +61,7 @@ func main() {
 		daemon.New,
 		chat.New,
 		models.New,
-		modes.New, // the mode, or a workflow for the next message
+		modes.New, // the mode for outgoing messages
 		usage.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
 		workers.New,     // harness picker, supervised CLI workers and Git worktrees
@@ -76,8 +74,6 @@ func main() {
 		folderpicker.New, // Open Folder… and the new chat's folder in the composer
 		tabs.New,         // open chats and pages as tabs across the title strip
 		explore.New,      // read-only side chats in a drawer, from selected text
-		workflow.New,     // owns conversational tasks and fresh reviewer children
-		flows.New,        // plan, code, review, from the composer or command palette
 		starters.New,     // the new chat's folder starters
 		palette.New,
 		notifications.New,

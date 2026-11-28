@@ -18,7 +18,8 @@ plugins have no PiG dependency.
 | `InteractionsKey` | Confirmation, selection, input and editor questions; pending questions can be read again |
 | `FileTypesKey` | PNG, JPEG, GIF, WebP and text attachments |
 | `ImagesKey` | `Fit(ctx, model, file)` returns the size an image is sent at from its bytes. PiG uses its prompt-image resizer, including the model's dimension, encoded byte and JPEG quality limits (defaults: 2000×2000 and 4.5 MiB of base64); with `images.autoResize` off it returns the original dimensions. Unpreparable images return an error. |
-| `FilesKey` | Local project file/folder lookup and contained file reads |
+| `FilesKey` | Project file and folder lookup on the daemon host, plus contained file reads |
+| `EditorKey` | Search, open and save UTF-8 text files in an active workspace, using revision checks |
 | `SkillsKey` | Skills discovered by PiG for the conversation's project |
 | `RewindKey` | Fork before a selected user message, retaining the original conversation and files |
 | `ChangesKey` | Session file changes against contents before the agent touched them |
@@ -29,7 +30,8 @@ plugins have no PiG dependency.
 | `WorktreesKey` | Authenticated `gh` PR status of a directory's branch (`PRStatus`) |
 | `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base; its `wada.json` (`Config`, `TrustConfig`, `RunSetup`, `StartService`, `StopService`). An archive refused for unsaved work fails with `ErrWorkUnsaved`, and running an untrusted `wada.json` with `ErrUntrusted`. |
 
-See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
+The daemon plugin also provides `terminal.ServiceKey` for detached PTY streams
+and `browser.PreviewKey` for [local agent preview requests](#agent-preview-requests).
 
 `Events` carries immutable ordered normalized batches on the UI thread, in a
 `Scope.PostQuiet` closure: a listener whose view a batch changed calls
@@ -54,7 +56,8 @@ directory at a time: it holds an exclusive lock on `<DataDir>/wadad.lock` for it
 whole run, so a replacement waits until the daemon it replaces has shut down and
 removed its runtime files. `wadad.db` tracks server identity,
 startup epoch, idempotent creation/delivery receipts, sequenced timeline events, and
-the projects and workspaces (below).
+projects, workspaces and schedules. The daemon applies numbered SQLite
+migrations through schema 6 and rejects newer schemas.
 The timeline is for catch-up only: it keeps the current and previous epochs, the
 last 20000 events of each session per epoch, and nothing for deleted sessions.
 
@@ -67,7 +70,8 @@ Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and, on top-level
 conversations, Chief Agent orchestration tools (`list_providers`, `list_profiles`, `create_workspace`,
 `list_workspaces`, `archive_workspace`, `spawn_agent`, `send_agent`, `wait_agent`,
-`inspect_agent_diff`, `stop_agent`) with Wada's engineering system prompt. The
+`inspect_agent_diff`, `stop_agent`, and `workspace_preview`) with Wada's
+engineering system prompt. The
 workspace tools act on the conversation's own project and refuse the inbox.
 `spawn_agent` runs a worker in the conversation's folder, a folder inside it
 (`directory`), or a workspace of the same project (`workspace_id`); `stop_agent`

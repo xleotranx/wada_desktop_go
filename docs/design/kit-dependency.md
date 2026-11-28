@@ -5,11 +5,11 @@ maintained in its [own repository](https://github.com/xleotranx/wada-kit), with 
 own local checks, tests, docs and releases. Wada owns its app contracts, feature
 plugins, PiG backend, storage, branding and packaging. The kit never imports Wada.
 
-## Adopted release
+## Runtime ownership
 
-Wada pins wada-kit v0.4.0 with MyGo v0.10.0 and Onevra v0.2026.19. The shell
-leaves automatic plugin restart disabled, and the `daemon` plugin explicitly opts
-out even if a host configures a default. Backend recovery stays explicit; failed
+[go.mod](../../go.mod) records the selected kit, MyGo and Onevra versions.
+The shell leaves automatic plugin restart disabled. The `daemon` plugin also
+keeps it disabled if a host configures a default. Backend recovery stays explicit; failed
 create/send/reply/rename/delete operations are not automatically retried.
 
 Shutdown cancels plugin lifetimes before UI disposal. The `daemon` plugin drops its
@@ -46,9 +46,7 @@ than copied source or edits under the module cache.
    requirements and settings format.
 2. Update with `GOWORK=off go get github.com/xleotranx/wada-kit@<version>`,
    then run `GOWORK=off go mod tidy`.
-3. Update the versioned kit documentation links in `README.md`, `AGENTS.md`,
-   `docs/design/kit-dependency.md`, and `docs/design/shell-and-plugins.md` to the
-   adopted tag.
+3. Update versioned kit documentation links to the adopted tag.
 4. Run `make licenses` to refresh notices for the selected module graph.
 5. Run `GOWORK=off make check` and `GOWORK=off go build ./...`, then commit the
    dependency, checks and documentation together. CI also runs with workspaces off.

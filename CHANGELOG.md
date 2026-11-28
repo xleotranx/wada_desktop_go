@@ -2,21 +2,18 @@
 
 ## Unreleased
 
-- Native desktop coding workspace connected to the headless `wadad` daemon
-  (embedded PiG backend, `wadad.db` idempotent receipts and sequenced timelines),
-  plus `wada` CLI and React/TypeScript Web/PWA client (`web/`).
-- Chief Agent orchestration across isolated Git worktrees (`worktrees/`) and
-  supervised external coding CLI harnesses (Claude Code, Codex, and ACP), with a
-  Work panel, Worker Inspector drawer, and `gh` PR status integration.
-- Detached cross-platform PTY terminal worker (`wadad-term`) and interactive
-  desktop Terminal drawer (`⌘J` / `⇧⌘J`).
-- Zero-knowledge E2EE Noise NK relay (`wada-relay`), `#offer=` pairing links,
-  daemon password authentication, multi-host Desktop switcher, and Docker
-  self-hosting packaging (`docker/`).
-- Folder-scoped conversation tabs, file diffs, usage tracking, screenshot
-  annotation, and read-only side chats.
-- Independently versioned MIT-licensed `wada-kit` core and shell.
-- Third-party license inventory, secret/vulnerability scans, and multi-platform
-  CI/release workflows.
+- Added daemon-owned projects and workspaces shared by desktop, web, and CLI.
+  Worktree workspaces support branch and PR checkout, archive and restore,
+  configurable storage and branch prefixes, and model-drafted commits and PRs.
+- Added workspace Files, Changes, Terminal, and Browser tabs. Desktop can keep
+  a pane beside chat. The web Files view can show chat beside its editor.
+- Added trusted workspace setup scripts and services with per-workspace ports.
+  Agents can request approved browser actions in local workspace services.
+- Added agent profiles, supervised workers, and Chief tools for external CLI
+  harnesses over loopback MCP, plus daemon-run schedules and heartbeats.
+- Added SSH hosts and web project registration, worktree creation and adoption,
+  archive and restore, schedule editing, and an installable PWA shell.
+- Added dictation, screenshot markup, and read-only side chats.
 
-The packaging version is `0.1.0`.
+For setup and current workflows, see the [README](README.md) and the
+[workspace guide](docs/workspaces.md).

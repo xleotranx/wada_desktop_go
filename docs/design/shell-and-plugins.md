@@ -276,8 +276,9 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   tab of the kind comes on show and when the one on show goes. `tabs.Service.Open`
   shows the tab of a kind, ref and folder, opening it in that folder's space beside
   the active tab when there is none. The plugin contributes one page, `tabs.pane`,
-  that draws the active pane tab through its kind; selecting a pane tab shows that
-  page. Pane tabs belong to their folder's space like conversations, keep the
+  that draws the active pane tab or the split layout with chat. Selecting a pane
+  tab directly opens the full-width pane. Pane tabs belong to their folder's
+  space like conversations, keep the
   space's last-shown tab, and are titled by their kind on every frame.
 - Tabs follow navigation rather than drive it. After `chat.Changed` while the chat
   page is on show, and after `shell.PageChanged`, what is shown becomes the active
@@ -892,9 +893,9 @@ end the app when it asks for the microphone.
 `#offer=` remote pairing link (`daemon.pairing.offer`), set or clear the
 bcrypt remote daemon password (`daemon.password.set`), and switch between
 `Local wadad` and saved remote profiles in `<DataDir>/hosts.json`.
-Add remote host takes a name, an `#offer=` link or endpoint (`client.ParseHostTarget`:
-a host without a port gets `:6767`), and an optional daemon credential, relay
-token and password. The credential and relay token are saved in the profile; a
+Add remote host takes a name and an `#offer=` link, direct WebSocket endpoint,
+or `ssh://` target. Direct endpoints default to port 6767. The form also accepts
+an optional daemon credential, relay token and password. The credential and relay token are saved in the profile; a
 password is kept in memory for this run of the app only and is used each time
 that host is connected. When a daemon refuses the credential or password, or a
 relay its relay token (`client.IsUnauthorized`), the plugin stops redialing,

@@ -51,6 +51,7 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("wadad", flag.ContinueOnError)
 	var (
 		dataDir        = fs.String("data-dir", defDir, "Wada data directory")
+		worktreeDir    = fs.String("worktree-dir", os.Getenv("WADA_WORKTREE_DIR"), "Absolute directory for new Git worktrees (default: worktrees under the data directory)")
 		listen         = fs.String("listen", "127.0.0.1:6767", "HTTP/WebSocket listen address (or \"auto\")")
 		password       = fs.String("password", os.Getenv("WADA_PASSWORD"), "Optional daemon password")
 		hostnames      = fs.String("hostnames", os.Getenv("WADA_HOSTNAMES"), "Comma-separated allowed Host headers")
@@ -63,6 +64,13 @@ func Run(args []string) error {
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	wtMgr := worktree.New(*dataDir)
+	if *worktreeDir != "" {
+		if !filepath.IsAbs(*worktreeDir) {
+			return fmt.Errorf("wadad: worktree-dir must be an absolute path")
+		}
+		wtMgr = worktree.NewAt(*worktreeDir)
 	}
 	// Terminals, harness workers and git inherit this process's environment;
 	// they have no use for the daemon's secrets.
@@ -90,7 +98,6 @@ func Run(args []string) error {
 	}
 	defer unlock()
 
-	wtMgr := worktree.New(*dataDir)
 	st, err := store.Open(ctx, *dataDir)
 	if err != nil {
 		return fmt.Errorf("wadad: open database: %w", err)

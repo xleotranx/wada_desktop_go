@@ -151,7 +151,8 @@ Production settings and app records live under
   `wadad.db`: daemon identity, idempotency receipts, sequenced event timelines, and projects and workspaces.
 - `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`: local daemon discovery, lock, and authentication files.
 - `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`: E2EE relay identity keys, optional remote password hash, and saved remote host profiles.
-- `worktrees/`, `terminal-worker/`: the Git worktrees of worktree workspaces, and detached PTY worker IPC descriptors.
+- `worktrees/`: the default location for new Git worktrees. Use `wadad --worktree-dir /absolute/path` or set `WADA_WORKTREE_DIR` in the daemon's environment to place new worktrees elsewhere on the host. Restored workspaces use their recorded locations.
+- `terminal-worker/`: detached PTY worker IPC descriptors.
 - `pig/sessions/`: conversation transcripts; `pig/metadata/`: app session metadata;
   `pig/baselines/`: lazy on-disk session diff baselines; `pig/agent/`: provider credentials and configuration.
 

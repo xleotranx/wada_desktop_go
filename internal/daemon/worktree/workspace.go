@@ -35,7 +35,7 @@ type Added struct {
 	PR      int
 }
 
-// Add makes a worktree of dir's repository under dataDir/worktrees, fetching
+// Add makes a worktree of dir's repository under the worktree directory, fetching
 // origin first when it has one, and copies the .worktreeinclude files into it.
 func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, error) {
 	m.mu.Lock()
@@ -48,11 +48,15 @@ func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, 
 	if strings.HasPrefix(opts.From, "-") {
 		return Added{}, fmt.Errorf("invalid ref %q", opts.From)
 	}
+	storage, err := m.storageDirectory(root)
+	if err != nil {
+		return Added{}, err
+	}
 	fetch(ctx, root)
 	slug := sanitizeSlug(cmpOr(opts.Slug, strings.TrimPrefix(opts.From, "origin/"), fmt.Sprint("pr-", opts.PR)))
 	wtSlug := slug + "-" + randomHex(2)
 	sum := sha256.Sum256([]byte(root))
-	dest := filepath.Join(m.dataDir, "worktrees", hex.EncodeToString(sum[:6]), wtSlug)
+	dest := filepath.Join(storage, hex.EncodeToString(sum[:6]), wtSlug)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return Added{}, err
 	}
@@ -111,6 +115,29 @@ func (m *Manager) Add(ctx context.Context, dir string, opts AddOptions) (Added, 
 		return added, fmt.Errorf("worktree created at %s, include copy failed: %w", dest, err)
 	}
 	return added, nil
+}
+
+// storageDirectory keeps new checkouts outside the source tree, where they
+// would be treated as untracked files and scanned by .worktreeinclude.
+func (m *Manager) storageDirectory(repo string) (string, error) {
+	dir, err := filepath.Abs(m.directory)
+	if err != nil {
+		return "", err
+	}
+	if rel, err := filepath.Rel(repo, dir); err == nil && filepath.IsLocal(rel) {
+		return "", fmt.Errorf("worktree: storage directory %s is inside source repository %s", dir, repo)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("worktree: create storage directory: %w", err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	if rel, err := filepath.Rel(repo, dir); err == nil && filepath.IsLocal(rel) {
+		return "", fmt.Errorf("worktree: storage directory %s is inside source repository %s", dir, repo)
+	}
+	return dir, nil
 }
 
 // checkoutBranch adds a worktree at dest on a branch; "origin/x" with no

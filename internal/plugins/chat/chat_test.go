@@ -1047,32 +1047,6 @@ func TestARequirementStandsBeforeTheChat(t *testing.T) {
 		t.Fatal("the composer shows under a requirement")
 	}
 }
-
-func TestExternalRequestsSurviveHistoryReload(t *testing.T) {
-	h, p, a, _ := start(t)
-	p.Open(agent.Session{ID: "main"})
-	h.Flush()
-	request := agent.Interaction{ID: "review-question", Session: "child", Kind: agent.Confirm, Title: "External decision"}
-	a.Emit(agent.Event{Kind: agent.InteractionRequested, Session: "main", Interaction: &request})
-	approval := agent.Approval{ID: "review-approval", Session: "child", Kind: agent.ToolShell}
-	a.Emit(agent.Event{Kind: agent.ApprovalRequested, Session: "main", Approval: &approval})
-	h.Flush()
-	p.load()
-	h.Flush()
-	var questions, approvals int
-	for _, row := range p.t.rows {
-		if row.interaction != nil && row.interaction.request.Session == "child" {
-			questions++
-		}
-		if row.approval != nil && row.approval.Session == "child" {
-			approvals++
-		}
-	}
-	if questions != 1 || approvals != 1 {
-		t.Fatalf("external requests lost: questions=%d approvals=%d", questions, approvals)
-	}
-}
-
 func TestInitialReadRecoversWhenSameConnectionBecomesReady(t *testing.T) {
 	h, p, a, _ := start(t)
 	a.Fail["Messages"] = agent.ErrNotConnected
@@ -1090,25 +1064,27 @@ func TestInitialReadRecoversWhenSameConnectionBecomesReady(t *testing.T) {
 	}
 }
 
-func TestExternalApprovalReplySurvivesNavigation(t *testing.T) {
+func TestPendingRequestsSurviveHistoryReload(t *testing.T) {
 	h, p, a, _ := start(t)
 	p.Open(agent.Session{ID: "main"})
 	h.Flush()
-	approval := agent.Approval{Session: "worker", ID: "approval", Kind: agent.ToolShell}
-	a.Emit(agent.Event{Session: "main", Kind: agent.ApprovalRequested, Approval: &approval})
+	request := agent.Interaction{ID: "question", Session: "main", Kind: agent.Confirm, Title: "Decision"}
+	a.Emit(agent.Event{Kind: agent.InteractionRequested, Session: "main", Interaction: &request})
+	approval := agent.Approval{ID: "approval", Session: "main", Kind: agent.ToolShell}
+	a.Emit(agent.Event{Kind: agent.ApprovalRequested, Session: "main", Approval: &approval})
 	h.Flush()
-	p.reply(approval, agent.Once)
-	p.NewChat("/elsewhere")
+	p.load()
 	h.Flush()
-	replies := a.Replies()
-	if len(replies) != 1 || replies[0].Session != "worker" {
-		t.Fatalf("reply=%+v", replies)
-	}
-	if kept := p.kept.find("main"); kept != nil {
-		for _, r := range kept.t.rows {
-			if r.approval != nil {
-				t.Fatal("answered approval replayed after navigation")
-			}
+	var questions, approvals int
+	for _, row := range p.t.rows {
+		if row.interaction != nil && row.interaction.request.ID == "question" {
+			questions++
 		}
+		if row.approval != nil && row.approval.ID == "approval" {
+			approvals++
+		}
+	}
+	if questions != 1 || approvals != 1 {
+		t.Fatalf("requests lost: questions=%d approvals=%d", questions, approvals)
 	}
 }

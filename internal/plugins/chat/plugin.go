@@ -245,11 +245,11 @@ func (p *Plugin) load() {
 		// App notes survive the reload, but not one saying an earlier read
 		// failed: this one worked.
 		var notes []*row
-		var external []*row
+		var requests []*row
 		questions := map[agent.InteractionID]*row{}
 		for _, r := range p.t.rows {
 			if (r.approval != nil && r.approval.Session != "") || (r.interaction != nil && r.interaction.request.Session != "") {
-				external = append(external, r)
+				requests = append(requests, r)
 			}
 			if r.kind == rowNote && !r.loadFailed {
 				notes = append(notes, r)
@@ -269,7 +269,7 @@ func (p *Plugin) load() {
 		}
 		p.t.load(r.messages, r.sum)
 		p.t.rows = append(p.t.rows, notes...)
-		p.t.rows = append(p.t.rows, external...)
+		p.t.rows = append(p.t.rows, requests...)
 		for _, q := range r.interactions {
 			if existing := questions[q.ID]; existing != nil {
 				p.t.rows = append(p.t.rows, existing)
@@ -513,11 +513,7 @@ func (p *Plugin) stop() {
 }
 
 func (p *Plugin) reply(a agent.Approval, d agent.Decision) {
-	// A child's approval travels on its parent's stream: answer it against its own session.
 	parent, id := p.conv.Session, p.conv.Session
-	if a.Session != "" {
-		id = a.Session
-	}
 	backend := p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (struct{}, error) {

@@ -22,11 +22,7 @@ func (p *Plugin) answer(state *interactionState, answer agent.InteractionAnswer)
 		p.t.note("The agent cannot receive this answer.")
 		return
 	}
-	// A child's question travels on its parent's stream: answer it against its own session.
 	answer.Session, answer.ID = p.conv.Session, state.request.ID
-	if state.request.Session != "" {
-		answer.Session = state.request.Session
-	}
 	state.submitting = true
 	parent := p.conv.Session
 	var task kernel.Task

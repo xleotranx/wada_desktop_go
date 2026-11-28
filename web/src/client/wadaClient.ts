@@ -40,6 +40,9 @@ import {
 
 const WS_TEXT = 1;
 const WS_BINARY = 2;
+// The client pings this often and treats a ping unanswered by the next one
+// as a dead connection.
+const PING_INTERVAL_MS = 10_000;
 
 export interface ConnectConfig {
   offer?: string;
@@ -251,8 +254,22 @@ export class WadaClient {
   private startPing(): void {
     this.cleanupTimers();
     this.pingTimer = window.setInterval(() => {
+      // A pong clears the probe; one still armed from the last ping means
+      // the socket has been silent for a whole interval and is reported dead.
+      if (this.probeTimer !== null) return;
       this.sendPing();
-    }, 10_000);
+      this.armProbe(PING_INTERVAL_MS, "Liveness check timed out");
+    }, PING_INTERVAL_MS);
+  }
+
+  private armProbe(ms: number, reason: string): void {
+    if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
+    this.probeTimer = window.setTimeout(() => {
+      this.probeTimer = null;
+      if (!this.closed) {
+        this.handleClose(reason);
+      }
+    }, ms);
   }
 
   private sendPing(): void {
@@ -271,12 +288,7 @@ export class WadaClient {
       return;
     }
     this.sendPing();
-    if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
-    this.probeTimer = window.setTimeout(() => {
-      if (!this.closed) {
-        this.handleClose("Foreground liveness check timed out");
-      }
-    }, 5_000);
+    this.armProbe(5_000, "Foreground liveness check timed out");
   };
 
   private handleClose(reason: string): void {

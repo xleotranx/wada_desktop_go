@@ -53,6 +53,27 @@ type acpPermissionWait struct {
 	allowOnce  string
 	allowAll   string
 	rejectOnce string
+	rejectAll  string
+}
+
+// option is the optionId the agent offered for decision, preferring the
+// narrowest kind, or "" when it offered none that fits.
+func (w acpPermissionWait) option(decision protocol.Decision) string {
+	var choices []string
+	switch decision {
+	case protocol.DecisionOnce:
+		choices = []string{w.allowOnce, w.allowAll}
+	case protocol.DecisionAlways:
+		choices = []string{w.allowAll, w.allowOnce}
+	case protocol.DecisionReject:
+		choices = []string{w.rejectOnce, w.rejectAll}
+	}
+	for _, c := range choices {
+		if c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 type acpSession struct {
@@ -320,7 +341,10 @@ func (s *acpSession) Reply(ctx context.Context, approvalID string, decision prot
 	}
 	s.mu.Lock()
 	wait, ok := s.pending[approvalID]
-	if ok {
+	opt := wait.option(decision)
+	// Only the agent's own options are valid answers; without an allow option
+	// the request stays open so the user can still reject it.
+	if ok && (opt != "" || decision == protocol.DecisionReject) {
 		delete(s.pending, approvalID)
 	}
 	s.mu.Unlock()
@@ -329,28 +353,14 @@ func (s *acpSession) Reply(ctx context.Context, approvalID string, decision prot
 	}
 
 	var outcome map[string]any
-	switch decision {
-	case protocol.DecisionOnce:
-		opt := wait.allowOnce
-		if opt == "" {
-			opt = "allow_once"
-		}
+	switch {
+	case opt != "":
 		outcome = map[string]any{"outcome": "selected", "optionId": opt}
-	case protocol.DecisionAlways:
-		opt := wait.allowAll
-		if opt == "" {
-			opt = wait.allowOnce
-		}
-		if opt == "" {
-			opt = "allow_always"
-		}
-		outcome = map[string]any{"outcome": "selected", "optionId": opt}
-	case protocol.DecisionReject:
-		if wait.rejectOnce != "" {
-			outcome = map[string]any{"outcome": "selected", "optionId": wait.rejectOnce}
-		} else {
-			outcome = map[string]any{"outcome": "cancelled"}
-		}
+	case decision == protocol.DecisionReject:
+		// The agent offered no reject option; cancelling is the only refusal left.
+		outcome = map[string]any{"outcome": "cancelled"}
+	default:
+		return errors.New("the agent offered no option to allow this action")
 	}
 
 	return s.writeFrame(map[string]any{
@@ -537,6 +547,8 @@ func (s *acpSession) readLoop(reader *bufio.Reader) {
 					wait.allowAll = o.OptionID
 				case "reject_once":
 					wait.rejectOnce = o.OptionID
+				case "reject_always":
+					wait.rejectAll = o.OptionID
 				}
 			}
 			approvalID := "acp_perm_" + strings.Trim(string(env.ID), `"`)

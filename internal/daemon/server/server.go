@@ -161,6 +161,7 @@ type Server struct {
 
 	authMu       sync.RWMutex
 	passwordHash []byte
+	authLimit    *authLimiter
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -248,6 +249,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		cancel:       cancel,
 		clients:      map[*clientConn]struct{}{},
 		seqBySess:    map[string]uint64{},
+		authLimit:    newAuthLimiter(),
 	}
 	return s, nil
 }
@@ -312,7 +314,7 @@ func (s *Server) Start() (string, error) {
 	}()
 	if s.cfg.RelayURL != "" {
 		rc, rerr := relay.StartDaemonConnector(s.cfg.RelayURL, s.cfg.RelayToken, s.keypair, func(tr relay.Transport) {
-			s.ServeTransport(tr)
+			s.ServeTransport(tr, relayPeer)
 		})
 		if rerr != nil {
 			_ = s.Shutdown(context.Background())
@@ -390,12 +392,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	s.ServeTransport(ws)
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
+	}
+	s.ServeTransport(ws, peer)
 }
 
+// relayPeer is the sign-in throttling key every relay tunnel shares.
+const relayPeer = "relay"
+
 // ServeTransport runs the hello/server_info handshake and multiplexed RPC/event/terminal
-// loop over an accepted WebSocket or Noise NK relay tunnel.
-func (s *Server) ServeTransport(tr relay.Transport) {
+// loop over an accepted WebSocket or Noise NK relay tunnel. peer keys the
+// throttling of failed sign-ins.
+func (s *Server) ServeTransport(tr relay.Transport, peer string) {
 	conn := &clientConn{
 		id:           uuid.NewString(),
 		tr:           tr,
@@ -426,7 +436,13 @@ func (s *Server) ServeTransport(tr relay.Transport) {
 		_ = tr.Close()
 		return
 	}
-	local, ok := s.authenticate(hello)
+	local, ok, wait := s.authenticate(hello, peer)
+	if wait > 0 {
+		conn.writeImmediateError(env.RequestID, protocol.ErrCodeUnauthorized,
+			fmt.Sprintf("too many failed sign-ins; try again in %s", wait.Round(time.Second)))
+		_ = tr.Close()
+		return
+	}
 	if !ok {
 		conn.writeImmediateError(env.RequestID, protocol.ErrCodeUnauthorized, "invalid daemon credential or password")
 		_ = tr.Close()
@@ -485,19 +501,30 @@ func writeJSONFrame(tr relay.Transport, v any) error {
 }
 
 // authenticate reports whether hello may connect, and whether it did so with
-// the local credential.
-func (s *Server) authenticate(hello protocol.HelloPayload) (local, ok bool) {
+// the local credential. A peer with too many recent failures gets wait > 0
+// and is not checked; the local credential is never throttled.
+func (s *Server) authenticate(hello protocol.HelloPayload, peer string) (local, ok bool, wait time.Duration) {
 	if hello.Credential != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(s.credential)) == 1 {
-		return true, true
+		return true, true, 0
+	}
+	if wait := s.authLimit.retryAfter(peer); wait > 0 {
+		return false, false, wait
 	}
 	s.authMu.RLock()
 	pwHash := slices.Clone(s.passwordHash)
 	remoteTok := s.remoteToken
 	s.authMu.RUnlock()
 	if len(pwHash) > 0 {
-		return false, hello.Password != "" && bcrypt.CompareHashAndPassword(pwHash, []byte(hello.Password)) == nil
+		ok = hello.Password != "" && bcrypt.CompareHashAndPassword(pwHash, []byte(hello.Password)) == nil
+	} else {
+		ok = hello.Credential != "" && remoteTok != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(remoteTok)) == 1
 	}
-	return false, hello.Credential != "" && remoteTok != "" && subtle.ConstantTimeCompare([]byte(hello.Credential), []byte(remoteTok)) == 1
+	if ok {
+		s.authLimit.succeed(peer)
+	} else {
+		s.authLimit.fail(peer)
+	}
+	return false, ok, 0
 }
 
 func (s *Server) pumpEvents() {

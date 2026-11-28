@@ -23,8 +23,16 @@ type Options struct {
 	Root         string
 	Instructions string
 	// ChiefTools gives a top-level conversation's extra tools; contextFn
-	// reports that conversation's session ID and folder at call time.
-	ChiefTools func(contextFn func() (sessionID, dir string)) []Tool
+	// reports that conversation's session, folder and mode at call time.
+	ChiefTools func(contextFn func() ChiefContext) []Tool
+}
+
+// ChiefContext is the conversation a Chief tool call runs in.
+type ChiefContext struct {
+	SessionID string
+	Dir       string
+	// FullAccess reports whether the conversation works without approvals.
+	FullAccess bool
 }
 
 // Runtime owns a headless PiG engine and its lifecycle.

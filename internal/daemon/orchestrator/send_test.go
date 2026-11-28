@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type scriptedSession struct {
 	events  chan protocol.Event
 	sendErr error
+	once    sync.Once
 }
 
 func (s *scriptedSession) Send(context.Context, string) error { return s.sendErr }
@@ -28,9 +30,12 @@ func (*scriptedSession) Reply(context.Context, string, protocol.Decision) error 
 }
 func (s *scriptedSession) Events() <-chan protocol.Event { return s.events }
 func (s *scriptedSession) Close() error {
-	close(s.events)
+	s.once.Do(func() { close(s.events) })
 	return nil
 }
+
+// exit ends the event stream as if the CLI process had exited.
+func (s *scriptedSession) exit() { s.once.Do(func() { close(s.events) }) }
 
 type scriptedProvider struct{ sess *scriptedSession }
 
@@ -190,4 +195,117 @@ func TestSpawnAfterCloseIsRefused(t *testing.T) {
 	if _, open := <-sess.events; open {
 		t.Fatal("the refused worker's session was left open")
 	}
+}
+
+func TestWorkerExitDuringTurnFailsTheTurn(t *testing.T) {
+	dataDir := t.TempDir()
+	rt, err := pig.New(t.Context(), pig.Options{Root: filepath.Join(dataDir, "pig")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &scriptedSession{events: make(chan protocol.Event, 16)}
+	reg := harness.NewRegistry()
+	reg.Register(&scriptedProvider{sess: sess})
+	o, err := New(t.Context(), Options{DataDir: dataDir, PiG: rt, Worktrees: worktree.New(dataDir), Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	failed := make(chan protocol.Event, 1)
+	go func() {
+		for ev := range o.Events() {
+			if ev.Kind == protocol.EventTurnFailed {
+				failed <- ev
+			}
+		}
+	}()
+
+	info, err := o.spawnWorker(t.Context(), spawnWorkerArgs{ParentSession: "parent", Provider: "scripted", Directory: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Send(t.Context(), protocol.SendRequest{Session: info.ID, Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	sess.events <- protocol.Event{Kind: protocol.EventTurnStarted}
+	sess.events <- protocol.Event{Kind: protocol.EventApprovalRequested, Approval: &protocol.Approval{ID: "ap1", Action: "Bash"}}
+	sess.exit()
+
+	select {
+	case ev := <-failed:
+		if ev.Session != info.ID || ev.Error == "" {
+			t.Fatalf("turn end = %+v, want a failure for %s", ev, info.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no turn failure after the worker exited mid-turn")
+	}
+	if st := o.getWorker(info.ID).snapshot().Status; st != protocol.WorkerFailed {
+		t.Fatalf("status = %s, want failed", st)
+	}
+	if pending, _ := o.PendingApprovals(t.Context()); len(pending) != 0 {
+		t.Fatalf("pending approvals after exit = %+v", pending)
+	}
+}
+
+func TestSpawnAgentStaysWithinTheConversation(t *testing.T) {
+	dataDir := t.TempDir()
+	rt, err := pig.New(t.Context(), pig.Options{Root: filepath.Join(dataDir, "pig")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := harness.NewRegistry()
+	var started []harness.SessionOptions
+	reg.Register(recordingProvider{start: func(opts harness.SessionOptions) { started = append(started, opts) }})
+	o, err := New(t.Context(), Options{DataDir: dataDir, PiG: rt, Worktrees: worktree.New(dataDir), Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	go func() {
+		for range o.Events() {
+		}
+	}()
+	folder := t.TempDir()
+	spawn := func(full bool, args string) error {
+		for _, tool := range o.ChiefTools(func() pig.ChiefContext {
+			return pig.ChiefContext{SessionID: "parent", Dir: folder, FullAccess: full}
+		}) {
+			if tool.Name == "spawn_agent" {
+				_, err := tool.Execute(t.Context(), []byte(args))
+				return err
+			}
+		}
+		t.Fatal("no spawn_agent tool")
+		return nil
+	}
+
+	if err := spawn(false, `{"provider":"scripted","name":"a","mode":"full"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := spawn(true, `{"provider":"scripted","name":"b","mode":"full"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := spawn(false, `{"provider":"scripted","name":"c","worktree_path":"sub"}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(started) != 3 || started[0].Mode != "ask" || started[1].Mode != "full" || started[2].Directory != filepath.Join(folder, "sub") {
+		t.Fatalf("started = %+v", started)
+	}
+	if err := spawn(false, `{"provider":"scripted","name":"d","worktree_path":"`+t.TempDir()+`"}`); err == nil {
+		t.Fatal("a worker was spawned outside the conversation's folder")
+	}
+	if err := spawn(false, `{"provider":"scripted","name":"e","worktree_path":"../elsewhere"}`); err == nil {
+		t.Fatal("a worker was spawned above the conversation's folder")
+	}
+}
+
+type recordingProvider struct{ start func(harness.SessionOptions) }
+
+func (recordingProvider) Info() protocol.HarnessInfo {
+	return protocol.HarnessInfo{ID: "scripted", Name: "Scripted"}
+}
+
+func (p recordingProvider) Start(_ context.Context, opts harness.SessionOptions) (harness.Session, error) {
+	p.start(opts)
+	return &scriptedSession{events: make(chan protocol.Event, 1)}, nil
 }

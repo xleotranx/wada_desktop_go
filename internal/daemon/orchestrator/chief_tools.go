@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"wada-desktop-go/internal/daemon/pig"
@@ -12,8 +14,8 @@ import (
 )
 
 // ChiefTools constructs PiG's Chief Agent orchestration tools bound to the
-// calling conversation's session ID and workspace directory.
-func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.Tool {
+// calling conversation's session, workspace directory and mode.
+func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 	return []pig.Tool{
 		{
 			Name:        "list_providers",
@@ -45,7 +47,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				_, dir := getCtx()
+				dir := getCtx().Dir
 				return o.worktrees.Create(ctx, dir, in.Name, in.BaseRef)
 			},
 		},
@@ -55,14 +57,14 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 			Description: "List Git worktrees and dirty status for the current repository.",
 			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
-				_, dir := getCtx()
+				dir := getCtx().Dir
 				return o.worktrees.List(ctx, dir)
 			},
 		},
 		{
 			Name:        "spawn_agent",
 			Label:       "Spawn external CLI worker",
-			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in the specified worktree directory.",
+			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in this conversation's folder or one of its repository's worktrees. Mode \"full\" runs without approvals and applies only when this conversation itself works without approvals.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -86,19 +88,29 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				parentID, parentDir := getCtx()
-				targetDir := in.WorktreePath
-				if targetDir == "" {
-					targetDir = parentDir
+				cc := getCtx()
+				// A worker never gets more access than the conversation
+				// that spawns it: approvals in ask mode stay approvals.
+				mode := in.Mode
+				if mode == "" || !cc.FullAccess {
+					mode = "ask"
+				}
+				targetDir := cc.Dir
+				if in.WorktreePath != "" {
+					dir, err := o.workerDir(ctx, cc.Dir, in.WorktreePath)
+					if err != nil {
+						return nil, err
+					}
+					targetDir = dir
 				}
 				return o.spawnWorker(ctx, spawnWorkerArgs{
-					ParentSession: parentID,
+					ParentSession: cc.SessionID,
 					Provider:      in.Provider,
 					Name:          in.Name,
 					Directory:     targetDir,
 					Branch:        in.Branch,
 					WorktreePath:  in.WorktreePath,
-					Mode:          in.Mode,
+					Mode:          mode,
 				})
 			},
 		},
@@ -123,7 +135,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				parentID, _ := getCtx()
+				parentID := getCtx().SessionID
 				w := o.getWorker(in.WorkerID)
 				if w == nil || w.snapshot().ParentSession != parentID {
 					return nil, fmt.Errorf("worker %q not found under this session", in.WorkerID)
@@ -155,7 +167,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				parentID, _ := getCtx()
+				parentID := getCtx().SessionID
 				timeout := 300 * time.Second
 				if in.TimeoutSeconds > 0 {
 					timeout = time.Duration(in.TimeoutSeconds) * time.Second
@@ -193,7 +205,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				parentID, _ := getCtx()
+				parentID := getCtx().SessionID
 				w := o.getWorker(in.WorkerID)
 				if w == nil || w.snapshot().ParentSession != parentID {
 					return nil, fmt.Errorf("worker %q not found under this session", in.WorkerID)
@@ -224,7 +236,8 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				parentID, parentDir := getCtx()
+				cc := getCtx()
+				parentID, parentDir := cc.SessionID, cc.Dir
 				w := o.getWorker(in.WorkerID)
 				if w == nil || w.snapshot().ParentSession != parentID {
 					return nil, fmt.Errorf("worker %q not found under this session", in.WorkerID)
@@ -242,6 +255,33 @@ func (o *Orchestrator) ChiefTools(getCtx func() (sessionID, dir string)) []pig.T
 			},
 		},
 	}
+}
+
+// workerDir resolves a requested worker folder, which must be the
+// conversation's folder, inside it, or one of its repository's worktrees.
+func (o *Orchestrator) workerDir(ctx context.Context, parentDir, requested string) (string, error) {
+	dir := requested
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(parentDir, dir)
+	}
+	dir = filepath.Clean(dir)
+	if within(parentDir, dir) {
+		return dir, nil
+	}
+	if wts, err := o.worktrees.List(ctx, parentDir); err == nil {
+		for _, wt := range wts {
+			if within(wt.Path, dir) {
+				return dir, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("worktree_path %q is neither inside this conversation's folder nor one of its worktrees", requested)
+}
+
+// within reports whether path is root or below it.
+func within(root, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func isTerminalWorkerStatus(st protocol.WorkerStatus) bool {

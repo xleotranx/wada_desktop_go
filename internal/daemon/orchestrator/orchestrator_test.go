@@ -120,7 +120,7 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	var orch *Orchestrator
 	rt, err := pig.New(t.Context(), pig.Options{
 		Root: filepath.Join(dataDir, "pig"),
-		ChiefTools: func(getCtx func() (string, string)) []pig.Tool {
+		ChiefTools: func(getCtx func() pig.ChiefContext) []pig.Tool {
 			return orch.ChiefTools(getCtx)
 		},
 	})

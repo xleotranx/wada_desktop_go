@@ -88,6 +88,21 @@ func runHelperClaude() {
 			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"Edit","input":{"file_path":"foo.go"}}]}}`)
 			fmt.Println(`{"type":"control_request","request_id":"cr_1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"foo.go"}}}`)
 			if sc.Scan() {
+				// Claude Code rejects an allow without the tool's input.
+				var reply struct {
+					Response struct {
+						Response struct {
+							Behavior     string         `json:"behavior"`
+							UpdatedInput map[string]any `json:"updatedInput"`
+						} `json:"response"`
+					} `json:"response"`
+				}
+				_ = json.Unmarshal(sc.Bytes(), &reply)
+				r := reply.Response.Response
+				if r.Behavior != "allow" || r.UpdatedInput["file_path"] != "foo.go" {
+					fmt.Printf(`{"type":"result","is_error":true,"result":%q}`+"\n", "bad permission reply: "+sc.Text())
+					continue
+				}
 				fmt.Println(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":"edited foo.go"}]}}`)
 				fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"Claude done."}]}}`)
 				fmt.Println(`{"type":"result","is_error":false}`)
@@ -448,5 +463,22 @@ func TestClaudeArgsSkipPermissionsOnlyInFullMode(t *testing.T) {
 	ask := strings.Join(claudeArgs("ask"), " ")
 	if !strings.Contains(ask, "--permission-prompt-tool stdio") || strings.Contains(ask, "bypassPermissions") {
 		t.Fatalf("ask mode args = %s", ask)
+	}
+}
+
+func TestACPPermissionOptionUsesOfferedIDs(t *testing.T) {
+	w := acpPermissionWait{allowAll: "yes-forever", rejectAll: "never"}
+	cases := map[protocol.Decision]string{
+		protocol.DecisionOnce:   "yes-forever",
+		protocol.DecisionAlways: "yes-forever",
+		protocol.DecisionReject: "never",
+	}
+	for d, want := range cases {
+		if got := w.option(d); got != want {
+			t.Errorf("option(%s) = %q, want %q", d, got, want)
+		}
+	}
+	if got := (acpPermissionWait{rejectOnce: "no"}).option(protocol.DecisionOnce); got != "" {
+		t.Errorf("allow with no allow option = %q, want none", got)
 	}
 }

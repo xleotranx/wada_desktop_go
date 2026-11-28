@@ -109,6 +109,10 @@ func (m *Manager) Create(ctx context.Context, dir, name, baseRef string) (protoc
 	if strings.TrimSpace(baseRef) == "" {
 		baseRef = "HEAD"
 	}
+	// The ref can come from a model's tool call: never let it read as an option.
+	if strings.HasPrefix(baseRef, "-") {
+		return protocol.WorktreeInfo{}, fmt.Errorf("invalid base ref %q", baseRef)
+	}
 	slug := sanitizeSlug(name)
 	suffix := randomHex(2)
 	wtSlug := slug + "-" + suffix
@@ -121,7 +125,7 @@ func (m *Manager) Create(ctx context.Context, dir, name, baseRef string) (protoc
 	}
 
 	branch := "wada/" + wtSlug
-	if _, err := gitOut(ctx, root, "worktree", "add", "-b", branch, dest, baseRef); err != nil {
+	if _, err := gitOut(ctx, root, "worktree", "add", "-b", branch, "--", dest, baseRef); err != nil {
 		return protocol.WorktreeInfo{}, fmt.Errorf("worktree create failed: %w", err)
 	}
 

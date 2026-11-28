@@ -65,6 +65,9 @@ func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := mgr.Create(t.Context(), repo, "feature-c", "--detach"); err == nil {
+		t.Fatal("a base ref that reads as an option was accepted")
+	}
 
 	if envBytes, err := os.ReadFile(filepath.Join(wtA.Path, ".env.local")); err != nil || string(envBytes) != "LOCAL=1\n" {
 		t.Fatalf("expected .env.local copied into worktree A, got %q err=%v", string(envBytes), err)

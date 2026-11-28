@@ -61,17 +61,17 @@ type Client struct {
 	// lastRecv is when the last frame arrived, in Unix nanoseconds.
 	lastRecv atomic.Int64
 
-	writeMu   sync.Mutex
-	mu        sync.Mutex
-	pending   map[string]chan protocol.Envelope
+	writeMu sync.Mutex
+	mu      sync.Mutex
+	pending map[string]chan protocol.Envelope
 	// onResponse runs on the read loop for a successful response before it
 	// is delivered, so state it registers is in place for the next frame.
 	onResponse map[string]func(protocol.Envelope)
-	subs      map[string]*subStream
-	termSubs  map[uint8]*termStream
-	closed    bool
-	closeOnce sync.Once
-	done      chan struct{}
+	subs       map[string]*subStream
+	termSubs   map[uint8]*termStream
+	closed     bool
+	closeOnce  sync.Once
+	done       chan struct{}
 }
 
 // DialLocal connects to the local wadad instance described by dataDir.
@@ -762,6 +762,7 @@ type TerminalStream struct {
 func (s *TerminalStream) Channel() uint8              { return s.ts.channel }
 func (s *TerminalStream) Info() protocol.TerminalInfo { return s.ts.info }
 func (s *TerminalStream) Snapshot() []byte            { return s.ts.snap }
+
 // Output delivers the terminal's output. It is closed after the last output
 // when the terminal exits, when the stream or connection closes, or when the
 // consumer falls maxQueuedOutputBytes behind.

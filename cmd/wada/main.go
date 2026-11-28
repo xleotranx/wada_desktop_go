@@ -264,16 +264,34 @@ func runDaemonCmd(ctx context.Context, c *client.Client, args []string) error {
 			if fs.NArg() > 0 {
 				target = fs.Arg(0)
 			} else if term.IsTerminal(int(os.Stdin.Fd())) {
-				fmt.Fprint(os.Stderr, "New daemon password: ")
-				raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-				fmt.Fprintln(os.Stderr)
+				read := func(prompt string) (string, error) {
+					fmt.Fprint(os.Stderr, prompt)
+					raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+					fmt.Fprintln(os.Stderr)
+					return string(raw), err
+				}
+				first, err := read("New daemon password: ")
 				if err != nil {
 					return err
 				}
-				target = string(raw)
+				// Clearing takes --clear: an empty entry is a slip, not a request.
+				if first == "" {
+					return errors.New("no password entered; nothing changed (use --clear to remove the password)")
+				}
+				again, err := read("Repeat the password: ")
+				if err != nil {
+					return err
+				}
+				if again != first {
+					return errors.New("the passwords did not match; nothing changed")
+				}
+				target = first
 			} else {
 				return fmt.Errorf("usage: wada daemon set-password (--password PW | --clear)")
 			}
+		}
+		if target == "" && !*clearPW {
+			return errors.New("empty password; use --clear to remove the password")
 		}
 		if err := c.SetPassword(ctx, target); err != nil {
 			return err

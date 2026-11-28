@@ -107,7 +107,8 @@ worktrees, and PTY terminals on your own workstation or server:
 - **Liveness:** `wadad` pings the relay every 15 s and Go clients ping `wadad`
   every 10 s; a connection that receives nothing, not even a pong, for three
   intervals is closed and reconnected, so a half-open connection after sleep or
-  a network change does not linger.
+  a network change does not linger. The web client pings every 10 s and reports
+  the connection lost when a ping goes unanswered until the next one.
 - **Daemon Registration:** Before routing any client to a server hash, `wada-relay`
   challenges the connecting daemon to prove it holds the static private key behind
   that hash (an HMAC keyed by X25519 with a relay ephemeral key). Knowing the hash
@@ -118,7 +119,11 @@ worktrees, and PTY terminals on your own workstation or server:
   from `#offer=` links and requires bcrypt verification inside the encrypted
   Noise `hello` handshake. Setting or clearing the password also issues a new pairing
   token and disconnects every remote client except the one that made the change,
-  so earlier links and sessions must authenticate again.
+  so earlier links and sessions must authenticate again. After five failed
+  sign-ins in a row, each further attempt from that address must wait a doubling
+  delay (1 s up to 5 min); every relay client counts as one address, since the
+  relay hides theirs. `wada daemon set-password` asks twice and never clears the
+  password on an empty entry; clearing takes `--clear`.
 - **GitHub/Forge Integration (`gh`):** Worktree PR badges and `wada pr status|create`
   parse `git remote get-url origin` and verify `gh auth status --hostname <host>`
   with `GH_PROMPT_DISABLED=1`. Hosts without active local `gh` authentication are

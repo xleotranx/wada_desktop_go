@@ -98,7 +98,7 @@ func Run(args []string) error {
 	var orch *orchestrator.Orchestrator
 	rt, err := pig.New(ctx, pig.Options{
 		Root: filepath.Join(*dataDir, "pig"),
-		ChiefTools: func(getCtx func() (string, string)) []pig.Tool {
+		ChiefTools: func(getCtx func() pig.ChiefContext) []pig.Tool {
 			if orch == nil {
 				return nil
 			}

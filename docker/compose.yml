@@ -13,7 +13,7 @@ services:
     ports:
       - "${WADA_RELAY_BIND:-127.0.0.1}:${WADA_RELAY_PORT:-8787}:8787"
     healthcheck:
-      test: ["CMD", "/wada-relay", "-h"]
+      test: ["CMD", "/wada-relay", "-check", "http://127.0.0.1:8787/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

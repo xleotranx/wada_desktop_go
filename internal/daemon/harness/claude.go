@@ -68,8 +68,14 @@ type claudeSession struct {
 	closed    bool
 	stopping  bool // an interrupt was sent for the current turn
 	nextReq   int
-	pending   map[string]struct{}
+	pending   map[string]claudePermission
 	closeOnce sync.Once
+}
+
+// claudePermission is a can_use_tool request waiting for the user's answer.
+type claudePermission struct {
+	input       map[string]any
+	suggestions json.RawMessage
 }
 
 func (p *ClaudeProvider) Start(_ context.Context, opts SessionOptions) (Session, error) {
@@ -99,7 +105,7 @@ func (p *ClaudeProvider) Start(_ context.Context, opts SessionOptions) (Session,
 		events:  make(chan protocol.Event, 128),
 		ctx:     sctx,
 		cancel:  cancel,
-		pending: map[string]struct{}{},
+		pending: map[string]claudePermission{},
 	}
 
 	s.wg.Add(2)
@@ -215,7 +221,7 @@ func (s *claudeSession) Reply(ctx context.Context, approvalID string, decision p
 		return err
 	}
 	s.mu.Lock()
-	_, ok := s.pending[approvalID]
+	req, ok := s.pending[approvalID]
 	if ok {
 		delete(s.pending, approvalID)
 	}
@@ -224,18 +230,31 @@ func (s *claudeSession) Reply(ctx context.Context, approvalID string, decision p
 		return errors.New("claude control request not found")
 	}
 
-	behavior := "deny"
-	if decision == protocol.DecisionOnce || decision == protocol.DecisionAlways {
-		behavior = "allow"
+	// Claude Code requires the tool input back with an allow and a message
+	// with a deny; "always" also applies the CLI's own permission suggestions.
+	var result map[string]any
+	switch decision {
+	case protocol.DecisionOnce, protocol.DecisionAlways:
+		input := req.input
+		if input == nil {
+			input = map[string]any{}
+		}
+		result = map[string]any{"behavior": "allow", "updatedInput": input}
+		if decision == protocol.DecisionAlways && len(req.suggestions) > 0 {
+			result["updatedPermissions"] = req.suggestions
+		}
+	case protocol.DecisionReject:
+		result = map[string]any{"behavior": "deny", "message": "The user rejected this action."}
+	}
+	if result == nil {
+		return fmt.Errorf("unknown approval decision %q", decision)
 	}
 	resp := map[string]any{
 		"type": "control_response",
 		"response": map[string]any{
 			"subtype":    "success",
 			"request_id": approvalID,
-			"response": map[string]any{
-				"behavior": behavior,
-			},
+			"response":   result,
 		},
 	}
 	return s.writeJSON(resp)
@@ -305,9 +324,10 @@ func (s *claudeSession) readLoop() {
 				} `json:"content"`
 			} `json:"message"`
 			Request struct {
-				Subtype  string         `json:"subtype"`
-				ToolName string         `json:"tool_name"`
-				Input    map[string]any `json:"input"`
+				Subtype     string          `json:"subtype"`
+				ToolName    string          `json:"tool_name"`
+				Input       map[string]any  `json:"input"`
+				Suggestions json.RawMessage `json:"permission_suggestions"`
 			} `json:"request"`
 		}
 		if json.Unmarshal([]byte(line), &raw) != nil {
@@ -392,7 +412,7 @@ func (s *claudeSession) readLoop() {
 					}
 				}
 				s.mu.Lock()
-				s.pending[raw.RequestID] = struct{}{}
+				s.pending[raw.RequestID] = claudePermission{input: raw.Request.Input, suggestions: raw.Request.Suggestions}
 				s.mu.Unlock()
 				s.emit(protocol.Event{
 					Kind: protocol.EventApprovalRequested,

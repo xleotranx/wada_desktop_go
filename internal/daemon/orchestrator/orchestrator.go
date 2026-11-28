@@ -315,15 +315,28 @@ func (o *Orchestrator) pumpWorker(w *managedWorker) {
 		}
 	}
 
-	// Stream closed: if turn stayed open, mark stopped and unblock waiters.
+	// Stream closed. A turn still open ends here: a deleted worker's is just
+	// stopped, but one whose process exited fails, and its clients are told
+	// so they stop showing it busy and drop its approvals.
+	live := o.getWorker(w.id()) == w
 	w.mu.Lock()
 	var workerUpdate *protocol.WorkerInfo
+	var turnEnd *protocol.Event
 	if w.turnOpen {
-		w.finalizeTurnLocked(protocol.WorkerStopped, "")
+		if live {
+			const exited = "The worker's process exited during the turn."
+			w.finalizeTurnLocked(protocol.WorkerFailed, exited)
+			turnEnd = &protocol.Event{Kind: protocol.EventTurnFailed, Session: w.info.ID, Error: exited}
+		} else {
+			w.finalizeTurnLocked(protocol.WorkerStopped, "")
+		}
 		cp := w.info
 		workerUpdate = &cp
 	}
 	w.mu.Unlock()
+	if turnEnd != nil {
+		o.emit(*turnEnd)
+	}
 	if workerUpdate != nil {
 		updateSess := workerUpdate.ParentSession
 		if updateSess == "" {

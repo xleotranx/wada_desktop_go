@@ -29,15 +29,15 @@ import (
 const maxIPCFrameBytes = 16 << 20
 
 type ipcFrame struct {
-	Type     string          `json:"type"` // "hello" | "req" | "resp" | "output" | "updated"
-	ID       string          `json:"id,omitempty"`
-	Method   string          `json:"method,omitempty"`
-	Secret   string          `json:"secret,omitempty"`
-	TermID   string          `json:"termId,omitempty"`
-	Payload  json.RawMessage `json:"payload,omitempty"`
-	Data     []byte          `json:"data,omitempty"`
-	Info     *protocol.TerminalInfo `json:"info,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	Type    string                 `json:"type"` // "hello" | "req" | "resp" | "output" | "updated"
+	ID      string                 `json:"id,omitempty"`
+	Method  string                 `json:"method,omitempty"`
+	Secret  string                 `json:"secret,omitempty"`
+	TermID  string                 `json:"termId,omitempty"`
+	Payload json.RawMessage        `json:"payload,omitempty"`
+	Data    []byte                 `json:"data,omitempty"`
+	Info    *protocol.TerminalInfo `json:"info,omitempty"`
+	Error   string                 `json:"error,omitempty"`
 }
 
 func writeIPCFrame(w io.Writer, f ipcFrame) error {

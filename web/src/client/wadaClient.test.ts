@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ENV_EVENT, ENV_RPC_REQUEST, ENV_RPC_RESPONSE, ENV_SERVER_INFO, type Envelope } from "./protocol";
+import { ENV_EVENT, ENV_PING, ENV_PONG, ENV_RPC_REQUEST, ENV_RPC_RESPONSE, ENV_SERVER_INFO, type Envelope } from "./protocol";
 import { WadaClient } from "./wadaClient";
 
 type Reply = (req: Envelope) => Envelope | undefined;
@@ -12,6 +12,7 @@ class FakeSocket extends EventTarget {
   static readonly CLOSED = 3;
   static last: FakeSocket;
   static reply: Reply = () => ({ type: ENV_RPC_RESPONSE, payload: {} });
+  static answerPings = true;
 
   readyState = FakeSocket.CONNECTING;
   binaryType = "blob";
@@ -32,6 +33,10 @@ class FakeSocket extends EventTarget {
     const env = JSON.parse(data) as Envelope;
     if (env.type === "hello") {
       this.deliverLater({ type: ENV_SERVER_INFO, requestId: env.requestId, payload: { serverId: "srv" } });
+      return;
+    }
+    if (env.type === ENV_PING) {
+      if (FakeSocket.answerPings) this.deliverLater({ type: ENV_PONG, requestId: env.requestId });
       return;
     }
     if (env.type !== ENV_RPC_REQUEST) return;
@@ -72,9 +77,36 @@ describe("WadaClient", () => {
     vi.stubGlobal("window", globalThis);
     vi.stubGlobal("WebSocket", FakeSocket);
     FakeSocket.reply = subscribeOK;
+    FakeSocket.answerPings = true;
   });
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  async function connectWithFakeTimers(): Promise<{ cli: WadaClient; statuses: string[] }> {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const cli = new WadaClient({ endpoint: "ws://host:6767" });
+    const statuses: string[] = [];
+    cli.onStatus((st) => statuses.push(st));
+    const connected = cli.connect();
+    await vi.advanceTimersByTimeAsync(10);
+    await connected;
+    return { cli, statuses };
+  }
+
+  it("reports a connection that stops answering pings as disconnected", async () => {
+    const { statuses } = await connectWithFakeTimers();
+    FakeSocket.answerPings = false;
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(statuses).toEqual(["connected", "disconnected"]);
+  });
+
+  it("keeps a connection that answers its pings", async () => {
+    const { cli, statuses } = await connectWithFakeTimers();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(statuses).toEqual(["connected"]);
+    cli.close();
   });
 
   it("speaks rpc.request and subscribes during connect", async () => {

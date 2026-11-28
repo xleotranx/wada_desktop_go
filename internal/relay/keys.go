@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -37,8 +39,10 @@ func GenerateKeypair() (Keypair, error) {
 	return kp, nil
 }
 
-// LoadOrCreateKeypair loads <dataDir>/daemon-keypair.json or generates and
-// atomically persists one with 0600 permissions.
+// LoadOrCreateKeypair loads <dataDir>/daemon-keypair.json, or generates and
+// atomically persists one with 0600 permissions when there is none. A file
+// that cannot be read or parsed is an error, never replaced: the key is the
+// daemon's identity, and a new one would break every pairing link.
 func LoadOrCreateKeypair(dataDir string) (Keypair, error) {
 	if dataDir == "" {
 		return GenerateKeypair()
@@ -47,15 +51,16 @@ func LoadOrCreateKeypair(dataDir string) (Keypair, error) {
 		return Keypair{}, err
 	}
 	path := filepath.Join(dataDir, keypairFileName)
-	if raw, err := os.ReadFile(path); err == nil {
-		var disk storedKeypair
-		if jerr := json.Unmarshal(raw, &disk); jerr == nil {
-			priv, perr := ParseKey(disk.Private)
-			pub, uerr := ParseKey(disk.Public)
-			if perr == nil && uerr == nil {
-				return Keypair{Private: priv, Public: pub}, nil
-			}
+	raw, err := os.ReadFile(path)
+	if err == nil {
+		kp, perr := parseStoredKeypair(raw)
+		if perr != nil {
+			return Keypair{}, fmt.Errorf("relay: %s: %w; move it aside only if this daemon should get a new identity and every client should pair again", path, perr)
 		}
+		return kp, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return Keypair{}, err
 	}
 
 	kp, err := GenerateKeypair()
@@ -66,12 +71,38 @@ func LoadOrCreateKeypair(dataDir string) (Keypair, error) {
 		Private: EncodeKey(kp.Private),
 		Public:  EncodeKey(kp.Public),
 	}
-	raw, err := json.MarshalIndent(disk, "", "  ")
+	raw, err = json.MarshalIndent(disk, "", "  ")
 	if err != nil {
 		return Keypair{}, err
 	}
 	if err := writeAtomicFile(path, raw, 0o600); err != nil {
 		return Keypair{}, err
+	}
+	return kp, nil
+}
+
+// parseStoredKeypair reads daemon-keypair.json and checks that its public key
+// is the private key's.
+func parseStoredKeypair(raw []byte) (Keypair, error) {
+	var disk storedKeypair
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		return Keypair{}, err
+	}
+	priv, err := ParseKey(disk.Private)
+	if err != nil {
+		return Keypair{}, fmt.Errorf("private key: %w", err)
+	}
+	key, err := ecdh.X25519().NewPrivateKey(priv[:])
+	if err != nil {
+		return Keypair{}, fmt.Errorf("private key: %w", err)
+	}
+	kp := Keypair{Private: priv}
+	copy(kp.Public[:], key.PublicKey().Bytes())
+	if disk.Public != "" {
+		pub, err := ParseKey(disk.Public)
+		if err != nil || pub != kp.Public {
+			return Keypair{}, errors.New("public key does not match the private key")
+		}
 	}
 	return kp, nil
 }

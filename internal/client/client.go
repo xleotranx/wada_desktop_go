@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,11 +33,24 @@ type Options struct {
 	RPCTimeout     time.Duration
 }
 
+// A subscription may queue this many events, and an attached terminal this
+// much output, before the client ends it rather than stall the connection.
+const (
+	maxQueuedEvents      = 4096
+	maxQueuedOutputBytes = 8 << 20
+)
+
 type subStream struct {
-	ch     chan protocol.Event
-	done   chan struct{}
-	closed bool
-	wg     sync.WaitGroup
+	feed   *feed[protocol.Event]
+	closed bool // guarded by Client.mu
+}
+
+func newEventFeed() *feed[protocol.Event] {
+	return newFeed(maxQueuedEvents, func(protocol.Event) int { return 1 })
+}
+
+func newOutputFeed() *feed[[]byte] {
+	return newFeed(maxQueuedOutputBytes, func(b []byte) int { return len(b) })
 }
 
 // Client is a multiplexed WebSocket RPC and event-stream client for wadad.
@@ -44,10 +58,15 @@ type Client struct {
 	tr         relay.Transport
 	serverInfo protocol.ServerInfoPayload
 	rpcTimeout time.Duration
+	// lastRecv is when the last frame arrived, in Unix nanoseconds.
+	lastRecv atomic.Int64
 
 	writeMu   sync.Mutex
 	mu        sync.Mutex
 	pending   map[string]chan protocol.Envelope
+	// onResponse runs on the read loop for a successful response before it
+	// is delivered, so state it registers is in place for the next frame.
+	onResponse map[string]func(protocol.Envelope)
 	subs      map[string]*subStream
 	termSubs  map[uint8]*termStream
 	closed    bool
@@ -220,10 +239,12 @@ func dialTransport(ctx context.Context, tr relay.Transport, opts Options) (*Clie
 		serverInfo: info,
 		rpcTimeout: opts.RPCTimeout,
 		pending:    map[string]chan protocol.Envelope{},
+		onResponse: map[string]func(protocol.Envelope){},
 		subs:       map[string]*subStream{},
 		termSubs:   map[uint8]*termStream{},
 		done:       make(chan struct{}),
 	}
+	c.lastRecv.Store(time.Now().UnixNano())
 	go c.readLoop()
 	go c.pingLoop(opts.PingInterval)
 	return c, nil
@@ -236,13 +257,14 @@ func normalizeWSURL(endpoint string) string {
 	case strings.HasPrefix(endpoint, "https://"):
 		endpoint = "wss://" + strings.TrimPrefix(endpoint, "https://")
 	}
-	if strings.HasPrefix(endpoint, "ws://") || strings.HasPrefix(endpoint, "wss://") {
-		if strings.HasSuffix(endpoint, "/ws") {
-			return endpoint
-		}
-		return strings.TrimRight(endpoint, "/") + "/ws"
+	if !strings.HasPrefix(endpoint, "ws://") && !strings.HasPrefix(endpoint, "wss://") {
+		endpoint = "ws://" + endpoint
 	}
-	return "ws://" + strings.TrimRight(endpoint, "/") + "/ws"
+	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/ws") {
+		return endpoint
+	}
+	return endpoint + "/ws"
 }
 
 func (c *Client) ServerInfo() protocol.ServerInfoPayload { return c.serverInfo }
@@ -258,17 +280,16 @@ func (c *Client) Close() error {
 			close(ch)
 			delete(c.pending, id)
 		}
+		clear(c.onResponse)
 		subs := make([]*subStream, 0, len(c.subs))
 		for id, sub := range c.subs {
 			sub.closed = true
-			close(sub.done)
 			subs = append(subs, sub)
 			delete(c.subs, id)
 		}
 		termSubs := make([]*termStream, 0, len(c.termSubs))
 		for chID, ts := range c.termSubs {
 			ts.closed = true
-			close(ts.done)
 			termSubs = append(termSubs, ts)
 			delete(c.termSubs, chID)
 		}
@@ -276,12 +297,10 @@ func (c *Client) Close() error {
 		close(c.done)
 		err = c.tr.Close()
 		for _, sub := range subs {
-			sub.wg.Wait()
-			close(sub.ch)
+			sub.feed.halt()
 		}
 		for _, ts := range termSubs {
-			ts.wg.Wait()
-			close(ts.ch)
+			ts.feed.halt()
 		}
 	})
 	return err
@@ -305,6 +324,9 @@ func (c *Client) writeBinary(frame []byte) error {
 	return c.tr.WriteMessage(websocket.BinaryMessage, frame)
 }
 
+// pingLoop pings the server every interval and closes the connection when
+// nothing, not even a pong, has arrived for three intervals: a connection that
+// went half-open (sleep, a network change) otherwise looks alive for minutes.
 func (c *Client) pingLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -313,6 +335,10 @@ func (c *Client) pingLoop(interval time.Duration) {
 		case <-c.done:
 			return
 		case t := <-ticker.C:
+			if t.Sub(time.Unix(0, c.lastRecv.Load())) > 3*interval {
+				_ = c.Close()
+				return
+			}
 			raw, _ := json.Marshal(protocol.PingPongPayload{Timestamp: t.UnixMilli()})
 			if err := c.writeJSON(protocol.Envelope{
 				Type:      protocol.TypePing,
@@ -333,6 +359,7 @@ func (c *Client) readLoop() {
 		if err != nil {
 			return
 		}
+		c.lastRecv.Store(time.Now().UnixNano())
 		if msgType == websocket.BinaryMessage {
 			c.handleBinary(raw)
 			continue
@@ -348,9 +375,14 @@ func (c *Client) readLoop() {
 		case protocol.TypeRPCResponse:
 			c.mu.Lock()
 			ch := c.pending[env.RequestID]
+			hook := c.onResponse[env.RequestID]
 			delete(c.pending, env.RequestID)
+			delete(c.onResponse, env.RequestID)
 			c.mu.Unlock()
 			if ch != nil {
+				if hook != nil && env.Error == nil {
+					hook(env)
+				}
 				ch <- env
 			}
 		case protocol.TypeEvent:
@@ -360,26 +392,42 @@ func (c *Client) readLoop() {
 			}
 			c.mu.Lock()
 			sub := c.subs[env.SubscriptionID]
-			if sub != nil && !sub.closed {
-				sub.wg.Add(1)
-			} else {
+			if sub != nil && sub.closed {
 				sub = nil
 			}
 			c.mu.Unlock()
-			if sub != nil {
-				select {
-				case sub.ch <- ev:
-				case <-sub.done:
-				case <-c.done:
-				}
-				sub.wg.Done()
+			if sub != nil && !sub.feed.push(ev) {
+				c.dropLagging(env.SubscriptionID, sub)
 			}
 		}
 	}
 }
 
+// dropLagging ends a subscription whose consumer fell maxQueuedEvents behind:
+// its channel is already closed, and the server is told to stop sending.
+func (c *Client) dropLagging(subID string, sub *subStream) {
+	c.mu.Lock()
+	sub.closed = true
+	if c.subs[subID] == sub {
+		delete(c.subs, subID)
+	}
+	c.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = c.Call(ctx, protocol.MethodEventsUnsubscribe, protocol.UnsubscribeRequest{SubscriptionID: subID}, nil)
+	}()
+}
+
 // Call invokes a typed RPC method on wadad.
 func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
+	return c.call(ctx, method, req, resp, nil)
+}
+
+// call is Call with onOK, which runs on the read loop when a successful
+// response arrives and before Call returns. When Call fails for its context
+// after the response arrived, onOK has run all the same.
+func (c *Client) call(ctx context.Context, method string, req, resp any, onOK func(protocol.Envelope)) error {
 	var payload json.RawMessage
 	if req != nil {
 		raw, err := json.Marshal(req)
@@ -397,6 +445,9 @@ func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
 		return errors.New("client: connection closed")
 	}
 	c.pending[reqID] = ch
+	if onOK != nil {
+		c.onResponse[reqID] = onOK
+	}
 	c.mu.Unlock()
 
 	if err := c.writeJSON(protocol.Envelope{
@@ -407,6 +458,7 @@ func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
 	}); err != nil {
 		c.mu.Lock()
 		delete(c.pending, reqID)
+		delete(c.onResponse, reqID)
 		c.mu.Unlock()
 		return err
 	}
@@ -431,8 +483,15 @@ func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
 		return nil
 	case <-ctx.Done():
 		c.mu.Lock()
+		_, waiting := c.pending[reqID]
 		delete(c.pending, reqID)
+		delete(c.onResponse, reqID)
 		c.mu.Unlock()
+		if !waiting {
+			// The read loop took the response and is about to deliver it;
+			// wait so that onOK has finished before returning.
+			<-ch
+		}
 		return ctx.Err()
 	case <-c.done:
 		return errors.New("client: connection closed")
@@ -444,11 +503,11 @@ func (c *Client) Call(ctx context.Context, method string, req, resp any) error {
 // sends ahead of its response are not dropped.
 func (c *Client) Subscribe(ctx context.Context, sessions ...string) (string, <-chan protocol.Event, error) {
 	subID := "sub_" + uuid.NewString()
-	ch := make(chan protocol.Event, 128)
-	sub := &subStream{ch: ch, done: make(chan struct{})}
+	sub := &subStream{feed: newEventFeed()}
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		sub.feed.halt()
 		return "", nil, errors.New("client: connection closed")
 	}
 	c.subs[subID] = sub
@@ -463,39 +522,30 @@ func (c *Client) Subscribe(ctx context.Context, sessions ...string) (string, <-c
 		c.dropSub(subID, sub)
 		return "", nil, err
 	}
-	return subID, ch, nil
+	return subID, sub.feed.out, nil
 }
 
 // dropSub ends a locally registered subscription that never became active.
 func (c *Client) dropSub(subID string, sub *subStream) {
 	c.mu.Lock()
-	owned := !sub.closed
-	if owned {
-		sub.closed = true
-		close(sub.done)
-		if c.subs[subID] == sub {
-			delete(c.subs, subID)
-		}
+	sub.closed = true
+	if c.subs[subID] == sub {
+		delete(c.subs, subID)
 	}
 	c.mu.Unlock()
-	if owned {
-		sub.wg.Wait()
-		close(sub.ch)
-	}
+	sub.feed.halt()
 }
 
 func (c *Client) Unsubscribe(ctx context.Context, subID string) error {
 	c.mu.Lock()
 	sub := c.subs[subID]
-	if sub != nil && !sub.closed {
+	if sub != nil {
 		sub.closed = true
-		close(sub.done)
 	}
 	delete(c.subs, subID)
 	c.mu.Unlock()
 	if sub != nil {
-		sub.wg.Wait()
-		close(sub.ch)
+		sub.feed.halt()
 	}
 	return c.Call(ctx, protocol.MethodEventsUnsubscribe, protocol.UnsubscribeRequest{SubscriptionID: subID}, nil)
 }
@@ -698,10 +748,10 @@ type termStream struct {
 	channel uint8
 	info    protocol.TerminalInfo
 	snap    []byte
-	ch      chan []byte
-	done    chan struct{}
-	closed  bool
-	wg      sync.WaitGroup
+	feed    *feed[[]byte]
+	// closed (guarded by Client.mu) means no detach is owed: the stream was
+	// closed, or the server released the channel when the terminal exited.
+	closed bool
 }
 
 // TerminalStream is an attached live binary PTY stream over WebSocket.
@@ -712,7 +762,10 @@ type TerminalStream struct {
 func (s *TerminalStream) Channel() uint8              { return s.ts.channel }
 func (s *TerminalStream) Info() protocol.TerminalInfo { return s.ts.info }
 func (s *TerminalStream) Snapshot() []byte            { return s.ts.snap }
-func (s *TerminalStream) Output() <-chan []byte       { return s.ts.ch }
+// Output delivers the terminal's output. It is closed after the last output
+// when the terminal exits, when the stream or connection closes, or when the
+// consumer falls maxQueuedOutputBytes behind.
+func (s *TerminalStream) Output() <-chan []byte { return s.ts.feed.out }
 
 func (s *TerminalStream) WriteInput(data []byte) error {
 	return s.ts.client.writeBinary(protocol.EncodeBinaryFrame(protocol.OpTermInput, s.ts.channel, data))
@@ -725,20 +778,18 @@ func (s *TerminalStream) Resize(cols, rows int) error {
 func (s *TerminalStream) Close() error {
 	c := s.ts.client
 	c.mu.Lock()
-	if s.ts.closed {
-		// Already closed, by an earlier Close or by Client.Close, which also
-		// closed ts.ch and ended the server-side attachment with the connection.
-		c.mu.Unlock()
-		return nil
-	}
+	// Already closed by an earlier Close, by Client.Close (which ended the
+	// server-side attachment with the connection), or by the terminal's exit.
+	released := s.ts.closed
 	s.ts.closed = true
-	close(s.ts.done)
 	if c.termSubs[s.ts.channel] == s.ts {
 		delete(c.termSubs, s.ts.channel)
 	}
 	c.mu.Unlock()
-	s.ts.wg.Wait()
-	close(s.ts.ch)
+	s.ts.feed.halt()
+	if released {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return c.Call(ctx, protocol.MethodTerminalDetach, protocol.TerminalDetachRequest{ID: s.ts.termID}, nil)
@@ -749,28 +800,41 @@ func (c *Client) handleBinary(raw []byte) {
 	if err != nil {
 		return
 	}
-	if op != protocol.OpTermOutput && op != protocol.OpTermSnapshot {
+	switch op {
+	case protocol.OpTermOutput, protocol.OpTermSnapshot:
+	case protocol.OpTermExit:
+		// The server released the channel after the terminal's last output.
+		c.mu.Lock()
+		ts := c.termSubs[chID]
+		if ts != nil {
+			ts.closed = true
+			delete(c.termSubs, chID)
+		}
+		c.mu.Unlock()
+		if ts != nil {
+			ts.feed.finish()
+		}
+		return
+	default:
 		return
 	}
 	c.mu.Lock()
 	ts := c.termSubs[chID]
-	if ts != nil && !ts.closed {
-		ts.wg.Add(1)
-	} else {
-		ts = nil
-	}
 	c.mu.Unlock()
 	if ts == nil {
 		return
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
-	select {
-	case ts.ch <- cp:
-	case <-ts.done:
-	case <-c.done:
+	if !ts.feed.push(cp) {
+		// The consumer fell too far behind and its output channel is closed;
+		// further frames are dropped until Close detaches it.
+		c.mu.Lock()
+		if c.termSubs[chID] == ts {
+			delete(c.termSubs, chID)
+		}
+		c.mu.Unlock()
 	}
-	ts.wg.Done()
 }
 
 func (c *Client) Terminals(ctx context.Context) ([]protocol.TerminalInfo, error) {
@@ -784,26 +848,49 @@ func (c *Client) CreateTerminal(ctx context.Context, req protocol.TerminalCreate
 }
 
 func (c *Client) AttachTerminal(ctx context.Context, req protocol.TerminalAttachRequest) (*TerminalStream, error) {
+	// The channel is registered on the read loop as the response arrives,
+	// before the read loop reads the output the server sends right after it.
+	made := make(chan *termStream, 1)
+	register := func(env protocol.Envelope) {
+		var resp protocol.TerminalAttachResponse
+		if json.Unmarshal(env.Payload, &resp) != nil {
+			return
+		}
+		ts := &termStream{
+			client:  c,
+			termID:  req.ID,
+			channel: resp.Channel,
+			info:    resp.Info,
+			snap:    resp.Snapshot,
+			feed:    newOutputFeed(),
+		}
+		c.mu.Lock()
+		if c.closed {
+			c.mu.Unlock()
+			ts.feed.halt()
+			return
+		}
+		c.termSubs[resp.Channel] = ts
+		c.mu.Unlock()
+		made <- ts
+	}
 	var resp protocol.TerminalAttachResponse
-	if err := c.Call(ctx, protocol.MethodTerminalAttach, req, &resp); err != nil {
+	err := c.call(ctx, protocol.MethodTerminalAttach, req, &resp, register)
+	var ts *termStream
+	select {
+	case ts = <-made:
+	default:
+	}
+	if err != nil {
+		if ts != nil {
+			// Attached after all, but too late for the caller: detach.
+			_ = (&TerminalStream{ts: ts}).Close()
+		}
 		return nil, err
 	}
-	ts := &termStream{
-		client:  c,
-		termID:  req.ID,
-		channel: resp.Channel,
-		info:    resp.Info,
-		snap:    resp.Snapshot,
-		ch:      make(chan []byte, 128),
-		done:    make(chan struct{}),
-	}
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if ts == nil {
 		return nil, errors.New("client: connection closed")
 	}
-	c.termSubs[resp.Channel] = ts
-	c.mu.Unlock()
 	return &TerminalStream{ts: ts}, nil
 }
 

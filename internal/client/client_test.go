@@ -28,9 +28,12 @@ func TestReadLocalEndpointAndMissingFiles(t *testing.T) {
 
 func TestNormalizeWSURL(t *testing.T) {
 	for in, want := range map[string]string{
-		"127.0.0.1:6767":          "ws://127.0.0.1:6767/ws",
-		"ws://127.0.0.1:6767":     "ws://127.0.0.1:6767/ws",
-		"wss://example.com/ws":    "wss://example.com/ws",
+		"127.0.0.1:6767":         "ws://127.0.0.1:6767/ws",
+		"ws://127.0.0.1:6767":    "ws://127.0.0.1:6767/ws",
+		"wss://example.com/ws":   "wss://example.com/ws",
+		"ws://my-mac:6767/ws/":   "ws://my-mac:6767/ws",
+		"https://example.com/":   "wss://example.com/ws",
+		"wss://host/prefix/ws//": "wss://host/prefix/ws",
 	} {
 		if got := normalizeWSURL(in); got != want {
 			t.Fatalf("normalizeWSURL(%q) = %q, want %q", in, got, want)

@@ -185,6 +185,15 @@ func (s *Supervisor) Attach(ctx context.Context, clientKey string, req protocol.
 		s.removeSub(req.ID, subKey)
 		return protocol.TerminalInfo{}, nil, nil, nil, err
 	}
+	if !resp.Info.Running {
+		// An exited terminal sends nothing more: end the stream after its
+		// snapshot, as an exit while attached does.
+		if s.removeSub(req.ID, subKey) {
+			dctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_ = s.callExisting(dctx, "detach", protocol.TerminalDetachRequest{ID: req.ID}, nil)
+			cancel()
+		}
+	}
 
 	detach := func() {
 		s.attachMu.Lock()
@@ -489,6 +498,11 @@ func (s *Supervisor) readClientLoop(ic *ipcClient) {
 				select {
 				case s.events <- protocol.Event{Kind: protocol.EventTerminalUpdated, Terminal: &cp}:
 				case <-s.ctx.Done():
+				}
+				if !cp.Running {
+					// The output before the exit is already queued on each
+					// stream; closing them tells attached clients it ended.
+					s.closeSubs(cp.ID)
 				}
 			}
 		}

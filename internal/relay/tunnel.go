@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -34,6 +35,12 @@ const (
 	// sessionRxFrames is how many inbound frames a relayed session may queue
 	// before the daemon closes it rather than stall the shared relay socket.
 	sessionRxFrames = 256
+
+	// relayPingInterval is how often the daemon pings the relay; a relay
+	// connection that delivers nothing, not even a pong, for relayDeadAfter
+	// is treated as dead and replaced.
+	relayPingInterval = 15 * time.Second
+	relayDeadAfter    = 3 * relayPingInterval
 )
 
 // Transport abstracts a full-duplex framed message stream (*websocket.Conn or
@@ -292,13 +299,13 @@ func DialClientTunnel(ctx context.Context, relayURL string, serverPub [keySize]b
 // DaemonConnector maintains a persistent outbound WebSocket connection from
 // wadad to wada-relay and dispatches each inbound Noise NK client tunnel to onSession.
 type DaemonConnector struct {
-	relayURL   string
-	authToken  string
-	kp         Keypair
-	onSession  func(Transport)
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	relayURL  string
+	authToken string
+	kp        Keypair
+	onSession func(Transport)
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // StartDaemonConnector dials relayURL outbound and reconnects with backoff until Close().
@@ -339,11 +346,13 @@ func (dc *DaemonConnector) loop() {
 		if dc.ctx.Err() != nil {
 			return
 		}
-		err := dc.runOnce(wsURL)
+		registered, _ := dc.runOnce(wsURL)
 		if dc.ctx.Err() != nil {
 			return
 		}
-		if err == nil {
+		if registered {
+			// The relay accepted this daemon, so the next attempt is a fresh
+			// reconnect rather than another failure in a row.
 			streak = 0
 		}
 		wait := backoffs[min(streak, len(backoffs)-1)]
@@ -368,28 +377,35 @@ type muxConn struct {
 }
 
 type muxSession struct {
-	mc       *muxConn
-	id       [SessionIDSize]byte
-	rxCh     chan []byte
-	done     chan struct{}
-	once     sync.Once
+	mc   *muxConn
+	id   [SessionIDSize]byte
+	rxCh chan []byte
+	done chan struct{}
+	once sync.Once
 }
 
-func (dc *DaemonConnector) runOnce(wsURL string) error {
+// runOnce holds one relay connection until it fails, and reports whether the
+// relay accepted the daemon's key proof first.
+func (dc *DaemonConnector) runOnce(wsURL string) (registered bool, err error) {
 	dialCtx, cancel := context.WithTimeout(dc.ctx, 15*time.Second)
 	hdr := http.Header{}
 	if dc.authToken != "" {
 		hdr.Set("Authorization", "Bearer "+dc.authToken)
 	}
-	ws, _, err := websocket.DefaultDialer.DialContext(dialCtx, wsURL, hdr)
+	ws, resp, err := websocket.DefaultDialer.DialContext(dialCtx, wsURL, hdr)
 	cancel()
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := answerRelayChallenge(ws, dc.kp); err != nil {
 		_ = ws.Close()
-		return err
+		return false, err
 	}
+	var lastRecv atomic.Int64
+	lastRecv.Store(time.Now().UnixNano())
 
 	mc := &muxConn{
 		dc:       dc,
@@ -407,13 +423,18 @@ func (dc *DaemonConnector) runOnce(wsURL string) error {
 	loopWG.Add(1)
 	go func() {
 		defer loopWG.Done()
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(relayPingInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-connCtx.Done():
 				return
 			case t := <-ticker.C:
+				if t.Sub(time.Unix(0, lastRecv.Load())) > relayDeadAfter {
+					// Half-open: the relay stopped answering pings.
+					_ = ws.Close()
+					return
+				}
 				var zero [SessionIDSize]byte
 				var ts [8]byte
 				binary.LittleEndian.PutUint64(ts[:], uint64(t.UnixMilli()))
@@ -437,8 +458,9 @@ func (dc *DaemonConnector) runOnce(wsURL string) error {
 		if rerr != nil {
 			connCancel()
 			loopWG.Wait()
-			return rerr
+			return true, rerr
 		}
+		lastRecv.Store(time.Now().UnixNano())
 		if mt != websocket.BinaryMessage {
 			continue
 		}
@@ -447,6 +469,8 @@ func (dc *DaemonConnector) runOnce(wsURL string) error {
 			continue
 		}
 		switch op {
+		case RelayOpPong:
+			// Liveness only: lastRecv is already updated.
 		case RelayOpPing:
 			_ = mc.writeBinary(EncodeMuxFrame(RelayOpPong, sid, payload))
 		case RelayOpOpen:

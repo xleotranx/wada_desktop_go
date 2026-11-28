@@ -1603,6 +1603,11 @@ func (c *clientConn) bindTerminalChannel(termID string, outCh <-chan []byte, det
 				return
 			case chunk, ok := <-outCh:
 				if !ok {
+					// A detach cancels bctx before it closes outCh; otherwise
+					// the terminal ended, so tell the client and free the channel.
+					if bctx.Err() == nil {
+						c.endTerminalChannel(termID, chID)
+					}
 					return
 				}
 				c.enqueueTermOutput(protocol.EncodeBinaryFrame(protocol.OpTermOutput, chID, chunk))
@@ -1610,6 +1615,39 @@ func (c *clientConn) bindTerminalChannel(termID string, outCh <-chan []byte, det
 		}
 	}()
 	return chID, nil
+}
+
+// endTerminalChannel sends OpTermExit for chID and releases it, if it is still
+// termID's channel. The frame is queued after the terminal's last output and,
+// being tiny, regardless of the output backlog.
+func (c *clientConn) endTerminalChannel(termID string, chID uint8) {
+	c.mu.Lock()
+	b, ok := c.termChannels[chID]
+	if ok && c.termToChan[termID] == chID {
+		delete(c.termChannels, chID)
+		delete(c.termToChan, termID)
+	} else {
+		ok = false
+	}
+	if ok && !c.closed {
+		frame := protocol.EncodeBinaryFrame(protocol.OpTermExit, chID, nil)
+		c.queue = append(c.queue, queuedFrame{msgType: websocket.BinaryMessage, data: frame})
+		c.queuedByte += len(frame)
+	}
+	c.mu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+	if b.cancel != nil {
+		b.cancel()
+	}
+	if b.detach != nil {
+		b.detach()
+	}
 }
 
 func (c *clientConn) unbindTerminalChannel(termID string) {

@@ -154,8 +154,13 @@ func DialHost(ctx context.Context, dataDir, name string, opts Options) (*Client,
 	}
 	for _, h := range list {
 		if h.Name == name {
+			// A saved credential is a pairing token or the daemon's password,
+			// and a password-protected daemon reads only the password field.
 			if opts.Credential == "" && h.Credential != "" {
 				opts.Credential = h.Credential
+			}
+			if opts.Password == "" {
+				opts.Password = h.Credential
 			}
 			if opts.RelayAuthToken == "" {
 				opts.RelayAuthToken = h.RelayToken

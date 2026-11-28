@@ -11,6 +11,9 @@ const (
 	OpTermInput    byte = 0x02
 	OpTermResize   byte = 0x03
 	OpTermSnapshot byte = 0x04
+	// OpTermExit (server → client, empty payload) ends a channel: the
+	// terminal exited and the server released the channel after its output.
+	OpTermExit byte = 0x05
 
 	OpFileBegin byte = 0x10
 	OpFileChunk byte = 0x11

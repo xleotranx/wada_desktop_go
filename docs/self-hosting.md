@@ -95,10 +95,16 @@ worktrees, and PTY terminals on your own workstation or server:
 ## 3. Security Model & Forge/PR Guard
 
 - **Zero-Knowledge Relay:** Static X25519 keys live in `<DataDir>/daemon-keypair.json`
-  (`0600`). Only `<DataDir>/hosts.json` (on Desktop CLI/app) or browser
+  (`0600`). They are the daemon's identity: `wadad` refuses to start when the file
+  cannot be read or its keys do not match, rather than make new keys that every
+  paired client would have to pair again with. Only `<DataDir>/hosts.json` (on Desktop CLI/app) or browser
   `localStorage` stores pairing profiles. Nonce counters strictly increment per
   message; tampered or replayed ciphertext closes the tunnel. A client that falls
   more than 4 MiB behind is disconnected rather than losing frames.
+- **Liveness:** `wadad` pings the relay every 15 s and Go clients ping `wadad`
+  every 10 s; a connection that receives nothing, not even a pong, for three
+  intervals is closed and reconnected, so a half-open connection after sleep or
+  a network change does not linger.
 - **Daemon Registration:** Before routing any client to a server hash, `wada-relay`
   challenges the connecting daemon to prove it holds the static private key behind
   that hash (an HMAC keyed by X25519 with a relay ephemeral key). Knowing the hash

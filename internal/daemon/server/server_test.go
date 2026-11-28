@@ -403,3 +403,69 @@ func TestSubscribeHonorsClientChosenIDAndRejectsReuse(t *testing.T) {
 		t.Fatalf("server-chosen subscriptionId = %q, err = %v", resp.SubscriptionID, err)
 	}
 }
+
+// exitingTerminals is a backend whose one terminal ends when the test closes
+// out.
+type exitingTerminals struct {
+	*pig.Runtime
+	out chan []byte
+}
+
+func (*exitingTerminals) ListTerminals(context.Context) ([]protocol.TerminalInfo, error) {
+	return nil, nil
+}
+
+func (*exitingTerminals) CreateTerminal(context.Context, protocol.TerminalCreateRequest) (protocol.TerminalInfo, error) {
+	return protocol.TerminalInfo{}, errors.New("not supported")
+}
+
+func (b *exitingTerminals) AttachTerminal(_ context.Context, _ string, req protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error) {
+	return protocol.TerminalInfo{ID: req.ID, Running: true}, nil, b.out, func() {}, nil
+}
+
+func (*exitingTerminals) DetachTerminal(context.Context, string, string) error { return nil }
+func (*exitingTerminals) TerminalInput(context.Context, string, []byte) error  { return nil }
+func (*exitingTerminals) TerminalResize(context.Context, string, int, int) error {
+	return nil
+}
+
+func (*exitingTerminals) CaptureTerminal(context.Context, string, int) (protocol.TerminalCaptureResponse, error) {
+	return protocol.TerminalCaptureResponse{}, nil
+}
+func (*exitingTerminals) KillTerminal(context.Context, string) error { return nil }
+
+func TestTerminalExitEndsClientStream(t *testing.T) {
+	dataDir := t.TempDir()
+	backend := &exitingTerminals{out: make(chan []byte, 4)}
+	startTestServer(t, dataDir, func(cfg *Config) {
+		backend.Runtime = cfg.Backend.(*pig.Runtime)
+		cfg.Backend = backend
+	})
+	c, err := client.DialLocal(t.Context(), dataDir, client.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	st, err := c.AttachTerminal(t.Context(), protocol.TerminalAttachRequest{ID: "term_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	backend.out <- []byte("bye")
+	close(backend.out)
+
+	var got []byte
+	timeout := time.After(5 * time.Second)
+	for open := true; open; {
+		select {
+		case chunk, ok := <-st.Output():
+			got = append(got, chunk...)
+			open = ok
+		case <-timeout:
+			t.Fatalf("stream still open after the terminal ended; got %q", got)
+		}
+	}
+	if string(got) != "bye" {
+		t.Fatalf("output = %q, want bye", got)
+	}
+}

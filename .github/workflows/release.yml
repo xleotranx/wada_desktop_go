@@ -85,10 +85,13 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: make licenses-check && go tool mygo build
+      # The disk image holds the app; the .app bundle itself is a directory,
+      # which publish would otherwise flatten into loose files.
       - uses: actions/upload-artifact@v4
         with:
           name: wada-desktop-macos
-          path: build/*
+          path: build/*.dmg
+          if-no-files-found: error
 
   docker-images:
     runs-on: ubuntu-latest
@@ -102,6 +105,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Emulation for the linux/arm64 stages, whose RUN steps execute arm64
+      # binaries on this amd64 runner.
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:

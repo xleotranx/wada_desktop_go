@@ -37,12 +37,12 @@ type Router struct {
 }
 
 type daemonSlot struct {
-	hash     string
-	ws       *websocket.Conn
-	writeMu  sync.Mutex
-	mu       sync.Mutex
-	clients  map[[SessionIDSize]byte]*clientSlot
-	closed   bool
+	hash    string
+	ws      *websocket.Conn
+	writeMu sync.Mutex
+	mu      sync.Mutex
+	clients map[[SessionIDSize]byte]*clientSlot
+	closed  bool
 }
 
 type clientSlot struct {

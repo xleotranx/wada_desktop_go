@@ -290,3 +290,49 @@ func TestReconnectReattachesSubscriptions(t *testing.T) {
 	}
 	waitForOutput(t, ch, "AFTER_RECONNECT")
 }
+
+func TestExitEndsAttachedStreams(t *testing.T) {
+	sup := newHelperSupervisor(t)
+	info, err := sup.Create(t.Context(), protocol.TerminalCreateRequest{Directory: t.TempDir(), Shell: "/bin/sh", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, ch, detach, err := sup.Attach(t.Context(), "client", protocol.TerminalAttachRequest{ID: info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+	if err := sup.Input(t.Context(), info.ID, []byte("echo LAST_WORDS; exit\n")); err != nil {
+		t.Fatal(err)
+	}
+	// The output before the exit arrives, then the stream closes.
+	var out strings.Builder
+	deadline := time.After(10 * time.Second)
+	for open := true; open; {
+		select {
+		case chunk, ok := <-ch:
+			out.Write(chunk)
+			open = ok
+		case <-deadline:
+			t.Fatalf("stream still open after the shell exited: %q", out.String())
+		}
+	}
+	if !strings.Contains(out.String(), "LAST_WORDS") {
+		t.Fatalf("output before the exit was lost: %q", out.String())
+	}
+
+	// Attaching to the exited terminal gives its snapshot and a closed stream.
+	_, _, ch2, detach2, err := sup.Attach(t.Context(), "late", protocol.TerminalAttachRequest{ID: info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach2()
+	select {
+	case _, ok := <-ch2:
+		if ok {
+			t.Fatal("stream of an exited terminal delivered output")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream of an exited terminal stayed open")
+	}
+}

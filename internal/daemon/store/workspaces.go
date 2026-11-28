@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 
 	"wada-desktop-go/internal/protocol"
 	dbstore "wada-desktop-go/internal/store"
@@ -100,4 +101,43 @@ func (s *Store) PutProject(ctx context.Context, projects []ProjectRow, workspace
 				w.Title, w.Created, w.Archived, w.PortBase, w.AutoName}})
 	}
 	return dbstore.ExecTx(ctx, s.db, stmts)
+}
+
+// Schedules reads every schedule.
+func (s *Store) Schedules(ctx context.Context) ([]protocol.Schedule, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM schedules`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.Schedule
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var sc protocol.Schedule
+		if err := json.Unmarshal([]byte(raw), &sc); err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// PutSchedule adds or replaces a schedule.
+func (s *Store) PutSchedule(ctx context.Context, sc protocol.Schedule) error {
+	raw, err := json.Marshal(sc)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO schedules (id, data) VALUES (?, ?)
+		ON CONFLICT(id) DO UPDATE SET data = excluded.data`, sc.ID, string(raw))
+	return err
+}
+
+// DeleteSchedule removes a schedule.
+func (s *Store) DeleteSchedule(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM schedules WHERE id = ?`, id)
+	return err
 }

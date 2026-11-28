@@ -25,6 +25,7 @@ import (
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/schedules"
 	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
@@ -178,6 +179,10 @@ type Server struct {
 	ln        net.Listener
 	relayConn *relay.DaemonConnector
 
+	schedules *schedules.Service
+	turnsMu   sync.Mutex
+	turns     map[string]bool // conversations with a turn going
+
 	clientsMu sync.Mutex
 	shutting  bool
 	clients   map[*clientConn]struct{}
@@ -273,8 +278,16 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		clients:      map[*clientConn]struct{}{},
 		seqBySess:    map[string]uint64{},
 		authLimit:    newAuthLimiter(),
+		turns:        map[string]bool{},
 	}
 	svc.SetEmit(s.broadcastUpdate)
+	sched, err := schedules.Open(ctx, st, scheduleRunner{s}, s.broadcastUpdate)
+	if err != nil {
+		cancel()
+		_ = st.Close()
+		return nil, err
+	}
+	s.schedules = sched
 	return s, nil
 }
 
@@ -322,10 +335,14 @@ func (s *Server) Start() (string, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	s.wg.Add(2)
+	s.wg.Add(3)
 	go func() {
 		defer s.wg.Done()
 		s.pumpEvents()
+	}()
+	go func() {
+		defer s.wg.Done()
+		s.schedules.Run(s.ctx)
 	}()
 	go func() {
 		defer s.wg.Done()
@@ -569,6 +586,7 @@ func (s *Server) pumpEvents() {
 				t := s.placeTerminal(*ev.Terminal)
 				ev.Terminal = &t
 			}
+			s.trackTurn(ev)
 			if ev.Session != "" {
 				s.seqBySess[ev.Session]++
 				ev.Seq = s.seqBySess[ev.Session]
@@ -600,7 +618,7 @@ func (s *Server) recordEvent(ev protocol.Event) {
 		protocol.EventApprovalRequested, protocol.EventInteractionRequested, protocol.EventTurnStarted,
 		protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
 		protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
-		protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
+		protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 	}
 }
 
@@ -806,6 +824,9 @@ func (c *clientConn) handleRPC(req protocol.Envelope) {
 }
 
 func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, payload json.RawMessage) (any, *protocol.RPCError) {
+	if v, rerr, ok := s.handleSchedules(ctx, method, payload); ok {
+		return v, rerr
+	}
 	switch method {
 	case protocol.MethodDaemonStatus:
 		return protocol.DaemonStatusResponse{

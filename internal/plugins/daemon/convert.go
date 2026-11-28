@@ -488,7 +488,8 @@ func fromProtoEvent(ev protocol.Event) agent.Event {
 	case protocol.EventSessionRenamed:
 		out.Kind = agent.SessionRenamed
 	case protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
+		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated,
+		protocol.EventScheduleUpdated:
 	}
 	return out
 }

@@ -49,7 +49,7 @@ switcher for the others, each tab showing whether its conversation is working, w
 chats (⌘K) to find any chat the app started (its own record, in SQLite), folder or
 command; folders picked with ⌘O, All chats or the composer; a work panel beside a
 conversation with its context, session or uncommitted Git changes with expandable diffs, cost, and supervised CLI workers; workspaces in Git worktrees made from a branch or pull request (⇧⌘N), with their branch, `gh` PR status and changes since the base, archived with a check for unsaved work and restored from their branch, named from their first message, with model-written commit messages and pull requests; a `wada.json` whose setup runs in each new worktree and whose services each get a port of the workspace's own, once you trust it; interactive PTY terminals (⌘J / ⇧⌘J) and a workspace's changes (⇧⌘D) as tabs beside its chats;
-model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; desktop notifications for conversations in the background; settings
+model, effort and mode pickers; file/image attachments, `@file`/`@folder` mentions, and `/skill` completions; external CLI harnesses (Claude Code, Codex, ACP) and remote access over Noise NK E2EE relay, Web/PWA, or `wada` CLI; desktop notifications for conversations in the background; schedules and heartbeats the daemon runs on a cron or an interval; settings
 for appearance, conversation, tabs, daemon, providers, models, notifications, diagnostics, and turning plugins
 on and off.
 
@@ -83,7 +83,7 @@ Independent mode performs those operations within the selected project folder.
 | `internal/protocol` | Append-only WebSocket JSON envelopes, RPC methods, event streams, and binary frame codecs |
 | `internal/relay` | Zero-knowledge `Noise_NK_25519_ChaChaPoly_SHA256` tunneling, `#offer=` pairing codecs, and stateless relay router |
 | `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
-| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, new and archived worktree workspaces with their `wada.json` setup and services, agent profiles, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
+| `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, sessions by project and workspace, new and archived worktree workspaces with their `wada.json` setup and services, schedules and heartbeats, agent profiles, steer/queue/interrupt, chat/approvals/diffs/terminal views, an offline shell and in-app updates; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, `ssh://` hosts over `wadad --stdio-bridge`, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
 | `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline/project SQLite store (`wadad.db`), projects and workspaces registry, Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |

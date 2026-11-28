@@ -992,3 +992,28 @@ func (c *Client) CreateWorkspacePR(ctx context.Context, req protocol.WorkspacePR
 	var out *protocol.PRStatus
 	return out, c.Call(ctx, protocol.MethodPRCreate, req, &out)
 }
+
+// Schedules is every schedule and heartbeat of the daemon.
+func (c *Client) Schedules(ctx context.Context) ([]protocol.Schedule, error) {
+	var out []protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodSchedulesList, nil, &out)
+}
+
+func (c *Client) CreateSchedule(ctx context.Context, spec protocol.ScheduleSpec) (protocol.Schedule, error) {
+	var out protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodScheduleCreate, spec, &out)
+}
+
+func (c *Client) UpdateSchedule(ctx context.Context, id string, spec protocol.ScheduleSpec) (protocol.Schedule, error) {
+	var out protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodScheduleUpdate, protocol.ScheduleUpdateRequest{ID: id, Spec: spec}, &out)
+}
+
+func (c *Client) DeleteSchedule(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodScheduleDelete, protocol.ScheduleIDRequest{ID: id}, nil)
+}
+
+// RunSchedule runs a schedule now, without changing its next time.
+func (c *Client) RunSchedule(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodScheduleRun, protocol.ScheduleIDRequest{ID: id}, nil)
+}

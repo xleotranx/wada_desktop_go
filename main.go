@@ -18,6 +18,7 @@ import (
 	"wada-desktop-go/internal/plugins/modes"
 	"wada-desktop-go/internal/plugins/notifications"
 	"wada-desktop-go/internal/plugins/palette"
+	"wada-desktop-go/internal/plugins/schedules"
 	"wada-desktop-go/internal/plugins/skills"
 	"wada-desktop-go/internal/plugins/starters"
 	"wada-desktop-go/internal/plugins/tabs"
@@ -66,6 +67,7 @@ func main() {
 		usage.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
 		workers.New,     // harness picker and supervised CLI workers
+		schedules.New,   // heartbeats in the work panel and the Schedules tab
 		terminalplugin.New,
 		attachments.New,
 		markup.New,       // annotate attached screenshots before sending

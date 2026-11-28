@@ -37,6 +37,11 @@ const (
 
 	MethodHarnessesList    = "agent.harnesses.list"
 	MethodProfilesList     = "agent.profiles.list"
+	MethodSchedulesList    = "schedules.list"
+	MethodScheduleCreate   = "schedules.create"
+	MethodScheduleUpdate   = "schedules.update"
+	MethodScheduleDelete   = "schedules.delete"
+	MethodScheduleRun      = "schedules.run"
 	MethodWorkersList      = "agent.workers.list"
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
@@ -157,6 +162,7 @@ const (
 	EventWorkerUpdated        EventKind = "worker_updated"
 	EventTerminalUpdated      EventKind = "terminal_updated"
 	EventWorkspaceUpdated     EventKind = "workspace_updated"
+	EventScheduleUpdated      EventKind = "schedule_updated"
 )
 
 const (
@@ -460,6 +466,62 @@ type WorkerInfo struct {
 	Status        WorkerStatus `json:"status"`
 	LastError     string       `json:"lastError,omitempty"`
 	Updated       int64        `json:"updated"`
+}
+
+// ScheduleSpec is what a schedule does and when. It runs Prompt on Cron (a
+// five-field cron expression, or @hourly, @daily, @weekly or @monthly) or
+// Every (a Go duration of at least a minute), in the daemon's local time.
+//
+// With Session it is a heartbeat: each run sends Prompt to that conversation,
+// and a run while its turn is going is skipped. Without, each run starts a
+// new conversation in Workspace or Directory (empty: the inbox), on Provider
+// or as Profile, in Mode, and is skipped while the last run's is still going.
+type ScheduleSpec struct {
+	Name      string `json:"name"`
+	Prompt    string `json:"prompt"`
+	Cron      string `json:"cron,omitempty"`
+	Every     string `json:"every,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	Paused    bool   `json:"paused,omitempty"`
+}
+
+// ScheduleStatus is how a schedule's run went.
+type ScheduleStatus string
+
+const (
+	ScheduleRan     ScheduleStatus = "ran"     // the prompt was sent
+	ScheduleSkipped ScheduleStatus = "skipped" // the conversation was busy
+	ScheduleFailed  ScheduleStatus = "failed"  // see LastError; not retried
+)
+
+// Schedule is a stored schedule and how its runs have gone.
+type Schedule struct {
+	ScheduleSpec
+	ID      string `json:"id"`
+	Created int64  `json:"created"`
+	// NextRun is when it runs next, Unix ms; 0 while paused.
+	NextRun     int64          `json:"nextRun,omitempty"`
+	LastRun     int64          `json:"lastRun,omitempty"`
+	LastStatus  ScheduleStatus `json:"lastStatus,omitempty"`
+	LastError   string         `json:"lastError,omitempty"`
+	LastSession string         `json:"lastSession,omitempty"` // the conversation its last run sent to
+	// Removed is set on the event of a deleted schedule.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// ScheduleUpdateRequest replaces a schedule's spec.
+type ScheduleUpdateRequest struct {
+	ID   string       `json:"id"`
+	Spec ScheduleSpec `json:"spec"`
+}
+
+type ScheduleIDRequest struct {
+	ID string `json:"id"`
 }
 
 // ProfileSource is where an agent profile is defined.
@@ -909,6 +971,7 @@ type Event struct {
 	Terminal     *TerminalInfo      `json:"terminal,omitempty"`
 	Project      *ProjectInfo       `json:"project,omitempty"`
 	Workspace    *WorkspaceInfo     `json:"workspace,omitempty"`
+	Schedule     *Schedule          `json:"schedule,omitempty"`
 	Model        ModelRef           `json:"model"`
 	Title        string             `json:"title,omitempty"`
 	Error        string             `json:"error,omitempty"`

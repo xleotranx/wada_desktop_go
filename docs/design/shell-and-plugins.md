@@ -819,6 +819,25 @@ and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.ProfilesKey`
   (`chat.HideWork`) and opens a 400 px `chat.Drawers` column with Transcript
   and per-worktree Diff tabs.
 
+## Schedules
+
+`internal/plugins/schedules` requires `agent.ServiceKey`, `chat.ControllerKey`
+and `shell.HostKey`, and uses optional `agent.SchedulesKey`, `tabs.ServiceKey`
+and `workspace.ServiceKey`. It keeps the backend's schedules, read when the
+backend is ready and updated from `agent.ScheduleUpdated`.
+
+- **Heartbeat section.** A `chat.Work` section beside a stored conversation:
+  its heartbeats, each with when it runs next and how its last run went, or
+  **Add heartbeat…**.
+- **Schedules tab.** A `tabs.Panes` kind, `schedules.list`, opened by the
+  **Schedules** command: every schedule with where its runs go, and Run now,
+  Pause or Resume, Edit and Delete, each on a task of its own whose failure
+  shows a toast.
+- **Dialog.** **New Schedule…** and **Add Heartbeat…** open one
+  `shell.Overlays` form: name, prompt, every or cron, and for a schedule the
+  access mode and a profile. A new schedule's conversations start in the open
+  conversation's folder. A failed save stays in the form and is not retried.
+
 ## Daemon pairing & multi-host settings
 
 `internal/plugins/daemon` contributes Settings → Daemon controls to copy a

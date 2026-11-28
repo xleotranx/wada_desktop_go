@@ -65,6 +65,8 @@ func main() {
 		err = runProviders(ctx, c)
 	case "profiles":
 		err = runProfiles(ctx, c, remote, args[1:])
+	case "schedule":
+		err = runScheduleCmd(ctx, c, remote, args[1:])
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
 	case "pr":
@@ -115,6 +117,9 @@ Commands:
                          #offer= link, host[:port] or ssh://[user@]host[:port]
   providers              List embedded and external coding-agent harnesses
   profiles [--dir DIR]   List agent profiles: agents.json and the folder's wada.json
+  schedule <ls|add|pause|resume|run|rm>
+                         Prompts on a cron or interval: a heartbeat to a
+                         conversation (--session), or a new chat each run
   workers [--parent ID]  List managed external harness workers
   pr <status|create>     Inspect or create GitHub pull requests via gh
   terminal <ls|create|attach|capture|kill>
@@ -746,7 +751,7 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
+			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 		}
 	}
 	// The event stream ends only when the connection does; the turn may still

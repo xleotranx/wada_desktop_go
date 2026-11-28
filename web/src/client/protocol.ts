@@ -25,6 +25,7 @@ export const EV_SESSION_RENAMED = "session_renamed";
 export const EV_WORKER_UPDATED = "worker_updated";
 export const EV_TERMINAL_UPDATED = "terminal_updated";
 export const EV_WORKSPACE_UPDATED = "workspace_updated";
+export const EV_SCHEDULE_UPDATED = "schedule_updated";
 
 export interface Envelope<T = unknown> {
   type:
@@ -129,6 +130,37 @@ export interface AgentProfile {
   source: "user" | "project";
 }
 
+/**
+ * What a schedule does and when: prompt on cron or every (a Go duration), in
+ * the daemon's local time. With session it is a heartbeat to that
+ * conversation; without, each run starts one in workspace or directory.
+ */
+export interface ScheduleSpec {
+  name: string;
+  prompt: string;
+  cron?: string;
+  every?: string;
+  session?: string;
+  directory?: string;
+  workspace?: string;
+  provider?: string;
+  profile?: string;
+  mode?: string;
+  paused?: boolean;
+}
+
+/** A kept schedule and how its runs went. */
+export interface Schedule extends ScheduleSpec {
+  id: string;
+  created: number;
+  nextRun?: number;
+  lastRun?: number;
+  lastStatus?: "ran" | "skipped" | "failed";
+  lastError?: string;
+  lastSession?: string;
+  removed?: boolean;
+}
+
 /** How a message sent while a turn runs reaches the agent. */
 export type Delivery = "steer" | "queue" | "interrupt";
 
@@ -202,6 +234,7 @@ export interface DaemonEvent {
   terminal?: TerminalInfo;
   project?: ProjectInfo;
   workspace?: WorkspaceInfo;
+  schedule?: Schedule;
   error?: string;
   title?: string;
 }

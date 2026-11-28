@@ -65,6 +65,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.InteractionsKey,
 			agent.HarnessesKey,
 			agent.ProfilesKey,
+			agent.SchedulesKey,
 			agent.WorkersKey,
 			agent.WorktreesKey,
 			agent.WorkspacesKey,
@@ -90,6 +91,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p)
 	kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p)
 	kernel.Provide[agent.Profiles](c, agent.ProfilesKey, p)
+	kernel.Provide[agent.Schedules](c, agent.SchedulesKey, p)
 	kernel.Provide[agent.Workers](c, agent.WorkersKey, p)
 	kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p)
 	kernel.Provide[agent.Workspaces](c, agent.WorkspacesKey, p)
@@ -427,6 +429,11 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 				up.Workspace = &w
 			}
 			run.Post(func() { kernel.Emit(p.ctx, agent.WorkspaceUpdated, up) })
+		case protocol.EventScheduleUpdated:
+			if ev.Schedule != nil {
+				sc := fromProtoSchedule(*ev.Schedule)
+				run.Post(func() { kernel.Emit(p.ctx, agent.ScheduleUpdated, sc) })
+			}
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
@@ -439,7 +446,8 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 	isControl := func(kind protocol.EventKind) bool {
 		switch kind {
 		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth,
-			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated,
+			protocol.EventScheduleUpdated:
 			return true
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,

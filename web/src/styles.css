@@ -611,3 +611,14 @@ textarea {
     transform: translateX(0);
   }
 }
+
+.error-text {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.approval-card textarea,
+.approval-card input {
+  width: 100%;
+  box-sizing: border-box;
+}

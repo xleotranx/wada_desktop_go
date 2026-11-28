@@ -18,12 +18,12 @@ keep its types inside `internal/daemon/pig`.
   Do not edit cached dependencies or add a permanent local `replace`. See
   [kit dependency maintenance](docs/design/kit-dependency.md).
 - `main.go`: composition only — Wada's `shell.App`, `--daemon` / `--terminal-worker` subprocess dispatch, and the plugins this build installs.
-- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary (and its `--stdio-bridge` for `ssh://` hosts), detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`ls`, `run` (with `--workspace` or `--new-worktree`, and `--profile`), `logs`, `abort`, `delete`, `project`, `workspace` (including `config|trust|setup|start|stop` for `wada.json`, and `commit|pr` with model-written text), `providers`, `profiles`, `workers`, `pr`, `terminal`, `daemon status|pair|set-password|stop`, `host`).
+- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary (and its `--stdio-bridge` for `ssh://` hosts), detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`ls`, `run` (with `--workspace` or `--new-worktree`, and `--profile`), `logs`, `abort`, `delete`, `project`, `workspace` (including `config|trust|setup|start|stop` for `wada.json`, and `commit|pr` with model-written text), `providers`, `profiles`, `schedule`, `workers`, `pr`, `terminal`, `daemon status|pair|set-password|stop`, `host`).
 - `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
 - `internal/relay`: `Noise_NK_25519_ChaChaPoly_SHA256` cipher/handshake, `daemon-keypair.json`, `#offer=` pairing codec, outbound relay connector, and stateless WebSocket relay router.
-- `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, sessions grouped by project and workspace, a Workspace tab (create and archive worktrees, trust `wada.json`, run setup, start and stop services), agent profiles on new chats, steer/queue/interrupt during a turn, chat/approvals/diffs/terminal views, a build-generated service worker (`web/sw/sw.js`, emitted by `vite.config.ts`) with an update banner, and static serving from `wadad --web-dir`.
+- `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, sessions grouped by project and workspace, a Workspace tab (create and archive worktrees, trust `wada.json`, run setup, start and stop services), a Schedules tab, agent profiles on new chats, steer/queue/interrupt during a turn, chat/approvals/diffs/terminal views, a build-generated service worker (`web/sw/sw.js`, emitted by `vite.config.ts`) with an update banner, and static serving from `wadad --web-dir`.
 - `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `DialRelay`, `DialOffer`, `DialHost`, `DialSSH` with `ServeStdioBridge` for `wadad --stdio-bridge`, `ConnectOrStartLocal`), saved `hosts.json` registry, binary terminal streams, and platform detached spawn helpers.
-- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline/project store (`store`), the projects and workspaces registry (`workspaces`), shared CLI runner (`runner`), Git worktree & Forge PR manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), the loopback MCP server that gives external workers the Chief tools (`mcp`), and embedded PiG runtime (`pig`).
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline/project store (`store`), the projects and workspaces registry (`workspaces`), shared CLI runner (`runner`), Git worktree & Forge PR manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), the loopback MCP server that gives external workers the Chief tools (`mcp`), agent profiles (`profiles`), schedules and heartbeats (`schedules`), and embedded PiG runtime (`pig`).
 - `docker/`: self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack (see [self-hosting](docs/self-hosting.md)).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
@@ -42,7 +42,7 @@ keep its types inside `internal/daemon/pig`.
   `workspace` (the app's copy of the daemon's projects, workspaces and their
   conversations, needing no chat), `workers` (harness and agent profile picker, live supervised workers in the work panel and a strip above the composer, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, the work panel's Workspace section with branch, base and PR, Commit… and Create Pull Request… with model-written drafts, and the workspace's trusted `wada.json` setup and services), `terminal` (interactive PTY terminals as tabs in each workspace, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
   in the composer), `tabs` (open chats, terminals, changes and pages as tabs across the title
-  strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
+  strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `schedules` (a conversation's heartbeat in the work panel, and the Schedules tab and dialog), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),
@@ -117,9 +117,9 @@ for captures and experiments; never reset developer data during verification.
 Settings live in `settings.db` (schema 1, via `wada-kit`) under `$WADA_DATA_DIR`, or else
 `~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
 `wada-desktop-go-dev/` beside it for `go run` and `mygo dev`. Daemon server identity,
-epoch counters, idempotent creation/delivery receipts, sequenced timeline events, and
-the projects and their workspaces live in `wadad.db` (pure-Go SQLite with numbered
-schema migrations; schema 5). Future unsupported
+epoch counters, idempotent creation/delivery receipts, sequenced timeline events,
+the projects and their workspaces, and schedules live in `wadad.db` (pure-Go SQLite with numbered
+schema migrations; schema 6). Future unsupported
 schemas are refused. Runtime, pairing, and isolation state under the data directory
 also includes `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`,
 `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`, `worktrees/`,

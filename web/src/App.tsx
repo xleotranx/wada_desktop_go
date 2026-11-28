@@ -15,11 +15,13 @@ import {
   EV_TURN_STARTED,
   EV_TURN_SUCCEEDED,
   EV_WORKER_UPDATED,
+  EV_SCHEDULE_UPDATED,
   EV_WORKSPACE_UPDATED,
   type FileChange,
   type HarnessInfo,
   type InteractionItem,
   type ProjectInfo,
+  type Schedule,
   type SessionInfo,
   type SessionMessage,
   type TerminalInfo,
@@ -38,10 +40,11 @@ import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
 import { groupSessions, workspaceName } from "./client/workspaces";
 import { NewWorkspace } from "./NewWorkspace";
 import { applyUpdate, onUpdateReady } from "./pwa";
+import { SchedulesPanel } from "./Schedules";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { decodeOffer, normalizeDirectWSURL, parseHostTarget } from "./crypto/offer";
 
-type RightTab = "chat" | "workspace" | "diffs" | "terminal";
+type RightTab = "chat" | "workspace" | "schedules" | "diffs" | "terminal";
 
 // ShownApproval is an approval with the conversation that shows it: its own,
 // or the parent of the worker that asked. Replies go to approval.session.
@@ -114,6 +117,7 @@ export function App() {
   // The workspace the Workspace tab shows when the user picked one; else the open chat's.
   const [shownWorkspaceId, setShownWorkspaceId] = useState("");
   const [creatingIn, setCreatingIn] = useState<ProjectInfo | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [mode, setMode] = useState<"ask" | "full">("ask");
 
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -314,6 +318,12 @@ export function App() {
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
         cli.pendingApprovals().catch(() => null),
       ]);
+      void cli
+        .listSchedules()
+        .then((list) => {
+          if (current()) setSchedules(list || []);
+        })
+        .catch(() => {});
       if (!current()) return;
       if (pendingRes) {
         // Approvals asked while this client was away are only here.
@@ -370,6 +380,11 @@ export function App() {
         const { project, workspace } = ev;
         if (project) setProjects((prev) => [...prev.filter((p) => p.id !== project.id), project]);
         if (workspace) setWorkspaces((prev) => [...prev.filter((w) => w.id !== workspace.id), workspace]);
+        return;
+      }
+      case EV_SCHEDULE_UPDATED: {
+        const sc = ev.schedule;
+        if (sc) applySchedule(sc);
         return;
       }
       case EV_SESSION_RENAMED: {
@@ -675,6 +690,14 @@ export function App() {
     }
   })();
 
+  // applySchedule takes in a schedule the daemon added, changed, ran or removed.
+  function applySchedule(sc: Schedule): void {
+    setSchedules((prev) => {
+      const rest = prev.filter((x) => x.id !== sc.id);
+      return sc.removed ? rest : [...rest, sc].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }
+
   function startChatIn(w: WorkspaceInfo): void {
     chooseSession("");
     setMessages([]);
@@ -878,6 +901,12 @@ export function App() {
               disabled={!shownWorkspace}
             >
               Workspace
+            </button>
+            <button
+              className={rightTab === "schedules" ? "tab active" : "tab"}
+              onClick={() => setRightTab("schedules")}
+            >
+              Schedules ({schedules.length})
             </button>
             <button
               className={rightTab === "diffs" ? "tab active" : "tab"}
@@ -1090,6 +1119,19 @@ export function App() {
               terminals={terminals}
               host={directHost}
               onTerminal={openTerminal}
+              onError={setConnError}
+            />
+          )}
+
+          {rightTab === "schedules" && clientRef.current && (
+            <SchedulesPanel
+              cli={clientRef.current}
+              schedules={schedules}
+              session={selectedSessionId}
+              sessionTitle={activeSession?.title || ""}
+              directory={activeSession ? (sessionWorkspace ? sessionWorkspace.directory : activeSession.directory) : newChatDir}
+              workspace={activeSession ? sessionWorkspace?.id || "" : newWorkspaceId}
+              onChanged={applySchedule}
               onError={setConnError}
             />
           )}

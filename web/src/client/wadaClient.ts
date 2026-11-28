@@ -29,6 +29,8 @@ import {
   type PendingApproval,
   OP_TERM_OUTPUT,
   PROTOCOL_VERSION,
+  type Schedule,
+  type ScheduleSpec,
   type ServerInfo,
   type ProjectInfo,
   type SessionInfo,
@@ -510,6 +512,27 @@ export class WadaClient {
 
   stopService(workspace: string, name: string): Promise<void> {
     return this.call("workspace.service.stop", { workspace, name });
+  }
+
+  listSchedules(): Promise<Schedule[]> {
+    return this.call("schedules.list", {});
+  }
+
+  createSchedule(spec: ScheduleSpec): Promise<Schedule> {
+    return this.call("schedules.create", spec);
+  }
+
+  updateSchedule(id: string, spec: ScheduleSpec): Promise<Schedule> {
+    return this.call("schedules.update", { id, spec });
+  }
+
+  deleteSchedule(id: string): Promise<void> {
+    return this.call("schedules.delete", { id });
+  }
+
+  /** Runs a schedule now, without changing its next time. */
+  runSchedule(id: string): Promise<void> {
+    return this.call("schedules.run", { id });
   }
 
   listProfiles(directory: string): Promise<AgentProfile[]> {

@@ -24,6 +24,7 @@ plugins have no PiG dependency.
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `ProfilesKey` | Agent profiles for an agent starting in a folder: the user's and the folder's `wada.json` ones (`Profiles`) |
+| `SchedulesKey` | The backend's schedules and heartbeats: list, create, update (pausing is an update), delete and run now; `ScheduleUpdated` carries each change, run and removal |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
 | `WorktreesKey` | Authenticated `gh` PR status of a directory's branch (`PRStatus`) |
 | `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base; its `wada.json` (`Config`, `TrustConfig`, `RunSetup`, `StartService`, `StopService`). An archive refused for unsaved work fails with `ErrWorkUnsaved`, and running an untrusted `wada.json` with `ErrUntrusted`. |
@@ -193,7 +194,7 @@ preserving empty answers, selections, confirmations and explicit cancellation.
 
 ## Projects and workspaces
 
-`wadad` keeps the record of where the user works in `wadad.db` (schema 5), in
+`wadad` keeps the record of where the user works in `wadad.db` (schema 6), in
 `internal/daemon/workspaces`, read into memory at startup:
 
 ```sql
@@ -337,6 +338,30 @@ each time, with the SHA-256 of its bytes.
   each service with its port and last terminal. `workspace.service.stop` kills a
   running service's terminal. Archiving a workspace kills its terminals,
   services included.
+
+## Schedules and heartbeats
+
+`internal/daemon/schedules` keeps prompts that run on a schedule, in
+`wadad.db`'s `schedules` table (schema 6: an `id` and the schedule as JSON),
+and runs them from the daemon in its local time. A schedule runs on `cron`
+(five fields, or `@hourly`, `@daily`, `@weekly`, `@monthly`; both day fields
+restricted match either) or `every` (a Go duration, at least a minute).
+
+- A **heartbeat** has a `session`: each run sends the prompt to that
+  conversation, and is skipped while its turn is going.
+- Otherwise each run starts a conversation in `workspace` or `directory`
+  (empty: the inbox), on `provider` or as `profile`, in `mode`, titled with the
+  schedule's name and the time, and is skipped while the last run's turn is
+  still going.
+
+A run is never retried: a failed create or send is recorded as `failed` with
+its error, and the schedule waits for its next time. Runs missed while the
+daemon was down are not caught up; each schedule's next time counts from when
+the daemon starts. `schedules.list|create|update|delete|run` manage them;
+`schedules.run` runs one now, paused or not, without moving its next time.
+Every change and every run's outcome (`lastRun`, `lastStatus`, `lastError`,
+`lastSession`) is a `schedule_updated` event, and a deletion one with
+`removed`. The server knows a turn is going from the turn events it passes on.
 
 ## Providers and project resources
 

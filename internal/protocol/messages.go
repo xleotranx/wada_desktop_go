@@ -48,6 +48,7 @@ const (
 
 	MethodProjectsList     = "workspace.projects.list"
 	MethodProjectAdd       = "workspace.project.add"
+	MethodProjectFolders   = "workspace.project.folders"
 	MethodProjectRename    = "workspace.project.rename"
 	MethodProjectArchive   = "workspace.project.archive"
 	MethodWorkspacesList   = "workspace.list"
@@ -793,6 +794,12 @@ type WorkspaceServiceRequest struct {
 
 type ProjectsListRequest struct {
 	Archived bool `json:"archived,omitempty"` // include archived projects
+}
+
+// ProjectFoldersRequest uses an absolute path prefix in the daemon's path
+// syntax. A trailing separator asks for the directory's children.
+type ProjectFoldersRequest struct {
+	Prefix string `json:"prefix"`
 }
 
 type ProjectAddRequest struct {

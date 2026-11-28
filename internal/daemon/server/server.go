@@ -1238,7 +1238,7 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return pr, nil
-	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectRename,
+	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectFolders, protocol.MethodProjectRename,
 		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename,
 		protocol.MethodWorkspaceCreate, protocol.MethodWorkspaceArchive, protocol.MethodWorkspaceRestore,
 		protocol.MethodWorkspaceRefs, protocol.MethodWorkspaceChanges, protocol.MethodWorkspaceConfig,

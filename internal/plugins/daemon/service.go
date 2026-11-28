@@ -483,6 +483,17 @@ func (p *Plugin) Workspaces(ctx context.Context, archived bool) ([]agent.Workspa
 	return out, nil
 }
 
+func (p *Plugin) ProjectFolders(ctx context.Context, prefix string) ([]string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return cli.ProjectFolders(ctx, prefix)
+}
+
 func (p *Plugin) AddProject(ctx context.Context, root string) (agent.Project, agent.Workspace, error) {
 	cli, err := p.current()
 	if err != nil {

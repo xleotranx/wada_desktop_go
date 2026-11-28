@@ -203,3 +203,131 @@ func TestRestoreSaysWhenNothingIsArchived(t *testing.T) {
 		t.Fatalf("empty list: %q", tt.Texts())
 	}
 }
+
+// startWithRecord adds the backend's record and the tabs to the fixture,
+// with a wada.json for the workspace "parser fix" makes.
+func startWithRecord(t *testing.T, cfg agent.WorkspaceConfig) (*fixture, *plugintest.Projects, *plugintest.Tabs) {
+	t.Helper()
+	f := &fixture{chat: &plugintest.Chat{}, host: &kittest.Host{},
+		ws: &plugintest.Workspace{Dirs: []string{"/w/app"}, Inbox: "/data/inbox", RefList: agent.Refs{
+			Default: "origin/main",
+			PRs:     []agent.PullRequest{{Number: 9, Title: "From a fork", Branch: "patch", Fork: true}},
+		}}}
+	rec := &plugintest.Projects{Configs: map[agent.WorkspaceID]agent.WorkspaceConfig{"wks:/w/app-x": cfg, "wks:/w/app": cfg}}
+	strip := &plugintest.Tabs{}
+	f.h = kerneltest.New(t, f.chat.New, f.ws.New, f.host.New, rec.New, strip.New,
+		kerneltest.Keep(&f.p, func() *Plugin { return &Plugin{} }))
+	f.h.Flush()
+	return f, rec, strip
+}
+
+var npmConfig = agent.WorkspaceConfig{Found: true, Hash: "h1", Setup: []string{"npm ci"},
+	Services: []agent.WorkspaceService{{Name: "web", Command: "npm run dev", Port: 41000}}}
+
+func (f *fixture) createX(t *testing.T) {
+	t.Helper()
+	f.p.openNew()
+	f.h.Flush()
+	f.p.name = "x"
+	f.p.create()
+	f.h.Flush()
+}
+
+func TestATrustedSetupRunsAfterNewWorkspace(t *testing.T) {
+	cfg := npmConfig
+	cfg.Trusted = true
+	f, rec, _ := startWithRecord(t, cfg)
+	f.createX(t)
+	if !slices.Equal(rec.Ran, []string{"setup wks:/w/app-x"}) || f.p.trustOn {
+		t.Fatalf("ran %q, asked %v", rec.Ran, f.p.trustOn)
+	}
+}
+
+func TestAnUntrustedSetupAsksFirst(t *testing.T) {
+	f, rec, _ := startWithRecord(t, npmConfig)
+	f.createX(t)
+	if len(rec.Ran) != 0 || !f.p.trustOn || f.p.trustThen != "setup" {
+		t.Fatalf("ran %q, asked %v for %q", rec.Ran, f.p.trustOn, f.p.trustThen)
+	}
+	tt := ui.NewTester(f.p.dialogs, 600, 500)
+	tt.Frame()
+	for _, want := range []string{"Run this workspace’s setup?", "npm ci", "web: npm run dev", "Trust and run"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from %q", want, tt.Texts())
+		}
+	}
+	f.p.trust()
+	f.h.Flush()
+	if !rec.Configs["wks:/w/app-x"].Trusted || !slices.Equal(rec.Ran, []string{"setup wks:/w/app-x"}) {
+		t.Fatalf("trusted %v, ran %q", rec.Configs["wks:/w/app-x"].Trusted, rec.Ran)
+	}
+}
+
+func TestAForksSetupAlwaysAsks(t *testing.T) {
+	cfg := npmConfig
+	cfg.Trusted = true
+	f, rec, _ := startWithRecord(t, cfg)
+	f.p.openNew()
+	f.h.Flush()
+	f.p.start, f.p.name = "pr:9", "x"
+	f.p.create()
+	f.h.Flush()
+	if len(rec.Ran) != 0 || !f.p.trustOn || !f.p.trustFork {
+		t.Fatalf("ran %q, asked %v, fork %v", rec.Ran, f.p.trustOn, f.p.trustFork)
+	}
+	tt := ui.NewTester(f.p.dialogs, 600, 500)
+	tt.Frame()
+	if !tt.HasText("This pull request comes from a fork: its wada.json, and the scripts its commands run, come from someone else.") {
+		t.Fatalf("no fork warning: %q", tt.Texts())
+	}
+}
+
+func TestTheSectionRunsServicesInAProjectsOwnWorkspace(t *testing.T) {
+	f, rec, strip := startWithRecord(t, npmConfig)
+	f.chat.Open(agent.Session{ID: "s1", Directory: "/w/app"})
+	f.h.Flush()
+	if !f.p.sectionShown() {
+		t.Fatal("a project with a wada.json shows no Workspace section")
+	}
+	st := ui.NewTester(f.p.section, 320, 300)
+	st.Frame()
+	for _, want := range []string{"wada.json isn’t trusted yet", "Setup not run", "web", ":41000", "Start"} {
+		if !st.HasText(want) {
+			t.Fatalf("%q is missing from the section: %q", want, st.Texts())
+		}
+	}
+	if st.HasText("Archive workspace…") {
+		t.Fatal("a project's own workspace offers to be archived")
+	}
+
+	// Starting while untrusted asks, then starts it once trusted.
+	w, _ := f.p.here()
+	f.p.startService(w, "web")
+	f.h.Flush()
+	if !f.p.trustOn || f.p.trustThen != "service:web" {
+		t.Fatalf("asked %v for %q", f.p.trustOn, f.p.trustThen)
+	}
+	f.p.trust()
+	f.h.Flush()
+	if !slices.Equal(rec.Ran, []string{"start wks:/w/app web", "start wks:/w/app web"}) {
+		t.Fatalf("ran %q", rec.Ran)
+	}
+	st.Frame()
+	for _, want := range []string{"Open", "Output", "Stop"} {
+		if !st.HasText(want) {
+			t.Fatalf("%q is missing once running: %q", want, st.Texts())
+		}
+	}
+	if err := st.Click("Show web’s output"); err != nil {
+		t.Fatal(err)
+	}
+	f.h.Flush()
+	if !slices.Equal(strip.Opened, []string{"terminal.shell term-web /w/app"}) {
+		t.Fatalf("opened %q", strip.Opened)
+	}
+	f.p.stopService(w, "web")
+	f.h.Flush()
+	if rec.Ran[len(rec.Ran)-1] != "stop wks:/w/app web" {
+		t.Fatalf("ran %q", rec.Ran)
+	}
+}

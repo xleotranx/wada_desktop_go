@@ -34,9 +34,8 @@ type termOp struct {
 	cols, rows int // a resize when input is nil
 }
 
-// Kind is the terminal pane's kind in tabs.Panes; a tab's Ref is the
-// terminal's ID.
-const Kind = "terminal.shell"
+// Kind is the terminal pane's kind in tabs.Panes.
+const Kind = contractterm.PaneKind
 
 // Plugin shows the daemon's detached PTY terminals as tabs: one tab per
 // terminal, in the space of its directory. Only the terminal on show is

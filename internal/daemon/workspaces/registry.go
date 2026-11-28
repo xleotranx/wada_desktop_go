@@ -278,6 +278,61 @@ func (r *Registry) setArchived(ctx context.Context, id string, archived bool) (p
 	return wi, nil
 }
 
+// Ports are given to workspaces in blocks of PortBlock from FirstPort: a
+// workspace's services take its block's ports in order.
+const (
+	FirstPort = 41000
+	PortBlock = 10
+)
+
+// portBase is the first of the workspace's ports, giving it the lowest block
+// no other active workspace has when it has none.
+func (r *Registry) portBase(ctx context.Context, id string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	w, ok := r.workspaces[id]
+	if !ok || w.Archived != 0 {
+		return 0, ErrNotFound
+	}
+	if w.PortBase != 0 {
+		return w.PortBase, nil
+	}
+	used := map[int]bool{}
+	for _, x := range r.workspaces {
+		if x.Archived == 0 && x.PortBase != 0 {
+			used[x.PortBase] = true
+		}
+	}
+	base := FirstPort
+	for used[base] {
+		base += PortBlock
+	}
+	w.PortBase = base
+	if err := r.put(ctx, nil, []store.WorkspaceRow{w}); err != nil {
+		return 0, err
+	}
+	return base, nil
+}
+
+// trustedConfig is the hash of the wada.json a project's user allowed.
+func (r *Registry) trustedConfig(project string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.projects[project].TrustedConfig
+}
+
+// setTrustedConfig records the hash of the wada.json the user allowed.
+func (r *Registry) setTrustedConfig(ctx context.Context, project, hash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.projects[project]
+	if !ok || p.Archived != 0 {
+		return ErrNotFound
+	}
+	p.TrustedConfig = hash
+	return r.put(ctx, []store.ProjectRow{p}, nil)
+}
+
 // activeUsers counts the active workspaces in the checkout at root.
 func (r *Registry) activeUsers(root string) int {
 	r.mu.Lock()

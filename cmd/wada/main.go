@@ -116,9 +116,10 @@ Commands:
                          Manage detached interactive PTY terminals
   project <ls|add|rename|rm>
                          List, add, rename or remove projects
-  workspace <ls|create|rename|archive|restore>
+  workspace <ls|create|rename|archive|restore|config|trust|setup|start|stop>
                          Manage workspaces; create takes --project or --dir, and
-                         --base REF, --checkout BRANCH, --pr N or --existing PATH
+                         --base REF, --checkout BRANCH, --pr N or --existing PATH;
+                         config, trust, setup, start and stop run its wada.json
   ls [--dir DIR | --workspace ID]
                          List sessions
   run [--dir DIR | --workspace ID | --new-worktree [--base REF ...]]

@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"wada-desktop-go/internal/client"
+	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -125,4 +130,137 @@ func nextWorkspaceEvent(t *testing.T, events <-chan protocol.Event) protocol.Eve
 func isCode(err error, code string) bool {
 	var rpcErr *protocol.RPCError
 	return errors.As(err, &rpcErr) && rpcErr.Code == code
+}
+
+// fakeTerminals records the terminals it is asked to start and kill.
+type fakeTerminals struct {
+	*pig.Runtime
+	mu   sync.Mutex
+	list []protocol.TerminalInfo
+	made []protocol.TerminalCreateRequest
+	// dropRole makes it act as a worker from before roles.
+	dropRole bool
+}
+
+func (f *fakeTerminals) ListTerminals(context.Context) ([]protocol.TerminalInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.list), nil
+}
+
+func (f *fakeTerminals) CreateTerminal(_ context.Context, req protocol.TerminalCreateRequest) (protocol.TerminalInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.made = append(f.made, req)
+	info := protocol.TerminalInfo{ID: fmt.Sprintf("term_%d", len(f.made)), Name: req.Name, Directory: req.Directory,
+		Running: true, Command: req.Command, Role: req.Role, CreatedAt: int64(len(f.made))}
+	if f.dropRole {
+		info.Command, info.Role = "", ""
+	}
+	f.list = append(f.list, info)
+	return info, nil
+}
+
+func (*fakeTerminals) AttachTerminal(context.Context, string, protocol.TerminalAttachRequest) (protocol.TerminalInfo, []byte, <-chan []byte, func(), error) {
+	return protocol.TerminalInfo{}, nil, nil, nil, errors.New("not attached in this test")
+}
+func (*fakeTerminals) TerminalInput(context.Context, string, []byte) error    { return nil }
+func (*fakeTerminals) TerminalResize(context.Context, string, int, int) error { return nil }
+func (*fakeTerminals) CaptureTerminal(context.Context, string, int) (protocol.TerminalCaptureResponse, error) {
+	return protocol.TerminalCaptureResponse{}, nil
+}
+
+func (f *fakeTerminals) KillTerminal(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.list {
+		if f.list[i].ID == id {
+			f.list[i].Running = false
+		}
+	}
+	return nil
+}
+
+func TestSetupAndServicesRunOnceTrusted(t *testing.T) {
+	dataDir := t.TempDir()
+	terms := &fakeTerminals{}
+	startTestServer(t, dataDir, func(cfg *Config) {
+		terms.Runtime = cfg.Backend.(*pig.Runtime)
+		cfg.Backend = terms
+	})
+	c, err := client.DialLocal(t.Context(), dataDir, client.Options{ClientType: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "wada.json"),
+		[]byte(`{"setup": ["npm ci", "npm run build"], "services": {"web": "npm run dev"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	added, err := c.AddProject(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := added.Workspace.ID
+
+	cfg, err := c.WorkspaceConfig(t.Context(), id)
+	if err != nil || !cfg.Found || cfg.Trusted || len(cfg.Services) != 1 || cfg.Services[0].Port != 41000 {
+		t.Fatalf("config %+v %v", cfg, err)
+	}
+	if _, err := c.RunSetup(t.Context(), id); !isCode(err, protocol.ErrCodeConflict) {
+		t.Fatalf("untrusted setup = %v, want conflict", err)
+	}
+	if err := c.TrustWorkspaceConfig(t.Context(), id, cfg.Hash); err != nil {
+		t.Fatal(err)
+	}
+
+	setup, err := c.RunSetup(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := c.RunSetup(t.Context(), id); again.ID != setup.ID {
+		t.Fatalf("a running setup started again as %+v", again)
+	}
+	web, err := c.StartService(t.Context(), id, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	terms.mu.Lock()
+	made := slices.Clone(terms.made)
+	terms.mu.Unlock()
+	if len(made) != 2 || made[0].Command != "npm ci && npm run build" || made[0].Role != "setup" ||
+		made[1].Command != "npm run dev" || made[1].Role != "service:web" || !slices.Contains(made[1].Env, "PORT=41000") ||
+		made[1].Directory != dir {
+		t.Fatalf("terminals made %+v", made)
+	}
+
+	cfg, _ = c.WorkspaceConfig(t.Context(), id)
+	if cfg.SetupTerminal == nil || cfg.SetupTerminal.ID != setup.ID || cfg.Services[0].Terminal == nil ||
+		cfg.Services[0].Terminal.ID != web.ID || !cfg.Services[0].Terminal.Running || cfg.Services[0].Terminal.Workspace != id {
+		t.Fatalf("config after starting %+v", cfg)
+	}
+	if err := c.StopService(t.Context(), id, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ = c.WorkspaceConfig(t.Context(), id); cfg.Services[0].Terminal.Running {
+		t.Fatal("the stopped service still runs")
+	}
+	if _, err := c.StartService(t.Context(), id, "nope"); !isCode(err, protocol.ErrCodeNotFound) {
+		t.Fatalf("unknown service = %v", err)
+	}
+
+	// An older terminal worker drops the role: its plain shell is killed.
+	terms.mu.Lock()
+	terms.dropRole = true
+	terms.mu.Unlock()
+	if _, err := c.StartService(t.Context(), id, "web"); !isCode(err, protocol.ErrCodeInternal) {
+		t.Fatalf("start on an old worker = %v, want internal", err)
+	}
+	terms.mu.Lock()
+	last := terms.list[len(terms.list)-1]
+	terms.mu.Unlock()
+	if last.Running {
+		t.Fatal("the old worker's shell was left running")
+	}
 }

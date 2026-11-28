@@ -10,7 +10,10 @@ type StartOptions struct {
 	Shell     string
 	Cols      int
 	Rows      int
-	Env       []string
+	Env       []string // the whole environment; empty for the daemon's
+	// Command, when set, is run by the shell instead of an interactive
+	// session.
+	Command string
 }
 
 // PTY abstracts an OS pseudo-terminal across POSIX PTY and Windows ConPTY.

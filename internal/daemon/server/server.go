@@ -1196,7 +1196,8 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectRename,
 		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename,
 		protocol.MethodWorkspaceCreate, protocol.MethodWorkspaceArchive, protocol.MethodWorkspaceRestore,
-		protocol.MethodWorkspaceRefs, protocol.MethodWorkspaceChanges:
+		protocol.MethodWorkspaceRefs, protocol.MethodWorkspaceChanges, protocol.MethodWorkspaceConfig,
+		protocol.MethodWorkspaceTrust, protocol.MethodWorkspaceSetup, protocol.MethodServiceStart, protocol.MethodServiceStop:
 		return s.dispatchWorkspaces(ctx, method, payload)
 	case protocol.MethodTerminalsList:
 		tb, ok := s.cfg.Backend.(TerminalBackend)

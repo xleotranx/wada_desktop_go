@@ -51,6 +51,11 @@ const (
 	MethodWorkspaceRestore = "workspace.restore"
 	MethodWorkspaceRefs    = "workspace.refs"
 	MethodWorkspaceChanges = "workspace.changes"
+	MethodWorkspaceConfig  = "workspace.config"
+	MethodWorkspaceTrust   = "workspace.trust"
+	MethodWorkspaceSetup   = "workspace.setup"
+	MethodServiceStart     = "workspace.service.start"
+	MethodServiceStop      = "workspace.service.stop"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -483,6 +488,8 @@ type TerminalInfo struct {
 	Running   bool   `json:"running"`
 	ExitCode  int    `json:"exitCode,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
+	Command   string `json:"command,omitempty"` // what the shell runs instead of being interactive
+	Role      string `json:"role,omitempty"`    // what made it: "setup", or "service:<name>"
 }
 
 type TerminalCreateRequest struct {
@@ -492,6 +499,11 @@ type TerminalCreateRequest struct {
 	Shell     string `json:"shell,omitempty"`
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
+	// Command, when set, is run by the shell (as a login shell where it can
+	// be) instead of an interactive session; the terminal exits with it.
+	Command string   `json:"command,omitempty"`
+	Env     []string `json:"env,omitempty"` // KEY=value added to the daemon's environment
+	Role    string   `json:"role,omitempty"`
 }
 
 type TerminalAttachRequest struct {
@@ -605,6 +617,36 @@ type WorkspaceRefs struct {
 	Remotes   []string         `json:"remotes,omitempty"` // remote-tracking branches, such as origin/main
 	PRs       []PullRequestRef `json:"prs,omitempty"`
 	Worktrees []WorktreeInfo   `json:"worktrees,omitempty"`
+}
+
+// WorkspaceConfig is a workspace's wada.json as read now, with what runs.
+type WorkspaceConfig struct {
+	Found   bool     `json:"found"`
+	Hash    string   `json:"hash,omitempty"`    // of the file; trusting names it
+	Trusted bool     `json:"trusted,omitempty"` // its project's user allowed this file
+	Error   string   `json:"error,omitempty"`   // the file didn't parse
+	Setup   []string `json:"setup,omitempty"`
+	// SetupTerminal is the last setup started in the workspace, if any.
+	SetupTerminal *TerminalInfo   `json:"setupTerminal,omitempty"`
+	Services      []ServiceStatus `json:"services,omitempty"`
+}
+
+// ServiceStatus is a service of a wada.json, its port and its terminal.
+type ServiceStatus struct {
+	Name     string        `json:"name"`
+	Command  string        `json:"command"`
+	Port     int           `json:"port"`
+	Terminal *TerminalInfo `json:"terminal,omitempty"` // the last one started; Running says whether it is up
+}
+
+type WorkspaceTrustRequest struct {
+	Workspace string `json:"workspace"`
+	Hash      string `json:"hash"` // the WorkspaceConfig.Hash the user saw
+}
+
+type WorkspaceServiceRequest struct {
+	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
 }
 
 type ProjectsListRequest struct {

@@ -754,10 +754,24 @@ and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
   with its name, project and directory. Restore asks the backend to make it active
   again, recreating a worktree it removed, then opens a new chat in it; a failure
   stays in the dialog.
-- **Work panel section.** Workspace, first in `chat.Work` and shown in a workspace
-  other than a project's own: the branch, its base, the directory, a
+- **Work panel section.** Workspace, first in `chat.Work`, shown in a worktree
+  workspace, and in a project's own workspace whose `wada.json` has setup or
+  services. For a worktree: the branch, its base, the directory, a
   `#N · pass/fail/pending` PR badge from `Worktrees.PRStatus` that opens the pull
   request, and Archive workspace…. The PR is read again when the directory changes.
+- **wada.json.** The section reads the workspace's `wada.json`
+  (`agent.WorkspacesKey.Config`) when the conversation or the record changes and
+  when a terminal in its directory changes. It shows whether the file is trusted
+  (Review… asks), the setup's state (not run, running, finished, failed with its
+  exit code) with Output and Run or Run again, and each service with its port and
+  Start or Stop, Output, and Open (`http://localhost:<port>`) while it runs.
+  Output opens the run's terminal tab in the workspace's space.
+- **Setup after New Workspace.** Once a workspace is made, its setup runs at once
+  when its `wada.json` is trusted. Otherwise the plugin asks first, showing every
+  command the file runs; Trust and run trusts that exact file and runs it. A pull
+  request from a fork always asks, warning that the file and the scripts it runs
+  come from someone else. Starting a service of an untrusted file asks the same
+  way. A start that fails shows a toast and is not tried again.
 
 ## Workers
 

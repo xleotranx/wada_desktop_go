@@ -562,6 +562,74 @@ func (p *Plugin) Refs(ctx context.Context, project agent.ProjectID) (agent.Refs,
 	return out, nil
 }
 
+func (p *Plugin) Config(ctx context.Context, id agent.WorkspaceID) (agent.WorkspaceConfig, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.WorkspaceConfig{}, err
+	}
+	c, err := cli.WorkspaceConfig(ctx, string(id))
+	if err != nil {
+		return agent.WorkspaceConfig{}, err
+	}
+	out := agent.WorkspaceConfig{Found: c.Found, Hash: c.Hash, Trusted: c.Trusted, Problem: c.Error, Setup: c.Setup,
+		SetupRun: fromProtoRun(c.SetupTerminal)}
+	for _, s := range c.Services {
+		out.Services = append(out.Services, agent.WorkspaceService{Name: s.Name, Command: s.Command, Port: s.Port, Run: fromProtoRun(s.Terminal)})
+	}
+	return out, nil
+}
+
+func fromProtoRun(t *protocol.TerminalInfo) *agent.Run {
+	if t == nil {
+		return nil
+	}
+	return &agent.Run{Terminal: t.ID, Running: t.Running, ExitCode: t.ExitCode}
+}
+
+func (p *Plugin) TrustConfig(ctx context.Context, id agent.WorkspaceID, hash string) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.TrustWorkspaceConfig(ctx, string(id), hash)
+}
+
+func (p *Plugin) RunSetup(ctx context.Context, id agent.WorkspaceID) (string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return "", err
+	}
+	t, err := cli.RunSetup(ctx, string(id))
+	return t.ID, untrusted(err)
+}
+
+func (p *Plugin) StartService(ctx context.Context, id agent.WorkspaceID, name string) (string, error) {
+	cli, err := p.current()
+	if err != nil {
+		return "", err
+	}
+	t, err := cli.StartService(ctx, string(id), name)
+	return t.ID, untrusted(err)
+}
+
+func (p *Plugin) StopService(ctx context.Context, id agent.WorkspaceID, name string) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.StopService(ctx, string(id), name)
+}
+
+// untrusted maps the daemon's refusal of an untrusted wada.json to
+// agent.ErrUntrusted.
+func untrusted(err error) error {
+	var rerr *protocol.RPCError
+	if errors.As(err, &rerr) && rerr.Code == protocol.ErrCodeConflict {
+		return fmt.Errorf("%w: %s", agent.ErrUntrusted, rerr.Message)
+	}
+	return err
+}
+
 func (p *Plugin) BaseChanges(ctx context.Context, id agent.WorkspaceID) ([]agent.FileChange, error) {
 	cli, err := p.current()
 	if err != nil {

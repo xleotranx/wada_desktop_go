@@ -125,6 +125,39 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 			return nil, workspaceErr(err)
 		}
 		return changes, nil
+	case protocol.MethodWorkspaceConfig:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		return s.workspaceConfig(ctx, req.Workspace)
+	case protocol.MethodWorkspaceTrust:
+		var req protocol.WorkspaceTrustRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		if err := s.workspaces.Trust(ctx, req.Workspace, req.Hash); err != nil {
+			return nil, workspaceErr(err)
+		}
+		return struct{}{}, nil
+	case protocol.MethodWorkspaceSetup:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		return s.runSetup(ctx, req.Workspace)
+	case protocol.MethodServiceStart:
+		var req protocol.WorkspaceServiceRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		return s.startService(ctx, req.Workspace, req.Name)
+	case protocol.MethodServiceStop:
+		var req protocol.WorkspaceServiceRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		return s.stopService(ctx, req.Workspace, req.Name)
 	}
 	return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "unknown method " + method}
 }
@@ -133,6 +166,8 @@ func workspaceErr(err error) *protocol.RPCError {
 	var pending *workspaces.PendingError
 	switch {
 	case errors.As(err, &pending):
+		return &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: err.Error()}
+	case errors.Is(err, workspaces.ErrUntrusted):
 		return &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: err.Error()}
 	case errors.Is(err, workspaces.ErrNotFound):
 		return &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: err.Error()}
@@ -204,4 +239,146 @@ func (s *Server) broadcastUpdate(ev protocol.Event) {
 		return
 	}
 	s.broadcastEvent("", payload)
+}
+
+// ---- wada.json: setup and services
+
+// terminals is the terminal backend, or the error a client gets without one.
+func (s *Server) terminals() (TerminalBackend, *protocol.RPCError) {
+	tb, ok := s.cfg.Backend.(TerminalBackend)
+	if !ok {
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "terminals are not supported"}
+	}
+	return tb, nil
+}
+
+// roleTerminals is the last terminal of each role started in a directory.
+func (s *Server) roleTerminals(ctx context.Context, dir string) map[string]*protocol.TerminalInfo {
+	out := map[string]*protocol.TerminalInfo{}
+	tb, rerr := s.terminals()
+	if rerr != nil {
+		return out
+	}
+	list, err := tb.ListTerminals(ctx)
+	if err != nil {
+		return out
+	}
+	for _, t := range list {
+		if t.Role == "" || t.Directory != dir {
+			continue
+		}
+		if cur, ok := out[t.Role]; !ok || t.CreatedAt >= cur.CreatedAt {
+			placed := s.placeTerminal(t)
+			out[t.Role] = &placed
+		}
+	}
+	return out
+}
+
+func (s *Server) workspaceConfig(ctx context.Context, id string) (any, *protocol.RPCError) {
+	l, err := s.workspaces.LoadConfig(ctx, id)
+	if err != nil {
+		return nil, workspaceErr(err)
+	}
+	out := protocol.WorkspaceConfig{Found: l.Found, Hash: l.Hash, Trusted: l.Trusted, Setup: l.Config.Setup}
+	if l.Err != nil {
+		out.Error = l.Err.Error()
+	}
+	if !l.Found || l.Err != nil {
+		return out, nil
+	}
+	running := s.roleTerminals(ctx, l.Workspace.Directory)
+	out.SetupTerminal = running[workspaces.SetupRole]
+	for i, def := range l.Config.Services {
+		out.Services = append(out.Services, protocol.ServiceStatus{Name: def.Name, Command: def.Command,
+			Port: l.PortBase + i, Terminal: running[workspaces.ServiceRole(def.Name)]})
+	}
+	return out, nil
+}
+
+// runSetup starts the workspace's setup in a terminal of its own. Setup is
+// not retried: a failed start is reported, and running it again is the
+// user's call.
+func (s *Server) runSetup(ctx context.Context, id string) (any, *protocol.RPCError) {
+	tb, rerr := s.terminals()
+	if rerr != nil {
+		return nil, rerr
+	}
+	l, err := s.workspaces.LoadConfig(ctx, id)
+	if err == nil {
+		err = l.Runnable()
+	}
+	if err != nil {
+		return nil, workspaceErr(err)
+	}
+	if len(l.Config.Setup) == 0 {
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "wada.json has no setup"}
+	}
+	if t := s.roleTerminals(ctx, l.Workspace.Directory)[workspaces.SetupRole]; t != nil && t.Running {
+		return *t, nil
+	}
+	return s.startRun(ctx, tb, protocol.TerminalCreateRequest{Name: "Setup", Directory: l.Workspace.Directory,
+		Command: l.SetupCommand(), Env: l.Env(""), Role: workspaces.SetupRole})
+}
+
+// startRun starts a terminal that runs a command. A terminal worker from an
+// older wadad, still running, starts a plain shell instead and drops the
+// role; that shell is killed and the old worker reported.
+func (s *Server) startRun(ctx context.Context, tb TerminalBackend, req protocol.TerminalCreateRequest) (any, *protocol.RPCError) {
+	info, err := tb.CreateTerminal(ctx, req)
+	if err != nil {
+		return nil, internalErr(err)
+	}
+	if info.Role != req.Role {
+		_ = tb.KillTerminal(ctx, info.ID)
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeInternal, Message: "the terminal worker running is from an " +
+			"older wadad and can't run commands; end it (its pid is in terminal-worker/worker.json in wadad's data " +
+			"directory) and wadad starts a new one"}
+	}
+	return s.placeTerminal(info), nil
+}
+
+// startService starts a service in a terminal of its own, or returns the one
+// it runs in.
+func (s *Server) startService(ctx context.Context, id, name string) (any, *protocol.RPCError) {
+	tb, rerr := s.terminals()
+	if rerr != nil {
+		return nil, rerr
+	}
+	l, err := s.workspaces.LoadConfig(ctx, id)
+	if err == nil {
+		err = l.Runnable()
+	}
+	if err != nil {
+		return nil, workspaceErr(err)
+	}
+	def, _, ok := l.Service(name)
+	if !ok {
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "wada.json has no service " + name}
+	}
+	if t := s.roleTerminals(ctx, l.Workspace.Directory)[workspaces.ServiceRole(name)]; t != nil && t.Running {
+		return *t, nil
+	}
+	return s.startRun(ctx, tb, protocol.TerminalCreateRequest{Name: def.Name, Directory: l.Workspace.Directory,
+		Command: def.Command, Env: l.Env(def.Name), Role: workspaces.ServiceRole(def.Name)})
+}
+
+// stopService ends a running service's terminal.
+func (s *Server) stopService(ctx context.Context, id, name string) (any, *protocol.RPCError) {
+	tb, rerr := s.terminals()
+	if rerr != nil {
+		return nil, rerr
+	}
+	w, ok := s.workspaces.Workspace(id)
+	if !ok || w.Archived != 0 {
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "no active workspace " + id}
+	}
+	t := s.roleTerminals(ctx, w.Directory)[workspaces.ServiceRole(name)]
+	if t == nil || !t.Running {
+		return struct{}{}, nil
+	}
+	if err := tb.KillTerminal(ctx, t.ID); err != nil {
+		return nil, internalErr(err)
+	}
+	return struct{}{}, nil
 }

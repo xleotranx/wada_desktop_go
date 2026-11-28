@@ -27,6 +27,10 @@ func (p *Plugin) dialogs(c *ui.Context) {
 			p.archiving = agent.Workspace{}
 		}
 	}
+	if p.trustOn {
+		c.Key("trust")
+		native.Dialog(c, &p.trustOn, 460, "Trust wada.json", func() { p.trustView(c, pal) })
+	}
 	if p.restoreOn {
 		c.Key("restore")
 		native.Dialog(c, &p.restoreOn, 440, "Restore workspace", func() { p.restoreView(c, pal) })
@@ -259,29 +263,165 @@ func (p *Plugin) archiveView(c *ui.Context, pal native.Palette) {
 	})
 }
 
-// section is the work panel's Workspace section.
+// section is the work panel's Workspace section: a worktree's branch, base
+// and pull request, and the wada.json's setup and services.
 func (p *Plugin) section(c *ui.Context) {
-	w, ok := p.current()
+	w, ok := p.here()
 	if !ok {
 		return
 	}
 	pal := native.PaletteFor(c)
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-			ui.Icon(c, lucide.GitBranch()).FontSize(12).TextColor(pal.Muted).Shrink(0)
-			ui.Text(c, cmp.Or(w.Branch, "detached")).FontSize(12.5).FontWeight(500).TextColor(pal.Text).
-				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
-			if p.pr != nil {
-				p.prBadge(c, pal, p.pr)
+		if w.Isolation != agent.IsolateProject {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Icon(c, lucide.GitBranch()).FontSize(12).TextColor(pal.Muted).Shrink(0)
+				ui.Text(c, cmp.Or(w.Branch, "detached")).FontSize(12.5).FontWeight(500).TextColor(pal.Text).
+					Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+				if p.pr != nil {
+					p.prBadge(c, pal, p.pr)
+				}
+			})
+			if w.BaseRef != "" {
+				ui.Text(c, "from "+w.BaseRef).FontSize(11).TextColor(pal.Faint).SingleLine().Ellipsis("…")
 			}
-		})
-		if w.BaseRef != "" {
-			ui.Text(c, "from "+w.BaseRef).FontSize(11).TextColor(pal.Faint).SingleLine().Ellipsis("…")
+			ui.Text(c, native.Tilde(w.Directory)).FontSize(11).TextColor(pal.Faint).SingleLine().Ellipsis("…")
 		}
-		ui.Text(c, native.Tilde(w.Directory)).FontSize(11).TextColor(pal.Faint).SingleLine().Ellipsis("…")
-		c.Key("archive")
-		components.Button(c, "Archive workspace…", components.ButtonSecondary).OnClick(func() { p.askArchive(w) })
+		if w.ID == p.cfgFor && p.cfg.Found {
+			c.Key("config")
+			p.configView(c, pal, w)
+		}
+		if w.Isolation != agent.IsolateProject {
+			c.Key("archive")
+			components.Button(c, "Archive workspace…", components.ButtonSecondary).OnClick(func() { p.askArchive(w) })
+		}
 	})
+}
+
+// configView is the wada.json's setup and services.
+func (p *Plugin) configView(c *ui.Context, pal native.Palette, w agent.Workspace) {
+	cfg := p.cfg
+	ui.Column(c).FillWidth().Gap(4).Padding(4, 0).Children(func() {
+		if cfg.Problem != "" {
+			ui.Text(c, cfg.Problem).FontSize(11.5).TextColor(pal.DangerText)
+			return
+		}
+		if !cfg.Trusted {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Text(c, "wada.json isn’t trusted yet").FontSize(11.5).TextColor(pal.Muted).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+				c.Key("trust")
+				link(c, pal, "Review…", "Review wada.json", func() { p.askTrust(w, cfg, false, "") })
+			})
+		}
+		if len(cfg.Setup) > 0 {
+			c.Key("setup")
+			p.setupRow(c, pal, w, cfg.SetupRun)
+		}
+		for _, svc := range cfg.Services {
+			c.Key("service:" + svc.Name)
+			p.serviceRow(c, pal, w, svc)
+		}
+	})
+}
+
+func (p *Plugin) setupRow(c *ui.Context, pal native.Palette, w agent.Workspace, run *agent.Run) {
+	state, color := "Setup not run", pal.Faint
+	switch {
+	case run == nil:
+	case run.Running:
+		state, color = "Setup running…", pal.Orange
+	case run.ExitCode == 0:
+		state, color = "Setup finished", pal.GreenBadge
+	default:
+		state, color = "Setup failed (exit "+strconv.Itoa(run.ExitCode)+")", pal.DangerText
+	}
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Height(24).Children(func() {
+		ui.Box(c).Size(6, 6).Radius(3).Background(color).Shrink(0)
+		ui.Text(c, state).FontSize(12).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		if run != nil {
+			c.Key("show")
+			link(c, pal, "Output", "Show the setup’s output", func() { p.showTerminal(w, run.Terminal) })
+		}
+		if run == nil || !run.Running {
+			label := "Run"
+			if run != nil {
+				label = "Run again"
+			}
+			c.Key("run")
+			link(c, pal, label, label+" setup", func() { p.runSetup(w) })
+		}
+	})
+}
+
+func (p *Plugin) serviceRow(c *ui.Context, pal native.Palette, w agent.Workspace, svc agent.WorkspaceService) {
+	running := svc.Run != nil && svc.Run.Running
+	color := pal.Faint
+	if running {
+		color = pal.GreenBadge
+	}
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Height(24).Children(func() {
+		ui.Box(c).Size(6, 6).Radius(3).Background(color).Shrink(0)
+		ui.Text(c, svc.Name).FontSize(12).TextColor(pal.Text).Tooltip(svc.Command).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+		ui.Text(c, ":"+strconv.Itoa(svc.Port)).FontSize(11).TextColor(pal.Faint).FontFeatures("tnum").Grow(1).SingleLine()
+		if running {
+			url := "http://localhost:" + strconv.Itoa(svc.Port)
+			c.Key("open")
+			link(c, pal, "Open", "Open "+url, func() { p.host.OpenURL(url) })
+		}
+		if svc.Run != nil {
+			c.Key("show")
+			link(c, pal, "Output", "Show "+svc.Name+"’s output", func() { p.showTerminal(w, svc.Run.Terminal) })
+		}
+		c.Key("toggle")
+		if running {
+			link(c, pal, "Stop", "Stop "+svc.Name, func() { p.stopService(w, svc.Name) })
+		} else {
+			link(c, pal, "Start", "Start "+svc.Name, func() { p.startService(w, svc.Name) })
+		}
+	})
+}
+
+// trustView shows what a wada.json runs before the user allows it.
+func (p *Plugin) trustView(c *ui.Context, pal native.Palette) {
+	cfg := p.trustCfg
+	title := "Trust this wada.json?"
+	if p.trustThen == "setup" {
+		title = "Run this workspace’s setup?"
+	}
+	ui.Text(c, title).FontSize(14).FontWeight(600)
+	name := p.ws.Name(p.trustWs.Directory)
+	ui.Text(c, "wada.json in “"+name+"” runs these commands on this computer, as you:").FontSize(12.5).TextColor(pal.Muted)
+	if p.trustFork {
+		ui.Text(c, "This pull request comes from a fork: its wada.json, and the scripts its commands run, come from someone else.").
+			FontSize(12.5).TextColor(pal.DangerText)
+	}
+	ui.Column(c).FillWidth().Gap(2).Padding(8, 10).Radius(6).Background(pal.DetailBg).Children(func() {
+		for i, cmd := range cfg.Setup {
+			c.Key("setup:" + strconv.Itoa(i))
+			ui.Text(c, cmd).Font("monospace").FontSize(11.5).TextColor(pal.Text)
+		}
+		for _, svc := range cfg.Services {
+			c.Key("service:" + svc.Name)
+			ui.Text(c, svc.Name+": "+svc.Command).Font("monospace").FontSize(11.5).TextColor(pal.Muted)
+		}
+	})
+	ui.Text(c, "Trust lasts until the file changes.").FontSize(11.5).TextColor(pal.Faint)
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		components.Button(c, "Not now", components.ButtonSecondary).OnClick(func() { p.trustOn = false })
+		label := "Trust"
+		if p.trustThen != "" {
+			label = "Trust and run"
+		}
+		components.Button(c, label, components.ButtonPrimary).OnClick(p.trust)
+	})
+}
+
+// link is a small text button.
+func link(c *ui.Context, pal native.Palette, label, name string, on func()) {
+	b := ui.ButtonBase(c).Label(name).Height(20).Padding(0, 5).Radius(4).Center().Shrink(0).Cursor(ui.CursorPointer).OnClick(on)
+	if b.Hovered() {
+		b.Background(pal.Hover)
+	}
+	b.Children(func() { ui.Text(c, label).FontSize(11.5).TextColor(pal.Muted).SingleLine() })
 }
 
 func (p *Plugin) prBadge(c *ui.Context, pal native.Palette, pr *agent.PRStatus) {

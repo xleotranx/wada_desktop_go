@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -444,11 +445,17 @@ func (w *Worker) createTerm(req protocol.TerminalCreateRequest) (protocol.Termin
 		dir, _ = os.UserHomeDir()
 	}
 	sh := defaultShell(req.Shell)
+	var env []string
+	if len(req.Env) > 0 {
+		env = append(os.Environ(), req.Env...)
+	}
 	ptyInst, err := startPTY(StartOptions{
 		Directory: dir,
 		Shell:     sh,
 		Cols:      cols,
 		Rows:      rows,
+		Env:       env,
+		Command:   req.Command,
 	})
 	if err != nil {
 		return protocol.TerminalInfo{}, err
@@ -457,7 +464,7 @@ func (w *Worker) createTerm(req protocol.TerminalCreateRequest) (protocol.Termin
 	id := fmt.Sprintf("term_%d_%d", w.seq.Add(1), time.Now().UnixNano()%100000)
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = filepath.Base(sh)
+		name = cmp.Or(req.Command, filepath.Base(sh))
 	}
 	info := protocol.TerminalInfo{
 		ID:        id,
@@ -469,6 +476,8 @@ func (w *Worker) createTerm(req protocol.TerminalCreateRequest) (protocol.Termin
 		PID:       ptyInst.PID(),
 		Running:   true,
 		CreatedAt: time.Now().UnixMilli(),
+		Command:   req.Command,
+		Role:      req.Role,
 	}
 
 	tp := &termProc{

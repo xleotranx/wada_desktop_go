@@ -15,6 +15,8 @@ type ProjectRow struct {
 	Name     string
 	Created  int64
 	Archived int64 // 0 while active
+	// TrustedConfig is the hash of the wada.json the user allowed to run.
+	TrustedConfig string
 }
 
 // WorkspaceRow is a stored workspace.
@@ -31,11 +33,12 @@ type WorkspaceRow struct {
 	Title        string
 	Created      int64
 	Archived     int64 // 0 while active
+	PortBase     int   // the first of its ports; 0 until it needs them
 }
 
 // Projects reads every project, archived ones included.
 func (s *Store) Projects(ctx context.Context) ([]ProjectRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, root, name, created, archived FROM projects`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, root, name, created, archived, trusted_config FROM projects`)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +46,7 @@ func (s *Store) Projects(ctx context.Context) ([]ProjectRow, error) {
 	var out []ProjectRow
 	for rows.Next() {
 		var p ProjectRow
-		if err := rows.Scan(&p.ID, &p.Root, &p.Name, &p.Created, &p.Archived); err != nil {
+		if err := rows.Scan(&p.ID, &p.Root, &p.Name, &p.Created, &p.Archived, &p.TrustedConfig); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -54,7 +57,7 @@ func (s *Store) Projects(ctx context.Context) ([]ProjectRow, error) {
 // Workspaces reads every workspace, archived ones included.
 func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
-		title, created, archived FROM workspaces`)
+		title, created, archived, port_base FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +67,7 @@ func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
 		var w WorkspaceRow
 		var iso string
 		if err := rows.Scan(&w.ID, &w.Project, &iso, &w.Dir, &w.WorktreeRoot, &w.Owned, &w.Branch, &w.BaseRef, &w.PR,
-			&w.Title, &w.Created, &w.Archived); err != nil {
+			&w.Title, &w.Created, &w.Archived, &w.PortBase); err != nil {
 			return nil, err
 		}
 		w.Isolation = protocol.Isolation(iso)
@@ -79,17 +82,19 @@ func (s *Store) PutProject(ctx context.Context, projects []ProjectRow, workspace
 	var stmts []dbstore.Statement
 	for _, p := range projects {
 		stmts = append(stmts, dbstore.Statement{
-			SQL: `INSERT INTO projects (id, root, name, created, archived) VALUES (?, ?, ?, ?, ?)
-				ON CONFLICT (id) DO UPDATE SET name = excluded.name, archived = excluded.archived`,
-			Args: []any{p.ID, p.Root, p.Name, p.Created, p.Archived}})
+			SQL: `INSERT INTO projects (id, root, name, created, archived, trusted_config) VALUES (?, ?, ?, ?, ?, ?)
+				ON CONFLICT (id) DO UPDATE SET name = excluded.name, archived = excluded.archived,
+					trusted_config = excluded.trusted_config`,
+			Args: []any{p.ID, p.Root, p.Name, p.Created, p.Archived, p.TrustedConfig}})
 	}
 	for _, w := range workspaces {
 		stmts = append(stmts, dbstore.Statement{
 			SQL: `INSERT INTO workspaces (id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
-					title, created, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT (id) DO UPDATE SET branch = excluded.branch, title = excluded.title, archived = excluded.archived`,
+					title, created, archived, port_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT (id) DO UPDATE SET branch = excluded.branch, title = excluded.title, archived = excluded.archived,
+					port_base = excluded.port_base`,
 			Args: []any{w.ID, w.Project, string(w.Isolation), w.Dir, w.WorktreeRoot, w.Owned, w.Branch, w.BaseRef, w.PR,
-				w.Title, w.Created, w.Archived}})
+				w.Title, w.Created, w.Archived, w.PortBase}})
 	}
 	return dbstore.ExecTx(ctx, s.db, stmts)
 }

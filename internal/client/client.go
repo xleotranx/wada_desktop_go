@@ -929,3 +929,32 @@ func (c *Client) WorkspaceChanges(ctx context.Context, id string) ([]protocol.Fi
 	var out []protocol.FileChange
 	return out, c.Call(ctx, protocol.MethodWorkspaceChanges, protocol.WorkspaceIDRequest{Workspace: id}, &out)
 }
+
+// WorkspaceConfig reads a workspace's wada.json, its setup and its services.
+func (c *Client) WorkspaceConfig(ctx context.Context, id string) (protocol.WorkspaceConfig, error) {
+	var out protocol.WorkspaceConfig
+	return out, c.Call(ctx, protocol.MethodWorkspaceConfig, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// TrustWorkspaceConfig allows the wada.json with this hash to run in the
+// workspace's project.
+func (c *Client) TrustWorkspaceConfig(ctx context.Context, id, hash string) error {
+	return c.Call(ctx, protocol.MethodWorkspaceTrust, protocol.WorkspaceTrustRequest{Workspace: id, Hash: hash}, nil)
+}
+
+// RunSetup starts the workspace's setup, or returns the one running.
+func (c *Client) RunSetup(ctx context.Context, id string) (protocol.TerminalInfo, error) {
+	var out protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceSetup, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// StartService starts a service of the workspace, or returns it running.
+func (c *Client) StartService(ctx context.Context, id, name string) (protocol.TerminalInfo, error) {
+	var out protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodServiceStart, protocol.WorkspaceServiceRequest{Workspace: id, Name: name}, &out)
+}
+
+// StopService ends a running service of the workspace.
+func (c *Client) StopService(ctx context.Context, id, name string) error {
+	return c.Call(ctx, protocol.MethodServiceStop, protocol.WorkspaceServiceRequest{Workspace: id, Name: name}, nil)
+}

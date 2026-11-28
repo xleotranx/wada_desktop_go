@@ -18,7 +18,39 @@ var (
 	// ErrWorkUnsaved reports that archiving a workspace would lose uncommitted
 	// changes or unpushed commits; archiving it with force discards them.
 	ErrWorkUnsaved = errors.New("the workspace has work that isn't saved anywhere else")
+	// ErrUntrusted reports that a workspace's wada.json may not run until the
+	// user trusts it.
+	ErrUntrusted = errors.New("this wada.json hasn't been trusted to run")
 )
+
+// WorkspaceConfig is a workspace's wada.json as the backend read it: the
+// setup a new worktree runs and the services it can start, each with a port
+// of the workspace's own.
+type WorkspaceConfig struct {
+	Found   bool
+	Hash    string // of the file; TrustConfig names it
+	Trusted bool   // its project's user allowed this file to run
+	Problem string // the file didn't parse
+	Setup   []string
+	// SetupRun is the last setup started in the workspace; nil for none.
+	SetupRun *Run
+	Services []WorkspaceService
+}
+
+// WorkspaceService is a service of a wada.json.
+type WorkspaceService struct {
+	Name    string
+	Command string
+	Port    int
+	Run     *Run // the last one started; nil for none
+}
+
+// Run is a command running, or run, in a terminal.
+type Run struct {
+	Terminal string // the terminal's ID
+	Running  bool
+	ExitCode int
+}
 
 // ProjectID and WorkspaceID are opaque; neither is a path.
 type (
@@ -137,4 +169,17 @@ type Workspaces interface {
 	// BaseChanges lists a workspace's changes since it left its BaseRef:
 	// commits and uncommitted work, with paths relative to its Directory.
 	BaseChanges(ctx context.Context, id WorkspaceID) ([]FileChange, error)
+	// Config reads a workspace's wada.json and what of it runs.
+	Config(ctx context.Context, id WorkspaceID) (WorkspaceConfig, error)
+	// TrustConfig allows the wada.json with this hash to run in the
+	// workspace's project.
+	TrustConfig(ctx context.Context, id WorkspaceID, hash string) error
+	// RunSetup starts the workspace's setup in a terminal, or returns the
+	// one running; it fails with ErrUntrusted until the file is trusted.
+	RunSetup(ctx context.Context, id WorkspaceID) (terminal string, err error)
+	// StartService starts a service in a terminal, or returns the one it runs
+	// in; it fails with ErrUntrusted until the file is trusted.
+	StartService(ctx context.Context, id WorkspaceID, name string) (terminal string, err error)
+	// StopService ends a running service.
+	StopService(ctx context.Context, id WorkspaceID, name string) error
 }

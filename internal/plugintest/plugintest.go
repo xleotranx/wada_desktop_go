@@ -719,6 +719,12 @@ type Projects struct {
 	Archived []string // "<id>" or "<id> force"
 	RefList  agent.Refs
 	Base     []agent.FileChange // what BaseChanges returns
+	// Configs are the workspaces' wada.json files. TrustConfig trusts one;
+	// RunSetup and StartService start a run as "term-setup" and
+	// "term-<name>" once it is trusted. Ran records "setup <id>",
+	// "start <id> <name>" and "stop <id> <name>".
+	Configs map[agent.WorkspaceID]agent.WorkspaceConfig
+	Ran     []string
 }
 
 func (f *Projects) New() kernel.Plugin { return f }
@@ -812,6 +818,66 @@ func (f *Projects) ArchiveWorkspace(_ context.Context, id agent.WorkspaceID, for
 	for i := range f.Made {
 		if f.Made[i].ID == id {
 			f.Made[i].Archived = 1
+		}
+	}
+	return nil
+}
+
+func (f *Projects) Config(_ context.Context, id agent.WorkspaceID) (agent.WorkspaceConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Configs[id], nil
+}
+
+func (f *Projects) TrustConfig(_ context.Context, id agent.WorkspaceID, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c := f.Configs[id]
+	if c.Hash != hash {
+		return errors.New("wada.json changed")
+	}
+	c.Trusted = true
+	f.Configs[id] = c
+	return nil
+}
+
+func (f *Projects) RunSetup(_ context.Context, id agent.WorkspaceID) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Ran = append(f.Ran, "setup "+string(id))
+	c := f.Configs[id]
+	if !c.Trusted {
+		return "", agent.ErrUntrusted
+	}
+	c.SetupRun = &agent.Run{Terminal: "term-setup", Running: true}
+	f.Configs[id] = c
+	return "term-setup", nil
+}
+
+func (f *Projects) StartService(_ context.Context, id agent.WorkspaceID, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Ran = append(f.Ran, "start "+string(id)+" "+name)
+	c := f.Configs[id]
+	if !c.Trusted {
+		return "", agent.ErrUntrusted
+	}
+	for i := range c.Services {
+		if c.Services[i].Name == name {
+			c.Services[i].Run = &agent.Run{Terminal: "term-" + name, Running: true}
+		}
+	}
+	return "term-" + name, nil
+}
+
+func (f *Projects) StopService(_ context.Context, id agent.WorkspaceID, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Ran = append(f.Ran, "stop "+string(id)+" "+name)
+	c := f.Configs[id]
+	for i := range c.Services {
+		if c.Services[i].Name == name && c.Services[i].Run != nil {
+			c.Services[i].Run.Running = false
 		}
 	}
 	return nil

@@ -73,7 +73,8 @@ func runProjectCmd(ctx context.Context, c *client.Client, remote bool, args []st
 }
 
 func runWorkspaceCmd(ctx context.Context, c *client.Client, remote bool, args []string) error {
-	const use = "usage: wada workspace <ls | create | rename <id> <title> | archive <id> [--force] | restore <id>>"
+	const use = "usage: wada workspace <ls | create | rename <id> <title> | archive <id> [--force] | restore <id> |\n" +
+		"  config <id> | trust <id> | setup <id> | start <id> <service> | stop <id> <service>>"
 	if len(args) == 0 {
 		return errors.New(use)
 	}
@@ -140,8 +141,101 @@ func runWorkspaceCmd(ctx context.Context, c *client.Client, remote bool, args []
 		}
 		fmt.Printf("%s\t%s\t%s\n", w.ID, w.Branch, w.Directory)
 		return nil
+	case "config":
+		if len(args) != 2 {
+			return errors.New("usage: wada workspace config <id>")
+		}
+		cfg, err := c.WorkspaceConfig(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		printConfig(cfg)
+		return nil
+	case "trust":
+		if len(args) != 2 {
+			return errors.New("usage: wada workspace trust <id>")
+		}
+		cfg, err := c.WorkspaceConfig(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		if !cfg.Found {
+			return errors.New("the workspace has no wada.json")
+		}
+		printConfig(cfg)
+		return c.TrustWorkspaceConfig(ctx, args[1], cfg.Hash)
+	case "setup":
+		if len(args) != 2 {
+			return errors.New("usage: wada workspace setup <id>")
+		}
+		t, err := c.RunSetup(ctx, args[1])
+		if err != nil {
+			return untrustedHint(err, args[1])
+		}
+		fmt.Printf("%s\t%s\t(wada terminal attach %s)\n", t.ID, t.Command, t.ID)
+		return nil
+	case "start":
+		if len(args) != 3 {
+			return errors.New("usage: wada workspace start <id> <service>")
+		}
+		t, err := c.StartService(ctx, args[1], args[2])
+		if err != nil {
+			return untrustedHint(err, args[1])
+		}
+		fmt.Printf("%s\t%s\t(wada terminal attach %s)\n", t.ID, t.Command, t.ID)
+		return nil
+	case "stop":
+		if len(args) != 3 {
+			return errors.New("usage: wada workspace stop <id> <service>")
+		}
+		return c.StopService(ctx, args[1], args[2])
 	}
 	return errors.New(use)
+}
+
+// printConfig prints a wada.json: whether it is trusted, its setup and its
+// services with their ports.
+func printConfig(cfg protocol.WorkspaceConfig) {
+	if !cfg.Found {
+		fmt.Println("no wada.json")
+		return
+	}
+	if cfg.Error != "" {
+		fmt.Println(cfg.Error)
+		return
+	}
+	state := "not trusted"
+	if cfg.Trusted {
+		state = "trusted"
+	}
+	fmt.Printf("wada.json (%s)\n", state)
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	for _, cmd := range cfg.Setup {
+		fmt.Fprintf(tw, "setup\t\t%s\t%s\n", cmd, runState(cfg.SetupTerminal))
+	}
+	for _, svc := range cfg.Services {
+		fmt.Fprintf(tw, "%s\t:%d\t%s\t%s\n", svc.Name, svc.Port, svc.Command, runState(svc.Terminal))
+	}
+	_ = tw.Flush()
+}
+
+func runState(t *protocol.TerminalInfo) string {
+	switch {
+	case t == nil:
+		return ""
+	case t.Running:
+		return "running " + t.ID
+	}
+	return fmt.Sprintf("exited %d %s", t.ExitCode, t.ID)
+}
+
+// untrustedHint says how to trust a wada.json the daemon refused to run.
+func untrustedHint(err error, id string) error {
+	var rerr *protocol.RPCError
+	if errors.As(err, &rerr) && rerr.Code == protocol.ErrCodeConflict {
+		return fmt.Errorf("%s; review it with `wada workspace config %s` and allow it with `wada workspace trust %s`", rerr.Message, id, id)
+	}
+	return err
 }
 
 // worktreeFlags are the flags that say how a new worktree starts.

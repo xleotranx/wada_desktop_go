@@ -352,3 +352,31 @@ func TestVTBufferLeavingAltScreenAfterResize(t *testing.T) {
 		}
 	}
 }
+
+func TestPTYRunsACommandWithItsEnvironment(t *testing.T) {
+	p, err := startPTY(StartOptions{
+		Directory: t.TempDir(),
+		Shell:     "/bin/sh",
+		Cols:      80,
+		Rows:      24,
+		Env:       append(os.Environ(), "WADA_PORT=41000"),
+		Command:   "echo port=$WADA_PORT; exit 3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	var out strings.Builder
+	buf := make([]byte, 4096)
+	for {
+		n, rerr := p.Read(buf)
+		out.Write(buf[:n])
+		if rerr != nil {
+			break
+		}
+	}
+	code, _ := p.Wait()
+	if !strings.Contains(out.String(), "port=41000") || code != 3 {
+		t.Fatalf("output %q, exit %d", out.String(), code)
+	}
+}

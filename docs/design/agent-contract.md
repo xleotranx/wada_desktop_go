@@ -25,7 +25,7 @@ plugins have no PiG dependency.
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
 | `WorktreesKey` | Authenticated `gh` PR status of a directory's branch (`PRStatus`) |
-| `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base. An archive refused for unsaved work fails with `ErrWorkUnsaved`. |
+| `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base; its `wada.json` (`Config`, `TrustConfig`, `RunSetup`, `StartService`, `StopService`). An archive refused for unsaved work fails with `ErrWorkUnsaved`, and running an untrusted `wada.json` with `ErrUntrusted`. |
 
 See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
 
@@ -156,7 +156,7 @@ preserving empty answers, selections, confirmations and explicit cancellation.
 
 ## Projects and workspaces
 
-`wadad` keeps the record of where the user works in `wadad.db` (schema 3), in
+`wadad` keeps the record of where the user works in `wadad.db` (schema 4), in
 `internal/daemon/workspaces`, read into memory at startup:
 
 ```sql
@@ -165,7 +165,8 @@ CREATE TABLE projects (
   root     TEXT NOT NULL,    -- absolute and clean, as added
   name     TEXT NOT NULL,    -- the user's name; '' for the root's base name
   created  INTEGER NOT NULL, -- Unix ms
-  archived INTEGER NOT NULL);-- Unix ms; 0 while active
+  archived INTEGER NOT NULL, -- Unix ms; 0 while active
+  trusted_config TEXT NOT NULL DEFAULT ''); -- hash of the wada.json the user allowed
 CREATE UNIQUE INDEX projects_active_root ON projects(root) WHERE archived = 0;
 CREATE TABLE workspaces (
   id        TEXT PRIMARY KEY, -- opaque "wks_" + 16 hex
@@ -179,7 +180,8 @@ CREATE TABLE workspaces (
   owned     INTEGER NOT NULL DEFAULT 0,   -- wadad made worktree_root and removes it
   branch    TEXT NOT NULL DEFAULT '',
   base_ref  TEXT NOT NULL DEFAULT '',     -- what its changes compare against
-  pr        INTEGER NOT NULL DEFAULT 0);  -- the pull request it checks out
+  pr        INTEGER NOT NULL DEFAULT 0,   -- the pull request it checks out
+  port_base INTEGER NOT NULL DEFAULT 0);  -- the first of its ports; 0 until it needs them
 CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
 ```
 
@@ -230,6 +232,46 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
 - `workspace.refs` lists a project's default ref, local and remote branches, open
   pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
   workspace against the merge base with its base ref, untracked files included.
+
+### wada.json
+
+A workspace's directory may hold a `wada.json` that says how to set it up and
+which services it runs:
+
+```json
+{
+  "setup": ["npm ci", "cp \"$WADA_PROJECT_ROOT/.env\" ."],
+  "services": { "web": "npm run dev", "api": { "command": "go run ./cmd/api" } }
+}
+```
+
+`setup` is a command or a list of them; `services` maps names to a command or
+`{"command": ...}`, at most ten. `workspaces.Service.LoadConfig` reads it afresh
+each time, with the SHA-256 of its bytes.
+
+- **Trust.** Nothing in a `wada.json` runs until the user trusts it:
+  `workspace.trust` records the hash the user was shown as the project's
+  `trusted_config`, and a file with any other hash is untrusted again.
+  `workspace.setup` and `workspace.service.start` refuse an untrusted file with
+  `conflict`.
+- **Ports.** A workspace with services gets a block of ten ports, the lowest
+  from 41000 no other active workspace has, kept in `port_base`. Its services
+  take the block's ports in name order.
+- **Environment.** Setup and services run with `WADA_WORKSPACE`,
+  `WADA_PROJECT_ROOT` (the project's root, where the main checkout's untracked
+  files are), `WADA_PORT` (the block's first port) and `WADA_PORT_<NAME>` for each
+  service (upper case, other characters as `_`); a service also gets `PORT`.
+- **Terminals.** Each runs in a terminal of the daemon's
+  (`terminal.create` with `command`, `env` and `role`): the shell runs the
+  command, as a login shell for bash, zsh, fish and ksh, and the terminal exits
+  with it. Setup is the commands joined with `&&`, role `setup`; a service has
+  role `service:<name>`. Starting one that runs returns its terminal; nothing is
+  retried.
+- `workspace.config` returns the file's state: found, hash, trusted, a parse
+  error, the setup with the last setup terminal in the workspace's directory, and
+  each service with its port and last terminal. `workspace.service.stop` kills a
+  running service's terminal. Archiving a workspace kills its terminals,
+  services included.
 
 ## Providers and project resources
 

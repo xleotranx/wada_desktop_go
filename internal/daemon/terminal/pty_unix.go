@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,10 +37,23 @@ func defaultShell(override string) string {
 	return "/bin/sh"
 }
 
+// commandArgs runs a command with the shell, as a login shell where the
+// shell takes -l, so the user's PATH from their profile applies.
+func commandArgs(sh, command string) []string {
+	switch filepath.Base(sh) {
+	case "bash", "zsh", "fish", "ksh":
+		return []string{"-l", "-c", command}
+	}
+	return []string{"-c", command}
+}
+
 func startPTY(opts StartOptions) (PTY, error) {
 	cols, rows := normalizeSize(opts.Cols, opts.Rows)
 	sh := defaultShell(opts.Shell)
 	cmd := exec.Command(sh)
+	if opts.Command != "" {
+		cmd = exec.Command(sh, commandArgs(sh, opts.Command)...)
+	}
 	if opts.Directory != "" {
 		cmd.Dir = opts.Directory
 	}

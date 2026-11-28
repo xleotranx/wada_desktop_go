@@ -65,6 +65,7 @@ type Plugin struct {
 	// paneOn is the pane tab on show and paneKind its kind, so the kind is
 	// told when it goes.
 	paneOn, paneKind string
+	beside           map[string]string // companion tab per workspace
 
 	// The dialogs the menus open.
 	renaming tabs.Tab
@@ -116,6 +117,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.reopen = kernel.NewSetting(c, "reopen", true)
 	p.states, p.recorded = map[agent.SessionID]tabs.State{}, map[agent.SessionID]bool{}
 	p.unsent, p.lastIn = map[string]string{}, map[string]string{}
+	p.beside = map[string]string{}
 	if err := kernel.Provide[tabs.Service](c, tabs.ServiceKey, p); err != nil {
 		return err
 	}
@@ -135,6 +137,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	})
 	// Restoring navigates, which is not Setup's job: do it once set up.
 	c.Post(p.restore)
+	kernel.Contribute(c, chat.HideWork, "tabs.split", 0, func() bool { return p.splitTab().ID != "" })
 	kernel.Contribute(c, shell.Pages, panePage, 100, shell.Page{Title: p.paneTitleOnShow, Render: p.paneView})
 	kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true})
 	kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs})
@@ -224,6 +227,10 @@ func (p *Plugin) Close(id string) {
 	at := slices.IndexFunc(shown, func(t tabs.Tab) bool { return t.ID == id })
 	p.tabs = slices.Delete(p.tabs, i, i+1)
 	delete(p.unsent, id)
+	if p.beside[closed.Folder] == id {
+		delete(p.beside, closed.Folder)
+		p.syncLayout()
+	}
 	if p.lastIn[closed.Folder] == id {
 		delete(p.lastIn, closed.Folder)
 	}
@@ -305,7 +312,7 @@ func (p *Plugin) followChat(conv chat.Conversation) {
 	if !p.restored || p.selecting {
 		return
 	}
-	if page := p.host.Page(); page != "" && page != chat.PageID {
+	if page := p.host.Page(); page != "" && page != chat.PageID && (page != panePage || p.splitTab().ID == "") {
 		return
 	}
 	p.showConversation(conv)
@@ -390,10 +397,10 @@ func (p *Plugin) started(conv chat.Conversation) {
 	if !p.restored || p.find(conversationID(conv.Session)) >= 0 {
 		return
 	}
-	active := p.active
-	p.insert(tabs.Tab{ID: conversationID(conv.Session), Kind: tabs.Conversation, Session: conv.Session,
-		Folder: p.spaceOf(conv.Directory), Title: p.titleOf(conv)})
-	p.active = active
+	t := tabs.Tab{ID: conversationID(conv.Session), Kind: tabs.Conversation, Session: conv.Session,
+		Folder: p.spaceOf(conv.Directory), Title: p.titleOf(conv)}
+	p.ensureColor(t.Folder)
+	p.tabs = slices.Insert(p.tabs, p.slot(t.Folder, -1), t)
 	p.changed()
 }
 
@@ -534,7 +541,10 @@ func (p *Plugin) panesChanged() {
 // syncPane tells the pane kinds which tab went off show and which came on,
 // after the active tab changed.
 func (p *Plugin) syncPane() {
-	want, _ := p.paneTab(p.active)
+	want, ok := p.paneTab(p.active)
+	if !ok {
+		want = p.splitTab()
+	}
 	if want.ID == p.paneOn {
 		return
 	}
@@ -567,6 +577,9 @@ func (p *Plugin) paneTab(id string) (tabs.Tab, bool) {
 func (p *Plugin) paneView(c *ui.Context) {
 	t, ok := p.paneTab(p.active)
 	if !ok {
+		if side := p.splitTab(); side.ID != "" {
+			p.renderSplit(c, side)
+		}
 		return
 	}
 	c.Key(t.ID)
@@ -576,6 +589,9 @@ func (p *Plugin) paneView(c *ui.Context) {
 func (p *Plugin) paneTitleOnShow() string {
 	t, ok := p.paneTab(p.active)
 	if !ok {
+		if side := p.splitTab(); side.ID != "" {
+			return "Chat · " + p.titled(side).Title
+		}
 		return ""
 	}
 	return p.titled(t).Title
@@ -661,7 +677,7 @@ func (p *Plugin) events(batch []agent.Event) {
 // onShow reports that the user is looking at the conversation's tab.
 func (p *Plugin) onShow(s agent.SessionID) bool {
 	page := p.host.Page()
-	return (page == "" || page == chat.PageID) && p.chat.Current().Session == s
+	return (page == "" || page == chat.PageID || (page == panePage && p.splitTab().ID != "")) && p.chat.Current().Session == s
 }
 
 func (p *Plugin) state(t tabs.Tab) tabs.State {
@@ -700,7 +716,7 @@ func (p *Plugin) activate(id string) {
 			}
 		}
 	}
-	p.syncPane()
+	p.syncLayout()
 	p.changed()
 }
 
@@ -768,6 +784,7 @@ func (p *Plugin) changed() {
 	}
 	p.saved.Set(keep)
 	p.savedActive.Set(active)
+	kernel.Emit(p.ctx, tabs.Changed, struct{}{})
 }
 
 // ensureColor gives a folder the first project color no other folder has.

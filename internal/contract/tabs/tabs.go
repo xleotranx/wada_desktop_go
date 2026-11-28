@@ -15,6 +15,7 @@ import (
 
 var (
 	ServiceKey = kernel.NewKey[Service]("tabs.service")
+	Changed    = kernel.NewTopic[struct{}]("tabs.changed")
 
 	// EndActions are buttons at the end of the strip, before Settings, such as
 	// the search of All chats.

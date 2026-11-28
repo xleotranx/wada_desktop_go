@@ -101,3 +101,24 @@ func TestNoWebViews(t *testing.T) {
 		t.Fatalf("page = %+v", pg)
 	}
 }
+
+func TestAgentPreviewAcceptsOnlyAPathOnTheLocalService(t *testing.T) {
+	const origin = "http://127.0.0.1:41000"
+	if !localPreviewOrigin(origin) || localPreviewOrigin("http://example.com:41000") || localPreviewOrigin(origin+"/other") {
+		t.Fatal("local origin validation failed")
+	}
+	for _, path := range []string{"https://example.com", "//example.com", "/%2fother", "/\\example.com"} {
+		if _, err := previewURL(origin, path); err == nil {
+			t.Fatalf("accepted %q", path)
+		}
+	}
+	if got, err := previewURL(origin, "/settings?tab=1"); err != nil || got != origin+"/settings?tab=1" {
+		t.Fatalf("route = %q, %v", got, err)
+	}
+	for _, action := range []string{"read", "click"} {
+		script := previewScript(browser.Request{Origin: origin, Action: action, Value: "Check"})
+		if !strings.HasPrefix(script, `if (location.origin !== "http://127.0.0.1:41000")`) {
+			t.Fatalf("%s is missing the same-origin check", action)
+		}
+	}
+}

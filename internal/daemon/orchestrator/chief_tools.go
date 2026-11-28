@@ -19,7 +19,7 @@ import (
 // ChiefTools constructs PiG's Chief Agent orchestration tools bound to the
 // calling conversation's session, workspace directory and mode.
 func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
-	return []pig.Tool{
+	tools := []pig.Tool{
 		{
 			Name:        "list_providers",
 			Label:       "List coding agent harnesses",
@@ -340,6 +340,10 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 			},
 		},
 	}
+	if o.preview != nil {
+		tools = append(tools, o.previewTool(getCtx))
+	}
+	return tools
 }
 
 // workerDir resolves a requested worker folder, which must exist and, with

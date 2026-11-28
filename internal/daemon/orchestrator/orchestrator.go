@@ -17,6 +17,7 @@ import (
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/mcp"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/preview"
 	"wada-desktop-go/internal/daemon/profiles"
 	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/daemon/workspaces"
@@ -29,6 +30,7 @@ type Options struct {
 	DataDir    string
 	PiG        *pig.Runtime
 	Worktrees  *worktree.Manager
+	Preview    *preview.Broker
 	Workspaces *workspaces.Service // optional: the Chief tools' workspaces
 	Registry   *harness.Registry
 	Terminals  *terminal.Supervisor
@@ -59,6 +61,7 @@ type Orchestrator struct {
 	pig        *pig.Runtime
 	worktrees  *worktree.Manager
 	workspaces *workspaces.Service
+	preview    *preview.Broker
 	registry   *harness.Registry
 	terminals  *terminal.Supervisor
 	// mcp serves the Chief tools to external workers; nil when it could not
@@ -96,6 +99,7 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		pig:        opts.PiG,
 		worktrees:  opts.Worktrees,
 		workspaces: opts.Workspaces,
+		preview:    opts.Preview,
 		registry:   opts.Registry,
 		terminals:  opts.Terminals,
 		ctx:        octx,

@@ -63,6 +63,14 @@ open, and save workspace text files. On the web, **Chat beside files** keeps the
 chat visible while you edit. A stale save keeps your draft if the file has
 changed on disk.
 
+In a desktop workspace, right-click a Files, Changes, Terminal, or Browser tab
+and choose **Show Beside Chat**. The companion stays with that workspace's chat.
+
+To have an agent check a local preview, trust its `wada.json` and start the
+service in Wada. The `workspace_preview` tool can open the preview, read
+visible text, or click a uniquely labeled button. Desktop shows each action
+for approval before it runs.
+
 For visual instructions, capture the screen (⌘⇧2 / ⌃⌘⇧2 on macOS) or paste/attach a screenshot and choose **Mark up**
 beside its image chip. Draw boxes, arrows, pins, freehand lines, highlights, or pixel redactions, add per-mark notes and optional full-resolution detail crops, then
 choose **Use marked-up image**. The marked PNG goes with your next message;

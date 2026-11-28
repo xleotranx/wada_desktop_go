@@ -16,6 +16,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 	"wada-desktop-go/internal/client"
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/browser"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/protocol"
@@ -54,6 +55,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 		Requires: []kernel.Named{shell.HostKey},
 		Provides: []kernel.Named{
 			agent.ServiceKey,
+			browser.PreviewKey,
 			agent.ModelsKey,
 			agent.ModesKey,
 			agent.ChildrenKey,
@@ -81,6 +83,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.activeHost = kernel.NewSetting(c, "active-host", "")
 	kernel.Provide[agent.Service](c, agent.ServiceKey, p)
+	kernel.Provide[browser.Preview](c, browser.PreviewKey, p)
 	kernel.Provide[agent.Models](c, agent.ModelsKey, p)
 	kernel.Provide[agent.Modes](c, agent.ModesKey, p)
 	kernel.Provide[agent.Children](c, agent.ChildrenKey, p)

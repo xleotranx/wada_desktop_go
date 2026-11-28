@@ -19,6 +19,7 @@ import (
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/orchestrator"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/preview"
 	"wada-desktop-go/internal/daemon/server"
 	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/daemon/terminal"
@@ -122,6 +123,7 @@ func Run(args []string) error {
 		KeepOnClose: true,
 	})
 
+	broker := &preview.Broker{}
 	var orch *orchestrator.Orchestrator
 	rt, err := pig.New(ctx, pig.Options{
 		Root: filepath.Join(*dataDir, "pig"),
@@ -143,6 +145,7 @@ func Run(args []string) error {
 		PiG:        rt,
 		Worktrees:  wtMgr,
 		Workspaces: spaces,
+		Preview:    broker,
 		Registry:   harnesses,
 		Terminals:  termSup,
 	})
@@ -181,6 +184,7 @@ func Run(args []string) error {
 		DesktopManaged: *desktopManaged,
 		Store:          st,
 		Workspaces:     spaces,
+		Preview:        broker,
 		Backend:        orch,
 		OnShutdown:     stop,
 	})

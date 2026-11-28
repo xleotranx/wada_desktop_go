@@ -1023,3 +1023,22 @@ func (c *Client) DeleteSchedule(ctx context.Context, id string) error {
 func (c *Client) RunSchedule(ctx context.Context, id string) error {
 	return c.Call(ctx, protocol.MethodScheduleRun, protocol.ScheduleIDRequest{ID: id}, nil)
 }
+
+// FindWorkspaceFiles returns search results relative to an active workspace.
+func (c *Client) FindWorkspaceFiles(ctx context.Context, workspace, query string) ([]string, error) {
+	var out []string
+	return out, c.Call(ctx, protocol.MethodWorkspaceFiles, protocol.WorkspaceFilesRequest{Workspace: workspace, Query: query}, &out)
+}
+
+func (c *Client) OpenWorkspaceFile(ctx context.Context, workspace, path string) (protocol.WorkspaceFile, error) {
+	var out protocol.WorkspaceFile
+	return out, c.Call(ctx, protocol.MethodWorkspaceFileOpen, protocol.WorkspaceFileRequest{Workspace: workspace, Path: path}, &out)
+}
+
+func (c *Client) SaveWorkspaceFile(ctx context.Context, workspace, path, text, revision string) (protocol.WorkspaceFile, error) {
+	var out protocol.WorkspaceFile
+	return out, c.Call(ctx, protocol.MethodWorkspaceFileSave, protocol.WorkspaceFileSaveRequest{
+		WorkspaceFileRequest: protocol.WorkspaceFileRequest{Workspace: workspace, Path: path},
+		Text:                 text, Revision: revision,
+	}, &out)
+}

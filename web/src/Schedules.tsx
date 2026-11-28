@@ -3,8 +3,8 @@ import type { Schedule, ScheduleSpec } from "./client/protocol";
 import type { WadaClient } from "./client/wadaClient";
 
 /**
- * SchedulesPanel lists the daemon's schedules with pause, run and delete,
- * and adds one: a heartbeat for the open conversation, or a schedule that
+ * SchedulesPanel lists, edits, pauses, runs and deletes the daemon's schedules.
+ * It can add a heartbeat for the open conversation, or a schedule that
  * starts a conversation in the new chat's folder or workspace each run.
  */
 export function SchedulesPanel({
@@ -28,6 +28,7 @@ export function SchedulesPanel({
 }) {
   const [adding, setAdding] = useState<"" | "heartbeat" | "schedule">("");
   const [busy, setBusy] = useState("");
+  const [editing, setEditing] = useState<Schedule | null>(null);
 
   async function act(sc: Schedule, what: string, fn: () => Promise<Schedule | void>): Promise<void> {
     setBusy(sc.id);
@@ -51,11 +52,11 @@ export function SchedulesPanel({
         </div>
         <div className="row">
           {session && (
-            <button className="btn" onClick={() => setAdding("heartbeat")}>
+            <button className="btn" disabled={!!adding || !!editing} onClick={() => setAdding("heartbeat")}>
               + Heartbeat
             </button>
           )}
-          <button className="btn btn-primary" onClick={() => setAdding("schedule")}>
+          <button className="btn btn-primary" disabled={!!adding || !!editing} onClick={() => setAdding("schedule")}>
             + Schedule
           </button>
         </div>
@@ -63,6 +64,7 @@ export function SchedulesPanel({
 
       {adding && (
         <ScheduleForm
+          key={adding}
           heartbeat={adding === "heartbeat"}
           target={
             adding === "heartbeat"
@@ -77,6 +79,21 @@ export function SchedulesPanel({
             const sc = await cli.createSchedule(spec);
             onChanged(sc);
             setAdding("");
+          }}
+        />
+      )}
+
+      {editing && (
+        <ScheduleForm
+          key={editing.id}
+          initial={editing}
+          heartbeat={!!editing.session}
+          target={editing.session ? "Sends to the original conversation." : "Starts a conversation in the original workspace or folder."}
+          onCancel={() => setEditing(null)}
+          onSubmit={async (spec) => {
+            const updated = await cli.updateSchedule(editing.id, { ...specOf(editing), ...spec });
+            onChanged(updated);
+            setEditing(null);
           }}
         />
       )}
@@ -103,14 +120,21 @@ export function SchedulesPanel({
             <div className="row">
               <button
                 className="btn btn-small"
-                disabled={busy === sc.id}
+                disabled={!!busy || !!adding || !!editing}
+                onClick={() => setEditing(sc)}
+              >
+                Edit
+              </button>
+              <button
+                className="btn btn-small"
+                disabled={!!busy || !!adding || !!editing}
                 onClick={() => void act(sc, "Run", () => cli.runSchedule(sc.id))}
               >
                 Run now
               </button>
               <button
                 className="btn btn-small"
-                disabled={busy === sc.id}
+                disabled={!!busy || !!adding || !!editing}
                 onClick={() =>
                   void act(sc, sc.paused ? "Resume" : "Pause", () =>
                     cli.updateSchedule(sc.id, { ...specOf(sc), paused: !sc.paused })
@@ -121,7 +145,7 @@ export function SchedulesPanel({
               </button>
               <button
                 className="btn btn-small btn-danger"
-                disabled={busy === sc.id}
+                disabled={!!busy || !!adding || !!editing}
                 onClick={() =>
                   void act(sc, "Delete", async () => {
                     await cli.deleteSchedule(sc.id);
@@ -140,33 +164,39 @@ export function SchedulesPanel({
 }
 
 function ScheduleForm({
+  initial,
   heartbeat,
   target,
   onSubmit,
   onCancel,
 }: {
+  initial?: ScheduleSpec;
   heartbeat: boolean;
   target: string;
   onSubmit: (spec: ScheduleSpec) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [prompt, setPrompt] = useState(heartbeat ? "Check how this is going and continue where it stopped." : "");
-  const [kind, setKind] = useState<"every" | "cron">(heartbeat ? "every" : "cron");
-  const [when, setWhen] = useState(heartbeat ? "30m" : "0 9 * * 1-5");
-  const [mode, setMode] = useState("ask");
-  const [profile, setProfile] = useState("");
+  const [name, setName] = useState(initial?.name || "");
+  const [prompt, setPrompt] = useState(initial?.prompt ?? (heartbeat ? "Check how this is going and continue where it stopped." : ""));
+  const [kind, setKind] = useState<"every" | "cron">(initial ? (initial.every ? "every" : "cron") : (heartbeat ? "every" : "cron"));
+  const [when, setWhen] = useState(initial?.every || initial?.cron || (heartbeat ? "30m" : "0 9 * * 1-5"));
+  const [mode, setMode] = useState(initial?.mode || "ask");
+  const [profile, setProfile] = useState(initial?.profile || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    const spec: ScheduleSpec = { name: name.trim(), prompt };
-    if (kind === "cron") spec.cron = when.trim();
-    else spec.every = when.trim();
+    if (busy) return;
+    const spec: ScheduleSpec = {
+      name: name.trim(),
+      prompt,
+      cron: kind === "cron" ? when.trim() : undefined,
+      every: kind === "every" ? when.trim() : undefined,
+    };
     if (!heartbeat) {
       spec.mode = mode;
-      if (profile.trim()) spec.profile = profile.trim();
+      spec.profile = profile.trim() || undefined;
     }
     setBusy(true);
     setError("");
@@ -181,7 +211,7 @@ function ScheduleForm({
 
   return (
     <form className="approval-card" onSubmit={(e) => void submit(e)}>
-      <strong>{heartbeat ? "New heartbeat" : "New schedule"}</strong>
+      <strong>{initial ? "Edit schedule" : heartbeat ? "New heartbeat" : "New schedule"}</strong>
       <div className="muted">{target}</div>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (default: the prompt's first line)" />
       <textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Prompt" required />
@@ -208,11 +238,11 @@ function ScheduleForm({
       </div>
       {error && <div className="banner-error">{error}</div>}
       <div className="row end">
-        <button type="button" className="btn" onClick={onCancel}>
+        <button type="button" className="btn" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
         <button type="submit" className="btn btn-primary" disabled={busy || !prompt.trim() || !when.trim()}>
-          {busy ? "Adding…" : "Add"}
+          {busy ? "Saving…" : initial ? "Save" : "Add"}
         </button>
       </div>
     </form>

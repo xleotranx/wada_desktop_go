@@ -246,6 +246,13 @@ inbox, "Inbox" (a chat without a project) and "Add project…", applied through
 `chat.Controller.SetDirectory` after the frame. A stored conversation, or one
 Starting, shows none.
 
+## Workspace files
+
+The `editor` plugin contributes a Files tab for the selected workspace through
+`tabs.Panes`. Search and direct path entry use the daemon's workspace file
+service. Each workspace keeps its open draft in memory across tab switches.
+Save checks the opened revision. Discard draft and Reload are explicit actions.
+
 ## Tabs
 
 `internal/plugins/tabs` (locked) requires `agent.ServiceKey`, `chat.ControllerKey`,

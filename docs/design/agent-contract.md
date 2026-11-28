@@ -280,6 +280,19 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
   pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
   workspace against the merge base with its base ref, untracked files included.
 
+### Workspace file editor
+
+`workspace.files.find` searches relative paths in an active workspace named by
+ID. `workspace.file.open` returns UTF-8 text and a revision of the original
+bytes. `workspace.file.save` takes the path, edited text, and opened revision.
+It returns a new revision or `conflict` if the file changed on disk. Desktop
+and web keep the draft after a failed save.
+
+The daemon confines file access to the workspace directory and accepts regular
+files up to 256 KiB. The editor uses slash-separated relative paths, refuses
+symbolic links and Git metadata, and preserves CRLF in files that used it
+consistently. Saves replace the file in its parent directory.
+
 ### Names, commits and pull requests
 
 The daemon asks the embedded runtime's default model for short text through

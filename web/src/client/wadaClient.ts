@@ -36,6 +36,7 @@ import {
   type SessionInfo,
   type WorkspaceConfig,
   type WorkspaceCreate,
+  type WorkspaceFile,
   type WorkspaceInfo,
   type WorkspaceRefs,
   type SessionMessage,
@@ -509,6 +510,18 @@ export class WadaClient {
   /** Archives a workspace; without force, one with unsaved work is refused (conflict). */
   archiveWorkspace(workspace: string, force = false): Promise<void> {
     return this.call("workspace.archive", { workspace, force: force || undefined });
+  }
+
+  findWorkspaceFiles(workspace: string, query: string): Promise<string[]> {
+    return this.call("workspace.files.find", { workspace, query });
+  }
+
+  openWorkspaceFile(workspace: string, path: string): Promise<WorkspaceFile> {
+    return this.call("workspace.file.open", { workspace, path });
+  }
+
+  saveWorkspaceFile(workspace: string, path: string, text: string, revision: string): Promise<WorkspaceFile> {
+    return this.call("workspace.file.save", { workspace, path, text, revision });
   }
 
   workspaceConfig(workspace: string): Promise<WorkspaceConfig> {

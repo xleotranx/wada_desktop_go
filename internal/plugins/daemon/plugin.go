@@ -58,6 +58,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.ModesKey,
 			agent.ChildrenKey,
 			agent.FilesKey,
+			agent.EditorKey,
 			agent.SkillsKey,
 			agent.FileTypesKey,
 			agent.ImagesKey,
@@ -84,6 +85,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Modes](c, agent.ModesKey, p)
 	kernel.Provide[agent.Children](c, agent.ChildrenKey, p)
 	kernel.Provide[agent.Files](c, agent.FilesKey, p)
+	kernel.Provide[agent.WorkspaceEditor](c, agent.EditorKey, p)
 	kernel.Provide[agent.Skills](c, agent.SkillsKey, p)
 	kernel.Provide[agent.FileTypes](c, agent.FileTypesKey, fileTypes{})
 	kernel.Provide[agent.Images](c, agent.ImagesKey, p)

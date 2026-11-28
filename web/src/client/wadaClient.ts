@@ -24,6 +24,7 @@ import {
   type HarnessInfo,
   type InteractionItem,
   OP_TERM_INPUT,
+  type PendingApproval,
   OP_TERM_OUTPUT,
   OP_TERM_RESIZE,
   PROTOCOL_VERSION,
@@ -487,6 +488,10 @@ export class WadaClient {
     answers?: Record<string, string[]>;
   }): Promise<void> {
     return this.call("agent.interactions.answer", ans);
+  }
+
+  pendingApprovals(): Promise<PendingApproval[] | null> {
+    return this.call("agent.approvals.pending", {});
   }
 
   pendingInteractions(session: string): Promise<InteractionItem[] | null> {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	pa "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding/extension"
@@ -14,6 +15,7 @@ import (
 
 type approvalWait struct {
 	session string
+	request protocol.Approval
 	done    chan protocol.Decision
 }
 
@@ -69,7 +71,8 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 		}
 		if choice == ask && (!allowed || policy != nil) {
 			aid := e.nextID()
-			wait := &approvalWait{session: sid, done: make(chan protocol.Decision, 1)}
+			approval := protocol.Approval{Session: sid, ID: aid, Kind: kind, Action: name, Resources: []string{string(args)}, Save: []string{key}}
+			wait := &approvalWait{session: sid, request: approval, done: make(chan protocol.Decision, 1)}
 			e.mu.Lock()
 			e.approvals[aid] = wait
 			e.mu.Unlock()
@@ -78,7 +81,7 @@ func (e *engine) toolHook(c *conversation) pa.BeforeToolCallHook {
 				Kind:      protocol.EventApprovalRequested,
 				Session:   sid,
 				RequestID: requestID,
-				Approval:  &protocol.Approval{Session: sid, ID: aid, Kind: kind, Action: name, Resources: []string{string(args)}, Save: []string{key}},
+				Approval:  &approval,
 			})
 			var decision protocol.Decision
 			select {
@@ -142,6 +145,28 @@ func (r *Runtime) Reply(ctx context.Context, req protocol.ReplyRequest) error {
 	default:
 		return errors.New("this permission request was already answered")
 	}
+}
+
+func (r *Runtime) PendingApprovals(ctx context.Context) ([]protocol.PendingApproval, error) {
+	e, release, err := r.acquire()
+	defer release()
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := []protocol.PendingApproval{}
+	for _, w := range e.approvals {
+		ap := w.request
+		ap.Resources = slices.Clone(ap.Resources)
+		ap.Save = slices.Clone(ap.Save)
+		out = append(out, protocol.PendingApproval{ShownIn: w.session, Approval: ap})
+	}
+	slices.SortFunc(out, func(a, b protocol.PendingApproval) int { return strings.Compare(a.Approval.ID, b.Approval.ID) })
+	return out, nil
 }
 
 func (r *Runtime) PendingInteractions(ctx context.Context, id string) ([]protocol.Interaction, error) {

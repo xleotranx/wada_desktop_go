@@ -109,6 +109,20 @@ func TestWorkerSendStatusAndOutcome(t *testing.T) {
 		t.Fatalf("wait after send returned %s before the turn started", got.Status)
 	}
 	sess.events <- protocol.Event{Kind: protocol.EventTurnStarted}
+	// A worker's pending approval is listed in its parent conversation until
+	// it is answered.
+	sess.events <- protocol.Event{Kind: protocol.EventApprovalRequested, Approval: &protocol.Approval{ID: "ap1", Action: "Bash"}}
+	waitStatus(protocol.WorkerWaitingApproval)
+	pending, err := o.PendingApprovals(t.Context())
+	if err != nil || len(pending) != 1 || pending[0].ShownIn != "parent" || pending[0].Approval.Session != info.ID || pending[0].Approval.ID != "ap1" {
+		t.Fatalf("pending approvals = %+v, err = %v", pending, err)
+	}
+	if err := o.Reply(t.Context(), protocol.ReplyRequest{Session: info.ID, Approval: "ap1", Decision: protocol.DecisionOnce}); err != nil {
+		t.Fatal(err)
+	}
+	if pending, _ := o.PendingApprovals(t.Context()); len(pending) != 0 {
+		t.Fatalf("pending approvals after the reply = %+v", pending)
+	}
 	sess.events <- protocol.Event{Kind: protocol.EventTurnSucceeded}
 	waitStatus(protocol.WorkerCompleted)
 

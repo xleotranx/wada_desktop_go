@@ -30,9 +30,13 @@ import {
   upsertHost,
 } from "./client/storage";
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
-import { decodeOffer, normalizeDirectWSURL } from "./crypto/offer";
+import { decodeOffer, normalizeDirectWSURL, parseHostTarget } from "./crypto/offer";
 
 type RightTab = "chat" | "diffs" | "terminal";
+
+// ShownApproval is an approval with the conversation that shows it: its own,
+// or the parent of the worker that asked. Replies go to approval.session.
+type ShownApproval = ApprovalItem & { shownIn: string };
 
 type InteractionAnswer = Parameters<WadaClient["answerInteraction"]>[0];
 
@@ -70,6 +74,7 @@ export function App() {
   const [pairInput, setPairInput] = useState("");
   const [pairPassword, setPairPassword] = useState("");
   const [pairRelayToken, setPairRelayToken] = useState("");
+  const [pairMessage, setPairMessage] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -79,7 +84,7 @@ export function App() {
   const [liveDelta, setLiveDelta] = useState("");
   // Approvals, interactions and running turns are kept for every session, so
   // one that arrives while another session is open is still there to answer.
-  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [approvals, setApprovals] = useState<ShownApproval[]>([]);
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
   const [busySessions, setBusySessions] = useState<ReadonlySet<string>>(() => new Set());
   const [workers, setWorkers] = useState<WorkerInfo[]>([]);
@@ -87,7 +92,8 @@ export function App() {
   const [rightTab, setRightTab] = useState<RightTab>("chat");
 
   const [promptText, setPromptText] = useState("");
-  const [newDir, setNewDir] = useState(".");
+  // Empty leaves the folder to the daemon: its inbox.
+  const [newDir, setNewDir] = useState("");
   const [newProvider, setNewProvider] = useState("");
   const [mode, setMode] = useState<"ask" | "full">("ask");
 
@@ -157,6 +163,7 @@ export function App() {
   function openPairFor(host: SavedHost): void {
     setPairName(host.name);
     setPairInput(host.offer || host.directUrl || "");
+    setPairMessage("");
     setPairPassword("");
     setPairRelayToken(host.relayToken || "");
     setPairOpen(true);
@@ -253,12 +260,17 @@ export function App() {
       reconnectAttemptsRef.current = 0;
       setE2eeMode(cli.mode);
       setConnState("connected");
-      const [sessRes, harnessRes, termRes] = await Promise.all([
+      const [sessRes, harnessRes, termRes, pendingRes] = await Promise.all([
         cli.listSessions(),
         cli.listHarnesses().catch(() => [] as HarnessInfo[]),
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
+        cli.pendingApprovals().catch(() => null),
       ]);
       if (!current()) return;
+      if (pendingRes) {
+        // Approvals asked while this client was away are only here.
+        setApprovals(pendingRes.map((p) => ({ ...p.approval, shownIn: p.shownIn || p.approval.session })));
+      }
       const list = sessRes.sessions || [];
       setSessions(list);
       setHarnesses(harnessRes || []);
@@ -276,9 +288,10 @@ export function App() {
       setConnState("disconnected");
       setConnError(msg);
       if (msg.startsWith("unauthorized")) {
-        // A wrong password will not start working by itself.
+        // A wrong password will not start working by itself: ask for it.
         passwordsRef.current.delete(host.id);
-        if (host.requiresPassword) openPairFor(host);
+        openPairFor(host);
+        setPairMessage(`${host.name} refused the connection. Enter its password, or pair again with a new link.`);
         return;
       }
       scheduleReconnect(host);
@@ -289,7 +302,8 @@ export function App() {
     switch (ev.kind) {
       case EV_WORKER_UPDATED: {
         const updated = ev.worker;
-        if (!updated) return;
+        // The strip shows the open conversation's workers only.
+        if (!updated || updated.parentSession !== selectedSessionRef.current) return;
         setWorkers((prev) => [updated, ...prev.filter((w) => w.id !== updated.id)]);
         return;
       }
@@ -310,7 +324,9 @@ export function App() {
       case EV_APPROVAL_REQUESTED: {
         const ap = ev.approval;
         if (!ap) return;
-        setApprovals((prev) => (prev.some((x) => x.id === ap.id) ? prev : [...prev, ap]));
+        // A worker's approval arrives on its parent's session.
+        const shown: ShownApproval = { ...ap, shownIn: ev.session || ap.session };
+        setApprovals((prev) => (prev.some((x) => x.id === ap.id) ? prev : [...prev, shown]));
         return;
       }
       case EV_INTERACTION_REQUESTED: {
@@ -385,13 +401,14 @@ export function App() {
     const relayToken = pairRelayToken.trim() || undefined;
     let host: SavedHost;
     try {
-      if (target.includes("#offer=") || (!target.includes("://") && !target.includes(":"))) {
-        const off = decodeOffer(target);
+      const parsed = parseHostTarget(target);
+      if ("offer" in parsed) {
+        const off = decodeOffer(parsed.offer);
         host = {
           id: off.serverId || crypto.randomUUID(),
           name: pairName.trim() || off.hostname || off.serverId || "Remote Daemon",
           mode: off.relayUrl ? "relay" : "direct",
-          offer: target,
+          offer: parsed.offer,
           relayUrl: off.relayUrl,
           directUrl: off.directUrl,
           serverId: off.serverId,
@@ -403,10 +420,12 @@ export function App() {
       } else {
         // The same endpoint is the same host, so re-pairing replaces it.
         host = {
-          id: "direct:" + normalizeDirectWSURL(target),
+          id: "direct:" + normalizeDirectWSURL(parsed.endpoint),
           name: pairName.trim() || target,
           mode: "direct",
-          directUrl: target,
+          directUrl: parsed.endpoint,
+          // Ask again after a reload, since the password is never stored.
+          requiresPassword: pairPassword !== "",
           addedAt: Date.now(),
         };
       }
@@ -432,7 +451,7 @@ export function App() {
     const localId = "local_" + crypto.randomUUID();
     try {
       if (!sessId) {
-        const created = await cli.createSession(newDir.trim() || ".", newProvider, mode);
+        const created = await cli.createSession(newDir.trim(), newProvider, mode);
         sessId = created.id;
         setSessions((prev) => [created, ...prev]);
         chooseSession(sessId);
@@ -449,6 +468,24 @@ export function App() {
         void refreshSession(cli, sessId);
       }
     }
+  }
+
+  // removeHost forgets a saved host, and disconnects from it when it is the
+  // one in use.
+  function removeHost(h: SavedHost): void {
+    passwordsRef.current.delete(h.id);
+    setHosts(deleteHost(h.id));
+    if (hostRef.current?.id !== h.id && activeHostId !== h.id) return;
+    cancelReconnect();
+    hostRef.current = null;
+    clientRef.current?.close();
+    clientRef.current = null;
+    setActiveHostId("");
+    saveActiveHostId("");
+    chooseSession("");
+    resetHostState();
+    setConnState("disconnected");
+    setE2eeMode("");
   }
 
   async function handleAbort(session: string): Promise<void> {
@@ -486,7 +523,7 @@ export function App() {
     const activeSess = sessions.find((s) => s.id === selectedSessionId);
     let info: TerminalInfo;
     try {
-      info = await cli.createTerminal(activeSess?.directory || newDir || ".");
+      info = await cli.createTerminal(activeSess?.directory || newDir.trim());
     } catch (err) {
       setConnError(unconfirmed("Creating the terminal", err));
       return;
@@ -553,10 +590,10 @@ export function App() {
 
   const activeSession = sessions.find((s) => s.id === selectedSessionId);
   const busyTurn = selectedSessionId !== "" && busySessions.has(selectedSessionId);
-  const sessionApprovals = approvals.filter((a) => a.session === selectedSessionId);
+  const sessionApprovals = approvals.filter((a) => a.shownIn === selectedSessionId);
   const sessionInteractions = interactions.filter((x) => x.session === selectedSessionId);
   const needsAttention = (id: string) =>
-    approvals.some((a) => a.session === id) || interactions.some((x) => x.session === id);
+    approvals.some((a) => a.shownIn === id) || interactions.some((x) => x.session === id);
 
   return (
     <div className="shell">
@@ -579,6 +616,7 @@ export function App() {
               setPairInput("");
               setPairPassword("");
               setPairRelayToken("");
+              setPairMessage("");
               setPairOpen(true);
             }}
           >
@@ -603,10 +641,7 @@ export function App() {
                   <button
                     className="icon-btn"
                     title="Remove"
-                    onClick={() => {
-                      passwordsRef.current.delete(h.id);
-                      setHosts(deleteHost(h.id));
-                    }}
+                    onClick={() => removeHost(h)}
                   >
                     ×
                   </button>
@@ -694,7 +729,7 @@ export function App() {
                       <input
                         value={newDir}
                         onChange={(e) => setNewDir(e.target.value)}
-                        placeholder="Project directory"
+                        placeholder="Project folder on the daemon (empty: its inbox)"
                       />
                       <select value={newProvider} onChange={(e) => setNewProvider(e.target.value)}>
                         <option value="">PiG (Chief Agent)</option>
@@ -872,6 +907,7 @@ export function App() {
         <div className="modal-backdrop" onClick={() => setPairOpen(false)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handlePairSubmit}>
             <h3>Pair or Connect Daemon</h3>
+            {pairMessage && <p className="muted">{pairMessage}</p>}
             <label>
               Host name
               <input value={pairName} onChange={(e) => setPairName(e.target.value)} required />
@@ -882,7 +918,7 @@ export function App() {
                 rows={3}
                 value={pairInput}
                 onChange={(e) => setPairInput(e.target.value)}
-                placeholder="https://app.wada.dev/#offer=... or ws://100.64.0.2:6767"
+                placeholder="https://app.wada.dev/#offer=... or my-mac.tailnet.ts.net"
                 required
               />
             </label>

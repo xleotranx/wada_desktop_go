@@ -9,24 +9,24 @@ const (
 	MethodDaemonPairingOffer = "daemon.pairing.offer"
 	MethodDaemonSetPassword  = "daemon.password.set"
 
-	MethodSessionsList   = "agent.sessions.list"
-	MethodSessionCreate  = "agent.session.create"
+	MethodSessionsList    = "agent.sessions.list"
+	MethodSessionCreate   = "agent.session.create"
 	MethodSessionMessages = "agent.session.messages"
-	MethodSessionSend    = "agent.session.send"
-	MethodSessionAbort   = "agent.session.abort"
-	MethodSessionReply   = "agent.session.reply"
-	MethodSessionRename  = "agent.session.rename"
-	MethodSessionDelete  = "agent.session.delete"
-	MethodSessionSpawn   = "agent.session.spawn"
-	MethodSessionRewind  = "agent.session.rewind"
-	MethodSessionChanges = "agent.session.changes"
+	MethodSessionSend     = "agent.session.send"
+	MethodSessionAbort    = "agent.session.abort"
+	MethodSessionReply    = "agent.session.reply"
+	MethodSessionRename   = "agent.session.rename"
+	MethodSessionDelete   = "agent.session.delete"
+	MethodSessionSpawn    = "agent.session.spawn"
+	MethodSessionRewind   = "agent.session.rewind"
+	MethodSessionChanges  = "agent.session.changes"
 	MethodSessionSnapshot = "agent.session.snapshot"
-	MethodSessionDiff    = "agent.session.diff"
+	MethodSessionDiff     = "agent.session.diff"
 
-	MethodModelsList     = "agent.models.list"
-	MethodModelsDefault  = "agent.models.default"
+	MethodModelsList      = "agent.models.list"
+	MethodModelsDefault   = "agent.models.default"
 	MethodSessionSetModel = "agent.session.set_model"
-	MethodModesList      = "agent.modes.list"
+	MethodModesList       = "agent.modes.list"
 
 	MethodFilesFind  = "agent.files.find"
 	MethodFilesRead  = "agent.files.read"
@@ -57,6 +57,7 @@ const (
 	MethodTerminalKill    = "terminal.kill"
 
 	MethodInteractionsPending = "agent.interactions.pending"
+	MethodApprovalsPending    = "agent.approvals.pending"
 	MethodInteractionsAnswer  = "agent.interactions.answer"
 
 	MethodTimelineFetch     = "agent.timeline.fetch"
@@ -66,14 +67,14 @@ const (
 
 // Stable wire string enums.
 type (
-	SendDisposition string
-	Decision        string
-	Role            string
-	PartKind        string
-	ToolKind        string
-	FileStatus      string
-	EventKind       string
-	InteractionKind string
+	SendDisposition       string
+	Decision              string
+	Role                  string
+	PartKind              string
+	ToolKind              string
+	FileStatus            string
+	EventKind             string
+	InteractionKind       string
 	ProviderAuthType      string
 	ProviderAuthEventKind string
 	HarnessKind           string
@@ -427,7 +428,7 @@ type PRStatus struct {
 	State          string `json:"state"`
 	Draft          bool   `json:"draft,omitempty"`
 	URL            string `json:"url"`
-	Checks         string `json:"checks,omitempty"`         // pass | fail | pending | none
+	Checks         string `json:"checks,omitempty"` // pass | fail | pending | none
 	ReviewDecision string `json:"reviewDecision,omitempty"`
 }
 
@@ -628,6 +629,14 @@ type Approval struct {
 	Save      []string `json:"save,omitempty"`
 }
 
+// PendingApproval is an approval still waiting for its reply. ShownIn is the
+// conversation that presents it: the approval's own session, or the parent
+// of the worker that asked. Replies go to Approval.Session.
+type PendingApproval struct {
+	ShownIn  string   `json:"shownIn"`
+	Approval Approval `json:"approval"`
+}
+
 type QuestionOption struct {
 	Value       string `json:"value"`
 	Label       string `json:"label"`
@@ -666,22 +675,22 @@ type InteractionAnswer struct {
 }
 
 type Event struct {
-	Epoch       uint64          `json:"epoch,omitempty"`
-	Seq         uint64          `json:"seq,omitempty"`
-	RequestID   string          `json:"requestId,omitempty"`
-	Kind        EventKind       `json:"kind"`
-	Session     string          `json:"session,omitempty"`
-	Text        *TextEvent      `json:"text,omitempty"`
-	Tool        *Tool           `json:"tool,omitempty"`
+	Epoch        uint64             `json:"epoch,omitempty"`
+	Seq          uint64             `json:"seq,omitempty"`
+	RequestID    string             `json:"requestId,omitempty"`
+	Kind         EventKind          `json:"kind"`
+	Session      string             `json:"session,omitempty"`
+	Text         *TextEvent         `json:"text,omitempty"`
+	Tool         *Tool              `json:"tool,omitempty"`
 	Approval     *Approval          `json:"approval,omitempty"`
 	Interaction  *Interaction       `json:"interaction,omitempty"`
 	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
 	Worker       *WorkerInfo        `json:"worker,omitempty"`
 	Terminal     *TerminalInfo      `json:"terminal,omitempty"`
 	Model        ModelRef           `json:"model"`
-	Title       string          `json:"title,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
+	Title        string             `json:"title,omitempty"`
+	Error        string             `json:"error,omitempty"`
+	Result       json.RawMessage    `json:"result,omitempty"`
 }
 
 type SubscribeRequest struct {

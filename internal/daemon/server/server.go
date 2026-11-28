@@ -72,6 +72,8 @@ type Backend interface {
 	CancelProviderLogin(ctx context.Context, loginID string) error
 	LogoutProvider(ctx context.Context, providerID string) error
 	PendingInteractions(ctx context.Context, id string) ([]protocol.Interaction, error)
+	// PendingApprovals lists every approval still waiting for a reply.
+	PendingApprovals(ctx context.Context) ([]protocol.PendingApproval, error)
 	AnswerInteraction(ctx context.Context, req protocol.InteractionAnswer) error
 }
 
@@ -250,9 +252,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) ServerID() string      { return s.serverID }
-func (s *Server) Epoch() uint64         { return s.epoch }
-func (s *Server) Credential() string    { return s.credential }
+func (s *Server) ServerID() string   { return s.serverID }
+func (s *Server) Epoch() uint64      { return s.epoch }
+func (s *Server) Credential() string { return s.credential }
 func (s *Server) RemoteToken() string {
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
@@ -1063,6 +1065,12 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, invalidErr(err)
 		}
 		pending, err := s.cfg.Backend.PendingInteractions(ctx, req.Session)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return pending, nil
+	case protocol.MethodApprovalsPending:
+		pending, err := s.cfg.Backend.PendingApprovals(ctx)
 		if err != nil {
 			return nil, internalErr(err)
 		}

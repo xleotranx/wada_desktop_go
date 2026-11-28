@@ -3,12 +3,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +47,9 @@ func main() {
 		return
 	}
 
+	// A remote daemon resolves folders on its own machine, so they are passed
+	// as typed rather than against this one's working directory.
+	remote := *hostName != "" || *offer != "" || *endpoint != ""
 	c, err := connect(ctx, *dataDir, *hostName, *offer, *endpoint, *credential, *relayToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wada: %v\n", err)
@@ -59,13 +65,13 @@ func main() {
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
 	case "pr":
-		err = runPRCmd(ctx, c, args[1:])
+		err = runPRCmd(ctx, c, remote, args[1:])
 	case "terminal":
-		err = runTerminalCmd(ctx, c, args[1:])
+		err = runTerminalCmd(ctx, c, remote, args[1:])
 	case "ls":
 		err = runList(ctx, c, args[1:])
 	case "run":
-		err = runPrompt(ctx, c, args[1:])
+		err = runPrompt(ctx, c, remote, args[1:])
 	case "logs":
 		err = runLogs(ctx, c, args[1:])
 	case "abort":
@@ -135,6 +141,36 @@ func connect(ctx context.Context, dataDir, hostName, offer, endpoint, credential
 	}
 }
 
+// workDir is the folder to send to the daemon: dir resolved against this
+// machine's working directory for a local daemon, or as typed for a remote
+// one, where empty leaves the choice to the daemon.
+func workDir(remote bool, dir string) (string, error) {
+	if remote {
+		return dir, nil
+	}
+	return filepath.Abs(dir)
+}
+
+// parseInterspersed parses fs from args, allowing flags after the positional
+// arguments, and returns the positional arguments.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return pos, nil
+		}
+		if args[0] == "--" {
+			return append(pos, args[1:]...), nil
+		}
+		pos = append(pos, args[0])
+		args = args[1:]
+	}
+}
+
 func runHostCmd(dataDir string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: wada host <ls|add|remove>")
@@ -155,25 +191,27 @@ func runHostCmd(dataDir string, args []string) error {
 		return nil
 	case "add":
 		fs := flag.NewFlagSet("host add", flag.ContinueOnError)
-		endpoint := fs.String("endpoint", "", "Direct WebSocket endpoint (host:port or ws://...)")
+		endpoint := fs.String("endpoint", "", "Direct WebSocket endpoint (host[:port] or ws://...)")
 		cred := fs.String("credential", "", "Credential or remote token")
-		if err := fs.Parse(args[1:]); err != nil {
+		relayToken := fs.String("relay-token", "", "Bearer token the host's wada-relay requires")
+		pos, err := parseInterspersed(fs, args[1:])
+		if err != nil {
 			return err
 		}
-		if fs.NArg() < 1 {
-			return fmt.Errorf("usage: wada host add <name> (<offer-url> | --endpoint <url> [--credential <tok>])")
+		const hostAddUsage = "usage: wada host add <name> (<offer-url> | <host[:port]> | --endpoint <url>) [--credential <tok>] [--relay-token <tok>]"
+		if len(pos) < 1 || len(pos) > 2 || (len(pos) == 2) == (*endpoint != "") {
+			return errors.New(hostAddUsage)
 		}
-		name := fs.Arg(0)
-		var offer string
-		if fs.NArg() > 1 {
-			offer = fs.Arg(1)
-		}
-		return client.SaveHost(dataDir, client.HostRecord{
-			Name:       name,
-			Offer:      offer,
+		rec := client.HostRecord{
+			Name:       pos[0],
 			Endpoint:   *endpoint,
 			Credential: *cred,
-		})
+			RelayToken: *relayToken,
+		}
+		if len(pos) == 2 {
+			rec.Offer, rec.Endpoint = client.ParseHostTarget(pos[1])
+		}
+		return client.SaveHost(dataDir, rec)
 	case "remove":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: wada host remove <name>")
@@ -282,18 +320,18 @@ func runWorkers(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
-func runPRCmd(ctx context.Context, c *client.Client, args []string) error {
+func runPRCmd(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: wada pr <status|create>")
 	}
 	switch args[0] {
 	case "status":
 		fs := flag.NewFlagSet("pr status", flag.ContinueOnError)
-		dir := fs.String("dir", ".", "Worktree or repository directory")
+		dir := fs.String("dir", "", "Worktree or repository directory (default: the current one, for a local daemon)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		absDir, err := filepath.Abs(*dir)
+		absDir, err := workDir(remote, *dir)
 		if err != nil {
 			return err
 		}
@@ -309,7 +347,7 @@ func runPRCmd(ctx context.Context, c *client.Client, args []string) error {
 		return nil
 	case "create":
 		fs := flag.NewFlagSet("pr create", flag.ContinueOnError)
-		dir := fs.String("dir", ".", "Worktree or repository directory")
+		dir := fs.String("dir", "", "Worktree or repository directory (default: the current one, for a local daemon)")
 		title := fs.String("title", "", "Pull request title")
 		body := fs.String("body", "", "Pull request body")
 		base := fs.String("base", "", "Base branch")
@@ -320,7 +358,7 @@ func runPRCmd(ctx context.Context, c *client.Client, args []string) error {
 		if strings.TrimSpace(*title) == "" {
 			return fmt.Errorf("usage: wada pr create [--dir DIR] --title TITLE [--body BODY] [--base BRANCH] [--draft]")
 		}
-		absDir, err := filepath.Abs(*dir)
+		absDir, err := workDir(remote, *dir)
 		if err != nil {
 			return err
 		}
@@ -343,7 +381,7 @@ func runPRCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
-func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error {
+func runTerminalCmd(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: wada terminal <ls|create|attach|capture|kill>")
 	}
@@ -359,7 +397,7 @@ func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error 
 		return nil
 	case "create":
 		fs := flag.NewFlagSet("terminal create", flag.ContinueOnError)
-		dir := fs.String("dir", ".", "Working directory")
+		dir := fs.String("dir", "", "Working directory (default: the current one, for a local daemon)")
 		sh := fs.String("shell", "", "Shell executable")
 		name := fs.String("name", "", "Terminal name")
 		cols := fs.Int("cols", 80, "Columns")
@@ -367,7 +405,7 @@ func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error 
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		absDir, err := filepath.Abs(*dir)
+		absDir, err := workDir(remote, *dir)
 		if err != nil {
 			return err
 		}
@@ -419,6 +457,8 @@ func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error 
 			return err
 		}
 		defer stream.Close()
+		stopResize := watchResize(inFD, stream)
+		defer stopResize()
 
 		if term.IsTerminal(inFD) {
 			oldState, err := term.MakeRaw(inFD)
@@ -438,28 +478,44 @@ func runTerminalCmd(ctx context.Context, c *client.Client, args []string) error 
 			}
 		}()
 
-		buf := make([]byte, 1024)
-		for {
-			n, rerr := os.Stdin.Read(buf)
-			if n > 0 {
-				// Detach on Ctrl+] (0x1d).
-				if idx := strings.IndexByte(string(buf[:n]), 0x1d); idx >= 0 {
-					if idx > 0 {
-						_ = stream.WriteInput(buf[:idx])
+		// Standard input is read on its own goroutine, so the command ends
+		// when the terminal exits or the connection drops, not at the next
+		// key press. A read still blocked then is abandoned with the process.
+		inErr := make(chan error, 1)
+		go func() {
+			buf := make([]byte, 1024)
+			for {
+				n, rerr := os.Stdin.Read(buf)
+				if n > 0 {
+					// Detach on Ctrl+] (0x1d).
+					if idx := bytes.IndexByte(buf[:n], 0x1d); idx >= 0 {
+						if idx > 0 {
+							_ = stream.WriteInput(buf[:idx])
+						}
+						inErr <- nil
+						return
 					}
-					return nil
+					if werr := stream.WriteInput(buf[:n]); werr != nil {
+						inErr <- werr
+						return
+					}
 				}
-				if werr := stream.WriteInput(buf[:n]); werr != nil {
-					return werr
+				if rerr != nil {
+					if rerr == io.EOF {
+						// Input ended: keep showing output until the terminal does.
+						<-done
+						rerr = nil
+					}
+					inErr <- rerr
+					return
 				}
 			}
-			if rerr != nil {
-				if rerr == io.EOF {
-					<-done
-					return nil
-				}
-				return rerr
-			}
+		}()
+		select {
+		case <-done:
+			return nil
+		case err := <-inErr:
+			return err
 		}
 	default:
 		return fmt.Errorf("unknown terminal command %q", args[0])
@@ -512,9 +568,9 @@ func runLogs(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
-func runPrompt(ctx context.Context, c *client.Client, args []string) error {
+func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	dir := fs.String("dir", ".", "Workspace directory")
+	dir := fs.String("dir", "", "Workspace directory (default: the current one, or a remote daemon's inbox)")
 	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG)")
 	mode := fs.String("mode", "ask", "Access mode: ask or full")
 	if err := fs.Parse(args); err != nil {
@@ -524,7 +580,7 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 	if strings.TrimSpace(prompt) == "" {
 		return fmt.Errorf("usage: wada run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>")
 	}
-	absDir, err := filepath.Abs(*dir)
+	absDir, err := workDir(remote, *dir)
 	if err != nil {
 		return err
 	}
@@ -588,6 +644,12 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 					return err
 				}
 			}
+		case protocol.EventInteractionRequested:
+			if ev.Interaction != nil && !ev.Interaction.Settled {
+				if err := c.AnswerInteraction(ctx, askInteraction(reader, *ev.Interaction)); err != nil {
+					return err
+				}
+			}
 		case protocol.EventTurnSucceeded:
 			return nil
 		case protocol.EventTurnFailed:
@@ -595,10 +657,67 @@ func runPrompt(ctx context.Context, c *client.Client, args []string) error {
 		case protocol.EventTurnInterrupted:
 			return fmt.Errorf("turn interrupted")
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
-			protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventModelChanged,
+			protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
 			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
 		}
 	}
-	return nil
+	// The event stream ends only when the connection does; the turn may still
+	// be running on the daemon.
+	return fmt.Errorf("connection to wadad lost before the turn ended; session %s may still be running", sess.ID)
+}
+
+// askInteraction asks the user the agent's question on the terminal. An
+// unreadable reply, or an invalid choice, cancels it.
+func askInteraction(reader *bufio.Reader, in protocol.Interaction) protocol.InteractionAnswer {
+	ans := protocol.InteractionAnswer{Session: in.Session, ID: in.ID}
+	readLine := func(prompt string) (string, bool) {
+		fmt.Fprint(os.Stderr, prompt)
+		line, err := reader.ReadString('\n')
+		return strings.TrimRight(line, "\r\n"), err == nil || line != ""
+	}
+	fmt.Fprintln(os.Stderr, in.Title)
+	if in.Message != "" {
+		fmt.Fprintln(os.Stderr, in.Message)
+	}
+	switch in.Kind {
+	case protocol.InteractionConfirm:
+		line, ok := readLine("[y/n]: ")
+		if !ok {
+			ans.Cancelled = true
+			return ans
+		}
+		v := strings.ToLower(strings.TrimSpace(line))
+		ans.Confirmed = v == "y" || v == "yes"
+	case protocol.InteractionSelect:
+		for i, o := range in.Options {
+			fmt.Fprintf(os.Stderr, "  %d) %s\n", i+1, o)
+		}
+		line, ok := readLine("Choose a number (empty cancels): ")
+		n, err := strconv.Atoi(strings.TrimSpace(line))
+		if !ok || err != nil || n < 1 || n > len(in.Options) {
+			ans.Cancelled = true
+			return ans
+		}
+		ans.Value = in.Options[n-1]
+	case protocol.InteractionInput, protocol.InteractionEditor:
+		prompt := "> "
+		if in.Prefill != "" {
+			prompt = fmt.Sprintf("[%s] > ", in.Prefill)
+		} else if in.Placeholder != "" {
+			prompt = fmt.Sprintf("(%s) > ", in.Placeholder)
+		}
+		line, ok := readLine(prompt)
+		if !ok {
+			ans.Cancelled = true
+			return ans
+		}
+		if line == "" {
+			line = in.Prefill
+		}
+		ans.Value = line
+	default:
+		ans.Cancelled = true
+	}
+	return ans
 }

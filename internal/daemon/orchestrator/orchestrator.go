@@ -3,6 +3,7 @@
 package orchestrator
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -38,6 +39,8 @@ type managedWorker struct {
 	activeTools []protocol.Part
 	turnOpen    bool
 	msgSeq      int
+	// approvals are the ones still waiting for a reply, by ID.
+	approvals map[string]protocol.Approval
 }
 
 // Orchestrator implements server.Backend and server.OrchestrationBackend across
@@ -245,6 +248,10 @@ func (o *Orchestrator) pumpWorker(w *managedWorker) {
 				apCopy := *ev.Approval
 				apCopy.Session = w.info.ID
 				ev.Approval = &apCopy
+				if w.approvals == nil {
+					w.approvals = map[string]protocol.Approval{}
+				}
+				w.approvals[apCopy.ID] = apCopy
 				if parentID != "" {
 					parentEv := ev
 					parentEv.Session = parentID
@@ -335,6 +342,7 @@ func (w *managedWorker) finalizeTurnLocked(status protocol.WorkerStatus, lastErr
 	w.info.Status = status
 	w.info.LastError = lastErr
 	w.turnOpen = false
+	clear(w.approvals) // nothing waits on a finished turn's approvals
 	parts := slices.Clone(w.activeTools)
 	if text := strings.TrimSpace(w.activeText.String()); text != "" {
 		parts = append(parts, protocol.Part{Kind: protocol.PartText, Text: text})
@@ -765,7 +773,8 @@ func (o *Orchestrator) Reply(ctx context.Context, req protocol.ReplyRequest) err
 			return err
 		}
 		w.mu.Lock()
-		if w.turnOpen && w.info.Status == protocol.WorkerWaitingApproval {
+		delete(w.approvals, req.Approval)
+		if w.turnOpen && w.info.Status == protocol.WorkerWaitingApproval && len(w.approvals) == 0 {
 			w.info.Status = protocol.WorkerRunning
 		}
 		w.info.Updated = time.Now().UnixMilli()
@@ -894,6 +903,31 @@ func (o *Orchestrator) CancelProviderLogin(ctx context.Context, loginID string) 
 
 func (o *Orchestrator) LogoutProvider(ctx context.Context, providerID string) error {
 	return o.pig.LogoutProvider(ctx, providerID)
+}
+
+// PendingApprovals lists PiG's pending approvals and the workers'. A worker's
+// is shown in its parent conversation, as its approval events are.
+func (o *Orchestrator) PendingApprovals(ctx context.Context) ([]protocol.PendingApproval, error) {
+	out, err := o.pig.PendingApprovals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	o.mu.Lock()
+	workers := make([]*managedWorker, 0, len(o.workers))
+	for _, w := range o.workers {
+		workers = append(workers, w)
+	}
+	o.mu.Unlock()
+	for _, w := range workers {
+		w.mu.Lock()
+		shownIn := cmp.Or(w.info.ParentSession, w.info.ID)
+		for _, ap := range w.approvals {
+			ap.Resources = slices.Clone(ap.Resources)
+			out = append(out, protocol.PendingApproval{ShownIn: shownIn, Approval: ap})
+		}
+		w.mu.Unlock()
+	}
+	return out, nil
 }
 
 func (o *Orchestrator) PendingInteractions(ctx context.Context, id string) ([]protocol.Interaction, error) {

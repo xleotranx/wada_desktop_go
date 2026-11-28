@@ -88,6 +88,28 @@ export function relayClientWSURL(baseURL: string, serverPubKey: Uint8Array, auth
   return u.toString();
 }
 
+export const DEFAULT_DAEMON_PORT = 6767;
+
+// parseHostTarget reads what a person typed to pair: a pairing offer (an
+// #offer= link or a bare encoded offer) or a daemon endpoint. An endpoint
+// without a scheme or port gets the daemon's default port.
+export function parseHostTarget(raw: string): { offer: string } | { endpoint: string } {
+  const target = raw.trim();
+  if (target.includes("#offer=")) return { offer: target };
+  try {
+    decodeOffer(target);
+    return { offer: target };
+  } catch {
+    // Not an offer: an endpoint.
+  }
+  if (target.includes("://")) return { endpoint: target };
+  const host = target.replace(/\/+$/, "");
+  if (/^\[[^\]]*\]:\d+$/.test(host) || /^[^:[\]]+:\d+$/.test(host)) return { endpoint: host };
+  if (host.startsWith("[")) return { endpoint: `${host}:${DEFAULT_DAEMON_PORT}` };
+  if (host.includes(":")) return { endpoint: `[${host}]:${DEFAULT_DAEMON_PORT}` }; // a bare IPv6 address
+  return { endpoint: `${host}:${DEFAULT_DAEMON_PORT}` };
+}
+
 export function normalizeDirectWSURL(endpoint: string): string {
   let raw = endpoint.trim();
   if (raw.startsWith("http://")) raw = "ws://" + raw.slice("http://".length);

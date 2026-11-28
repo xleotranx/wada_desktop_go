@@ -91,6 +91,13 @@ export interface ApprovalItem {
   resources?: string[];
 }
 
+// PendingApproval is an approval still waiting for its reply, with the
+// conversation that shows it: its own, or the parent of the worker that asked.
+export interface PendingApproval {
+  shownIn: string;
+  approval: ApprovalItem;
+}
+
 export interface InteractionItem {
   session: string;
   id: string;

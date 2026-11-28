@@ -68,6 +68,11 @@ func TestHeadlessRuntimeApprovalAndChanges(t *testing.T) {
 			}
 			switch ev.Kind {
 			case protocol.EventApprovalRequested:
+				// A client that missed the event finds the approval still pending.
+				pending, err := rt.PendingApprovals(t.Context())
+				if err != nil || len(pending) != 1 || pending[0].ShownIn != s.ID || pending[0].Approval.ID != ev.Approval.ID || pending[0].Approval.Action != "write" {
+					t.Fatalf("pending approvals = %+v, err = %v", pending, err)
+				}
 				if err := rt.Reply(t.Context(), protocol.ReplyRequest{
 					Session:  s.ID,
 					Approval: ev.Approval.ID,
@@ -89,6 +94,10 @@ func TestHeadlessRuntimeApprovalAndChanges(t *testing.T) {
 		case <-deadline:
 			t.Fatal("timed out waiting for turn completion")
 		}
+	}
+
+	if pending, err := rt.PendingApprovals(t.Context()); err != nil || len(pending) != 0 {
+		t.Fatalf("pending approvals after the reply = %+v, err = %v", pending, err)
 	}
 
 	changes, err := rt.Changes(t.Context(), s.ID)

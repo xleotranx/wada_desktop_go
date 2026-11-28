@@ -67,6 +67,18 @@ worktrees, and PTY terminals on your own workstation or server:
    pairing in the Web/PWA client; the browser sends it as the `token` query
    parameter, because browsers cannot set WebSocket headers. In Desktop, enter it
    as the relay token under **Settings → Daemon → Add remote host**.
+   A browser cannot see why a relay closed its WebSocket, so a wrong relay token
+   shows in the Web/PWA client as a connection that keeps retrying; pair again
+   with the right token.
+   From the CLI, save the host once and use it with `--host`:
+   ```sh
+   wada host add mac 'https://app.wada.dev/#offer=...' --relay-token "$WADA_RELAY_TOKEN"
+   wada host add tailnet my-mac.tailnet.ts.net --credential "$WADA_PASSWORD"
+   wada --host mac run --dir /Users/me/src/app "fix the failing test"
+   ```
+   A target without a scheme or port gets port 6767. With `--host`, `--offer` or
+   `--endpoint`, `--dir` names a folder on the daemon's machine and is sent as
+   typed; `wada run` without it uses the daemon's inbox.
    Everything inside `#offer=...` remains in the browser URL hash fragment and is
    never sent in HTTP requests.
 

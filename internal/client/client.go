@@ -642,6 +642,13 @@ func (c *Client) PendingInteractions(ctx context.Context, id string) ([]protocol
 	return out, c.Call(ctx, protocol.MethodInteractionsPending, protocol.SessionIDRequest{Session: id}, &out)
 }
 
+// PendingApprovals lists every approval still waiting for an answer, each
+// with the conversation that shows it.
+func (c *Client) PendingApprovals(ctx context.Context) ([]protocol.PendingApproval, error) {
+	var out []protocol.PendingApproval
+	return out, c.Call(ctx, protocol.MethodApprovalsPending, struct{}{}, &out)
+}
+
 func (c *Client) AnswerInteraction(ctx context.Context, ans protocol.InteractionAnswer) error {
 	return c.Call(ctx, protocol.MethodInteractionsAnswer, ans, nil)
 }

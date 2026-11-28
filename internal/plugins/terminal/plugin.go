@@ -475,9 +475,14 @@ func (p *Plugin) detach() {
 }
 
 // enqueue hands op to the attachment's writer, or reports that it is
-// backed up rather than blocking the UI thread.
+// backed up rather than blocking the UI thread. Input made while the
+// attachment is still starting waits for its writer.
 func (p *Plugin) enqueue(op termOp) {
-	if p.stream == nil || p.outbox == nil {
+	if p.outbox == nil {
+		if op.input != nil {
+			p.errText = "No terminal is attached; input was not sent"
+			p.ctx.Invalidate()
+		}
 		return
 	}
 	select {

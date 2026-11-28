@@ -163,6 +163,13 @@ func (p *Plugin) remoteSettingsSection(c *ui.Context, pal native.Palette, active
 						FillWidth().Placeholder("Optional remote daemon password").Password()
 				})
 				components.Button(c, "Set Password", components.ButtonSecondary).OnClick(func() {
+					// Clearing is the Clear button's: an empty field is a slip.
+					if p.remote.daemonPassword == "" {
+						p.remote.err = "Enter a password to set, or use Clear to remove it"
+						p.remote.notice = ""
+						p.ctx.Invalidate()
+						return
+					}
 					p.updateDaemonPassword(p.remote.daemonPassword)
 				})
 				components.Button(c, "Clear", components.ButtonGhost).OnClick(func() {

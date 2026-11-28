@@ -66,7 +66,7 @@ func TestImpostorCannotEvictRegisteredDaemon(t *testing.T) {
 	srv := httptest.NewServer(NewRouter(RouterConfig{}))
 	defer srv.Close()
 
-	dc, err := StartDaemonConnector(srv.URL, "", kp, func(tr Transport) {
+	dc, err := StartDaemonConnector(srv.URL, "", kp, func(tr Transport, _ string) {
 		defer tr.Close()
 		for {
 			mt, data, rerr := tr.ReadMessage()

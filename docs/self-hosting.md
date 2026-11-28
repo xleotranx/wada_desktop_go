@@ -54,6 +54,11 @@ worktrees, and PTY terminals on your own workstation or server:
    Clients and daemons reach the relay through Caddy on port 443. The relay's
    own plaintext port 8787 is published on `127.0.0.1` only; set
    `WADA_RELAY_BIND` only when another TLS proxy of yours fronts it.
+   The relay tells `wadad` each client's address, taken from
+   `X-Forwarded-For` only when the connection comes from a network in
+   `WADA_RELAY_TRUSTED_PROXIES` (`wada-relay -trusted-proxies`). Compose
+   trusts the private ranges Caddy connects from; behind another proxy, list
+   its network instead.
 3. Point your workstation's `wadad` at your relay:
    ```sh
    wadad \
@@ -121,8 +126,8 @@ worktrees, and PTY terminals on your own workstation or server:
   token and disconnects every remote client except the one that made the change,
   so earlier links and sessions must authenticate again. After five failed
   sign-ins in a row, each further attempt from that address must wait a doubling
-  delay (1 s up to 5 min); every relay client counts as one address, since the
-  relay hides theirs. `wada daemon set-password` asks twice and never clears the
+  delay (1 s up to 5 min). A relay client's address is the one the relay
+  reports for it; clients of a relay that reports none share one. `wada daemon set-password` asks twice and never clears the
   password on an empty entry; clearing takes `--clear`.
 - **GitHub/Forge Integration (`gh`):** Worktree PR badges and `wada pr status|create`
   parse `git remote get-url origin` and verify `gh auth status --hostname <host>`

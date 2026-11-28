@@ -482,3 +482,13 @@ func TestACPPermissionOptionUsesOfferedIDs(t *testing.T) {
 		t.Errorf("allow with no allow option = %q, want none", got)
 	}
 }
+
+func TestClaudeReplyKeepsTheRequestOnAnUnknownDecision(t *testing.T) {
+	s := &claudeSession{pending: map[string]claudePermission{"cr_1": {}}}
+	if err := s.Reply(t.Context(), "cr_1", protocol.Decision("allow")); err == nil {
+		t.Fatal("an unknown decision was accepted")
+	}
+	if _, ok := s.pending["cr_1"]; !ok {
+		t.Fatal("an unknown decision dropped the pending request")
+	}
+}

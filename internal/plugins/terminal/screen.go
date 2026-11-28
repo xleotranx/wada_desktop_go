@@ -27,13 +27,17 @@ const (
 // screen is a pure-Go UI-thread ANSI/VT screen and scrollback model fed from
 // reconnect snapshots and live PTY output bytes.
 type screen struct {
-	cols       int
-	rows       int
-	cx         int
-	cy         int
-	altScreen  bool
-	grid       [][]rune
+	cols      int
+	rows      int
+	cx        int
+	cy        int
+	altScreen bool
+	grid      [][]rune
+	// savedGrid and altCX/altCY are the main screen while the alternate
+	// screen is shown; savedCX/savedCY are the cursor ESC 7 saved.
 	savedGrid  [][]rune
+	altCX      int
+	altCY      int
 	savedCX    int
 	savedCY    int
 	scrollback []string
@@ -91,6 +95,11 @@ func (s *screen) Resize(cols, rows int) {
 	if c == s.cols && r == s.rows {
 		return
 	}
+	s.refit(c, r)
+}
+
+// refit fits the grid, whatever its current shape, and the cursor to c x r.
+func (s *screen) refit(c, r int) {
 	// Keep the cursor's row on screen: rows above it scroll into history.
 	if r < len(s.grid) && s.cy >= r {
 		drop := s.cy - r + 1
@@ -114,12 +123,8 @@ func (s *screen) Resize(cols, rows int) {
 	s.cols = c
 	s.rows = r
 	s.grid = next
-	if s.cx >= c {
-		s.cx = c - 1
-	}
-	if s.cy >= r {
-		s.cy = r - 1
-	}
+	s.cx = clampInt(s.cx, 0, c-1)
+	s.cy = clampInt(s.cy, 0, r-1)
 }
 
 func (s *screen) Write(p []byte) {
@@ -331,23 +336,25 @@ func (s *screen) handleCSI(params string, cmd rune) {
 	case 'h':
 		if params == "?1049" && !s.altScreen {
 			s.savedGrid = s.grid
-			s.savedCX, s.savedCY = s.cx, s.cy
+			s.altCX, s.altCY = s.cx, s.cy
 			s.grid = makeRuneGrid(s.cols, s.rows)
 			s.cx, s.cy = 0, 0
 			s.altScreen = true
 		}
 	case 'l':
 		if params == "?1049" && s.altScreen {
+			s.altScreen = false
 			if s.savedGrid != nil {
+				// The main screen keeps the size it had when the alternate
+				// one opened; fit it to the size the screen has now.
 				s.grid = s.savedGrid
-				s.Resize(s.cols, s.rows)
-				s.cx, s.cy = s.savedCX, s.savedCY
+				s.cx, s.cy = s.altCX, s.altCY
+				s.refit(s.cols, s.rows)
 			} else {
 				s.grid = makeRuneGrid(s.cols, s.rows)
 				s.cx, s.cy = 0, 0
 			}
 			s.savedGrid = nil
-			s.altScreen = false
 		}
 	}
 }

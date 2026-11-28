@@ -220,6 +220,12 @@ func (s *claudeSession) Reply(ctx context.Context, approvalID string, decision p
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	switch decision {
+	case protocol.DecisionOnce, protocol.DecisionAlways, protocol.DecisionReject:
+	default:
+		// Checked before the request is taken, so it can still be answered.
+		return fmt.Errorf("unknown approval decision %q", decision)
+	}
 	s.mu.Lock()
 	req, ok := s.pending[approvalID]
 	if ok {
@@ -245,9 +251,6 @@ func (s *claudeSession) Reply(ctx context.Context, approvalID string, decision p
 		}
 	case protocol.DecisionReject:
 		result = map[string]any{"behavior": "deny", "message": "The user rejected this action."}
-	}
-	if result == nil {
-		return fmt.Errorf("unknown approval decision %q", decision)
 	}
 	resp := map[string]any{
 		"type": "control_response",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -265,7 +266,17 @@ func TestSpawnAgentStaysWithinTheConversation(t *testing.T) {
 		for range o.Events() {
 		}
 	}()
-	folder := t.TempDir()
+	folder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(folder, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(folder, "escape")); err != nil {
+		t.Fatal(err)
+	}
 	spawn := func(full bool, args string) error {
 		for _, tool := range o.ChiefTools(func() pig.ChiefContext {
 			return pig.ChiefContext{SessionID: "parent", Dir: folder, FullAccess: full}
@@ -291,7 +302,10 @@ func TestSpawnAgentStaysWithinTheConversation(t *testing.T) {
 	if len(started) != 3 || started[0].Mode != "ask" || started[1].Mode != "full" || started[2].Directory != filepath.Join(folder, "sub") {
 		t.Fatalf("started = %+v", started)
 	}
-	if err := spawn(false, `{"provider":"scripted","name":"d","worktree_path":"`+t.TempDir()+`"}`); err == nil {
+	if err := spawn(false, `{"provider":"scripted","name":"f","worktree_path":"escape"}`); err == nil {
+		t.Fatal("a worker was spawned through a symlink out of the conversation's folder")
+	}
+	if err := spawn(false, `{"provider":"scripted","name":"d","worktree_path":"`+outside+`"}`); err == nil {
 		t.Fatal("a worker was spawned outside the conversation's folder")
 	}
 	if err := spawn(false, `{"provider":"scripted","name":"e","worktree_path":"../elsewhere"}`); err == nil {

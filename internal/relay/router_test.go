@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +30,9 @@ func TestRouterForwardsOpaqueCiphertextAcrossConcurrentClients(t *testing.T) {
 	)
 	accepted := make(chan *NoiseTransport, 4)
 
-	dc, err := StartDaemonConnector(srv.URL, "relay-secret", kp, func(tr Transport) {
+	peers := make(chan string, 4)
+	dc, err := StartDaemonConnector(srv.URL, "relay-secret", kp, func(tr Transport, peer string) {
+		peers <- peer
 		nt := tr.(*NoiseTransport)
 		mu.Lock()
 		sessions = append(sessions, nt)
@@ -73,6 +76,11 @@ func TestRouterForwardsOpaqueCiphertextAcrossConcurrentClients(t *testing.T) {
 		t.Fatalf("dial client 2: %v", err)
 	}
 	defer c2.Close()
+	for range 2 {
+		if peer := <-peers; peer != "127.0.0.1" {
+			t.Fatalf("relay reported client %q, want 127.0.0.1", peer)
+		}
+	}
 
 	// Wrong relay auth token must fail.
 	if _, err := DialClientTunnel(context.Background(), srv.URL, kp.Public, "wrong"); err == nil {
@@ -125,7 +133,7 @@ func TestStalledSessionDoesNotBlockOtherTunnels(t *testing.T) {
 	defer srv.Close()
 
 	release := make(chan struct{})
-	dc, err := StartDaemonConnector(srv.URL, "", kp, func(tr Transport) {
+	dc, err := StartDaemonConnector(srv.URL, "", kp, func(tr Transport, _ string) {
 		defer tr.Close()
 		_, first, rerr := tr.ReadMessage()
 		if rerr != nil {
@@ -197,5 +205,28 @@ func TestStalledSessionDoesNotBlockOtherTunnels(t *testing.T) {
 	_ = healthy.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if _, data, err := healthy.ReadMessage(); err != nil || string(data) != "echo:ping" {
 		t.Fatalf("healthy tunnel got (%q, %v) after another session stalled", data, err)
+	}
+}
+
+func TestClientAddrTrustsForwardedForOnlyFromTrustedProxies(t *testing.T) {
+	rt := NewRouter(RouterConfig{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")}})
+	cases := []struct {
+		remote, fwd, want string
+	}{
+		{"203.0.113.9:5000", "", "203.0.113.9"},
+		{"203.0.113.9:5000", "198.51.100.1", "203.0.113.9"}, // not a trusted proxy
+		{"172.18.0.3:5000", "198.51.100.1", "198.51.100.1"},
+		{"172.18.0.3:5000", "10.0.0.1, 198.51.100.2", "198.51.100.2"},
+		{"172.18.0.3:5000", "garbage", "172.18.0.3"},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest("GET", "/ws/client/x", nil)
+		r.RemoteAddr = tc.remote
+		if tc.fwd != "" {
+			r.Header.Set("X-Forwarded-For", tc.fwd)
+		}
+		if got := rt.clientAddr(r); got != tc.want {
+			t.Errorf("clientAddr(%s, %q) = %q, want %q", tc.remote, tc.fwd, got, tc.want)
+		}
 	}
 }

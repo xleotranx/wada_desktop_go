@@ -405,3 +405,18 @@ func TestReplacingALoginCancelsThePreviousOne(t *testing.T) {
 		return slices.Contains(backend.cancelledLogins(), first)
 	})
 }
+
+func TestSetPasswordWithAnEmptyFieldClearsNothing(t *testing.T) {
+	h, p, _, _, _ := startDaemonHarness(t)
+	waitFor(t, h, "connected", func() bool { return p.Status().State == agent.Ready })
+	tt := ui.NewTester(p.daemonSection, 520, 640)
+	tt.Frame()
+	if err := tt.Click("Set Password"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	h.Flush()
+	if !strings.Contains(p.remote.err, "Enter a password") || p.remote.notice != "" {
+		t.Fatalf("err = %q, notice = %q", p.remote.err, p.remote.notice)
+	}
+}

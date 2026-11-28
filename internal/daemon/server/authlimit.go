@@ -7,8 +7,8 @@ import (
 
 // Failed remote sign-ins are throttled per peer: after authFreeFailures in a
 // row, each further attempt must wait a doubling delay, up to authMaxDelay.
-// A peer's count is forgotten authForget after its last failure. Relay peers
-// share one key, since the relay hides their addresses.
+// A peer's count is forgotten authForget after its last failure. A relay
+// client's peer is the address the relay reports for it.
 const (
 	authFreeFailures = 5
 	authBaseDelay    = time.Second
@@ -70,8 +70,15 @@ func (l *authLimiter) fail(peer string) {
 			}
 		}
 		if len(l.peers) >= authMaxPeers {
-			// Too many distinct failing peers: count them all as one.
-			peer = "overflow"
+			// Forget the peer that failed longest ago rather than make
+			// new peers share a key one of them could keep throttled.
+			oldest := ""
+			for k, f := range l.peers {
+				if oldest == "" || f.last.Before(l.peers[oldest].last) {
+					oldest = k
+				}
+			}
+			delete(l.peers, oldest)
 		}
 	}
 	f := l.peers[peer]

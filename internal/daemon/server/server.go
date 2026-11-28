@@ -313,8 +313,8 @@ func (s *Server) Start() (string, error) {
 		}
 	}()
 	if s.cfg.RelayURL != "" {
-		rc, rerr := relay.StartDaemonConnector(s.cfg.RelayURL, s.cfg.RelayToken, s.keypair, func(tr relay.Transport) {
-			s.ServeTransport(tr, relayPeer)
+		rc, rerr := relay.StartDaemonConnector(s.cfg.RelayURL, s.cfg.RelayToken, s.keypair, func(tr relay.Transport, peer string) {
+			s.ServeTransport(tr, relayPeerKey(peer))
 		})
 		if rerr != nil {
 			_ = s.Shutdown(context.Background())
@@ -399,8 +399,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.ServeTransport(ws, peer)
 }
 
-// relayPeer is the sign-in throttling key every relay tunnel shares.
-const relayPeer = "relay"
+// relayPeerKey is the sign-in throttling key of a relay client: the address
+// the relay reported, or one key shared by every client of a relay that
+// reports none.
+func relayPeerKey(addr string) string {
+	if addr == "" {
+		return "relay"
+	}
+	return "relay " + addr
+}
 
 // ServeTransport runs the hello/server_info handshake and multiplexed RPC/event/terminal
 // loop over an accepted WebSocket or Noise NK relay tunnel. peer keys the

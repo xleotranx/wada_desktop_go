@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -41,5 +42,31 @@ func TestAuthLimiterBacksOffAfterRepeatedFailures(t *testing.T) {
 	l.succeed("q")
 	if _, ok := l.peers["q"]; ok {
 		t.Fatal("success kept the failure count")
+	}
+}
+
+func TestAuthLimiterEvictsTheOldestPeerWhenFull(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	l := newAuthLimiter()
+	l.now = func() time.Time { return now }
+	for i := range authMaxPeers {
+		now = now.Add(time.Millisecond)
+		l.fail(fmt.Sprint("peer", i))
+	}
+	for range authFreeFailures {
+		now = now.Add(time.Millisecond)
+		l.fail("newcomer")
+	}
+	if len(l.peers) != authMaxPeers {
+		t.Fatalf("peers = %d, want %d", len(l.peers), authMaxPeers)
+	}
+	if _, ok := l.peers["peer0"]; ok {
+		t.Fatal("the oldest peer was kept")
+	}
+	if w := l.retryAfter("newcomer"); w == 0 {
+		t.Fatal("a new peer past the limit was not throttled")
+	}
+	if w := l.retryAfter("someone-else"); w != 0 {
+		t.Fatalf("an unseen peer is throttled: %s", w)
 	}
 }

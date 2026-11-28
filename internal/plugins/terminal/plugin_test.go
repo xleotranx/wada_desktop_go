@@ -396,3 +396,26 @@ func TestDrawerFitsThePTY(t *testing.T) {
 		t.Fatalf("fitted size = %dx%d (screen %d cols)", p.cols, p.rows, p.screen.cols)
 	}
 }
+
+func TestInputWhileAttachingWaitsForTheAttachment(t *testing.T) {
+	h, p, svc, _ := startTerminalTest(t)
+	p.toggle()
+	waitCond(t, h, "attached term_1", func() bool { return p.stream != nil })
+
+	// Re-attach and type before the attachment has been posted back.
+	p.attach("term_1")
+	if p.stream != nil {
+		t.Fatal("attachment finished synchronously; the test needs it pending")
+	}
+	p.input = "echo early"
+	p.submitInput()
+	if p.errText != "" {
+		t.Fatalf("input while attaching reported %q", p.errText)
+	}
+	waitCond(t, h, "second attachment", func() bool { return svc.streamCount("term_1") == 2 })
+	st := svc.latestStream("term_1")
+	waitCond(t, h, "early input delivered", func() bool { return len(st.sentInputs()) == 1 })
+	if got := st.sentInputs()[0]; got != "echo early\r" {
+		t.Fatalf("input = %q", got)
+	}
+}

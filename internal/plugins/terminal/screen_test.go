@@ -95,3 +95,33 @@ func TestFitSize(t *testing.T) {
 		t.Fatalf("tiny fitSize = %dx%d, want minimums", cols, rows)
 	}
 }
+
+func TestLeavingAltScreenFitsTheMainScreenToTheCurrentSize(t *testing.T) {
+	for _, size := range [][2]int{{40, 20}, {120, 4}} {
+		s := newScreen(80, 10)
+		s.Write([]byte("hello\r\nworld"))
+		s.Write([]byte("\x1b[?1049h"))
+		s.Resize(size[0], size[1])
+		s.Write([]byte("\x1b[?1049l"))
+		if len(s.grid) != s.rows || len(s.grid[0]) != s.cols {
+			t.Fatalf("%v: grid is %dx%d, screen %dx%d", size, len(s.grid[0]), len(s.grid), s.cols, s.rows)
+		}
+		for range 30 {
+			s.Write([]byte("line\r\n"))
+		}
+		if got := s.Line(0); got != "hello" {
+			t.Fatalf("%v: first line = %q, want hello", size, got)
+		}
+	}
+}
+
+func TestAltScreenKeepsTheSavedCursor(t *testing.T) {
+	s := newScreen(80, 10)
+	s.Write([]byte("\x1b[3;5H\x1b7")) // save the cursor at row 3, column 5
+	s.Write([]byte("\x1b[8;1H"))      // move elsewhere
+	s.Write([]byte("\x1b[?1049h\x1b[?1049l"))
+	s.Write([]byte("\x1b8"))
+	if s.cy != 2 || s.cx != 4 {
+		t.Fatalf("restored cursor = (%d,%d), want (2,4)", s.cy, s.cx)
+	}
+}

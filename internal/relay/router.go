@@ -3,7 +3,9 @@ package relay
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,10 @@ const (
 type RouterConfig struct {
 	AuthToken           string
 	MaxClientsPerDaemon int
+	// TrustedProxies are the networks whose X-Forwarded-For names the real
+	// client, such as a TLS proxy in front of the relay. Otherwise a
+	// client's address is the connection's own.
+	TrustedProxies []netip.Prefix
 	// CheckOrigin optionally restricts WebSocket Upgrade Origin headers (e.g. for web app origins).
 	CheckOrigin func(*http.Request) bool
 }
@@ -266,7 +272,9 @@ func (rt *Router) handleClient(w http.ResponseWriter, r *http.Request, hash stri
 	d.clients[sid] = cs
 	d.mu.Unlock()
 
-	if err := d.writeBinary(EncodeMuxFrame(RelayOpOpen, sid, nil)); err != nil {
+	// The client's address lets the daemon throttle failed sign-ins per
+	// client; it is the only thing the relay adds, and it sees it anyway.
+	if err := d.writeBinary(EncodeMuxFrame(RelayOpOpen, sid, []byte(rt.clientAddr(r)))); err != nil {
 		d.mu.Lock()
 		delete(d.clients, sid)
 		d.mu.Unlock()
@@ -392,4 +400,37 @@ func (cs *clientSlot) writeLoop() {
 			return
 		}
 	}
+}
+
+// maxPeerLen bounds the client address the relay passes to the daemon.
+const maxPeerLen = 64
+
+// clientAddr is the client's IP: the last X-Forwarded-For entry when the
+// connection comes from a trusted proxy, else the connection's own.
+func (rt *Router) clientAddr(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if addr, err := netip.ParseAddr(host); err == nil && rt.trusted(addr.Unmap()) {
+		if fwd := r.Header.Values("X-Forwarded-For"); len(fwd) > 0 {
+			parts := strings.Split(fwd[len(fwd)-1], ",")
+			if last, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
+				host = last.Unmap().String()
+			}
+		}
+	}
+	if len(host) > maxPeerLen {
+		host = host[:maxPeerLen]
+	}
+	return host
+}
+
+func (rt *Router) trusted(addr netip.Addr) bool {
+	for _, p := range rt.cfg.TrustedProxies {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }

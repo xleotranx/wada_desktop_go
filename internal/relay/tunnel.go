@@ -297,19 +297,21 @@ func DialClientTunnel(ctx context.Context, relayURL string, serverPub [keySize]b
 }
 
 // DaemonConnector maintains a persistent outbound WebSocket connection from
-// wadad to wada-relay and dispatches each inbound Noise NK client tunnel to onSession.
+// wadad to wada-relay and dispatches each inbound Noise NK client tunnel to
+// onSession, with the client address the relay reported ("" from a relay that
+// reports none).
 type DaemonConnector struct {
 	relayURL  string
 	authToken string
 	kp        Keypair
-	onSession func(Transport)
+	onSession func(tr Transport, peer string)
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 }
 
 // StartDaemonConnector dials relayURL outbound and reconnects with backoff until Close().
-func StartDaemonConnector(relayURL, authToken string, kp Keypair, onSession func(Transport)) (*DaemonConnector, error) {
+func StartDaemonConnector(relayURL, authToken string, kp Keypair, onSession func(tr Transport, peer string)) (*DaemonConnector, error) {
 	hash := ServerPubHash(kp.Public)
 	if _, err := RelayWSURL(relayURL, "daemon", hash); err != nil {
 		return nil, err
@@ -474,7 +476,7 @@ func (dc *DaemonConnector) runOnce(wsURL string) (registered bool, err error) {
 		case RelayOpPing:
 			_ = mc.writeBinary(EncodeMuxFrame(RelayOpPong, sid, payload))
 		case RelayOpOpen:
-			mc.openSession(sid)
+			mc.openSession(sid, string(payload))
 		case RelayOpData:
 			cp := make([]byte, len(payload))
 			copy(cp, payload)
@@ -518,7 +520,7 @@ func (mc *muxConn) writeBinary(frame []byte) error {
 	return mc.ws.WriteMessage(websocket.BinaryMessage, frame)
 }
 
-func (mc *muxConn) openSession(sid [SessionIDSize]byte) {
+func (mc *muxConn) openSession(sid [SessionIDSize]byte, peer string) {
 	ms := &muxSession{
 		mc:   mc,
 		id:   sid,
@@ -541,7 +543,7 @@ func (mc *muxConn) openSession(sid [SessionIDSize]byte) {
 		if err != nil {
 			return
 		}
-		mc.dc.onSession(tr)
+		mc.dc.onSession(tr, peer)
 	}()
 }
 

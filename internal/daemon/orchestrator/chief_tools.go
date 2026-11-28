@@ -257,21 +257,25 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 	}
 }
 
-// workerDir resolves a requested worker folder, which must be the
-// conversation's folder, inside it, or one of its repository's worktrees.
+// workerDir resolves a requested worker folder, which must exist and, with
+// symlinks resolved, be the conversation's folder, inside it, or one of its
+// repository's worktrees.
 func (o *Orchestrator) workerDir(ctx context.Context, parentDir, requested string) (string, error) {
 	dir := requested
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(parentDir, dir)
 	}
-	dir = filepath.Clean(dir)
-	if within(parentDir, dir) {
-		return dir, nil
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("worktree_path %q: %w", requested, err)
+	}
+	if root, err := filepath.EvalSymlinks(parentDir); err == nil && within(root, real) {
+		return real, nil
 	}
 	if wts, err := o.worktrees.List(ctx, parentDir); err == nil {
 		for _, wt := range wts {
-			if within(wt.Path, dir) {
-				return dir, nil
+			if root, err := filepath.EvalSymlinks(wt.Path); err == nil && within(root, real) {
+				return real, nil
 			}
 		}
 	}

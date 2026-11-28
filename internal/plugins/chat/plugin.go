@@ -345,7 +345,7 @@ func (p *Plugin) send() {
 	scope, backend := p.scope, p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Session, error) {
-		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Provider: d.Provider, Model: d.Model, Mode: d.Mode})
+		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Provider: d.Provider, Profile: d.Profile, Model: d.Model, Mode: d.Mode})
 	}, func(s agent.Session, err error) {
 		here := p.scope == scope
 		if s.ID == "" {

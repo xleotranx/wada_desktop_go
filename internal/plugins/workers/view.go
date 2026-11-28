@@ -18,7 +18,7 @@ const (
 )
 
 func (p *Plugin) harnessPickerView(c *ui.Context) {
-	if p.conv.Session != "" || len(p.harnesses) <= 1 {
+	if p.conv.Session != "" || (len(p.harnesses) <= 1 && len(p.profiles) == 0) {
 		return
 	}
 	c.Key("harness")
@@ -43,14 +43,58 @@ func (p *Plugin) harnessPickerView(c *ui.Context) {
 			label = optLabel
 		}
 	}
+	for _, pr := range p.profiles {
+		desc := cmp.Or(pr.Description, "Starts with its instructions")
+		if pr.Provider != "" && pr.Provider != agent.EmbeddedHarness {
+			desc = p.harnessName(pr.Provider) + " · " + desc
+		}
+		group := "Your agents"
+		if pr.Source == agent.ProfileProject {
+			group = "This project's agents"
+		}
+		options = append(options, onechat.Option{ID: profilePrefix + pr.Name, Label: pr.Name, Description: desc, Group: group})
+	}
+	if prof, ok := p.profile(p.selectedProfile); ok {
+		selected, label = profilePrefix+prof.Name, prof.Name
+	}
 	picked := onechat.Picker(c, &p.picker, onechat.PickerOptions{
 		Label:    label,
 		Options:  options,
 		Selected: selected,
-		Width:    260,
+		Width:    280,
 	})
 	if chosen := picked.Chosen; chosen != "" {
-		p.ctx.Post(func() { p.selectedProvider = chosen })
+		p.ctx.Post(func() { p.choose(chosen) })
+	}
+}
+
+// stripView is the conversation's agents above the composer: one chip each,
+// which opens it in the Worker Inspector.
+func (p *Plugin) stripView(c *ui.Context) {
+	pal := native.PaletteFor(c)
+	const most = 6
+	for i, w := range p.workers {
+		if i == most {
+			ui.Text(c, "+"+strconv.Itoa(len(p.workers)-most)+" more in Agents").FontSize(11.5).TextColor(pal.Muted).
+				Padding(3, 4)
+			break
+		}
+		c.Key("chip:" + string(w.ID))
+		statusLabel, statusColor := workerStatusStyle(w.Status, pal)
+		id := w.ID
+		b := ui.ButtonBase(c).Label(cmp.Or(w.Name, w.Provider)+", "+statusLabel).Tooltip(w.Provider+" · "+statusLabel).
+			Radius(99).Padding(3, 9).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+			Border(1, pal.Hairline).OnClick(func() { p.openDrawer(id) })
+		if p.inspected == id {
+			b.Background(pal.Selected)
+		} else if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.Children(func() {
+			ui.Box(c).Size(7, 7).Radius(99).Background(statusColor).Shrink(0)
+			ui.Text(c, cmp.Or(w.Name, string(w.ID))).FontSize(12).FontWeight(500).TextColor(pal.Text).
+				SingleLine().Ellipsis("…").MaxWidth(160)
+		})
 	}
 }
 

@@ -694,6 +694,13 @@ func (c *Client) Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error) 
 	return out, c.Call(ctx, protocol.MethodHarnessesList, nil, &out)
 }
 
+// Profiles is the agent profiles for an agent starting in dir, or the user's
+// only when dir is "".
+func (c *Client) Profiles(ctx context.Context, dir string) ([]protocol.AgentProfile, error) {
+	var out []protocol.AgentProfile
+	return out, c.Call(ctx, protocol.MethodProfilesList, protocol.ProfilesListRequest{Directory: dir}, &out)
+}
+
 func (c *Client) Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error) {
 	var out []protocol.WorkerInfo
 	return out, c.Call(ctx, protocol.MethodWorkersList, protocol.WorkersListRequest{ParentSession: parentSession}, &out)

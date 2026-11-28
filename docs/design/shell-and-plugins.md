@@ -112,7 +112,9 @@ section with the work panel's switch.
   side and `chat.ComposerTrailing` entries follow the model, such as usage.
   The footer can wrap to preserve control widths. Below 600 px of footer width, accessories and trailing entries move into one
   **More composer options** popover. Send/Stop stays inside the editor card.
-  `chat.ComposerAttachments` entries are drawn above the editor. Picker plugins
+  `chat.ComposerAttachments` entries are drawn above the editor, and
+  `chat.ComposerStrip` entries in a wrapping row above the composer's card
+  while one of them is `Shown`. Picker plugins
   set `Draft.Model`/`Draft.Mode` through `chat.Outgoing`.
 - Beside a stored conversation the page draws the work panel, a 300 px column on
   `DrawerBg` at its end: each `chat.Work` section whose `Shown` holds (or has none),
@@ -792,12 +794,15 @@ and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
 ## Workers
 
 `internal/plugins/workers` requires `agent.ServiceKey`, `chat.ControllerKey`,
-and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.WorkersKey`
-and `agent.ChangesKey`:
+and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.ProfilesKey`,
+`agent.WorkersKey` and `agent.ChangesKey`:
 
 - **Harness picker.** Contributes a `chat.ComposerAccessory` picker on new chats
   (before `Draft.Provider` is stamped at `chat.Outgoing` order `-15`) so users can
-  target embedded PiG or an external CLI harness (Claude Code, Codex, ACP).
+  target embedded PiG or an external CLI harness (Claude Code, Codex, ACP), or
+  an agent profile of the new chat's folder, grouped as the user's and the
+  project's. A profile sets the harness to its own and stamps `Draft.Profile`;
+  when the folder changes to one without it, the choice goes back to PiG.
 - **Text only.** An external harness's conversation (`agent.ExternalHarness`)
   takes a message's text. At `chat.Outgoing` order `5000`, after every transform
   that adds files or skills, the plugin refuses a draft for one that
@@ -807,6 +812,9 @@ and `agent.ChangesKey`:
 - **Work panel section.** Agents, a `chat.Work` section listing the conversation's
   supervised workers with a status pill and Stop. Each Stop runs on its own task,
   and a failure shows a toast.
+- **Agents strip.** A `chat.ComposerStrip` row of the conversation's workers,
+  one chip each with its status dot, up to six and then a count; a chip opens
+  the worker in the inspector.
 - **Worker Inspector drawer.** Opening a worker hides the work panel
   (`chat.HideWork`) and opens a 400 px `chat.Drawers` column with Transcript
   and per-worktree Diff tabs.

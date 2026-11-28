@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"wada-desktop-go/internal/daemon/workspaces"
 
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/profiles"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -25,6 +27,16 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return o.Harnesses(ctx)
+			},
+		},
+		{
+			Name:  "list_profiles",
+			Label: "List agent profiles",
+			Description: "List the agent profiles spawn_agent can start: the user's and this project's named agents, each " +
+				"with its harness, mode, description and the instructions its first prompt begins with.",
+			Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return o.Profiles(ctx, getCtx().Dir)
 			},
 		},
 		{
@@ -131,21 +143,23 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 		{
 			Name:        "spawn_agent",
 			Label:       "Spawn external CLI worker",
-			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in this conversation's folder, a folder inside it, or a workspace of its project (workspace_id, from create_workspace). Mode \"full\" runs without approvals and applies only when this conversation itself works without approvals.",
+			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in this conversation's folder, a folder inside it, or a workspace of its project (workspace_id, from create_workspace). A profile (from list_profiles) gives the harness, mode and the instructions the worker's first prompt begins with; provider and mode override it. Mode \"full\" runs without approvals and applies only when this conversation itself works without approvals.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"profile":      map[string]any{"type": "string", "description": "An agent profile's name"},
 					"provider":     map[string]any{"type": "string"},
 					"name":         map[string]any{"type": "string"},
 					"workspace_id": map[string]any{"type": "string", "description": "A workspace of this conversation's project"},
 					"directory":    map[string]any{"type": "string", "description": "A folder inside this conversation's folder"},
 					"mode":         map[string]any{"type": "string", "enum": []string{"ask", "full"}},
 				},
-				"required":             []string{"provider", "name"},
+				"required":             []string{"name"},
 				"additionalProperties": false,
 			},
 			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
+					Profile     string `json:"profile"`
 					Provider    string `json:"provider"`
 					Name        string `json:"name"`
 					WorkspaceID string `json:"workspace_id"`
@@ -156,6 +170,22 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 					return nil, err
 				}
 				cc := getCtx()
+				var prof *protocol.AgentProfile
+				if in.Profile != "" {
+					p, err := profiles.Find(o.dataDir, cc.Dir, in.Profile)
+					if err != nil {
+						return nil, err
+					}
+					if p.Provider == "" || p.Provider == "pig" {
+						return nil, fmt.Errorf("profile %q runs the embedded agent, not an external harness", p.Name)
+					}
+					prof = &p
+					in.Provider = cmp.Or(in.Provider, p.Provider)
+					in.Mode = cmp.Or(in.Mode, p.Mode)
+				}
+				if in.Provider == "" {
+					return nil, errors.New("spawn_agent needs a provider or a profile")
+				}
 				// A worker never gets more access than the conversation
 				// that spawns it: approvals in ask mode stay approvals.
 				mode := in.Mode
@@ -163,7 +193,7 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 					mode = "ask"
 				}
 				args := spawnWorkerArgs{ParentSession: cc.SessionID, Provider: in.Provider, Name: in.Name,
-					Directory: cc.Dir, Mode: mode}
+					Directory: cc.Dir, Mode: mode, Profile: prof}
 				switch {
 				case in.WorkspaceID != "":
 					w, err := o.projectWorkspace(cc.Dir, in.WorkspaceID)

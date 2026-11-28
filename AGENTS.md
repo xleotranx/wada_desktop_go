@@ -18,7 +18,7 @@ keep its types inside `internal/daemon/pig`.
   Do not edit cached dependencies or add a permanent local `replace`. See
   [kit dependency maintenance](docs/design/kit-dependency.md).
 - `main.go`: composition only — Wada's `shell.App`, `--daemon` / `--terminal-worker` subprocess dispatch, and the plugins this build installs.
-- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary, detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`ls`, `run` (with `--workspace` or `--new-worktree`), `logs`, `abort`, `delete`, `project`, `workspace` (including `config|trust|setup|start|stop` for `wada.json`, and `commit|pr` with model-written text), `providers`, `workers`, `pr`, `terminal`, `daemon status|pair|set-password|stop`, `host`).
+- `cmd/wadad`, `cmd/wadad-term`, `cmd/wada-relay`, and `cmd/wada`: standalone headless daemon binary, detached PTY worker binary, zero-knowledge Noise NK relay server, and CLI client (`ls`, `run` (with `--workspace` or `--new-worktree`, and `--profile`), `logs`, `abort`, `delete`, `project`, `workspace` (including `config|trust|setup|start|stop` for `wada.json`, and `commit|pr` with model-written text), `providers`, `profiles`, `workers`, `pr`, `terminal`, `daemon status|pair|set-password|stop`, `host`).
 - `internal/protocol`: append-only WebSocket JSON wire envelopes, dotted RPC schemas, normalized events, and binary codecs.
 - `internal/relay`: `Noise_NK_25519_ChaChaPoly_SHA256` cipher/handshake, `daemon-keypair.json`, `#offer=` pairing codec, outbound relay connector, and stateless WebSocket relay router.
 - `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, sessions grouped by project and workspace, chat/approvals/diffs/terminal views, and static serving from `wadad --web-dir`.
@@ -28,7 +28,7 @@ keep its types inside `internal/daemon/pig`.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs, the pane kinds other plugins contribute, and the
+  slots and strip, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs, the pane kinds other plugins contribute, and the
   buttons at the strip's end),
   `workspace` (the backend's projects and workspaces, and the conversations in them),
   `attachments` (images waiting in the composer, their actions and replacement),
@@ -40,7 +40,7 @@ keep its types inside `internal/daemon/pig`.
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (the app's copy of the daemon's projects, workspaces and their
-  conversations, needing no chat), `workers` (harness picker, live supervised workers, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, the work panel's Workspace section with branch, base and PR, Commit… and Create Pull Request… with model-written drafts, and the workspace's trusted `wada.json` setup and services), `terminal` (interactive PTY terminals as tabs in each workspace, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
+  conversations, needing no chat), `workers` (harness and agent profile picker, live supervised workers in the work panel and a strip above the composer, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, the work panel's Workspace section with branch, base and PR, Commit… and Create Pull Request… with model-written drafts, and the workspace's trusted `wada.json` setup and services), `terminal` (interactive PTY terminals as tabs in each workspace, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
   in the composer), `tabs` (open chats, terminals, changes and pages as tabs across the title
   strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
@@ -126,6 +126,7 @@ also includes `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`,
 and `terminal-worker/`. Conversations' messages belong to PiG's JSONL transcripts in
 `pig/sessions/`; Wada's session metadata is in `pig/metadata/`, lazy session diff
 baselines in `pig/baselines/`, and provider credentials and configuration in `pig/agent/`.
+The user's agent profiles are in `agents.json`.
 
 Window frame restoration uses `StateKey: "main"`. F12 / Alt+Cmd+I opens the
 inspector; Shift+Cmd+C picks an element.

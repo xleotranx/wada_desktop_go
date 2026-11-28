@@ -84,6 +84,7 @@ type Backend interface {
 // external CLI harnesses, supervised workers, and Git worktrees.
 type OrchestrationBackend interface {
 	Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error)
+	Profiles(ctx context.Context, dir string) ([]protocol.AgentProfile, error)
 	Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error)
 	WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error)
 	CreateWorktreePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error)
@@ -1152,6 +1153,22 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
 		}
 		list, err := orch.Harnesses(ctx)
+		if err != nil {
+			return nil, internalErr(err)
+		}
+		return list, nil
+	case protocol.MethodProfilesList:
+		orch, ok := s.cfg.Backend.(OrchestrationBackend)
+		if !ok {
+			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
+		}
+		var req protocol.ProfilesListRequest
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &req); err != nil {
+				return nil, invalidErr(err)
+			}
+		}
+		list, err := orch.Profiles(ctx, req.Directory)
 		if err != nil {
 			return nil, internalErr(err)
 		}

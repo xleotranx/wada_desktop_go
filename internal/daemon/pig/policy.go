@@ -47,7 +47,7 @@ func toolKind(name string) protocol.ToolKind {
 		return protocol.ToolEdit
 	case "fetch", "web", "web_search":
 		return protocol.ToolFetch
-	case "list_providers", "list_workspaces", "wait_agent", "inspect_agent_diff":
+	case "list_providers", "list_profiles", "list_workspaces", "wait_agent", "inspect_agent_diff":
 		return protocol.ToolRead
 	case "spawn_agent", "send_agent":
 		return protocol.ToolOther

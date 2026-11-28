@@ -17,6 +17,7 @@ import (
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/mcp"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/profiles"
 	"wada-desktop-go/internal/daemon/terminal"
 	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
@@ -46,11 +47,15 @@ type managedWorker struct {
 	approvals map[string]protocol.Approval
 	// mcpToken is the worker's token on the orchestrator's MCP server.
 	mcpToken string
+	// profile is the agent profile it started as, whose instructions its
+	// first prompt begins with.
+	profile *protocol.AgentProfile
 }
 
 // Orchestrator implements server.Backend and server.OrchestrationBackend across
 // embedded PiG sessions and supervised external CLI harness workers.
 type Orchestrator struct {
+	dataDir    string
 	pig        *pig.Runtime
 	worktrees  *worktree.Manager
 	workspaces *workspaces.Service
@@ -69,6 +74,9 @@ type Orchestrator struct {
 	closed  bool // set by Close; no worker is added after it
 	workers map[string]*managedWorker
 	waiters map[string][]chan struct{}
+	// firstPrompts are the profiles of embedded conversations that have not
+	// had their first message yet.
+	firstPrompts map[string]protocol.AgentProfile
 }
 
 // New creates an Orchestrator and starts forwarding PiG events into its merged stream.
@@ -84,6 +92,7 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 	}
 	octx, cancel := context.WithCancel(ctx)
 	o := &Orchestrator{
+		dataDir:    opts.DataDir,
 		pig:        opts.PiG,
 		worktrees:  opts.Worktrees,
 		workspaces: opts.Workspaces,
@@ -94,6 +103,8 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 		events:     make(chan protocol.Event, 512),
 		workers:    map[string]*managedWorker{},
 		waiters:    map[string][]chan struct{}{},
+
+		firstPrompts: map[string]protocol.AgentProfile{},
 	}
 	if srv, err := mcp.Start("wadad"); err == nil {
 		o.mcp = srv
@@ -439,6 +450,7 @@ type spawnWorkerArgs struct {
 	Command       string
 	Args          []string
 	Env           []string
+	Profile       *protocol.AgentProfile
 }
 
 func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (protocol.WorkerInfo, error) {
@@ -503,7 +515,7 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 		Status:        protocol.WorkerIdle,
 		Updated:       time.Now().UnixMilli(),
 	}
-	w := &managedWorker{info: info, sess: sess, mcpToken: token}
+	w := &managedWorker{info: info, sess: sess, mcpToken: token, profile: args.Profile}
 
 	o.mu.Lock()
 	if o.closed {
@@ -679,10 +691,26 @@ func (o *Orchestrator) Sessions(ctx context.Context, q protocol.SessionQuery) (p
 }
 
 func (o *Orchestrator) Create(ctx context.Context, req protocol.CreateSessionRequest) (protocol.Session, error) {
+	var prof *protocol.AgentProfile
+	if req.Profile != "" {
+		p, err := profiles.Find(o.dataDir, req.Directory, req.Profile)
+		if err != nil {
+			return protocol.Session{}, err
+		}
+		prof = &p
+		req.Provider = cmp.Or(req.Provider, p.Provider)
+		req.Mode = cmp.Or(req.Mode, p.Mode)
+		req.Title = cmp.Or(req.Title, p.Name)
+	}
 	if req.Provider == "" || req.Provider == "pig" {
 		s, err := o.pig.Create(ctx, req)
 		if err == nil && s.Provider == "" {
 			s.Provider = "pig"
+		}
+		if err == nil && prof != nil && strings.TrimSpace(prof.Instructions) != "" {
+			o.mu.Lock()
+			o.firstPrompts[s.ID] = *prof
+			o.mu.Unlock()
 		}
 		return s, err
 	}
@@ -691,6 +719,7 @@ func (o *Orchestrator) Create(ctx context.Context, req protocol.CreateSessionReq
 		Name:      req.Title,
 		Directory: req.Directory,
 		Mode:      req.Mode,
+		Profile:   prof,
 	})
 	if err != nil {
 		return protocol.Session{}, err
@@ -726,6 +755,10 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		// after this send cannot see the previous turn's result.
 		w.mu.Lock()
 		prevStatus, prevErr := w.info.Status, w.info.LastError
+		prof := w.profile
+		if prof != nil && !slices.ContainsFunc(w.msgs, func(m protocol.Message) bool { return m.Role == protocol.RoleUser }) {
+			req.Text = profiles.Prompt(*prof, req.Text)
+		}
 		w.msgSeq++
 		msgID := fmt.Sprintf("%s_m%d", w.info.ID, w.msgSeq)
 		w.msgs = append(w.msgs, protocol.Message{ID: msgID, Role: protocol.RoleUser, Text: req.Text})
@@ -759,7 +792,27 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		}
 		return "", fmt.Errorf("%w: %w", pig.ErrNotSent, err)
 	}
-	return o.pig.Send(ctx, req)
+	o.mu.Lock()
+	prof, first := o.firstPrompts[req.Session]
+	o.mu.Unlock()
+	if !first {
+		return o.pig.Send(ctx, req)
+	}
+	text := req.Text
+	req.Text = profiles.Prompt(prof, text)
+	disp, err := o.pig.Send(ctx, req)
+	if err == nil || !errors.Is(err, pig.ErrNotSent) {
+		// Sent, or maybe: either way its first message has gone out.
+		o.mu.Lock()
+		delete(o.firstPrompts, req.Session)
+		o.mu.Unlock()
+	}
+	return disp, err
+}
+
+// Profiles is the agent profiles for an agent starting in dir.
+func (o *Orchestrator) Profiles(_ context.Context, dir string) ([]protocol.AgentProfile, error) {
+	return profiles.Load(o.dataDir, dir)
 }
 
 // harnessCanTake refuses what an external CLI harness cannot be given: it
@@ -869,6 +922,9 @@ func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 	if err := o.pig.Delete(ctx, id); err != nil {
 		return err
 	}
+	o.mu.Lock()
+	delete(o.firstPrompts, id)
+	o.mu.Unlock()
 	// Workers the conversation spawned would otherwise run on with nothing
 	// left that shows them.
 	o.mu.Lock()

@@ -42,6 +42,13 @@ type Plugin struct {
 	picker           onechat.PickerState
 	loadHarnesses    kernel.Task
 
+	// profiles are the agent profiles of the new chat's folder; the picker
+	// offers them beside the harnesses.
+	profiles        []agent.Profile
+	profilesDir     string
+	selectedProfile string
+	loadProfiles    kernel.Task
+
 	workers      []agent.Worker
 	workersEpoch uint64
 	loadWorkers  kernel.Task
@@ -86,6 +93,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, kernel.PluginsChanged, func([]kernel.Status) {
 		if p.agent.Status().State == agent.Ready {
 			p.reloadHarnesses()
+			p.reloadProfiles()
 			p.reloadWorkspaceState()
 		}
 	})
@@ -93,6 +101,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	if p.agent.Status().State == agent.Ready {
 		p.attempt = p.agent.Status().Attempt
 		p.reloadHarnesses()
+		p.reloadProfiles()
 		p.reloadWorkspaceState()
 	}
 
@@ -102,6 +111,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Transform(c, chat.Outgoing, 5000, p.textOnly)
 
 	kernel.Contribute(c, chat.ComposerAccessory, "workers.harness", -5, shell.View{Render: p.harnessPickerView})
+	kernel.Contribute(c, chat.ComposerStrip, "workers.strip", 0, chat.StripView{Shown: p.workShown, Render: p.stripView})
 	kernel.Contribute(c, chat.Work, "workers.panel", 15, chat.WorkSection{
 		Title:  "Agents",
 		Shown:  p.workShown,
@@ -120,6 +130,7 @@ func (p *Plugin) onStatusChanged(st agent.Status) {
 	if st.State == agent.Ready && st.Attempt != p.attempt {
 		p.attempt = st.Attempt
 		p.reloadHarnesses()
+		p.reloadProfiles()
 		p.reloadWorkspaceState()
 	}
 }
@@ -140,12 +151,18 @@ func (p *Plugin) follow(conv chat.Conversation) {
 	}
 	if p.agent.Status().State == agent.Ready {
 		p.reloadWorkspaceState()
+		if conv.Session == "" && conv.Directory != p.profilesDir {
+			p.reloadProfiles()
+		}
 	}
 }
 
 func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, func(), error) {
 	if d.Session != "" {
 		return d, nil, nil
+	}
+	if prof, ok := p.profile(p.selectedProfile); ok {
+		d.Profile = prof.Name
 	}
 	chosen := p.selectedProvider
 	if !agent.ExternalHarness(chosen) {
@@ -208,6 +225,63 @@ func (p *Plugin) reloadHarnesses() {
 			return
 		}
 		p.harnesses = list
+		p.ctx.Invalidate()
+	})
+}
+
+// profile is the named profile of the new chat's folder.
+func (p *Plugin) profile(name string) (agent.Profile, bool) {
+	if name == "" {
+		return agent.Profile{}, false
+	}
+	i := slices.IndexFunc(p.profiles, func(pr agent.Profile) bool { return pr.Name == name })
+	if i < 0 {
+		return agent.Profile{}, false
+	}
+	return p.profiles[i], true
+}
+
+// choose picks a harness or, with an ID from profileOption, a profile and
+// its harness.
+func (p *Plugin) choose(id string) {
+	name, isProfile := strings.CutPrefix(id, profilePrefix)
+	if !isProfile {
+		p.selectedProvider, p.selectedProfile = id, ""
+		return
+	}
+	prof, ok := p.profile(name)
+	if !ok {
+		return
+	}
+	p.selectedProfile = prof.Name
+	p.selectedProvider = cmp.Or(prof.Provider, agent.EmbeddedHarness)
+}
+
+// profilePrefix marks a picker option that is a profile, not a harness.
+const profilePrefix = "profile:"
+
+func (p *Plugin) reloadProfiles() {
+	svc, ok := kernel.Use(p.ctx, agent.ProfilesKey)
+	dir := p.conv.Directory
+	p.profilesDir = dir
+	if !ok {
+		p.loadProfiles.Cancel()
+		p.profiles = nil
+		return
+	}
+	kernel.Go(p.ctx, &p.loadProfiles, func(ctx context.Context) ([]agent.Profile, error) {
+		return svc.Profiles(ctx, dir)
+	}, func(list []agent.Profile, err error) {
+		if dir != p.profilesDir {
+			return
+		}
+		if err != nil {
+			list = nil
+		}
+		p.profiles = list
+		if _, ok := p.profile(p.selectedProfile); !ok && p.selectedProfile != "" {
+			p.selectedProfile, p.selectedProvider = "", agent.EmbeddedHarness
+		}
 		p.ctx.Invalidate()
 	})
 }

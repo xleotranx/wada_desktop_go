@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -62,6 +63,8 @@ func main() {
 		err = runDaemonCmd(ctx, c, args[1:])
 	case "providers":
 		err = runProviders(ctx, c)
+	case "profiles":
+		err = runProfiles(ctx, c, remote, args[1:])
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
 	case "pr":
@@ -110,6 +113,7 @@ Commands:
   daemon set-password    Configure or clear the remote daemon password
   host <ls|add|remove>   Manage saved remote wadad host profiles
   providers              List embedded and external coding-agent harnesses
+  profiles [--dir DIR]   List agent profiles: agents.json and the folder's wada.json
   workers [--parent ID]  List managed external harness workers
   pr <status|create>     Inspect or create GitHub pull requests via gh
   terminal <ls|create|attach|capture|kill>
@@ -124,7 +128,7 @@ Commands:
   ls [--dir DIR | --workspace ID]
                          List sessions
   run [--dir DIR | --workspace ID | --new-worktree [--base REF ...]]
-      [--provider ID] [--mode ask|full] <prompt>
+      [--provider ID | --profile NAME] [--mode ask|full] <prompt>
                          Create a session, stream output, and handle approvals
   logs <session-id>      Print stored conversation messages
   abort <session-id>     Abort a running turn
@@ -331,6 +335,30 @@ func runProviders(ctx context.Context, c *client.Client) error {
 			avail = "available"
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\n", h.ID, h.Kind, avail, h.Name)
+	}
+	return nil
+}
+
+func runProfiles(ctx context.Context, c *client.Client, remote bool, args []string) error {
+	fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
+	dir := fs.String("dir", "", "Folder whose wada.json profiles to include (default: the current one, for a local daemon)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d := *dir
+	if d != "" || !remote {
+		abs, err := workDir(remote, d)
+		if err != nil {
+			return err
+		}
+		d = abs
+	}
+	list, err := c.Profiles(ctx, d)
+	if err != nil {
+		return err
+	}
+	for _, p := range list {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", p.Name, cmp.Or(p.Provider, "pig"), cmp.Or(p.Mode, "-"), p.Source, p.Description)
 	}
 	return nil
 }
@@ -606,17 +634,18 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 	workspace := fs.String("workspace", "", "Run in this workspace")
 	newWorktree := fs.Bool("new-worktree", false, "Run in a new worktree workspace of the project at --dir")
 	wt := addWorktreeFlags(fs)
-	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG)")
+	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG, or the profile's)")
+	profile := fs.String("profile", "", "Agent profile: its harness, and instructions at the start of the prompt")
 	mode := fs.String("mode", "ask", "Access mode: ask or full")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("usage: wada run [--dir DIR | --workspace ID | --new-worktree ...] [--provider ID] [--mode ask|full] <prompt>")
+		return fmt.Errorf("usage: wada run [--dir DIR | --workspace ID | --new-worktree ...] [--provider ID | --profile NAME] [--mode ask|full] <prompt>")
 	}
 	create := protocol.CreateSessionRequest{IdempotencyKey: "cli_" + uuid.NewString(), Workspace: *workspace,
-		Provider: *provider, Mode: *mode}
+		Provider: *provider, Profile: *profile, Mode: *mode}
 	switch {
 	case *newWorktree:
 		if *workspace != "" {

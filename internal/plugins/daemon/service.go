@@ -53,6 +53,7 @@ func (p *Plugin) Create(ctx context.Context, req agent.CreateSession) (agent.Ses
 		Title:          req.Title,
 		Directory:      req.Directory,
 		Provider:       req.Provider,
+		Profile:        req.Profile,
 		Model:          toProtoModelRef(req.Model),
 		Mode:           req.Mode,
 	})
@@ -326,6 +327,27 @@ func (p *Plugin) Harnesses(ctx context.Context) ([]agent.Harness, error) {
 	out := make([]agent.Harness, len(list))
 	for i, h := range list {
 		out[i] = fromProtoHarness(h)
+	}
+	return out, nil
+}
+
+func (p *Plugin) Profiles(ctx context.Context, dir string) ([]agent.Profile, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Profiles(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Profile, len(list))
+	for i, pr := range list {
+		src := agent.ProfileUser
+		if pr.Source == protocol.ProfileProject {
+			src = agent.ProfileProject
+		}
+		out[i] = agent.Profile{Name: pr.Name, Description: pr.Description, Provider: pr.Provider,
+			Mode: pr.Mode, Instructions: pr.Instructions, Source: src}
 	}
 	return out, nil
 }

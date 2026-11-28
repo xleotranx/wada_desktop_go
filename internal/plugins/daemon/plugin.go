@@ -64,6 +64,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.ChangesKey,
 			agent.InteractionsKey,
 			agent.HarnessesKey,
+			agent.ProfilesKey,
 			agent.WorkersKey,
 			agent.WorktreesKey,
 			agent.WorkspacesKey,
@@ -88,6 +89,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Changes](c, agent.ChangesKey, p)
 	kernel.Provide[agent.Interactions](c, agent.InteractionsKey, p)
 	kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p)
+	kernel.Provide[agent.Profiles](c, agent.ProfilesKey, p)
 	kernel.Provide[agent.Workers](c, agent.WorkersKey, p)
 	kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p)
 	kernel.Provide[agent.Workspaces](c, agent.WorkspacesKey, p)

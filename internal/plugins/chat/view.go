@@ -440,6 +440,7 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 	accessories := kernel.Items(p.ctx, chat.ComposerAccessory)
 	trailing := kernel.Items(p.ctx, chat.ComposerTrailing)
 	attachments := kernel.Items(p.ctx, chat.ComposerAttachments)
+	strip := kernel.Items(p.ctx, chat.ComposerStrip)
 	drops := kernel.Items(p.ctx, chat.FileDrop)
 	pastes := kernel.Items(p.ctx, chat.Paste)
 	completions := kernel.Items(p.ctx, chat.Completions)
@@ -449,6 +450,23 @@ func (p *Plugin) composer(c *ui.Context, pal native.Palette) {
 				p.editBanner(c, pal)
 			}
 			p.completionList(c, pal)
+			var shown []kernel.Entry[chat.StripView]
+			for _, e := range strip {
+				kernel.Invoke(p.ctx, e, func(v chat.StripView) {
+					if v.Shown == nil || v.Shown() {
+						shown = append(shown, e)
+					}
+				})
+			}
+			if len(shown) > 0 {
+				c.Key("composer-strip")
+				ui.Row(c).FillWidth().Gap(6).Margin(0, 0, 6, 0).Wrap().Children(func() {
+					for _, e := range shown {
+						c.Key(e.ID)
+						kernel.Invoke(p.ctx, e, func(v chat.StripView) { v.Render(c) })
+					}
+				})
+			}
 			sendLabel, placeholder := "Send", "Message the agent"
 			if p.running() && p.conv.Session != "" {
 				sendLabel, placeholder = "Steer", "Steer the agent — ⇧⌘↩ after this turn, ⌥⌘↩ to interrupt"

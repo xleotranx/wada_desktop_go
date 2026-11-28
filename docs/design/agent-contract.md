@@ -23,6 +23,7 @@ plugins have no PiG dependency.
 | `RewindKey` | Fork before a selected user message, retaining the original conversation and files |
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
+| `ProfilesKey` | Agent profiles for an agent starting in a folder: the user's and the folder's `wada.json` ones (`Profiles`) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
 | `WorktreesKey` | Authenticated `gh` PR status of a directory's branch (`PRStatus`) |
 | `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base; its `wada.json` (`Config`, `TrustConfig`, `RunSetup`, `StartService`, `StopService`). An archive refused for unsaved work fails with `ErrWorkUnsaved`, and running an untrusted `wada.json` with `ErrUntrusted`. |
@@ -63,7 +64,7 @@ the one it was created with.
 
 Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and, on top-level
-conversations, Chief Agent orchestration tools (`list_providers`, `create_workspace`,
+conversations, Chief Agent orchestration tools (`list_providers`, `list_profiles`, `create_workspace`,
 `list_workspaces`, `archive_workspace`, `spawn_agent`, `send_agent`, `wait_agent`,
 `inspect_agent_diff`, `stop_agent`) with Wada's engineering system prompt. The
 workspace tools act on the conversation's own project and refuse the inbox.
@@ -82,6 +83,22 @@ folder, what it spawns is its own child, and its children run in ask mode
 unless it runs without approvals. Stopping a worker revokes its token and
 stops its children. The server answers each request with one JSON response
 and opens no event stream.
+
+### Agent profiles
+
+An agent profile is a named way to start a coding agent: its harness
+(`provider`, empty or `pig` for the embedded agent), `mode` and
+`instructions`. The user's are in `<DataDir>/agents.json`; a project's are
+under `"agents"` in the `wada.json` of the folder the agent starts in, and
+take the place of the user's of the same name. Both map a name to
+`{"provider", "mode", "description", "instructions"}`. `agent.profiles.list`
+lists them for a folder. `CreateSessionRequest.Profile` starts a conversation
+as one: its harness and mode unless the request gives its own, and its
+instructions at the start of the first message, separated by `---`. Chief's
+`list_profiles` lists them and `spawn_agent` takes `profile` for an external
+harness's profile; a profile's `full` mode still applies only when the
+spawning conversation works without approvals. Nothing in a profile runs
+commands, so a `wada.json`'s profiles need no trust.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
 conversation directories remain as recorded. The daemon's PiG storage root is `<DataDir>/pig`:
 

@@ -301,9 +301,10 @@ type SessionPage struct {
 type CreateSession struct {
 	Title     string // empty for the backend's default
 	Directory string
-	Provider  string   // optional; empty for embedded PiG
+	Provider  string   // optional; empty for embedded PiG, or the profile's
+	Profile   string   // optional agent profile: its harness, and instructions at the start of the first message
 	Model     ModelRef // zero for the backend's default
-	Mode      string   // empty for the backend's default
+	Mode      string   // empty for the backend's default, or the profile's
 }
 
 type Send struct {

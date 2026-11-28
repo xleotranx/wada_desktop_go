@@ -20,6 +20,7 @@ type fakeOrchService struct {
 	*plugintest.Agent
 	harnesses []agent.Harness
 	workers   []agent.Worker
+	profiles  map[string][]agent.Profile // by directory
 }
 
 func (f *fakeOrchService) NewPlugin() kernel.Plugin { return &fakeOrchPlugin{f: f} }
@@ -30,7 +31,7 @@ type fakeOrchPlugin struct {
 
 func (p *fakeOrchPlugin) Manifest() kernel.Manifest {
 	base := p.f.Manifest()
-	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey)
+	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey, agent.ProfilesKey)
 	return base
 }
 
@@ -41,11 +42,18 @@ func (p *fakeOrchPlugin) Setup(c *kernel.Context) error {
 	if err := kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p.f); err != nil {
 		return err
 	}
+	if err := kernel.Provide[agent.Profiles](c, agent.ProfilesKey, p.f); err != nil {
+		return err
+	}
 	return kernel.Provide[agent.Workers](c, agent.WorkersKey, p.f)
 }
 
 func (f *fakeOrchService) Harnesses(context.Context) ([]agent.Harness, error) {
 	return f.harnesses, nil
+}
+
+func (f *fakeOrchService) Profiles(_ context.Context, dir string) ([]agent.Profile, error) {
+	return f.profiles[dir], nil
 }
 
 func (f *fakeOrchService) Workers(_ context.Context, parent agent.SessionID) ([]agent.Worker, error) {
@@ -237,4 +245,63 @@ func TestStoppingWorkersIsIndependentAndReported(t *testing.T) {
 	waitCond(t, h, "stop failure reported", func() bool {
 		return len(host.Toasts) > 0 && host.Toasts[len(host.Toasts)-1] == "Could not stop the agent"
 	})
+}
+
+func TestProfilesStartNewChats(t *testing.T) {
+	h, p, fa, _ := startTestPlugin(t)
+	fa.profiles = map[string][]agent.Profile{"/repo": {
+		{Name: "reviewer", Provider: "claude", Description: "Reviews the diff", Source: agent.ProfileProject},
+		{Name: "planner", Instructions: "Plan first.", Source: agent.ProfileUser},
+	}}
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Directory: "/repo"})
+	waitCond(t, h, "the folder's profiles load", func() bool { return len(p.profiles) == 2 })
+
+	tt := ui.NewTester(p.harnessPickerView, 400, 80)
+	tt.Frame()
+	p.choose(profilePrefix + "reviewer")
+	if p.selectedProvider != "claude" || p.selectedProfile != "reviewer" {
+		t.Fatalf("chose the reviewer: provider %q profile %q", p.selectedProvider, p.selectedProfile)
+	}
+	out, _, err := p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"})
+	if err != nil || out.Profile != "reviewer" || out.Provider != "claude" {
+		t.Fatalf("outgoing = %+v, err=%v", out, err)
+	}
+	p.choose(profilePrefix + "planner")
+	out, _, err = p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"})
+	if err != nil || out.Profile != "planner" || out.Provider != "" {
+		t.Fatalf("outgoing with the embedded profile = %+v, err=%v", out, err)
+	}
+	p.choose("pig")
+	if out, _, _ := p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"}); out.Profile != "" {
+		t.Fatalf("choosing a harness kept the profile: %+v", out)
+	}
+
+	// A folder without the profile drops the choice.
+	p.choose(profilePrefix + "reviewer")
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Directory: "/elsewhere"})
+	waitCond(t, h, "the other folder's profiles load", func() bool { return p.profilesDir == "/elsewhere" && p.selectedProfile == "" })
+	if p.selectedProvider != agent.EmbeddedHarness {
+		t.Fatalf("provider after the profile went = %q", p.selectedProvider)
+	}
+}
+
+func TestStripShowsTheConversationsAgents(t *testing.T) {
+	h, p, _, _ := startTestPlugin(t)
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
+	for i, name := range []string{"Auth", "Docs"} {
+		kernel.Emit(h, agent.WorkerUpdated, agent.Worker{ID: agent.SessionID("wrk_" + name), ParentSession: "chief1",
+			Provider: "claude", Name: name, Status: agent.WorkerStatus(i)})
+	}
+	waitCond(t, h, "both workers are listed", func() bool { return len(p.workers) == 2 })
+	tt := ui.NewTester(p.stripView, 600, 40)
+	tt.Frame()
+	for _, want := range []string{"Auth", "Docs"} {
+		if !tt.HasText(want) {
+			t.Fatalf("strip missing %q in %q", want, tt.Texts())
+		}
+	}
+	p.openDrawer("wrk_Docs")
+	if p.inspected != "wrk_Docs" {
+		t.Fatal("the chip didn't open the inspector")
+	}
 }

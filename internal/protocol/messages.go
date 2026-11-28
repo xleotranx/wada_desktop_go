@@ -36,6 +36,7 @@ const (
 	MethodProviderLogout      = "agent.provider.logout"
 
 	MethodHarnessesList    = "agent.harnesses.list"
+	MethodProfilesList     = "agent.profiles.list"
 	MethodWorkersList      = "agent.workers.list"
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
@@ -267,13 +268,17 @@ type SessionPage struct {
 }
 
 type CreateSessionRequest struct {
-	IdempotencyKey string   `json:"idempotencyKey,omitempty"`
-	Title          string   `json:"title,omitempty"`
-	Directory      string   `json:"directory,omitempty"`
-	Workspace      string   `json:"workspace,omitempty"` // instead of Directory: an active workspace's
-	Provider       string   `json:"provider,omitempty"`
-	Model          ModelRef `json:"model"`
-	Mode           string   `json:"mode,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Directory      string `json:"directory,omitempty"`
+	Workspace      string `json:"workspace,omitempty"` // instead of Directory: an active workspace's
+	Provider       string `json:"provider,omitempty"`
+	// Profile, when set, starts the conversation as that agent profile: its
+	// harness unless Provider is set, and its instructions at the start of
+	// the first message.
+	Profile string   `json:"profile,omitempty"`
+	Model   ModelRef `json:"model"`
+	Mode    string   `json:"mode,omitempty"`
 }
 
 type ToolPolicy struct {
@@ -455,6 +460,32 @@ type WorkerInfo struct {
 	Status        WorkerStatus `json:"status"`
 	LastError     string       `json:"lastError,omitempty"`
 	Updated       int64        `json:"updated"`
+}
+
+// ProfileSource is where an agent profile is defined.
+type ProfileSource string
+
+const (
+	ProfileUser    ProfileSource = "user"    // <DataDir>/agents.json
+	ProfileProject ProfileSource = "project" // the folder's wada.json "agents"
+)
+
+// AgentProfile is a named way to start a coding agent: its harness ("" or
+// "pig" for the embedded agent), mode, and the instructions its first prompt
+// begins with.
+type AgentProfile struct {
+	Name         string        `json:"name"`
+	Description  string        `json:"description,omitempty"`
+	Provider     string        `json:"provider,omitempty"`
+	Mode         string        `json:"mode,omitempty"`
+	Instructions string        `json:"instructions,omitempty"`
+	Source       ProfileSource `json:"source"`
+}
+
+// ProfilesListRequest asks for the profiles of an agent starting in
+// Directory, or the user's only.
+type ProfilesListRequest struct {
+	Directory string `json:"directory,omitempty"`
 }
 
 type WorkersListRequest struct {

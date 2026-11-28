@@ -94,7 +94,7 @@ func TestNoticesWaitForTheWorkspaceRecord(t *testing.T) {
 		t.Fatalf("notified before the record was read: %+v", host.Notices)
 	}
 	ws.Pending = false
-	ws.Convs = []workspace.Conversation{{ID: "ours", Title: "Parser", Folder: "/w/app"}}
+	ws.Convs = []workspace.Conversation{{ID: "ours", Title: "Parser", Directory: "/w/app"}}
 	kernel.Emit(h, workspace.Changed, struct{}{})
 	h.Flush()
 	if len(host.Notices) != 1 || host.Notices[0].ID != "chat:ours" {

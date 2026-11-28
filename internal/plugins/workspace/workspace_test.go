@@ -1,10 +1,7 @@
 package workspace
 
 import (
-	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -17,34 +14,44 @@ import (
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
-	_ "modernc.org/sqlite"
 )
 
 type fixture struct {
-	h    *kerneltest.Harness
-	p    *Plugin
-	a    *plugintest.Agent
-	host *kittest.Host
+	h      *kerneltest.Harness
+	p      *Plugin
+	a      *plugintest.Agent
+	record *plugintest.Projects
+	host   *kittest.Host
+	chosen string
 }
 
-// start runs the plugin over the database in dir and waits for it to load.
-func start(t *testing.T, dir string) fixture {
+// start runs the plugin over a backend whose record has /w/app and the inbox
+// /data/inbox, and lists sessions, then waits for it to load.
+func start(t *testing.T, sessions ...agent.Session) *fixture {
 	t.Helper()
-	f := fixture{a: plugintest.NewAgent(), host: &kittest.Host{Data: dir}}
+	f := &fixture{a: plugintest.NewAgent(), host: &kittest.Host{},
+		record: &plugintest.Projects{Dirs: []string{"/w/app"}, Inbox: "/data/inbox"}}
+	f.a.Pages["|"] = agent.SessionPage{Sessions: sessions}
 	clock := int64(1000)
-	f.h = kerneltest.New(t, f.a.New, f.host.New, kerneltest.Keep(&f.p, func() *Plugin {
-		return &Plugin{now: func() int64 { clock++; return clock }, choose: func() (string, error) { return "", nil }}
+	f.h = kerneltest.New(t, f.a.New, f.record.New, f.host.New, kerneltest.Keep(&f.p, func() *Plugin {
+		return &Plugin{now: func() int64 { clock++; return clock }, choose: func() (string, error) { return f.chosen, nil }}
 	}))
-	// The record is read on a worker, which posts it back.
-	for deadline := time.Now().Add(2 * time.Second); dir != "" && !f.p.Loaded() && time.Now().Before(deadline); {
+	f.until(t, "the record loads", f.p.Loaded)
+	return f
+}
+
+// until lands what workers post until ok holds.
+func (f *fixture) until(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		f.h.Flush()
+		if ok() {
+			return
+		}
 		f.h.RunPosts()
 		time.Sleep(time.Millisecond)
 	}
-	f.h.Flush()
-	if !f.p.Loaded() {
-		t.Fatal("the record did not load")
-	}
-	return f
+	t.Fatalf("%s did not happen", what)
 }
 
 func ids(list []workspace.Conversation) []agent.SessionID {
@@ -55,198 +62,249 @@ func ids(list []workspace.Conversation) []agent.SessionID {
 	return out
 }
 
-func paths(list []workspace.Folder) []string {
-	var out []string
-	for _, f := range list {
-		out = append(out, f.Path)
+func TestListsTheConversationsOfActiveWorkspaces(t *testing.T) {
+	f := start(t,
+		agent.Session{ID: "s1", Title: "Parser", Directory: "/w/app", Updated: 20},
+		agent.Session{ID: "s2", Title: "Elsewhere", Directory: "/w/archived", Updated: 30},
+		agent.Session{ID: "s3", Title: "Question", Directory: "/data/inbox", Updated: 10})
+	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"s1", "s3"}) {
+		t.Fatalf("conversations %q", got)
 	}
-	return out
-}
-
-func TestStartedConversationsAreRecordedAndKept(t *testing.T) {
-	dir := t.TempDir()
-	f := start(t, dir)
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1", Directory: "/w/app/", Title: "", Model: agent.ModelRef{Provider: "p", ID: "m"}})
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s2"})
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s3", Directory: "relative"})
-	if err := f.p.AddFolder("/w/Bin"); err != nil {
-		t.Fatal(err)
+	ps := f.p.Projects()
+	if len(ps) != 2 || ps[0].Root != "/w/app" || !ps[1].Inbox {
+		t.Fatalf("projects %+v, want app then the inbox", ps)
 	}
-	if err := f.p.AddFolder("nope"); err == nil {
-		t.Fatal("a relative folder was added")
+	if w, ok := f.p.At(""); !ok || w.Directory != "/data/inbox" {
+		t.Fatalf("At(\"\") = %+v %v, want the inbox", w, ok)
 	}
-	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.SessionRenamed, Session: "s1", Title: "Parser"}})
-	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"s3", "s2", "s1"}) {
-		t.Fatalf("conversations %v", got) // newest first; a rename is not activity
-	}
-	f.h.Close() // the worker writes what is queued before it stops
-
-	g := start(t, dir)
-	if got := paths(g.p.Folders()); !slices.Equal(got, []string{"/w/app", "/w/Bin"}) {
-		t.Fatalf("folders %v", got)
-	}
-	c, ok := g.p.Lookup("s1")
-	if !ok || c.Folder != "/w/app" || c.Title != "Parser" || c.Model.ID != "m" || c.Created == 0 {
-		t.Fatalf("s1 %+v %v", c, ok)
-	}
-	if c, _ := g.p.Lookup("s3"); c.Folder != "" { // the backend resolves a relative folder
-		t.Fatalf("s3 %+v", c)
-	}
-}
-
-func TestOnlyTheCurrentOriginIsListed(t *testing.T) {
-	f := start(t, "")
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1"})
-	changes := 0
-	kernel.On(f.h, workspace.Changed, func(struct{}) { changes++ })
-	f.a.State.Origin = "elsewhere"
-	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	if len(f.p.Conversations()) != 0 || changes != 1 {
-		t.Fatalf("other origin lists %v, %d changes", ids(f.p.Conversations()), changes)
-	}
-	if _, ok := f.p.Lookup("s1"); ok {
-		t.Fatal("another origin's conversation was found")
-	}
-	f.a.State.Origin = "fake"
-	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"s1"}) {
-		t.Fatalf("back home %v", got)
-	}
-}
-
-func TestActivityOrdersAndSyncTakesTitles(t *testing.T) {
-	f := start(t, "")
-	for _, id := range []agent.SessionID{"s1", "s2", "s3"} {
-		kernel.Emit(f.h, chat.Started, chat.Conversation{Session: id})
-	}
-	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "cli", Title: "Not ours"}, {ID: "s1", Title: "Named by the agent", Updated: 5}}}
-	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s1"}, {Kind: agent.TurnSucceeded, Session: "s1"}})
-	f.h.Flush()
-	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"s1", "s3", "s2"}) {
-		t.Fatalf("order %v", got)
-	}
-	if c, _ := f.p.Lookup("s1"); c.Title != "Named by the agent" || c.Updated <= 5 {
+	if c, _ := f.p.Lookup("s1"); c.Workspace != "wks:/w/app" || c.Directory != "/w/app" {
 		t.Fatalf("s1 %+v", c)
 	}
-	if _, ok := f.p.Lookup("cli"); ok {
-		t.Fatal("a conversation started elsewhere was recorded")
+	for dir, want := range map[string]string{"/w/app": "app", "": "Inbox", "/data/inbox": "Inbox", "/w/gone": "gone"} {
+		if got := f.p.Name(dir); got != want {
+			t.Fatalf("Name(%q) = %q, want %q", dir, got, want)
+		}
 	}
-	// A turn of a conversation started elsewhere reads nothing.
+}
+
+func TestStartedConversationsJoinTheirWorkspace(t *testing.T) {
+	f := start(t)
+	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "n1", Title: "New", Directory: "/w/app"})
+	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "n2"})
+	if got := ids(f.p.Conversations()); !slices.Equal(got, []agent.SessionID{"n2", "n1"}) {
+		t.Fatalf("conversations %q", got)
+	}
+	if c, _ := f.p.Lookup("n2"); c.Directory != "/data/inbox" {
+		t.Fatalf("a chat without a folder is in %q, want the inbox", c.Directory)
+	}
+}
+
+func TestEventsKeepTitlesAndOrder(t *testing.T) {
+	f := start(t,
+		agent.Session{ID: "s1", Title: "One", Directory: "/w/app", Updated: 20},
+		agent.Session{ID: "s2", Title: "Two", Directory: "/w/app", Updated: 10})
+	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "s2"},
+		{Kind: agent.SessionRenamed, Session: "s2", Title: "Renamed"}})
+	if got := f.p.Conversations(); got[0].ID != "s2" || got[0].Title != "Renamed" {
+		t.Fatalf("conversations %+v", got)
+	}
+	kernel.Emit(f.h, agent.Deleted, agent.SessionID("s1"))
+	if _, ok := f.p.Lookup("s1"); ok {
+		t.Fatal("a deleted conversation is listed")
+	}
+}
+
+func TestAnotherClientsConversationIsReadOnce(t *testing.T) {
+	f := start(t)
 	before := f.a.Called("sessions")
-	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "cli"}})
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "cli", Title: "From the CLI", Directory: "/w/app"}}}
+	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "cli"}})
+	f.until(t, "the CLI's conversation is listed", func() bool { _, ok := f.p.Lookup("cli"); return ok })
+	// A side chat the backend never lists is not read for again and again.
+	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "side"}})
+	f.until(t, "the side chat's read", func() bool { return f.a.Called("sessions") == before+2 })
+	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnStarted, Session: "side"}})
 	f.h.Flush()
-	if f.a.Called("sessions") != before {
-		t.Fatal("a stranger's turn synced")
+	if got := f.a.Called("sessions"); got != before+2 {
+		t.Fatalf("sessions read %d more times, want 2: %q", got-before, f.a.Calls())
 	}
 }
 
-func TestANewConnectionSyncsThroughPages(t *testing.T) {
-	f := start(t, "")
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "old"})
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "gone"})
-	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "x"}}, Next: "c2"}
-	f.a.Pages["c2|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "old", Title: "Found"}}}
+func TestWorkspaceUpdatesShowAndHideConversations(t *testing.T) {
+	f := start(t,
+		agent.Session{ID: "s1", Directory: "/w/app"},
+		agent.Session{ID: "s2", Directory: "/w/web"})
+	web := agent.Project{ID: "prj:/w/web", Root: "/w/web", Name: "web"}
+	kernel.Emit(f.h, agent.WorkspaceUpdated, agent.WorkspaceUpdate{Project: &web})
+	kernel.Emit(f.h, agent.WorkspaceUpdated, agent.WorkspaceUpdate{
+		Workspace: &agent.Workspace{ID: "wks:/w/web", Project: web.ID, Directory: "/w/web"}})
+	if _, ok := f.p.Lookup("s2"); !ok {
+		t.Fatal("a new workspace's conversation is not listed")
+	}
+	app := f.p.Projects()[0]
+	app.Archived = 5
+	kernel.Emit(f.h, agent.WorkspaceUpdated, agent.WorkspaceUpdate{Project: &app})
+	if _, ok := f.p.Lookup("s1"); ok {
+		t.Fatal("an archived project's conversation is listed")
+	}
+	if _, ok := f.p.At("/w/app"); ok {
+		t.Fatal("an archived project's workspace is active")
+	}
+}
+
+func TestACompleteListingDropsWhatIsGone(t *testing.T) {
+	f := start(t, agent.Session{ID: "s1", Directory: "/w/app"}, agent.Session{ID: "s2", Directory: "/w/app"})
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s2", Directory: "/w/app"}}}
 	f.a.State.Attempt = 2
 	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	f.h.Flush()
-	if c, _ := f.p.Lookup("old"); c.Title != "Found" {
-		t.Fatalf("old %+v, calls %q", c, f.a.Calls())
-	}
-	// The backend no longer lists it, but that doesn't prove it is gone.
-	if _, ok := f.p.Lookup("gone"); !ok {
-		t.Fatal("an unlisted conversation was dropped")
-	}
-	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	f.h.Flush()
-	if got := f.a.Called("sessions"); got != 2 {
-		t.Fatalf("the same connection synced again: %q", f.a.Calls())
-	}
-}
-
-func TestRemovingAFolderForgetsItsConversations(t *testing.T) {
-	dir := t.TempDir()
-	f := start(t, dir)
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1", Directory: "/w/app"})
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s2", Directory: "/w/web"})
-	f.p.RemoveFolder("/w/app")
-	f.p.Forget("s2")
-	f.h.Close()
-	g := start(t, dir)
-	if got := paths(g.p.Folders()); !slices.Equal(got, []string{"/w/web"}) || len(g.p.Conversations()) != 0 {
-		t.Fatalf("folders %v conversations %v", got, ids(g.p.Conversations()))
-	}
-}
-
-func TestADatabaseOfAnotherSchemaIsRefused(t *testing.T) {
-	dir := t.TempDir()
-	ctx := context.Background()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "workspace.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, "PRAGMA user_version = 9"); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	f := start(t, dir)
-	if len(f.host.Toasts) != 1 || f.host.Toasts[0] != "Folders and conversations won't be saved" {
-		t.Fatalf("toasts %q", f.host.Toasts)
-	}
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1"})
-	if len(f.p.Conversations()) != 1 {
-		t.Fatal("the record does not work in memory")
-	}
-}
-
-func TestChooseFolderAddsItAndReportsFailures(t *testing.T) {
-	f := start(t, "")
-	f.p.choose = func() (string, error) { return "/w/picked/", nil }
-	var got []string
-	f.p.ChooseFolder(func(path string) { got = append(got, path) })
-	f.h.Flush()
-	if !slices.Equal(got, []string{"/w/picked"}) || !slices.Equal(paths(f.p.Folders()), []string{"/w/picked"}) {
-		t.Fatalf("chosen %v folders %v", got, paths(f.p.Folders()))
-	}
-	f.p.choose = func() (string, error) { return "", errors.New("no window") }
-	f.p.ChooseFolder(func(path string) { got = append(got, path) })
-	f.h.Flush()
-	if len(got) != 1 || len(f.host.Toasts) != 1 {
-		t.Fatalf("chosen %v toasts %q", got, f.host.Toasts)
-	}
-}
-
-func TestSyncStopsBeforeTheRecordAndRetriesAfterAFailure(t *testing.T) {
-	f := start(t, "")
-	clock := int64(100_000_000)
-	f.p.now = func() int64 { clock++; return clock }
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "gone"})
-	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "x", Updated: clock}, {ID: "y", Updated: 1}}, Next: "c2"}
-	f.a.Pages["c2|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "z", Updated: 1}}}
-	f.a.State.Attempt = 2
-	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	f.h.Flush()
-	if got := f.a.Called("sessions"); got != 1 {
-		t.Fatalf("read past activity older than the record: %q", f.a.Calls())
-	}
-
-	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s1"})
-	f.a.Fail["Sessions"] = errors.New("timeout")
+	f.until(t, "s1 is dropped", func() bool { _, ok := f.p.Lookup("s1"); return !ok })
+	// A listing that stops early proves nothing.
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s2", Directory: "/w/app"}}, Next: "more"}
+	f.a.Fail["Sessions"] = nil
+	kernel.Emit(f.h, chat.Started, chat.Conversation{Session: "s3", Directory: "/w/app"})
+	f.a.Pages["more|"] = agent.SessionPage{Sessions: nil, Next: "more"}
 	f.a.State.Attempt = 3
 	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
-	f.h.Flush()
-	delete(f.a.Fail, "Sessions")
-	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Title: "Named", Updated: clock}}}
-	before := f.a.Called("sessions")
+	f.until(t, "the third sync", func() bool { return f.p.synced == 3 && !f.p.full.Running() })
+	if _, ok := f.p.Lookup("s3"); !ok {
+		t.Fatal("an incomplete listing dropped a conversation")
+	}
+}
+
+func TestAFailedSyncIsTriedAgain(t *testing.T) {
+	f := start(t)
+	f.a.Fail["Sessions"] = errors.New("offline")
+	f.a.State.Attempt = 2
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	f.until(t, "the failed sync", func() bool { return f.p.synced == 0 })
+	f.a.Fail["Sessions"] = nil
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Directory: "/w/app"}}}
 	kernel.Emit(f.h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "s1"}})
-	f.h.Flush()
-	if c, _ := f.p.Lookup("s1"); c.Title != "Named" || f.a.Called("sessions") != before+2 {
-		t.Fatalf("s1 %+v calls %q", c, f.a.Calls())
+	f.until(t, "the retry", func() bool { _, ok := f.p.Lookup("s1"); return ok })
+}
+
+func TestAnotherOriginStartsOver(t *testing.T) {
+	f := start(t, agent.Session{ID: "s1", Directory: "/w/app"})
+	f.a.State = agent.Status{State: agent.Connecting, Attempt: 2, Origin: "other"}
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	if f.p.Loaded() || len(f.p.Conversations()) != 0 || len(f.p.Projects()) != 0 {
+		t.Fatal("another origin shows the last one's record")
+	}
+}
+
+func TestChooseProjectAddsItOrReportsTheFailure(t *testing.T) {
+	f := start(t)
+	f.chosen = "/w/new"
+	var got []agent.Workspace
+	f.p.ChooseProject(func(w agent.Workspace) { got = append(got, w) })
+	f.until(t, "the project is added", func() bool { return len(got) == 1 })
+	if got[0].Directory != "/w/new" {
+		t.Fatalf("chosen %+v", got)
+	}
+	if _, ok := f.p.At("/w/new"); !ok {
+		t.Fatal("the added project's workspace is not active")
+	}
+	f.record.Fail = map[string]error{"AddProject": errors.New("no")}
+	f.p.ChooseProject(func(w agent.Workspace) { got = append(got, w) })
+	f.until(t, "the failure is reported", func() bool { return len(f.host.Toasts) == 1 })
+	if len(got) != 1 {
+		t.Fatal("a failed add ran its callback")
+	}
+	f.chosen = "" // cancelled
+	f.record.Fail = nil
+	f.p.ChooseProject(func(w agent.Workspace) { got = append(got, w) })
+	f.until(t, "the dialog closes", func() bool { return !f.p.picking.Running() })
+	if len(got) != 1 || len(f.host.Toasts) != 1 {
+		t.Fatalf("a cancelled dialog did something: %v %q", got, f.host.Toasts)
+	}
+}
+
+func TestArchiveProjectHidesItOnceTheBackendHas(t *testing.T) {
+	f := start(t, agent.Session{ID: "s1", Directory: "/w/app"})
+	done := false
+	f.p.ArchiveProject("prj:/w/app", func() { done = true })
+	f.until(t, "the archive", func() bool { return done })
+	if _, ok := f.p.Lookup("s1"); ok {
+		t.Fatal("an archived project's conversation is listed")
+	}
+	f.record.Fail = map[string]error{"ArchiveProject": errors.New("no")}
+	inbox := f.p.Projects()[0].ID
+	done = false
+	f.p.ArchiveProject(inbox, func() { done = true })
+	f.until(t, "the failure is reported", func() bool { return len(f.host.Toasts) == 1 })
+	if done || len(f.p.Projects()) != 1 {
+		t.Fatal("a failed archive changed the record")
+	}
+}
+
+func TestArchivedWorkspacesCanBeListedAndRestored(t *testing.T) {
+	f := start(t)
+	var made agent.Workspace
+	f.p.CreateWorkspace(agent.CreateWorkspace{Project: "prj:/w/app", Isolation: agent.IsolateWorktree, Slug: "x"},
+		func(w agent.Workspace, err error) { made = w })
+	f.until(t, "the creation", func() bool { return made.ID != "" })
+	archived := false
+	f.p.ArchiveWorkspace(made.ID, false, func(err error) { archived = err == nil })
+	f.until(t, "the archive", func() bool { return archived })
+	if _, ok := f.p.At(made.Directory); ok {
+		t.Fatal("the archived workspace is still active")
+	}
+
+	var gone []agent.Workspace
+	f.p.Archived(func(list []agent.Workspace, err error) { gone = list })
+	f.until(t, "the archived list", func() bool { return gone != nil })
+	if len(gone) != 1 || gone[0].ID != made.ID {
+		t.Fatalf("archived: %+v", gone)
+	}
+
+	var back agent.Workspace
+	f.p.RestoreWorkspace(made.ID, func(w agent.Workspace, err error) { back = w })
+	f.until(t, "the restore", func() bool { return back.ID != "" })
+	if w, ok := f.p.At(made.Directory); !ok || w.ID != made.ID {
+		t.Fatalf("the restored workspace isn't active: %+v %v", w, ok)
+	}
+}
+
+func TestWithoutABackendRecordNothingIsListed(t *testing.T) {
+	a := plugintest.NewAgent()
+	a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Directory: "/w/app"}}}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, (&kittest.Host{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	for deadline := time.Now().Add(2 * time.Second); !p.Loaded() && time.Now().Before(deadline); {
+		h.RunPosts()
+		h.Flush()
+		time.Sleep(time.Millisecond)
+	}
+	if !p.Loaded() || len(p.Conversations()) != 0 {
+		t.Fatalf("loaded %v, conversations %+v", p.Loaded(), p.Conversations())
 	}
 }
 
 func TestTheRecordCannotBeTurnedOff(t *testing.T) {
-	f := start(t, t.TempDir())
+	f := start(t)
 	if err := f.h.Disable("workspace"); err == nil {
 		t.Fatal("the workspace record was disabled")
+	}
+}
+
+func TestUpdatesDuringASyncOutliveIt(t *testing.T) {
+	f := start(t, agent.Session{ID: "s1", Directory: "/w/app"})
+	f.a.Pages["|"] = agent.SessionPage{Sessions: []agent.Session{{ID: "s1", Directory: "/w/app"}, {ID: "s2", Directory: "/w/new"}}}
+	f.a.State.Attempt = 2
+	kernel.Emit(f.h, agent.StatusChanged, f.a.State)
+	if !f.p.full.Running() {
+		t.Fatal("no sync runs")
+	}
+	// The listing added a project for /w/new; its announcement lands before the
+	// sync's result, which read the record without it.
+	added := agent.Project{ID: "prj:/w/new", Root: "/w/new", Name: "new"}
+	kernel.Emit(f.h, agent.WorkspaceUpdated, agent.WorkspaceUpdate{Project: &added,
+		Workspace: &agent.Workspace{ID: "wks:/w/new", Project: added.ID, Directory: "/w/new"}})
+	f.until(t, "the sync", func() bool { return !f.p.full.Running() && f.p.synced == 2 })
+	if _, ok := f.p.At("/w/new"); !ok {
+		t.Fatal("the sync's result undid an update that landed while it ran")
+	}
+	if _, ok := f.p.Lookup("s2"); !ok {
+		t.Fatal("the new project's conversation is not listed")
 	}
 }

@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -32,7 +34,7 @@ func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Agent, *plug
 
 func panel(p *Plugin) *ui.Tester {
 	return ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Width(268).Children(func() { p.changesView(c) })
+		ui.Column(c).Width(268).Children(func() { p.panelView(c) })
 	}, 268, 900)
 }
 
@@ -446,5 +448,79 @@ func TestSessionChangesFollowAProviderThatComesAndGoes(t *testing.T) {
 	h.Flush()
 	if !shows("README.md") {
 		t.Fatal("a provider enabled later was not noticed")
+	}
+}
+
+func TestAWorktreeWorkspaceComparesWithItsBase(t *testing.T) {
+	a := plugintest.NewAgent()
+	ws := &plugintest.Workspace{Dirs: []string{"/w/app"}, Extra: []agent.Workspace{{ID: "wks:/w/app-x", Project: "prj:/w/app",
+		Isolation: agent.IsolateWorktree, Directory: "/w/app-x", Branch: "wada/x", BaseRef: "origin/main"}}}
+	record := &plugintest.Projects{Base: []agent.FileChange{{Path: "parser.go", Added: 4}}}
+	ctl := &plugintest.Chat{}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, ws.New, record.New, ctl.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	ctl.Open(agent.Session{ID: "s1", Directory: "/w/app-x"})
+	h.Flush()
+	if got := p.sources(); len(got) != 3 || got[2] != baseChanges {
+		t.Fatalf("sources %v", got)
+	}
+	p.mode = baseChanges
+	p.chooseSource()
+	for !p.known && p.problem == "" {
+		h.Flush()
+	}
+	if len(p.changes) != 1 || p.changes[0].Path != "parser.go" {
+		t.Fatalf("changes %+v problem %q", p.changes, p.problem)
+	}
+	tt := panel(p)
+	tt.Frame()
+	if !tt.HasText("Commits and uncommitted work since origin/main") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	// A project's own directory has no base; its choice falls back.
+	ctl.Open(agent.Session{ID: "s2", Directory: "/w/app"})
+	h.Flush()
+	if p.mode != sessionChanges || len(p.sources()) != 2 {
+		t.Fatalf("mode %v sources %v", p.mode, p.sources())
+	}
+}
+
+func TestTheChangesTabShowsAWorkspacesChanges(t *testing.T) {
+	a := plugintest.NewAgent()
+	ws := &plugintest.Workspace{Dirs: []string{"/w/app"}, Extra: []agent.Workspace{{ID: "wks:/w/app-x", Project: "prj:/w/app",
+		Isolation: agent.IsolateWorktree, Directory: "/w/app-x", Branch: "wada/x", BaseRef: "origin/main"}}}
+	record := &plugintest.Projects{Base: []agent.FileChange{{Path: "parser.go", Added: 4, Patch: "@@ -1 +1 @@\n+new\n"}}}
+	ctl := &plugintest.Chat{}
+	strip := &plugintest.Tabs{Current: tabs.Tab{ID: "chat:s1", Kind: tabs.Conversation, Folder: "/w/app-x"}}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, ws.New, record.New, ctl.New, strip.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	h.Flush()
+
+	p.openTab()
+	h.Flush()
+	if !slices.Equal(strip.Opened, []string{PaneKind + "  /w/app-x"}) || !p.paneOn {
+		t.Fatalf("opened %q, pane on %v", strip.Opened, p.paneOn)
+	}
+	for !p.pane.known && p.pane.problem == "" {
+		h.Flush()
+	}
+	// A worktree's tab starts on its changes since the base, offers no
+	// session changes, and lists its files open.
+	if p.pane.mode != baseChanges || slices.Contains(p.pane.sources(), sessionChanges) {
+		t.Fatalf("mode %v sources %v", p.pane.mode, p.pane.sources())
+	}
+	tt := ui.NewTester(p.paneView, 800, 600)
+	tt.Frame()
+	for _, want := range []string{"Changes", "/w/app-x", "Changes since the base", "parser.go", "+4"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from the tab: %q", want, tt.Texts())
+		}
+	}
+
+	// A finished turn anywhere reads the tab's changes again.
+	record.Base = append(record.Base, agent.FileChange{Path: "lexer.go", Added: 1})
+	kernel.Emit(h, agent.Events, []agent.Event{{Kind: agent.TurnSucceeded, Session: "other"}})
+	for len(p.pane.changes) != 2 {
+		h.Flush()
 	}
 }

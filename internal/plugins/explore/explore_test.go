@@ -27,7 +27,7 @@ func start(t *testing.T, store *kerneltest.Store, stored ...map[agent.SessionID]
 	for _, m := range stored {
 		maps.Copy(a.Stored, m)
 	}
-	ws := &plugintest.Workspace{Convs: []workspace.Conversation{{ID: "parent", Folder: "/project", Title: "Original"}}}
+	ws := &plugintest.Workspace{Convs: []workspace.Conversation{{ID: "parent", Directory: "/project", Title: "Original"}}}
 	var p *Plugin
 	h := kerneltest.Start(t, kerneltest.Config{Store: store}, a.New, ctl.New, host.New, ws.New,
 		kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))

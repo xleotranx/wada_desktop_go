@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/daemon/workspaces"
 
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/profiles"
 	"wada-desktop-go/internal/protocol"
 )
 
@@ -27,91 +30,185 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 			},
 		},
 		{
-			Name:        "create_worktree",
-			Label:       "Create Git worktree",
-			Description: "Create an isolated Git worktree and branch for parallel agent work in the current repository.",
+			Name:  "list_profiles",
+			Label: "List agent profiles",
+			Description: "List the agent profiles spawn_agent can start: the user's and this project's named agents, each " +
+				"with its harness, mode, description and the instructions its first prompt begins with.",
+			Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return o.Profiles(ctx, getCtx().Dir)
+			},
+		},
+		{
+			Name:  "create_workspace",
+			Label: "Create workspace",
+			Description: "Create a workspace for parallel work in this conversation's project: a new Git worktree on its own branch " +
+				"(isolation \"worktree\"; mode \"branch-off\" from a ref, \"checkout-branch\" for an existing branch, or " +
+				"\"checkout-pr\" for a pull request), or an existing worktree (isolation \"existing\" with its path). " +
+				"Runs the project's trusted wada.json setup in it before returning. " +
+				"Returns the workspace, whose id spawn_agent takes, and what its setup did.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":     map[string]any{"type": "string", "description": "Short task/branch slug for the worktree"},
-					"base_ref": map[string]any{"type": "string", "description": "Optional git ref/branch to branch from (default HEAD)"},
+					"isolation": map[string]any{"type": "string", "enum": []string{"worktree", "existing"}},
+					"mode":      map[string]any{"type": "string", "enum": []string{"branch-off", "checkout-branch", "checkout-pr"}},
+					"from":      map[string]any{"type": "string", "description": "branch-off: the ref to start from (default: origin's default branch); checkout-branch: the branch"},
+					"pr":        map[string]any{"type": "integer", "description": "checkout-pr: the pull request number"},
+					"path":      map[string]any{"type": "string", "description": "existing: the worktree's directory"},
+					"slug":      map[string]any{"type": "string", "description": "Short task slug naming the worktree and its new branch"},
+					"title":     map[string]any{"type": "string"},
+				},
+				"required":             []string{"isolation"},
+				"additionalProperties": false,
+			},
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+				var in struct {
+					Isolation protocol.Isolation `json:"isolation"`
+					Mode      protocol.StartMode `json:"mode"`
+					From      string             `json:"from"`
+					PR        int                `json:"pr"`
+					Path      string             `json:"path"`
+					Slug      string             `json:"slug"`
+					Title     string             `json:"title"`
+				}
+				if err := json.Unmarshal(params, &in); err != nil {
+					return nil, err
+				}
+				here, err := o.workspaceHere(getCtx().Dir)
+				if err != nil {
+					return nil, err
+				}
+				w, err := o.workspaces.Create(ctx, protocol.WorkspaceCreateRequest{Project: here.Project, Isolation: in.Isolation,
+					Mode: in.Mode, From: in.From, PR: in.PR, Path: in.Path, Slug: in.Slug, Title: in.Title})
+				if err != nil {
+					return nil, err
+				}
+				out, err := o.workspaces.RunSetup(ctx, w.ID)
+				setup := "ran"
+				switch {
+				case errors.Is(err, workspaces.ErrUntrusted):
+					setup = "not run: the project's wada.json isn't trusted yet; the user can trust it in the app"
+				case err != nil:
+					setup = "failed: " + err.Error() + "\n" + tail(out, 2000)
+				case out == "":
+					setup = "none"
+				}
+				return map[string]any{"workspace": w, "setup": setup}, nil
+			},
+		},
+		{
+			Name:        "list_workspaces",
+			Label:       "List workspaces",
+			Description: "List the active workspaces of this conversation's project, with their directories, branches and bases.",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				here, err := o.workspaceHere(getCtx().Dir)
+				if err != nil {
+					return nil, err
+				}
+				return o.workspaces.Workspaces(here.Project, false), nil
+			},
+		},
+		{
+			Name:  "archive_workspace",
+			Label: "Archive workspace",
+			Description: "Archive a worktree workspace of this conversation's project, removing a worktree Wada made. One with " +
+				"uncommitted or unpushed work is refused unless force, which discards that work.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"workspace_id": map[string]any{"type": "string"},
+					"force":        map[string]any{"type": "boolean"},
+				},
+				"required":             []string{"workspace_id"},
+				"additionalProperties": false,
+			},
+			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
+				var in struct {
+					WorkspaceID string `json:"workspace_id"`
+					Force       bool   `json:"force"`
+				}
+				if err := json.Unmarshal(params, &in); err != nil {
+					return nil, err
+				}
+				if _, err := o.projectWorkspace(getCtx().Dir, in.WorkspaceID); err != nil {
+					return nil, err
+				}
+				if err := o.workspaces.Archive(ctx, in.WorkspaceID, in.Force); err != nil {
+					return nil, err
+				}
+				return map[string]any{"archived": true, "workspaceId": in.WorkspaceID}, nil
+			},
+		},
+		{
+			Name:        "spawn_agent",
+			Label:       "Spawn external CLI worker",
+			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in this conversation's folder, a folder inside it, or a workspace of its project (workspace_id, from create_workspace). A profile (from list_profiles) gives the harness, mode and the instructions the worker's first prompt begins with; provider and mode override it. Mode \"full\" runs without approvals and applies only when this conversation itself works without approvals.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"profile":      map[string]any{"type": "string", "description": "An agent profile's name"},
+					"provider":     map[string]any{"type": "string"},
+					"name":         map[string]any{"type": "string"},
+					"workspace_id": map[string]any{"type": "string", "description": "A workspace of this conversation's project"},
+					"directory":    map[string]any{"type": "string", "description": "A folder inside this conversation's folder"},
+					"mode":         map[string]any{"type": "string", "enum": []string{"ask", "full"}},
 				},
 				"required":             []string{"name"},
 				"additionalProperties": false,
 			},
 			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
-					Name    string `json:"name"`
-					BaseRef string `json:"base_ref"`
-				}
-				if err := json.Unmarshal(params, &in); err != nil {
-					return nil, err
-				}
-				dir := getCtx().Dir
-				return o.worktrees.Create(ctx, dir, in.Name, in.BaseRef)
-			},
-		},
-		{
-			Name:        "list_worktrees",
-			Label:       "List Git worktrees",
-			Description: "List Git worktrees and dirty status for the current repository.",
-			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
-			Execute: func(ctx context.Context, _ json.RawMessage) (any, error) {
-				dir := getCtx().Dir
-				return o.worktrees.List(ctx, dir)
-			},
-		},
-		{
-			Name:        "spawn_agent",
-			Label:       "Spawn external CLI worker",
-			Description: "Spawn a worker session backed by an external harness (e.g. claude, codex, opencode, gemini) in this conversation's folder or one of its repository's worktrees. Mode \"full\" runs without approvals and applies only when this conversation itself works without approvals.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"provider":      map[string]any{"type": "string"},
-					"name":          map[string]any{"type": "string"},
-					"worktree_path": map[string]any{"type": "string", "description": "Path to a created Git worktree or directory"},
-					"branch":        map[string]any{"type": "string"},
-					"mode":          map[string]any{"type": "string", "enum": []string{"ask", "full"}},
-				},
-				"required":             []string{"provider", "name"},
-				"additionalProperties": false,
-			},
-			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
-				var in struct {
-					Provider     string `json:"provider"`
-					Name         string `json:"name"`
-					WorktreePath string `json:"worktree_path"`
-					Branch       string `json:"branch"`
-					Mode         string `json:"mode"`
+					Profile     string `json:"profile"`
+					Provider    string `json:"provider"`
+					Name        string `json:"name"`
+					WorkspaceID string `json:"workspace_id"`
+					Directory   string `json:"directory"`
+					Mode        string `json:"mode"`
 				}
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
 				cc := getCtx()
+				var prof *protocol.AgentProfile
+				if in.Profile != "" {
+					p, err := profiles.Find(o.dataDir, cc.Dir, in.Profile)
+					if err != nil {
+						return nil, err
+					}
+					if p.Provider == "" || p.Provider == "pig" {
+						return nil, fmt.Errorf("profile %q runs the embedded agent, not an external harness", p.Name)
+					}
+					prof = &p
+					in.Provider = cmp.Or(in.Provider, p.Provider)
+					in.Mode = cmp.Or(in.Mode, p.Mode)
+				}
+				if in.Provider == "" {
+					return nil, errors.New("spawn_agent needs a provider or a profile")
+				}
 				// A worker never gets more access than the conversation
 				// that spawns it: approvals in ask mode stay approvals.
 				mode := in.Mode
 				if mode == "" || !cc.FullAccess {
 					mode = "ask"
 				}
-				targetDir := cc.Dir
-				if in.WorktreePath != "" {
-					dir, err := o.workerDir(ctx, cc.Dir, in.WorktreePath)
+				args := spawnWorkerArgs{ParentSession: cc.SessionID, Provider: in.Provider, Name: in.Name,
+					Directory: cc.Dir, Mode: mode, Profile: prof}
+				switch {
+				case in.WorkspaceID != "":
+					w, err := o.projectWorkspace(cc.Dir, in.WorkspaceID)
 					if err != nil {
 						return nil, err
 					}
-					targetDir = dir
+					args.Directory, args.Branch, args.WorktreePath = w.Directory, w.Branch, w.WorktreeRoot
+				case in.Directory != "":
+					dir, err := o.workerDir(cc.Dir, in.Directory)
+					if err != nil {
+						return nil, err
+					}
+					args.Directory = dir
 				}
-				return o.spawnWorker(ctx, spawnWorkerArgs{
-					ParentSession: cc.SessionID,
-					Provider:      in.Provider,
-					Name:          in.Name,
-					Directory:     targetDir,
-					Branch:        in.Branch,
-					WorktreePath:  in.WorktreePath,
-					Mode:          mode,
-				})
+				return o.spawnWorker(ctx, args)
 			},
 		},
 		{
@@ -216,40 +313,28 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 		{
 			Name:        "stop_agent",
 			Label:       "Stop worker",
-			Description: "Stop a worker agent session and optionally remove its worktree.",
+			Description: "Stop a worker agent session. Its workspace stays; archive_workspace removes it.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"worker_id":       map[string]any{"type": "string"},
-					"remove_worktree": map[string]any{"type": "boolean"},
-					"force":           map[string]any{"type": "boolean"},
+					"worker_id": map[string]any{"type": "string"},
 				},
 				"required":             []string{"worker_id"},
 				"additionalProperties": false,
 			},
 			Execute: func(ctx context.Context, params json.RawMessage) (any, error) {
 				var in struct {
-					WorkerID       string `json:"worker_id"`
-					RemoveWorktree bool   `json:"remove_worktree"`
-					Force          bool   `json:"force"`
+					WorkerID string `json:"worker_id"`
 				}
 				if err := json.Unmarshal(params, &in); err != nil {
 					return nil, err
 				}
-				cc := getCtx()
-				parentID, parentDir := cc.SessionID, cc.Dir
 				w := o.getWorker(in.WorkerID)
-				if w == nil || w.snapshot().ParentSession != parentID {
+				if w == nil || w.snapshot().ParentSession != getCtx().SessionID {
 					return nil, fmt.Errorf("worker %q not found under this session", in.WorkerID)
 				}
-				info := w.snapshot()
 				if err := o.Delete(ctx, in.WorkerID); err != nil {
 					return nil, err
-				}
-				if in.RemoveWorktree && info.WorktreePath != "" {
-					if err := o.worktrees.Remove(ctx, parentDir, info.WorktreePath, in.Force); err != nil {
-						return nil, err
-					}
 				}
 				return map[string]any{"stopped": true, "workerId": in.WorkerID}, nil
 			},
@@ -258,28 +343,49 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 }
 
 // workerDir resolves a requested worker folder, which must exist and, with
-// symlinks resolved, be the conversation's folder, inside it, or one of its
-// repository's worktrees.
-func (o *Orchestrator) workerDir(ctx context.Context, parentDir, requested string) (string, error) {
+// symlinks resolved, be the conversation's folder or inside it.
+func (o *Orchestrator) workerDir(parentDir, requested string) (string, error) {
 	dir := requested
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(parentDir, dir)
 	}
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return "", fmt.Errorf("worktree_path %q: %w", requested, err)
+		return "", fmt.Errorf("directory %q: %w", requested, err)
 	}
 	if root, err := filepath.EvalSymlinks(parentDir); err == nil && within(root, real) {
 		return real, nil
 	}
-	if wts, err := o.worktrees.List(ctx, parentDir); err == nil {
-		for _, wt := range wts {
-			if root, err := filepath.EvalSymlinks(wt.Path); err == nil && within(root, real) {
-				return real, nil
-			}
-		}
+	return "", fmt.Errorf("directory %q is not inside this conversation's folder; use a workspace", requested)
+}
+
+// workspaceHere is the active workspace the conversation in dir works in.
+func (o *Orchestrator) workspaceHere(dir string) (protocol.WorkspaceInfo, error) {
+	if o.workspaces == nil {
+		return protocol.WorkspaceInfo{}, errors.New("this daemon keeps no workspaces")
 	}
-	return "", fmt.Errorf("worktree_path %q is neither inside this conversation's folder nor one of its worktrees", requested)
+	w, ok := o.workspaces.Active(dir)
+	if !ok {
+		return protocol.WorkspaceInfo{}, errors.New("this conversation's folder is no active workspace")
+	}
+	if p, _ := o.workspaces.Project(w.Project); p.Inbox {
+		return protocol.WorkspaceInfo{}, errors.New("a conversation in the Inbox has no project; start it in a project")
+	}
+	return w, nil
+}
+
+// projectWorkspace is an active workspace of the project the conversation in
+// dir works in.
+func (o *Orchestrator) projectWorkspace(dir, id string) (protocol.WorkspaceInfo, error) {
+	here, err := o.workspaceHere(dir)
+	if err != nil {
+		return protocol.WorkspaceInfo{}, err
+	}
+	w, ok := o.workspaces.Workspace(id)
+	if !ok || w.Archived != 0 || w.Project != here.Project {
+		return protocol.WorkspaceInfo{}, fmt.Errorf("workspace %q is no active workspace of this project", id)
+	}
+	return w, nil
 }
 
 // within reports whether path is root or below it.
@@ -325,4 +431,12 @@ func (o *Orchestrator) waitOneWorker(ctx context.Context, parentID, workerID str
 			return protocol.WorkerInfo{}, errors.New("timed out waiting for worker " + workerID)
 		}
 	}
+}
+
+// tail is the end of s, at most n bytes.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }

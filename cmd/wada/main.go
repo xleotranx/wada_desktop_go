@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -62,12 +63,20 @@ func main() {
 		err = runDaemonCmd(ctx, c, args[1:])
 	case "providers":
 		err = runProviders(ctx, c)
+	case "profiles":
+		err = runProfiles(ctx, c, remote, args[1:])
+	case "schedule":
+		err = runScheduleCmd(ctx, c, remote, args[1:])
 	case "workers":
 		err = runWorkers(ctx, c, args[1:])
 	case "pr":
 		err = runPRCmd(ctx, c, remote, args[1:])
 	case "terminal":
 		err = runTerminalCmd(ctx, c, remote, args[1:])
+	case "project":
+		err = runProjectCmd(ctx, c, remote, args[1:])
+	case "workspace":
+		err = runWorkspaceCmd(ctx, c, remote, args[1:])
 	case "ls":
 		err = runList(ctx, c, args[1:])
 	case "run":
@@ -104,14 +113,28 @@ Commands:
   daemon stop            Stop the running wadad daemon
   daemon pair            Print a pairing offer & #offer= link for remote/mobile clients
   daemon set-password    Configure or clear the remote daemon password
-  host <ls|add|remove>   Manage saved remote wadad host profiles
+  host <ls|add|remove>   Manage saved remote wadad host profiles; add takes an
+                         #offer= link, host[:port] or ssh://[user@]host[:port]
   providers              List embedded and external coding-agent harnesses
+  profiles [--dir DIR]   List agent profiles: agents.json and the folder's wada.json
+  schedule <ls|add|pause|resume|run|rm>
+                         Prompts on a cron or interval: a heartbeat to a
+                         conversation (--session), or a new chat each run
   workers [--parent ID]  List managed external harness workers
   pr <status|create>     Inspect or create GitHub pull requests via gh
   terminal <ls|create|attach|capture|kill>
                          Manage detached interactive PTY terminals
-  ls [--dir DIR]         List sessions
-  run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>
+  project <ls|add|rename|rm>
+                         List, add, rename or remove projects
+  workspace <ls|create|rename|archive|restore|config|trust|setup|start|stop|commit|pr>
+                         Manage workspaces; create takes --project or --dir, and
+                         --base REF, --checkout BRANCH, --pr N or --existing PATH;
+                         config, trust, setup, start and stop run its wada.json;
+                         commit and pr write their message and text with the model
+  ls [--dir DIR | --workspace ID]
+                         List sessions
+  run [--dir DIR | --workspace ID | --new-worktree [--base REF ...]]
+      [--provider ID | --profile NAME] [--mode ask|full] <prompt>
                          Create a session, stream output, and handle approvals
   logs <session-id>      Print stored conversation messages
   abort <session-id>     Abort a running turn
@@ -194,11 +217,12 @@ func runHostCmd(dataDir string, args []string) error {
 		endpoint := fs.String("endpoint", "", "Direct WebSocket endpoint (host[:port] or ws://...)")
 		cred := fs.String("credential", "", "Credential or remote token")
 		relayToken := fs.String("relay-token", "", "Bearer token the host's wada-relay requires")
+		sshCommand := fs.String("ssh-command", "", "For an ssh:// host: what to run there (default: "+client.DefaultSSHCommand+")")
 		pos, err := parseInterspersed(fs, args[1:])
 		if err != nil {
 			return err
 		}
-		const hostAddUsage = "usage: wada host add <name> (<offer-url> | <host[:port]> | --endpoint <url>) [--credential <tok>] [--relay-token <tok>]"
+		const hostAddUsage = "usage: wada host add <name> (<offer-url> | <host[:port]> | ssh://[user@]host[:port] | --endpoint <url>) [--credential <tok>] [--relay-token <tok>] [--ssh-command <cmd>]"
 		if len(pos) < 1 || len(pos) > 2 || (len(pos) == 2) == (*endpoint != "") {
 			return errors.New(hostAddUsage)
 		}
@@ -207,6 +231,7 @@ func runHostCmd(dataDir string, args []string) error {
 			Endpoint:   *endpoint,
 			Credential: *cred,
 			RelayToken: *relayToken,
+			SSHCommand: *sshCommand,
 		}
 		if len(pos) == 2 {
 			rec.Offer, rec.Endpoint = client.ParseHostTarget(pos[1])
@@ -318,6 +343,30 @@ func runProviders(ctx context.Context, c *client.Client) error {
 			avail = "available"
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\n", h.ID, h.Kind, avail, h.Name)
+	}
+	return nil
+}
+
+func runProfiles(ctx context.Context, c *client.Client, remote bool, args []string) error {
+	fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
+	dir := fs.String("dir", "", "Folder whose wada.json profiles to include (default: the current one, for a local daemon)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d := *dir
+	if d != "" || !remote {
+		abs, err := workDir(remote, d)
+		if err != nil {
+			return err
+		}
+		d = abs
+	}
+	list, err := c.Profiles(ctx, d)
+	if err != nil {
+		return err
+	}
+	for _, p := range list {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", p.Name, cmp.Or(p.Provider, "pig"), cmp.Or(p.Mode, "-"), p.Source, p.Description)
 	}
 	return nil
 }
@@ -543,15 +592,16 @@ func runTerminalCmd(ctx context.Context, c *client.Client, remote bool, args []s
 func runList(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	dir := fs.String("dir", "", "Filter by directory")
+	workspace := fs.String("workspace", "", "Filter by workspace ID")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	page, err := c.Sessions(ctx, protocol.SessionQuery{Directory: *dir})
+	page, err := c.Sessions(ctx, protocol.SessionQuery{Directory: *dir, Workspace: *workspace})
 	if err != nil {
 		return err
 	}
 	for _, s := range page.Sessions {
-		fmt.Printf("%s\t%s\t%s\n", s.ID, s.Directory, s.Title)
+		fmt.Printf("%s\t%s\t%s\t%s\n", s.ID, s.Workspace, s.Directory, s.Title)
 	}
 	return nil
 }
@@ -589,25 +639,50 @@ func runLogs(ctx context.Context, c *client.Client, args []string) error {
 func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dir := fs.String("dir", "", "Workspace directory (default: the current one, or a remote daemon's inbox)")
-	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG)")
+	workspace := fs.String("workspace", "", "Run in this workspace")
+	newWorktree := fs.Bool("new-worktree", false, "Run in a new worktree workspace of the project at --dir")
+	wt := addWorktreeFlags(fs)
+	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG, or the profile's)")
+	profile := fs.String("profile", "", "Agent profile: its harness, and instructions at the start of the prompt")
 	mode := fs.String("mode", "ask", "Access mode: ask or full")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("usage: wada run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>")
+		return fmt.Errorf("usage: wada run [--dir DIR | --workspace ID | --new-worktree ...] [--provider ID | --profile NAME] [--mode ask|full] <prompt>")
 	}
-	absDir, err := workDir(remote, *dir)
-	if err != nil {
-		return err
+	create := protocol.CreateSessionRequest{IdempotencyKey: "cli_" + uuid.NewString(), Workspace: *workspace,
+		Provider: *provider, Profile: *profile, Mode: *mode}
+	switch {
+	case *newWorktree:
+		if *workspace != "" {
+			return errors.New("use --workspace or --new-worktree, not both")
+		}
+		project, err := projectAt(ctx, c, remote, *dir)
+		if err != nil {
+			return err
+		}
+		req, err := wt.request(project)
+		if err != nil {
+			return err
+		}
+		wctx, cancel := context.WithTimeout(ctx, newWorktreeTimeout)
+		w, err := c.CreateWorkspace(wctx, req)
+		cancel()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "workspace: %s (%s on %s)\n", w.ID, w.Directory, w.Branch)
+		create.Workspace = w.ID
+	case *workspace == "":
+		absDir, err := workDir(remote, *dir)
+		if err != nil {
+			return err
+		}
+		create.Directory = absDir
 	}
-	sess, err := c.Create(ctx, protocol.CreateSessionRequest{
-		IdempotencyKey: "cli_" + uuid.NewString(),
-		Directory:      absDir,
-		Provider:       *provider,
-		Mode:           *mode,
-	})
+	sess, err := c.Create(ctx, create)
 	if err != nil {
 		return err
 	}
@@ -676,7 +751,7 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 		}
 	}
 	// The event stream ends only when the connection does; the turn may still

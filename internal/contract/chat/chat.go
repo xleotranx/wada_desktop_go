@@ -51,6 +51,10 @@ var (
 	// ComposerAttachments views sit above the composer's editor, such as the
 	// files that will go with the message.
 	ComposerAttachments = kernel.NewPoint[shell.View]("chat.composer-attachments")
+	// ComposerStrip views sit in a row above the composer's card, such as the
+	// agents the conversation has running. The row shows while one of them is
+	// Shown.
+	ComposerStrip = kernel.NewPoint[StripView]("chat.composer-strip")
 	// FileDrop handlers take the paths of files dropped on the composer, on
 	// the UI thread. The composer accepts drops only while one exists.
 	FileDrop = kernel.NewPoint[func(paths []string)]("chat.file-drop")
@@ -86,6 +90,13 @@ var (
 	// and its border, and draws nothing while it is closed.
 	Drawers = kernel.NewPoint[shell.View]("chat.drawers")
 )
+
+// StripView is one view of the composer strip. Shown and Render run on the
+// UI thread while drawing and only read state.
+type StripView struct {
+	Shown  func() bool
+	Render func(c *ui.Context)
+}
 
 // SelectionAction is one choice for selected text. Run is called on the UI
 // thread after the click, and the popover closes.
@@ -181,6 +192,7 @@ type Draft struct {
 	Session   agent.SessionID // empty starts a new conversation
 	Directory string          // the chat's working folder
 	Provider  string          // optional agent harness ID; empty uses default embedded PiG
+	Profile   string          // for a new conversation: an agent profile's name, or empty
 	Model     agent.ModelRef  // for a new conversation; zero for the default
 	Mode      string          // mode for this message; empty keeps the backend's choice
 	Text      string

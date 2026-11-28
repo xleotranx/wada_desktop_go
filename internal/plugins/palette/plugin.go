@@ -8,7 +8,6 @@ package palette
 
 import (
 	"cmp"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -156,10 +155,10 @@ func (p *Plugin) items() []command.Item {
 		counts, latest := map[string]int{}, map[string]int64{}
 		var earlier []command.Item
 		for _, conv := range convs {
-			counts[conv.Folder]++
-			latest[conv.Folder] = max(latest[conv.Folder], conv.Updated, conv.Created)
+			counts[conv.Directory]++
+			latest[conv.Directory] = max(latest[conv.Directory], conv.Updated)
 			item := command.Item{ID: sessionID + string(conv.ID), Title: cmp.Or(conv.Title, "Untitled chat"),
-				Description: native.Tilde(conv.Folder), Group: groupEarlier, Icon: lucide.MessageSquare()}
+				Description: ws.Name(conv.Directory), Group: groupEarlier, Icon: lucide.MessageSquare()}
 			if inTabs[conv.ID] {
 				item.Group = groupOpen
 				items = append(items, item)
@@ -168,15 +167,15 @@ func (p *Plugin) items() []command.Item {
 			earlier = append(earlier, item)
 		}
 		items = append(items, earlier...)
-		// The folders worked in last come first; the filter shows only the
+		// The workspaces worked in last come first; the filter shows only the
 		// first few before anything is typed.
-		folders := slices.Clone(ws.Folders())
-		slices.SortStableFunc(folders, func(a, b workspace.Folder) int {
-			return cmp.Compare(max(latest[b.Path], b.Added), max(latest[a.Path], a.Added))
+		spaces := slices.Clone(ws.Workspaces())
+		slices.SortStableFunc(spaces, func(a, b agent.Workspace) int {
+			return cmp.Compare(max(latest[b.Directory], b.Created), max(latest[a.Directory], a.Created))
 		})
-		for _, f := range folders {
-			items = append(items, command.Item{ID: folderID + f.Path, Title: filepath.Base(f.Path),
-				Description: chatsLabel(counts[f.Path]) + " · " + native.Tilde(f.Path), Group: groupFolders,
+		for _, w := range spaces {
+			items = append(items, command.Item{ID: folderID + w.Directory, Title: ws.Name(w.Directory),
+				Description: chatsLabel(counts[w.Directory]) + " · " + native.Tilde(w.Directory), Group: groupFolders,
 				Icon: lucide.Folder(), Keywords: []string{"New chat in"}})
 		}
 	}

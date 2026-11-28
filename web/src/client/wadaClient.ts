@@ -11,7 +11,9 @@ import {
   relayClientWSURL,
 } from "../crypto/offer";
 import {
+  type AgentProfile,
   type DaemonEvent,
+  type Delivery,
   ENV_EVENT,
   ENV_HELLO,
   ENV_PING,
@@ -27,8 +29,14 @@ import {
   type PendingApproval,
   OP_TERM_OUTPUT,
   PROTOCOL_VERSION,
+  type Schedule,
+  type ScheduleSpec,
   type ServerInfo,
+  type ProjectInfo,
   type SessionInfo,
+  type WorkspaceConfig,
+  type WorkspaceCreate,
+  type WorkspaceInfo,
   type SessionMessage,
   type TerminalInfo,
   type WorkerInfo,
@@ -453,20 +461,90 @@ export class WadaClient {
     return this.call("agent.sessions.list", {});
   }
 
-  createSession(directory: string, provider?: string, mode = "ask"): Promise<SessionInfo> {
+  listProjects(): Promise<ProjectInfo[]> {
+    return this.call("workspace.projects.list", {});
+  }
+
+  listWorkspaces(): Promise<WorkspaceInfo[]> {
+    return this.call("workspace.list", {});
+  }
+
+  createSession(
+    directory: string,
+    provider?: string,
+    mode = "ask",
+    opts: { workspace?: string; profile?: string } = {}
+  ): Promise<SessionInfo> {
     return this.call("agent.session.create", {
       idempotencyKey: "web_" + crypto.randomUUID(),
-      directory,
+      directory: opts.workspace ? undefined : directory,
+      workspace: opts.workspace || undefined,
       provider: provider || undefined,
+      profile: opts.profile || undefined,
       mode,
     });
+  }
+
+  createWorkspace(req: WorkspaceCreate): Promise<WorkspaceInfo> {
+    return this.call("workspace.create", { idempotencyKey: "web_" + crypto.randomUUID(), ...req });
+  }
+
+  /** Archives a workspace; without force, one with unsaved work is refused (conflict). */
+  archiveWorkspace(workspace: string, force = false): Promise<void> {
+    return this.call("workspace.archive", { workspace, force: force || undefined });
+  }
+
+  workspaceConfig(workspace: string): Promise<WorkspaceConfig> {
+    return this.call("workspace.config", { workspace });
+  }
+
+  trustWorkspaceConfig(workspace: string, hash: string): Promise<void> {
+    return this.call("workspace.trust", { workspace, hash });
+  }
+
+  runSetup(workspace: string): Promise<TerminalInfo> {
+    return this.call("workspace.setup", { workspace });
+  }
+
+  startService(workspace: string, name: string): Promise<TerminalInfo> {
+    return this.call("workspace.service.start", { workspace, name });
+  }
+
+  stopService(workspace: string, name: string): Promise<void> {
+    return this.call("workspace.service.stop", { workspace, name });
+  }
+
+  listSchedules(): Promise<Schedule[]> {
+    return this.call("schedules.list", {});
+  }
+
+  createSchedule(spec: ScheduleSpec): Promise<Schedule> {
+    return this.call("schedules.create", spec);
+  }
+
+  updateSchedule(id: string, spec: ScheduleSpec): Promise<Schedule> {
+    return this.call("schedules.update", { id, spec });
+  }
+
+  deleteSchedule(id: string): Promise<void> {
+    return this.call("schedules.delete", { id });
+  }
+
+  /** Runs a schedule now, without changing its next time. */
+  runSchedule(id: string): Promise<void> {
+    return this.call("schedules.run", { id });
+  }
+
+  listProfiles(directory: string): Promise<AgentProfile[]> {
+    return this.call("agent.profiles.list", { directory: directory || undefined });
   }
 
   getMessages(session: string): Promise<SessionMessage[]> {
     return this.call("agent.session.messages", { session });
   }
 
-  sendMessage(session: string, text: string, mode = "ask"): Promise<{ disposition: string }> {
+  /** Sends a message; deliver says what happens to one sent while a turn runs. */
+  sendMessage(session: string, text: string, mode = "ask", deliver?: Delivery): Promise<{ disposition: string }> {
     const id = "web_" + crypto.randomUUID();
     return this.call("agent.session.send", {
       id,
@@ -474,6 +552,7 @@ export class WadaClient {
       session,
       mode,
       text,
+      deliver,
     });
   }
 

@@ -10,8 +10,8 @@ change baselines (12 files of 64 KB per chat), image attachments (one
 chat), 100 KB tool outputs, and a 200 MB project of 5,000 files in the first
 folder.
 
-Writes project folders, Wada settings/workspace databases, and PiG transcripts
-with their Wada metadata. Run with WADA_DATA_DIR=ROOT/data. The embedded SDK
+Writes project folders, Wada's settings database, and PiG transcripts with
+their Wada metadata. Run with WADA_DATA_DIR=ROOT/data. The embedded SDK
 reads these conversations without an agent executable or a model request.
 """
 
@@ -253,20 +253,7 @@ if heavy:
     with open(meta, "w") as f:
         json.dump(record, f)
 
-origin = "pig " + pig
-
-ws = sqlite3.connect(os.path.join(data, "workspace.db"))
-ws.executescript("""
-CREATE TABLE folders (path TEXT PRIMARY KEY, collapsed INTEGER NOT NULL, added INTEGER NOT NULL);
-CREATE TABLE conversations (origin TEXT NOT NULL, session TEXT NOT NULL, folder TEXT NOT NULL, title TEXT NOT NULL,
-  model_provider TEXT NOT NULL, model_id TEXT NOT NULL, model_variant TEXT NOT NULL,
-  created INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (origin, session));
-PRAGMA user_version = 1;
-""")
-ws.executemany("INSERT INTO folders VALUES (?, 0, ?)", folders)
-ws.executemany("INSERT INTO conversations VALUES (?, ?, ?, ?, 'anthropic', 'claude-sonnet-5-5', '', ?, ?)",
-               [(origin, sid, folder, title, created, updated) for sid, folder, title, created, updated in convs])
-ws.commit()
+# wadad adds a project for each chat's folder the first time it lists them.
 
 # Open tabs: the newest chats of the first eight folders, 24 in all, grouped as the strip groups them.
 open_tabs = []

@@ -137,7 +137,7 @@ func (p *ACPProvider) Start(ctx context.Context, opts SessionOptions) (Session, 
 
 	reader := bufio.NewReaderSize(proc.Stdout, 64<<10)
 	hctx, hcancel := context.WithTimeout(ctx, acpHandshakeTimeout)
-	err = s.handshake(hctx, reader, opts.Directory)
+	err = s.handshake(hctx, reader, opts.Directory, opts.MCP)
 	hcancel()
 	if err != nil {
 		_ = proc.Kill()
@@ -159,7 +159,7 @@ func (p *ACPProvider) Start(ctx context.Context, opts SessionOptions) (Session, 
 	return s, nil
 }
 
-func (s *acpSession) handshake(ctx context.Context, reader *bufio.Reader, cwd string) error {
+func (s *acpSession) handshake(ctx context.Context, reader *bufio.Reader, cwd string, mcp *MCPServer) error {
 	initReq := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -171,7 +171,8 @@ func (s *acpSession) handshake(ctx context.Context, reader *bufio.Reader, cwd st
 	if err := s.writeFrame(initReq); err != nil {
 		return err
 	}
-	if _, err := readRPCResponseForID(ctx, reader, "1"); err != nil {
+	initRes, err := readRPCResponseForID(ctx, reader, "1")
+	if err != nil {
 		return fmt.Errorf("acp initialize: %w", err)
 	}
 
@@ -181,7 +182,7 @@ func (s *acpSession) handshake(ctx context.Context, reader *bufio.Reader, cwd st
 		"method":  "session/new",
 		"params": map[string]any{
 			"cwd":        cwd,
-			"mcpServers": []any{},
+			"mcpServers": acpMCPServers(initRes, mcp),
 		},
 	}
 	if err := s.writeFrame(newReq); err != nil {
@@ -567,4 +568,24 @@ func (s *acpSession) readLoop(reader *bufio.Reader) {
 			})
 		}
 	}
+}
+
+// acpMCPServers is session/new's mcpServers: the server over HTTP when the
+// agent said in initialize that it takes HTTP servers, else none.
+func acpMCPServers(initRes json.RawMessage, mcp *MCPServer) []any {
+	if mcp == nil {
+		return []any{}
+	}
+	var caps struct {
+		AgentCapabilities struct {
+			MCP struct {
+				HTTP bool `json:"http"`
+			} `json:"mcpCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	if json.Unmarshal(initRes, &caps) != nil || !caps.AgentCapabilities.MCP.HTTP {
+		return []any{}
+	}
+	return []any{map[string]any{"type": "http", "name": mcp.Name, "url": mcp.URL,
+		"headers": []map[string]string{{"name": "Authorization", "value": "Bearer " + mcp.Token}}}}
 }

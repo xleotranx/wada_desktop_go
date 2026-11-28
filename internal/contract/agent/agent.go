@@ -2,8 +2,8 @@
 // and what consumers may rely on. It holds declarations only.
 //
 // A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
-// FileTypesKey, ImagesKey, FilesKey, SkillsKey, RewindKey, ChangesKey and
-// ChildrenKey.
+// FileTypesKey, ImagesKey, FilesKey, SkillsKey, RewindKey, ChangesKey,
+// ChildrenKey and WorkspacesKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -279,9 +279,10 @@ type Mode struct{ ID, Name, Description string }
 type Session struct {
 	ID        SessionID
 	Title     string
-	Directory string // where the conversation works; empty for the backend's default
-	Provider  string // optional; empty for embedded PiG
-	Updated   int64  // Unix milliseconds
+	Directory string      // where the conversation works; empty for the backend's default
+	Workspace WorkspaceID // the workspace at Directory; empty when the backend keeps none
+	Provider  string      // optional; empty for embedded PiG
+	Updated   int64       // Unix milliseconds
 	Model     ModelRef
 	Cost      float64
 }
@@ -300,9 +301,10 @@ type SessionPage struct {
 type CreateSession struct {
 	Title     string // empty for the backend's default
 	Directory string
-	Provider  string   // optional; empty for embedded PiG
+	Provider  string   // optional; empty for embedded PiG, or the profile's
+	Profile   string   // optional agent profile: its harness, and instructions at the start of the first message
 	Model     ModelRef // zero for the backend's default
-	Mode      string   // empty for the backend's default
+	Mode      string   // empty for the backend's default, or the profile's
 }
 
 type Send struct {
@@ -311,7 +313,20 @@ type Send struct {
 	Text    string
 	Files   []File
 	Skills  []SkillRef // skills the backend attaches to this message
+	// Deliver says what happens to a message sent while a turn runs; the
+	// default refuses it with ErrNotSent.
+	Deliver Delivery
 }
+
+// Delivery is how a message sent during a running turn reaches the agent.
+type Delivery uint8
+
+const (
+	DeliverAlone     Delivery = iota // only when no turn runs
+	DeliverSteer                     // into the running turn, before its next model call
+	DeliverQueue                     // as the next turn, once the running one ends
+	DeliverInterrupt                 // stop the running turn, then send
+)
 
 // SkillRef is one skill attached to a message.
 type SkillRef struct {

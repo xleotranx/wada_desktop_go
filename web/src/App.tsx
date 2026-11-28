@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TerminalTextStream, appendTerminalOutput } from "./client/ansi";
 import {
+  type AgentProfile,
   type ApprovalItem,
   type DaemonEvent,
+  type Delivery,
   EV_APPROVAL_REQUESTED,
   EV_INTERACTION_REQUESTED,
   EV_SESSION_RENAMED,
@@ -13,13 +15,18 @@ import {
   EV_TURN_STARTED,
   EV_TURN_SUCCEEDED,
   EV_WORKER_UPDATED,
+  EV_SCHEDULE_UPDATED,
+  EV_WORKSPACE_UPDATED,
   type FileChange,
   type HarnessInfo,
   type InteractionItem,
+  type ProjectInfo,
+  type Schedule,
   type SessionInfo,
   type SessionMessage,
   type TerminalInfo,
   type WorkerInfo,
+  type WorkspaceInfo,
 } from "./client/protocol";
 import {
   type SavedHost,
@@ -30,9 +37,15 @@ import {
   upsertHost,
 } from "./client/storage";
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
+import { groupSessions, workspaceName } from "./client/workspaces";
+import { dictationSupported, joinDictation, startDictation } from "./dictation";
+import { NewWorkspace } from "./NewWorkspace";
+import { applyUpdate, onUpdateReady } from "./pwa";
+import { SchedulesPanel } from "./Schedules";
+import { WorkspacePanel } from "./WorkspacePanel";
 import { decodeOffer, normalizeDirectWSURL, parseHostTarget } from "./crypto/offer";
 
-type RightTab = "chat" | "diffs" | "terminal";
+type RightTab = "chat" | "workspace" | "schedules" | "diffs" | "terminal";
 
 // ShownApproval is an approval with the conversation that shows it: its own,
 // or the parent of the worker that asked. Replies go to approval.session.
@@ -78,6 +91,9 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const groups = useMemo(() => groupSessions(sessions, projects, workspaces), [sessions, projects, workspaces]);
   const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [messages, setMessages] = useState<SessionMessage[]>([]);
@@ -95,6 +111,35 @@ export function App() {
   // Empty leaves the folder to the daemon: its inbox.
   const [newDir, setNewDir] = useState("");
   const [newProvider, setNewProvider] = useState("");
+  // A new chat starts in this workspace, instead of newDir, when set.
+  const [newWorkspaceId, setNewWorkspaceId] = useState("");
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [newProfile, setNewProfile] = useState("");
+  // The workspace the Workspace tab shows when the user picked one; else the open chat's.
+  const [shownWorkspaceId, setShownWorkspaceId] = useState("");
+  const [creatingIn, setCreatingIn] = useState<ProjectInfo | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [dictating, setDictating] = useState(false);
+  const stopDictationRef = useRef<(() => void) | null>(null);
+  const canDictate = useMemo(() => dictationSupported(), []);
+
+  // toggleDictation listens and puts what it hears after the draft.
+  function toggleDictation(): void {
+    if (stopDictationRef.current) {
+      stopDictationRef.current();
+      return;
+    }
+    const base = promptText;
+    setDictating(true);
+    stopDictationRef.current = startDictation(
+      (heard) => setPromptText(joinDictation(base, heard)),
+      (err) => {
+        stopDictationRef.current = null;
+        setDictating(false);
+        if (err) setConnError(err);
+      }
+    );
+  }
   const [mode, setMode] = useState<"ask" | "full">("ask");
 
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -104,6 +149,32 @@ export function App() {
 
   const selectedSessionRef = useRef(selectedSessionId);
   selectedSessionRef.current = selectedSessionId;
+  const connStateRef = useRef(connState);
+  connStateRef.current = connState;
+  const [updateReady, setUpdateReady] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => onUpdateReady(setUpdateReady), []);
+
+  // Back on the network, reconnect now rather than at the end of the backoff.
+  useEffect(() => {
+    const up = () => {
+      setOnline(true);
+      const host = hostRef.current;
+      if (host && connStateRef.current === "disconnected") {
+        reconnectAttemptsRef.current = 0;
+        void connectHost(host);
+      }
+    };
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Extract #offer= from initial URL fragment and wipe it from browser history.
   useEffect(() => {
@@ -260,12 +331,21 @@ export function App() {
       reconnectAttemptsRef.current = 0;
       setE2eeMode(cli.mode);
       setConnState("connected");
-      const [sessRes, harnessRes, termRes, pendingRes] = await Promise.all([
+      const [sessRes, projRes, spaceRes, harnessRes, termRes, pendingRes] = await Promise.all([
         cli.listSessions(),
+        // An older daemon without workspaces lists every session as Other.
+        cli.listProjects().catch(() => [] as ProjectInfo[]),
+        cli.listWorkspaces().catch(() => [] as WorkspaceInfo[]),
         cli.listHarnesses().catch(() => [] as HarnessInfo[]),
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
         cli.pendingApprovals().catch(() => null),
       ]);
+      void cli
+        .listSchedules()
+        .then((list) => {
+          if (current()) setSchedules(list || []);
+        })
+        .catch(() => {});
       if (!current()) return;
       if (pendingRes) {
         // Approvals asked while this client was away are only here.
@@ -273,6 +353,8 @@ export function App() {
       }
       const list = sessRes.sessions || [];
       setSessions(list);
+      setProjects(projRes || []);
+      setWorkspaces(spaceRes || []);
       setHarnesses(harnessRes || []);
       setTerminals(termRes || []);
       setActiveTermId("");
@@ -313,6 +395,18 @@ export function App() {
         setTerminals((prev) =>
           prev.some((x) => x.id === t.id) ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]
         );
+        return;
+      }
+      case EV_WORKSPACE_UPDATED: {
+        // The project or workspace as it now is, archived ones included.
+        const { project, workspace } = ev;
+        if (project) setProjects((prev) => [...prev.filter((p) => p.id !== project.id), project]);
+        if (workspace) setWorkspaces((prev) => [...prev.filter((w) => w.id !== workspace.id), workspace]);
+        return;
+      }
+      case EV_SCHEDULE_UPDATED: {
+        const sc = ev.schedule;
+        if (sc) applySchedule(sc);
         return;
       }
       case EV_SESSION_RENAMED: {
@@ -388,6 +482,8 @@ export function App() {
 
   async function selectSession(id: string): Promise<void> {
     chooseSession(id);
+    setShownWorkspaceId("");
+    setNewWorkspaceId("");
     setSidebarOpen(false);
     if (clientRef.current) {
       await refreshSession(clientRef.current, id);
@@ -440,25 +536,33 @@ export function App() {
     void openHost(host, password);
   }
 
-  async function handleSend(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
+  // handleSend sends the composer's text; during a turn it steers the
+  // turn unless deliver says to queue it or interrupt the turn.
+  async function handleSend(e: React.FormEvent | null, deliver?: Delivery): Promise<void> {
+    e?.preventDefault();
     const cli = clientRef.current;
     const text = promptText.trim();
     if (!cli || !text || connState !== "connected") return;
 
     setPromptText("");
     let sessId = selectedSessionId;
+    const during = sessId !== "" && busySessions.has(sessId);
     const localId = "local_" + crypto.randomUUID();
     try {
       if (!sessId) {
-        const created = await cli.createSession(newDir.trim(), newProvider, mode);
+        const created = await cli.createSession(newDir.trim(), newProvider, mode, {
+          workspace: newWorkspaceId,
+          profile: newProfile,
+        });
         sessId = created.id;
         setSessions((prev) => [created, ...prev]);
         chooseSession(sessId);
+        setNewWorkspaceId("");
+        setNewProfile("");
       }
       setMessages((prev) => [...prev, { id: localId, role: "user", text }]);
       setBusy(sessId, true);
-      await cli.sendMessage(sessId, text, mode);
+      await cli.sendMessage(sessId, text, mode, during ? deliver || "steer" : undefined);
     } catch (err) {
       setConnError(unconfirmed(sessId ? "The message" : "The new session", err));
       setPromptText((cur) => cur || text);
@@ -589,11 +693,80 @@ export function App() {
   }
 
   const activeSession = sessions.find((s) => s.id === selectedSessionId);
+  const activeWorkspaces = workspaces.filter((w) => !w.archived);
+  const newWorkspace = activeWorkspaces.find((w) => w.id === newWorkspaceId);
+  const sessionWorkspace =
+    activeSession &&
+    (activeWorkspaces.find((w) => w.id === activeSession.workspace) ||
+      activeWorkspaces.find((w) => w.directory === activeSession.directory));
+  const shownWorkspace =
+    activeWorkspaces.find((w) => w.id === shownWorkspaceId) || sessionWorkspace || newWorkspace;
+  const shownProject = shownWorkspace && projects.find((p) => p.id === shownWorkspace.project);
+  const directHost = (() => {
+    const url = hostRef.current?.directUrl;
+    if (!url) return "";
+    try {
+      return new URL(url.includes("://") ? url : "ws://" + url).hostname;
+    } catch {
+      return "";
+    }
+  })();
+
+  // applySchedule takes in a schedule the daemon added, changed, ran or removed.
+  function applySchedule(sc: Schedule): void {
+    setSchedules((prev) => {
+      const rest = prev.filter((x) => x.id !== sc.id);
+      return sc.removed ? rest : [...rest, sc].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }
+
+  function startChatIn(w: WorkspaceInfo): void {
+    chooseSession("");
+    setMessages([]);
+    setChanges([]);
+    setWorkers([]);
+    setNewWorkspaceId(w.id);
+    setShownWorkspaceId("");
+    setRightTab("chat");
+    setSidebarOpen(false);
+  }
+
+  function showWorkspace(w: WorkspaceInfo): void {
+    setShownWorkspaceId(w.id);
+    setRightTab("workspace");
+    setSidebarOpen(false);
+  }
+
+  function openTerminal(id: string): void {
+    setRightTab("terminal");
+    void attachTerminal(id);
+  }
   const busyTurn = selectedSessionId !== "" && busySessions.has(selectedSessionId);
   const sessionApprovals = approvals.filter((a) => a.shownIn === selectedSessionId);
   const sessionInteractions = interactions.filter((x) => x.session === selectedSessionId);
   const needsAttention = (id: string) =>
     approvals.some((a) => a.shownIn === id) || interactions.some((x) => x.session === id);
+
+  const newChatDir = newWorkspace?.directory || newDir.trim();
+  useEffect(() => {
+    const cli = clientRef.current;
+    if (!cli || connState !== "connected" || selectedSessionId) return;
+    let stale = false;
+    const t = window.setTimeout(() => {
+      cli
+        .listProfiles(newChatDir)
+        .catch(() => [] as AgentProfile[])
+        .then((list) => {
+          if (stale) return;
+          setProfiles(list || []);
+          setNewProfile((cur) => (list?.some((p) => p.name === cur) ? cur : ""));
+        });
+    }, 300);
+    return () => {
+      stale = true;
+      window.clearTimeout(t);
+    };
+  }, [connState, selectedSessionId, newChatDir]);
 
   return (
     <div className="shell">
@@ -660,6 +833,7 @@ export function App() {
                   setMessages([]);
                   setChanges([]);
                   setWorkers([]);
+                  setNewWorkspaceId("");
                   setSidebarOpen(false);
                 }}
               >
@@ -667,25 +841,73 @@ export function App() {
               </button>
             </div>
             <div className="session-list">
-              {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  className={`session-item ${s.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => void selectSession(s.id)}
-                >
-                  <div className="session-title">
-                    {s.title || "Untitled session"}{" "}
-                    {needsAttention(s.id) && <span className="pill pill-attention">needs you</span>}
-                    {busySessions.has(s.id) && <span className="pill">running</span>}
+              {groups.map((g) => (
+                <div key={g.project?.id || "other"} className="project-group">
+                  <div className="project-name" title={g.project?.root}>
+                    <span>{g.name}</span>
+                    {g.project && !g.project.inbox && (
+                      <button
+                        className="icon-btn"
+                        title={`New workspace in ${g.name}`}
+                        disabled={connState !== "connected"}
+                        onClick={() => setCreatingIn(g.project!)}
+                      >
+                        ＋
+                      </button>
+                    )}
                   </div>
-                  <div className="session-dir">{s.directory}</div>
-                </button>
+                  {g.workspaces.map((w) => (
+                    <div key={w.workspace?.id || "other"} className="workspace-group">
+                      {w.workspace && (
+                        <div
+                          className={`workspace-name ${shownWorkspace?.id === w.workspace.id ? "active" : ""}`}
+                          title={w.workspace.directory}
+                        >
+                          <button className="ws-select" onClick={() => showWorkspace(w.workspace!)}>
+                            {w.name}
+                            {w.workspace.pr ? <span className="pill">#{w.workspace.pr}</span> : null}
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title={`New chat in ${w.name}`}
+                            onClick={() => startChatIn(w.workspace!)}
+                          >
+                            ✎
+                          </button>
+                        </div>
+                      )}
+                      {w.sessions.map((s) => (
+                        <button
+                          key={s.id}
+                          className={`session-item ${s.id === selectedSessionId ? "active" : ""}`}
+                          onClick={() => void selectSession(s.id)}
+                        >
+                          <div className="session-title">
+                            {s.title || "Untitled session"}{" "}
+                            {needsAttention(s.id) && <span className="pill pill-attention">needs you</span>}
+                            {busySessions.has(s.id) && <span className="pill">running</span>}
+                          </div>
+                          {!w.workspace && <div className="session-dir">{s.directory}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
         </aside>
 
         <main className="main">
+          {updateReady && (
+            <div className="banner-info">
+              A new version of Wada is ready.
+              <button className="btn btn-small btn-primary" onClick={applyUpdate}>
+                Reload
+              </button>
+            </div>
+          )}
+          {!online && <div className="banner-info">You're offline. Wada reconnects when the network is back.</div>}
           {connError && <div className="banner-error">{connError}</div>}
 
           <div className="tabs">
@@ -694,6 +916,19 @@ export function App() {
               onClick={() => setRightTab("chat")}
             >
               Chat {workers.length > 0 ? `(${workers.length} workers)` : ""}
+            </button>
+            <button
+              className={rightTab === "workspace" ? "tab active" : "tab"}
+              onClick={() => setRightTab("workspace")}
+              disabled={!shownWorkspace}
+            >
+              Workspace
+            </button>
+            <button
+              className={rightTab === "schedules" ? "tab active" : "tab"}
+              onClick={() => setRightTab("schedules")}
+            >
+              Schedules ({schedules.length})
             </button>
             <button
               className={rightTab === "diffs" ? "tab active" : "tab"}
@@ -726,11 +961,40 @@ export function App() {
                   <div className="new-chat-box">
                     <h3>Start a coding task</h3>
                     <div className="row">
-                      <input
-                        value={newDir}
-                        onChange={(e) => setNewDir(e.target.value)}
-                        placeholder="Project folder on the daemon (empty: its inbox)"
-                      />
+                      {newWorkspace ? (
+                        <span className="pill pill-green">
+                          In {workspaceName(newWorkspace, projects.find((p) => p.id === newWorkspace.project))}
+                          <button className="icon-btn" title="Choose a folder instead" onClick={() => setNewWorkspaceId("")}>
+                            ×
+                          </button>
+                        </span>
+                      ) : (
+                        <input
+                          value={newDir}
+                          onChange={(e) => setNewDir(e.target.value)}
+                          placeholder="Project folder on the daemon (empty: its inbox)"
+                        />
+                      )}
+                      {profiles.length > 0 && (
+                        <select
+                          value={newProfile}
+                          onChange={(e) => {
+                            const name = e.target.value;
+                            setNewProfile(name);
+                            const prof = profiles.find((p) => p.name === name);
+                            if (prof) setNewProvider(prof.provider && prof.provider !== "pig" ? prof.provider : "");
+                          }}
+                          title="Agent profile"
+                        >
+                          <option value="">No profile</option>
+                          {profiles.map((p) => (
+                            <option key={p.name} value={p.name} title={p.description}>
+                              {p.name}
+                              {p.source === "project" ? " (project)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <select value={newProvider} onChange={(e) => setNewProvider(e.target.value)}>
                         <option value="">PiG (Chief Agent)</option>
                         {harnesses
@@ -813,17 +1077,61 @@ export function App() {
                 <input
                   value={promptText}
                   onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="Ask Wada or delegate to Claude Code / Codex workers…"
+                  placeholder={
+                    busyTurn
+                      ? "Steer the agent, or queue a message for after this turn…"
+                      : "Ask Wada or delegate to Claude Code / Codex workers…"
+                  }
                   disabled={connState !== "connected"}
                 />
-                {busyTurn ? (
+                {canDictate && (
                   <button
                     type="button"
-                    className="btn btn-danger"
-                    onClick={() => void handleAbort(selectedSessionId)}
+                    className={dictating ? "btn btn-danger" : "btn"}
+                    title={dictating ? "Stop dictating" : "Dictate"}
+                    aria-label={dictating ? "Stop dictating" : "Dictate"}
+                    disabled={connState !== "connected"}
+                    onClick={toggleDictation}
                   >
-                    Stop
+                    {dictating ? "■" : "🎤"}
                   </button>
+                )}
+                {busyTurn ? (
+                  <>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      title="Send into the running turn"
+                      disabled={connState !== "connected" || !promptText.trim()}
+                    >
+                      Steer
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      title="Send when this turn ends"
+                      disabled={connState !== "connected" || !promptText.trim()}
+                      onClick={() => void handleSend(null, "queue")}
+                    >
+                      Queue
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      title="Stop this turn and send"
+                      disabled={connState !== "connected" || !promptText.trim()}
+                      onClick={() => void handleSend(null, "interrupt")}
+                    >
+                      Interrupt
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => void handleAbort(selectedSessionId)}
+                    >
+                      Stop
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="submit"
@@ -834,6 +1142,37 @@ export function App() {
                   </button>
                 )}
               </form>
+            </div>
+          )}
+
+          {rightTab === "workspace" && shownWorkspace && clientRef.current && (
+            <WorkspacePanel
+              cli={clientRef.current}
+              workspace={shownWorkspace}
+              project={shownProject}
+              terminals={terminals}
+              host={directHost}
+              onTerminal={openTerminal}
+              onError={setConnError}
+            />
+          )}
+
+          {rightTab === "schedules" && clientRef.current && (
+            <SchedulesPanel
+              cli={clientRef.current}
+              schedules={schedules}
+              session={selectedSessionId}
+              sessionTitle={activeSession?.title || ""}
+              directory={activeSession ? (sessionWorkspace ? sessionWorkspace.directory : activeSession.directory) : newChatDir}
+              workspace={activeSession ? sessionWorkspace?.id || "" : newWorkspaceId}
+              onChanged={applySchedule}
+              onError={setConnError}
+            />
+          )}
+
+          {rightTab === "workspace" && !shownWorkspace && (
+            <div className="panel">
+              <p className="muted pad">Pick a workspace in the sidebar.</p>
             </div>
           )}
 
@@ -902,6 +1241,19 @@ export function App() {
           )}
         </main>
       </div>
+
+      {creatingIn && clientRef.current && (
+        <NewWorkspace
+          cli={clientRef.current}
+          project={creatingIn}
+          onClose={() => setCreatingIn(null)}
+          onCreated={(w) => {
+            setCreatingIn(null);
+            setWorkspaces((prev) => [...prev.filter((x) => x.id !== w.id), w]);
+            startChatIn(w);
+          }}
+        />
+      )}
 
       {pairOpen && (
         <div className="modal-backdrop" onClick={() => setPairOpen(false)}>

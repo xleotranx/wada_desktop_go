@@ -1,7 +1,7 @@
-// Package workspace declares the app's own record of where the user works:
-// the folders they chose and the conversations started in this app. The
-// tabs and All chats list only these, grouped by folder; the backend
-// still owns each conversation's messages.
+// Package workspace declares the app's view of where the user works: the
+// backend's projects, their workspaces, and the conversations in those
+// workspaces. The tabs, All chats and notifications list only these; the
+// backend keeps the record and every conversation's messages.
 package workspace
 
 import (
@@ -12,59 +12,76 @@ import (
 
 var (
 	ServiceKey = kernel.NewKey[Service]("workspace.service")
-
-	// Changed is emitted on the UI thread after the folders or the listed
-	// conversations change, including when the record has been read and
-	// when another backend origin becomes current.
+	// Changed is emitted on the UI thread after the projects, workspaces or
+	// listed conversations change, including when the record has been read
+	// and when another backend origin becomes current.
 	Changed = kernel.NewTopic[struct{}]("workspace.changed")
 )
 
-// Folder is a folder the user works in.
-type Folder struct {
-	Path  string // absolute and clean; what a conversation's Folder names
-	Added int64  // Unix milliseconds
-}
-
-// Conversation is the app's record of a conversation it started.
+// Conversation is a conversation in an active workspace.
 type Conversation struct {
-	ID     agent.SessionID
-	Folder string // a Folder's Path; empty for the backend's default folder
-	Title  string // the backend's title as last seen; empty until it has one
-	Model  agent.ModelRef
-	// Created and Updated are Unix milliseconds; Updated is the last
-	// activity seen.
-	Created, Updated int64
+	ID        agent.SessionID
+	Workspace agent.WorkspaceID
+	Directory string // its workspace's
+	Title     string // the backend's title as last seen; empty until it has one
+	Model     agent.ModelRef
+	Updated   int64 // Unix milliseconds of the last activity seen
 }
 
 // Session is the conversation as chat.Controller.Open takes it.
 func (c Conversation) Session() agent.Session {
-	return agent.Session{ID: c.ID, Title: c.Title, Directory: c.Folder, Updated: c.Updated, Model: c.Model}
+	return agent.Session{ID: c.ID, Title: c.Title, Directory: c.Directory, Workspace: c.Workspace, Updated: c.Updated, Model: c.Model}
 }
 
-// Service is the record. Call it on the UI thread: reads come from memory,
-// and changes are saved in the background.
+// Service is the record as last read from the backend. Call it on the UI
+// thread: reads come from memory, and changes go to the backend in the
+// background.
 type Service interface {
-	// Loaded reports that the record has been read; until then the lists
-	// are empty.
+	// Loaded reports that the record has been read from the current
+	// connection; until then the lists are empty.
 	Loaded() bool
-	// Folders lists the folders by name.
-	Folders() []Folder
-	// Conversations lists the conversations of the current backend origin,
-	// newest first.
+	// Projects lists the active projects by name, the inbox last.
+	Projects() []agent.Project
+	// Workspaces lists the active workspaces in the order of their projects.
+	Workspaces() []agent.Workspace
+	Workspace(id agent.WorkspaceID) (agent.Workspace, bool)
+	Project(id agent.ProjectID) (agent.Project, bool)
+	// At returns the active workspace at a directory; "" is the inbox's.
+	At(dir string) (agent.Workspace, bool)
+	// Name is what the app calls the workspace at a directory: its title,
+	// else a worktree's branch, else its project's name, else the
+	// directory's own name.
+	Name(dir string) string
+	// Conversations lists the conversations in active workspaces, newest
+	// first.
 	Conversations() []Conversation
 	Lookup(id agent.SessionID) (Conversation, bool)
 
-	// AddFolder adds an absolute folder; adding a known one does nothing.
-	AddFolder(path string) error
-	// RemoveFolder forgets a folder and the app's record of its
-	// conversations, under every origin. The backend keeps them.
-	RemoveFolder(path string)
-	// ChooseFolder asks the user for a folder with the system dialog. A
-	// chosen folder is added, then done runs with it on the UI thread.
-	ChooseFolder(done func(path string))
-
-	// Retitle records a title the user gave a conversation.
+	// ChooseProject asks the user for a folder with the system dialog and adds
+	// it as a project; done runs on the UI thread with its workspace.
+	ChooseProject(done func(agent.Workspace))
+	// ArchiveProject archives a project and its workspaces; done runs on the
+	// UI thread once the backend has. A failure is reported in a toast.
+	ArchiveProject(id agent.ProjectID, done func())
+	// CreateWorkspace makes a workspace in a worktree; done runs on the UI
+	// thread with it, or with the error, which the caller reports.
+	CreateWorkspace(req agent.CreateWorkspace, done func(agent.Workspace, error))
+	// ArchiveWorkspace archives a worktree workspace; done runs on the UI
+	// thread with nil once the backend has, or with the error, which may be
+	// agent.ErrWorkUnsaved.
+	ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(error))
+	// Archived reads the archived workspaces of the active projects, newest
+	// first, from the backend; done runs on the UI thread.
+	Archived(done func([]agent.Workspace, error))
+	// RestoreWorkspace makes an archived workspace active again, recreating a
+	// worktree the backend removed; done runs on the UI thread with it, or
+	// with the error, which the caller reports.
+	RestoreWorkspace(id agent.WorkspaceID, done func(agent.Workspace, error))
+	// Refs reads what a project's repository offers a new workspace; done
+	// runs on the UI thread.
+	Refs(project agent.ProjectID, done func(agent.Refs, error))
+	// Retitle records a title the backend accepted for a conversation.
 	Retitle(id agent.SessionID, title string)
-	// Forget drops a conversation from the record, as after deleting it.
+	// Forget drops a conversation from the list, as after deleting it.
 	Forget(id agent.SessionID)
 }

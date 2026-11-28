@@ -30,12 +30,12 @@ type fixture struct {
 
 func record() *plugintest.Workspace {
 	return &plugintest.Workspace{
-		FolderSet: []workspace.Folder{{Path: "/w/app"}, {Path: "/w/web"}},
+		Dirs: []string{"/w/app", "/w/web"},
 		Convs: []workspace.Conversation{
-			{ID: "s1", Title: "First", Folder: "/w/app"},
+			{ID: "s1", Title: "First", Directory: "/w/app"},
 			{ID: "s2", Title: "Second"},
-			{ID: "s3", Title: "Third", Folder: "/w/web"},
-			{ID: "s4", Title: "Fourth", Folder: "/w/app"},
+			{ID: "s3", Title: "Third", Directory: "/w/web"},
+			{ID: "s4", Title: "Fourth", Directory: "/w/app"},
 		}}
 }
 
@@ -107,7 +107,7 @@ func TestTabsFollowNavigation(t *testing.T) {
 	// the tab into the conversation.
 	f.chat.NewChat("/w/app")
 	f.want(t, "First", "[New chat]")
-	f.ws.Convs = append(f.ws.Convs, workspace.Conversation{ID: "s5", Title: "Fifth", Folder: "/w/app"})
+	f.ws.Convs = append(f.ws.Convs, workspace.Conversation{ID: "s5", Title: "Fifth", Directory: "/w/app"})
 	f.chat.Conv = chat.Conversation{Session: "s5", Directory: "/w/app"}
 	kernel.Emit(f.h, chat.Changed, f.chat.Conv)
 	f.want(t, "First", "[Fifth]")
@@ -344,7 +344,7 @@ func TestTabMenuRenamesForgetsAndDeletes(t *testing.T) {
 	if err := tt.RightClick("First"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tt.Menu(); !slices.Equal(got, []string{"Rename…", "Close Tab", "Remove from List", "-", "Delete…"}) {
+	if got := tt.Menu(); !slices.Equal(got, []string{"Rename…", "Close Tab", "-", "Delete…"}) {
 		t.Fatalf("menu %q", got)
 	}
 	if err := tt.ChooseMenuItem("Rename…"); err != nil {
@@ -377,11 +377,9 @@ func TestTabMenuRenamesForgetsAndDeletes(t *testing.T) {
 	if len(f.host.Toasts) != 1 || f.tab("Better").ID == "" {
 		t.Fatalf("failed delete: toasts %q", f.host.Toasts)
 	}
-	f.p.forget(f.tab("Better")) // "Remove from List"
-	if _, ok := f.ws.Lookup("s1"); ok || f.a.Called("delete s1") != 1 {
-		t.Fatalf("remove from list: %+v calls %q", f.ws.Convs, f.a.Calls())
+	if _, ok := f.ws.Lookup("s1"); !ok {
+		t.Fatal("a failed delete dropped the conversation")
 	}
-	f.want(t, "[New chat]")
 }
 
 func TestTheStripShowsOneSpaceAtATime(t *testing.T) {
@@ -407,7 +405,7 @@ func TestTheStripShowsOneSpaceAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	for _, want := range []string{"Spaces", "web", "New Chat in app", "Open Folder…", "Remove “app”…"} {
+	for _, want := range []string{"Spaces", "web", "New Chat in app", "Add Project…", "Remove “app”…"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing from the switcher: %q", want, tt.Texts())
 		}
@@ -446,7 +444,7 @@ func TestClosingTheLastTabOfASpaceStaysInIt(t *testing.T) {
 	}
 }
 
-func TestRemovingAFolderClosesItsTabs(t *testing.T) {
+func TestRemovingAProjectClosesItsTabs(t *testing.T) {
 	f := start(t, nil, record())
 	f.open("s1")
 	f.chat.NewChat("")
@@ -454,13 +452,13 @@ func TestRemovingAFolderClosesItsTabs(t *testing.T) {
 	f.p.removing, f.p.removeOn = "/w/app", true
 	dt := ui.NewTester(f.p.dialogs, 500, 400)
 	dt.Frame()
-	if !dt.HasText("Its 2 conversations stay with the agent but are no longer listed here. Its tabs close. Nothing on disk changes.") {
+	if !dt.HasText("Its 2 conversations stay with the agent but are no longer listed here. Its tabs close. Nothing on disk changes, and adding the folder again brings it back.") {
 		t.Fatalf("dialog %q", dt.Texts())
 	}
 	f.p.confirmRemove()
 	f.h.Flush()
-	if len(f.ws.FolderSet) != 1 || slices.ContainsFunc(f.p.Tabs(), func(t tabs.Tab) bool { return t.Folder == "/w/app" }) {
-		t.Fatalf("folders %+v tabs %q", f.ws.FolderSet, f.summary())
+	if !slices.Equal(f.ws.ArchivedProjects, []agent.ProjectID{"prj:/w/app"}) || len(f.ws.Dirs) != 1 || slices.ContainsFunc(f.p.Tabs(), func(t tabs.Tab) bool { return t.Folder == "/w/app" }) {
+		t.Fatalf("folders %+v tabs %q", f.ws.Dirs, f.summary())
 	}
 }
 
@@ -558,5 +556,85 @@ func TestEndActionsGoAtTheStripsEnd(t *testing.T) {
 	f.h.Flush()
 	if ran != 1 {
 		t.Fatalf("ran %d times", ran)
+	}
+}
+
+// panesPlugin contributes a pane kind, as the terminal does, and records
+// what it is told.
+type panesPlugin struct {
+	log []string
+}
+
+func (f *panesPlugin) New() kernel.Plugin      { return f }
+func (*panesPlugin) Manifest() kernel.Manifest { return kernel.Manifest{ID: "panes"} }
+func (f *panesPlugin) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, tabs.Panes, "panes.term", 0, tabs.PaneKind{
+		Title:  func(ref string) string { return "Terminal " + ref },
+		Icon:   lucide.Terminal,
+		Render: func(c *ui.Context, t tabs.Tab) { ui.Text(c, "pane of "+t.Ref) },
+		Show:   func(t tabs.Tab) { f.log = append(f.log, "show "+t.Ref) },
+		Hide:   func() { f.log = append(f.log, "hide") },
+	})
+}
+
+func TestPanesOpenAsTabsInTheirSpace(t *testing.T) {
+	store := kerneltest.NewStore()
+	panes := &panesPlugin{}
+	f := start(t, store, record(), panes.New)
+	f.open("s1")
+	f.p.Open("panes.term", "1", "/w/app")
+	f.want(t, "First", "[Terminal 1]")
+	if f.host.PageID != panePage || !slices.Equal(panes.log, []string{"show 1"}) {
+		t.Fatalf("page %q, panes told %q", f.host.PageID, panes.log)
+	}
+	tt := ui.NewTester(f.p.paneView, 400, 300)
+	tt.Frame()
+	if !tt.HasText("pane of 1") {
+		t.Fatalf("the pane page shows %q", tt.Texts())
+	}
+
+	// Opening it again shows the same tab; another ref gets its own, and a
+	// second tab of the kind is shown without hiding the kind.
+	f.p.Open("panes.term", "1", "/w/app")
+	f.p.Open("panes.term", "2", "/w/app")
+	f.want(t, "First", "Terminal 1", "[Terminal 2]")
+	f.p.Select(f.tab("First").ID)
+	if !slices.Equal(panes.log, []string{"show 1", "show 2", "hide"}) || f.host.PageID != chat.PageID {
+		t.Fatalf("panes told %q, page %q", panes.log, f.host.PageID)
+	}
+
+	// A pane in another space switches the strip to it.
+	f.p.Open("panes.term", "3", "/w/web")
+	f.want(t, "First", "Terminal 1", "Terminal 2", "[Terminal 3]")
+	if f.p.Space() != "/w/web" {
+		t.Fatalf("space %q", f.p.Space())
+	}
+	f.p.Select(f.tab("Terminal 3").ID)
+	f.h.Close()
+
+	// Pane tabs come back after a restart, and the active one is shown.
+	panes2 := &panesPlugin{}
+	g := start(t, store, record(), panes2.New)
+	g.want(t, "First", "Terminal 1", "Terminal 2", "[Terminal 3]")
+	if !slices.Equal(panes2.log, []string{"show 3"}) || g.p.Space() != "/w/web" || g.host.PageID != panePage {
+		t.Fatalf("restored: panes told %q, space %q, page %q", panes2.log, g.p.Space(), g.host.PageID)
+	}
+}
+
+func TestPaneTabsCloseWhenTheirKindGoes(t *testing.T) {
+	runs := &runPages{}
+	f := start(t, nil, record(), runs.New)
+	scope := runs.ctx.NewScope()
+	_ = kernel.Contribute(scope, tabs.Panes, "runs.term", 0, tabs.PaneKind{
+		Title: func(ref string) string { return "Terminal " + ref }, Render: func(*ui.Context, tabs.Tab) {}})
+	f.h.Flush()
+	f.open("s1")
+	f.p.Open("runs.term", "1", "/w/app")
+	f.want(t, "First", "[Terminal 1]")
+	scope.Dispose()
+	f.h.Flush()
+	f.want(t, "[First]")
+	if f.host.PageID != chat.PageID {
+		t.Fatalf("page %q", f.host.PageID)
 	}
 }

@@ -88,7 +88,7 @@ func TestHeadlessRuntimeApprovalAndChanges(t *testing.T) {
 				protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventTurnInterrupted,
 				protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
 				protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
-				protocol.EventTerminalUpdated:
+				protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for turn completion")

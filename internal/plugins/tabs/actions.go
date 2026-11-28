@@ -2,7 +2,7 @@ package tabs
 
 import (
 	"context"
-	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -14,8 +14,8 @@ import (
 	"github.com/xleotranx/wada-kit/native"
 )
 
-// What a tab's menu and the space switcher do: rename, forget and delete a
-// conversation; remove a folder.
+// What a tab's menu and the space switcher do: rename and delete a
+// conversation; remove a project.
 
 // tabMenu fills a tab's context menu. A menu is built while rendering, so
 // anything that navigates or changes the record waits for the frame to end.
@@ -30,9 +30,6 @@ func (p *Plugin) tabMenu(m *ui.Menu, t tabs.Tab) {
 	}
 	if t.Kind != tabs.Conversation {
 		return
-	}
-	if m.Item("Remove from List").Chosen() {
-		p.ctx.Post(func() { p.forget(t) })
 	}
 	m.Separator()
 	if m.Item("Delete…").Chosen() {
@@ -75,36 +72,45 @@ func (p *Plugin) confirmDelete() {
 		return struct{}{}, p.agent.Delete(ctx, t.Session)
 	}, func(_ struct{}, err error) {
 		if err != nil {
-			p.host.Toast(ui.Toast{Title: "The conversation was not deleted", Description: err.Error() +
-				". It may already be gone; “Remove from List” drops it from All chats.", Type: components.ToastError})
+			p.host.Toast(ui.Toast{Title: "The conversation was not deleted", Description: err.Error(), Type: components.ToastError})
 			return
 		}
 		p.forget(t)
 	})
 }
 
-// forget closes a conversation's tab and drops it from the record; the
-// backend keeps whatever it has.
+// forget closes a deleted conversation's tab and drops it from the list.
 func (p *Plugin) forget(t tabs.Tab) {
 	p.Close(t.ID)
 	p.ws.Forget(t.Session)
 }
 
-// confirmRemove closes the folder's tabs and forgets the folder and its
-// conversations.
+// confirmRemove archives the space's project, then closes the tabs of its
+// workspaces.
 func (p *Plugin) confirmRemove() {
-	folder := p.removing
+	space := p.removing
 	p.removing, p.removeOn = "", false
-	var ids []string
-	for _, t := range p.tabs {
-		if t.Folder == folder {
-			ids = append(ids, t.ID)
+	w, ok := p.ws.At(space)
+	if !ok {
+		return
+	}
+	var dirs []string
+	for _, x := range p.ws.Workspaces() {
+		if x.Project == w.Project {
+			dirs = append(dirs, x.Directory)
 		}
 	}
-	for _, id := range ids {
-		p.Close(id)
-	}
-	p.ws.RemoveFolder(folder)
+	p.ws.ArchiveProject(w.Project, func() {
+		var ids []string
+		for _, t := range p.tabs {
+			if t.Kind != tabs.Page && slices.Contains(dirs, t.Folder) {
+				ids = append(ids, t.ID)
+			}
+		}
+		for _, id := range ids {
+			p.Close(id)
+		}
+	})
 }
 
 func (p *Plugin) dialogs(c *ui.Context) {
@@ -137,8 +143,8 @@ func (p *Plugin) dialogs(c *ui.Context) {
 		}
 	}
 	if p.removing != "" {
-		name := filepath.Base(p.removing)
-		native.Dialog(c, &p.removeOn, 380, "Remove folder", func() {
+		name := p.spaceName(p.removing)
+		native.Dialog(c, &p.removeOn, 380, "Remove project", func() {
 			ui.Text(c, "Remove “"+name+"” from Wada?").FontSize(14).FontWeight(600).SingleLine().Ellipsis("…")
 			ui.Text(c, p.removeDetail()).FontSize(12.5).TextColor(pal.Muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
@@ -155,11 +161,11 @@ func (p *Plugin) dialogs(c *ui.Context) {
 func (p *Plugin) removeDetail() string {
 	count := 0
 	for _, conv := range p.ws.Conversations() {
-		if conv.Folder == p.removing {
+		if conv.Directory == p.removing {
 			count++
 		}
 	}
-	detail := "Its tabs close. Nothing on disk changes."
+	detail := "Its tabs close. Nothing on disk changes, and adding the folder again brings it back."
 	switch count {
 	case 0:
 	case 1:

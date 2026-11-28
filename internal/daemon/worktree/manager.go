@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -94,55 +93,6 @@ func (m *Manager) List(ctx context.Context, dir string) ([]protocol.WorktreeInfo
 		}
 	}
 	return result, nil
-}
-
-// Create creates a new isolated Git worktree and branch for dir's repository,
-// applying any valid .worktreeinclude rules from repoRoot.
-func (m *Manager) Create(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	root, err := m.RepoRoot(ctx, dir)
-	if err != nil {
-		return protocol.WorktreeInfo{}, err
-	}
-	if strings.TrimSpace(baseRef) == "" {
-		baseRef = "HEAD"
-	}
-	// The ref can come from a model's tool call: never let it read as an option.
-	if strings.HasPrefix(baseRef, "-") {
-		return protocol.WorktreeInfo{}, fmt.Errorf("invalid base ref %q", baseRef)
-	}
-	slug := sanitizeSlug(name)
-	suffix := randomHex(2)
-	wtSlug := slug + "-" + suffix
-
-	sum := sha256.Sum256([]byte(root))
-	repoKey := hex.EncodeToString(sum[:6])
-	dest := filepath.Join(m.dataDir, "worktrees", repoKey, wtSlug)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return protocol.WorktreeInfo{}, err
-	}
-
-	branch := "wada/" + wtSlug
-	if _, err := gitOut(ctx, root, "worktree", "add", "-b", branch, "--", dest, baseRef); err != nil {
-		return protocol.WorktreeInfo{}, fmt.Errorf("worktree create failed: %w", err)
-	}
-
-	if resolved, rerr := filepath.EvalSymlinks(dest); rerr == nil {
-		dest = resolved
-	}
-	if err := applyWorktreeInclude(root, dest); err != nil {
-		return protocol.WorktreeInfo{}, fmt.Errorf("worktree created at %s, include copy failed: %w", dest, err)
-	}
-
-	head, _ := gitOut(ctx, dest, "rev-parse", "HEAD")
-	return protocol.WorktreeInfo{
-		RepoRoot:   root,
-		Path:       dest,
-		Branch:     branch,
-		HeadCommit: strings.TrimSpace(head),
-	}, nil
 }
 
 // Remove deletes a secondary worktree created for dir's repository.

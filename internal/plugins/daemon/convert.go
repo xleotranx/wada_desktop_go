@@ -32,11 +32,56 @@ func fromProtoSession(s protocol.Session) agent.Session {
 		ID:        agent.SessionID(s.ID),
 		Title:     s.Title,
 		Directory: s.Directory,
+		Workspace: agent.WorkspaceID(s.Workspace),
 		Provider:  s.Provider,
 		Updated:   s.Updated,
 		Model:     fromProtoModelRef(s.Model),
 		Cost:      s.Cost,
 	}
+}
+
+func fromProtoProject(p protocol.ProjectInfo) agent.Project {
+	return agent.Project{ID: agent.ProjectID(p.ID), Root: p.Root, Name: p.Name, Inbox: p.Inbox,
+		Created: p.Created, Archived: p.Archived}
+}
+
+func fromProtoWorkspace(w protocol.WorkspaceInfo) agent.Workspace {
+	return agent.Workspace{ID: agent.WorkspaceID(w.ID), Project: agent.ProjectID(w.Project),
+		Isolation: fromProtoIsolation(w.Isolation), Directory: w.Directory, WorktreeRoot: w.WorktreeRoot,
+		Branch: w.Branch, BaseRef: w.BaseRef, PR: w.PR, Title: w.Title, Created: w.Created, Archived: w.Archived}
+}
+
+func fromProtoIsolation(i protocol.Isolation) agent.Isolation {
+	switch i {
+	case protocol.IsolationWorktree:
+		return agent.IsolateWorktree
+	case protocol.IsolationExisting:
+		return agent.IsolateExisting
+	case protocol.IsolationProject:
+	}
+	return agent.IsolateProject
+}
+
+func toProtoIsolation(i agent.Isolation) protocol.Isolation {
+	switch i {
+	case agent.IsolateWorktree:
+		return protocol.IsolationWorktree
+	case agent.IsolateExisting:
+		return protocol.IsolationExisting
+	case agent.IsolateProject:
+	}
+	return protocol.IsolationProject
+}
+
+func toProtoStartMode(m agent.StartMode) protocol.StartMode {
+	switch m {
+	case agent.CheckoutBranch:
+		return protocol.StartCheckoutBranch
+	case agent.CheckoutPR:
+		return protocol.StartCheckoutPR
+	case agent.BranchOff:
+	}
+	return protocol.StartBranchOff
 }
 
 func fromProtoHarnessKind(k protocol.HarnessKind) agent.HarnessKind {
@@ -443,7 +488,8 @@ func fromProtoEvent(ev protocol.Event) agent.Event {
 	case protocol.EventSessionRenamed:
 		out.Kind = agent.SessionRenamed
 	case protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated,
+		protocol.EventScheduleUpdated:
 	}
 	return out
 }
@@ -465,4 +511,17 @@ func fromProtoTerminal(t protocol.TerminalInfo) terminal.Info {
 		ExitCode:  t.ExitCode,
 		CreatedAt: created,
 	}
+}
+
+func toProtoDelivery(d agent.Delivery) protocol.Delivery {
+	switch d {
+	case agent.DeliverSteer:
+		return protocol.DeliverSteer
+	case agent.DeliverQueue:
+		return protocol.DeliverQueue
+	case agent.DeliverInterrupt:
+		return protocol.DeliverInterrupt
+	case agent.DeliverAlone:
+	}
+	return ""
 }

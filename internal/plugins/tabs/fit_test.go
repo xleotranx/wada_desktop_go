@@ -43,9 +43,9 @@ func TestFitMovesTabsIntoTheOverflowButNeverTheActiveOne(t *testing.T) {
 func agentID(i int) agent.SessionID { return agent.SessionID(fmt.Sprintf("c%d", i)) }
 
 func TestANarrowStripStillReachesEveryTab(t *testing.T) {
-	ws := &plugintest.Workspace{FolderSet: []workspace.Folder{{Path: "/w/app"}}}
+	ws := &plugintest.Workspace{Dirs: []string{"/w/app"}}
 	for i := range 12 {
-		ws.Convs = append(ws.Convs, workspace.Conversation{ID: agentID(i), Title: fmt.Sprintf("Chat %d", i), Folder: "/w/app"})
+		ws.Convs = append(ws.Convs, workspace.Conversation{ID: agentID(i), Title: fmt.Sprintf("Chat %d", i), Directory: "/w/app"})
 	}
 	f := start(t, nil, ws)
 	for i := range 12 {

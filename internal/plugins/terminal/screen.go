@@ -1,4 +1,4 @@
-// Package terminal provides the interactive PTY terminal drawer for Wada.
+// Package terminal shows the daemon's interactive PTY terminals as tabs.
 package terminal
 
 import (

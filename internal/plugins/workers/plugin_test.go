@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,10 +20,7 @@ type fakeOrchService struct {
 	*plugintest.Agent
 	harnesses []agent.Harness
 	workers   []agent.Worker
-	worktrees []agent.Worktree
-	prs       map[string]*agent.PRStatus
-	removedWT string
-	lists     atomic.Int32
+	profiles  map[string][]agent.Profile // by directory
 }
 
 func (f *fakeOrchService) NewPlugin() kernel.Plugin { return &fakeOrchPlugin{f: f} }
@@ -35,7 +31,7 @@ type fakeOrchPlugin struct {
 
 func (p *fakeOrchPlugin) Manifest() kernel.Manifest {
 	base := p.f.Manifest()
-	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey, agent.WorktreesKey)
+	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey, agent.ProfilesKey)
 	return base
 }
 
@@ -46,14 +42,18 @@ func (p *fakeOrchPlugin) Setup(c *kernel.Context) error {
 	if err := kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p.f); err != nil {
 		return err
 	}
-	if err := kernel.Provide[agent.Workers](c, agent.WorkersKey, p.f); err != nil {
+	if err := kernel.Provide[agent.Profiles](c, agent.ProfilesKey, p.f); err != nil {
 		return err
 	}
-	return kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p.f)
+	return kernel.Provide[agent.Workers](c, agent.WorkersKey, p.f)
 }
 
 func (f *fakeOrchService) Harnesses(context.Context) ([]agent.Harness, error) {
 	return f.harnesses, nil
+}
+
+func (f *fakeOrchService) Profiles(_ context.Context, dir string) ([]agent.Profile, error) {
+	return f.profiles[dir], nil
 }
 
 func (f *fakeOrchService) Workers(_ context.Context, parent agent.SessionID) ([]agent.Worker, error) {
@@ -64,23 +64,6 @@ func (f *fakeOrchService) Workers(_ context.Context, parent agent.SessionID) ([]
 		}
 	}
 	return out, nil
-}
-
-func (f *fakeOrchService) ListWorktrees(context.Context, string) ([]agent.Worktree, error) {
-	f.lists.Add(1)
-	return f.worktrees, nil
-}
-
-func (f *fakeOrchService) RemoveWorktree(_ context.Context, _, path string, _ bool) error {
-	f.removedWT = path
-	return nil
-}
-
-func (f *fakeOrchService) PRStatus(_ context.Context, dir string) (*agent.PRStatus, error) {
-	if f.prs == nil {
-		return nil, nil
-	}
-	return f.prs[dir], nil
 }
 
 func waitCond(t *testing.T, h *kerneltest.Harness, what string, cond func() bool) {
@@ -148,15 +131,8 @@ func TestHarnessPickerStampsNewChatProvider(t *testing.T) {
 	}
 }
 
-func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
-	h, p, fa, _ := startTestPlugin(t)
-	fa.worktrees = []agent.Worktree{
-		{RepoRoot: "/repo", Path: "/repo", Branch: "main", IsMain: true},
-		{RepoRoot: "/repo", Path: "/tmp/wt/auth", Branch: "wada/auth-1234", Dirty: true},
-	}
-	fa.prs = map[string]*agent.PRStatus{
-		"/tmp/wt/auth": {Number: 42, State: "OPEN", Checks: "pass", URL: "https://github.com/xleotranx/wada_desktop_go/pull/42"},
-	}
+func TestWorkPanelDisplaysLiveWorkers(t *testing.T) {
+	h, p, _, _ := startTestPlugin(t)
 
 	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
 	kernel.Emit(h, agent.WorkerUpdated, agent.Worker{
@@ -169,7 +145,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 		WorktreePath:  "/tmp/wt/auth",
 		Status:        agent.WorkerRunning,
 	})
-	waitCond(t, h, "worktrees loaded", func() bool { return len(p.worktrees) == 2 && p.worktrees[1].PR != nil })
+	waitCond(t, h, "the worker is listed", func() bool { return len(p.workers) == 1 })
 
 	if !p.workShown() {
 		t.Fatal("expected work panel to be shown")
@@ -177,7 +153,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 
 	tt := ui.NewTester(p.workPanelView, 320, 480)
 	tt.Frame()
-	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234", "modified", "#42 · pass"} {
+	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234"} {
 		if !tt.HasText(want) {
 			t.Fatalf("work panel missing %q in %q", want, tt.Texts())
 		}
@@ -271,32 +247,61 @@ func TestStoppingWorkersIsIndependentAndReported(t *testing.T) {
 	})
 }
 
-func TestWorkerUpdatesRefreshWorktreesOnlyWhenTheyChange(t *testing.T) {
+func TestProfilesStartNewChats(t *testing.T) {
 	h, p, fa, _ := startTestPlugin(t)
-	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
-	waitCond(t, h, "first listing", func() bool { return fa.lists.Load() >= 1 })
-	h.Flush()
-	base := fa.lists.Load()
+	fa.profiles = map[string][]agent.Profile{"/repo": {
+		{Name: "reviewer", Provider: "claude", Description: "Reviews the diff", Source: agent.ProfileProject},
+		{Name: "planner", Instructions: "Plan first.", Source: agent.ProfileUser},
+	}}
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Directory: "/repo"})
+	waitCond(t, h, "the folder's profiles load", func() bool { return len(p.profiles) == 2 })
 
-	w := agent.Worker{ID: "wrk_1", ParentSession: "chief1", Provider: "claude", WorktreePath: "/tmp/wt/a", Status: agent.WorkerRunning}
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	waitCond(t, h, "listing for the new worker", func() bool { return fa.lists.Load() == base+1 })
-
-	w.Status = agent.WorkerWaitingApproval
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	w.Status = agent.WorkerRunning
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	h.Flush()
-	time.Sleep(20 * time.Millisecond)
-	h.Flush()
-	if got := fa.lists.Load(); got != base+1 {
-		t.Fatalf("status changes listed worktrees %d more times", got-base-1)
+	tt := ui.NewTester(p.harnessPickerView, 400, 80)
+	tt.Frame()
+	p.choose(profilePrefix + "reviewer")
+	if p.selectedProvider != "claude" || p.selectedProfile != "reviewer" {
+		t.Fatalf("chose the reviewer: provider %q profile %q", p.selectedProvider, p.selectedProfile)
+	}
+	out, _, err := p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"})
+	if err != nil || out.Profile != "reviewer" || out.Provider != "claude" {
+		t.Fatalf("outgoing = %+v, err=%v", out, err)
+	}
+	p.choose(profilePrefix + "planner")
+	out, _, err = p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"})
+	if err != nil || out.Profile != "planner" || out.Provider != "" {
+		t.Fatalf("outgoing with the embedded profile = %+v, err=%v", out, err)
+	}
+	p.choose("pig")
+	if out, _, _ := p.outgoing(chatcontract.Draft{Directory: "/repo", Text: "hi"}); out.Profile != "" {
+		t.Fatalf("choosing a harness kept the profile: %+v", out)
 	}
 
-	w.Status = agent.WorkerCompleted
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	waitCond(t, h, "listing when the worker finished", func() bool { return fa.lists.Load() == base+2 })
-	if p.seen["wrk_1"].status != agent.WorkerCompleted {
-		t.Fatalf("seen = %+v", p.seen["wrk_1"])
+	// A folder without the profile drops the choice.
+	p.choose(profilePrefix + "reviewer")
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Directory: "/elsewhere"})
+	waitCond(t, h, "the other folder's profiles load", func() bool { return p.profilesDir == "/elsewhere" && p.selectedProfile == "" })
+	if p.selectedProvider != agent.EmbeddedHarness {
+		t.Fatalf("provider after the profile went = %q", p.selectedProvider)
+	}
+}
+
+func TestStripShowsTheConversationsAgents(t *testing.T) {
+	h, p, _, _ := startTestPlugin(t)
+	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
+	for i, name := range []string{"Auth", "Docs"} {
+		kernel.Emit(h, agent.WorkerUpdated, agent.Worker{ID: agent.SessionID("wrk_" + name), ParentSession: "chief1",
+			Provider: "claude", Name: name, Status: agent.WorkerStatus(i)})
+	}
+	waitCond(t, h, "both workers are listed", func() bool { return len(p.workers) == 2 })
+	tt := ui.NewTester(p.stripView, 600, 40)
+	tt.Frame()
+	for _, want := range []string{"Auth", "Docs"} {
+		if !tt.HasText(want) {
+			t.Fatalf("strip missing %q in %q", want, tt.Texts())
+		}
+	}
+	p.openDrawer("wrk_Docs")
+	if p.inspected != "wrk_Docs" {
+		t.Fatal("the chip didn't open the inspector")
 	}
 }

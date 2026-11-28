@@ -28,6 +28,7 @@ import (
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workspace"
+	"wada-desktop-go/internal/plugins/worktrees"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -85,9 +86,10 @@ func startApp(t *testing.T) *app {
 			fn()
 		}
 	}
+	projects := &plugintest.Projects{Dirs: []string{"/work/app", "/work/docs"}, RefList: agent.Refs{Default: "origin/main"}}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a.New, files.New, chat.New, models.New, modes.New, usage.New, filechanges.New, attachments.New, markup.New, mentions.New,
-		workspace.New, folderpicker.New, tabs.New, explore.New, starters.New, palette.New, inspector.New, settings.New)
+		projects.New, workspace.New, folderpicker.New, worktrees.New, tabs.New, explore.New, starters.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,16 +103,18 @@ func startApp(t *testing.T) *app {
 			t.Error(err)
 		}
 	})
-	// The app lists only what it started: as if it had started these two.
+	tt := ui.NewTester(s.View, 1200, 800)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	ap := &app{t: t, shell: s, tt: tt, agent: a, files: files, run: run}
+	ap.settle()
+	// As if the app had started these two once the record was read: they open
+	// in background tabs.
 	for _, c := range []chatcontract.Conversation{
 		{Session: "s2", Title: "Write the docs", Directory: "/work/docs"},
 		{Session: "s1", Title: "Fix the parser", Directory: "/work/app"},
 	} {
 		kernel.Emit(s.Kernel, chatcontract.Started, c)
 	}
-	tt := ui.NewTester(s.View, 1200, 800)
-	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	ap := &app{t: t, shell: s, tt: tt, agent: a, files: files, run: run}
 	ap.settle()
 	return ap
 }
@@ -153,11 +157,11 @@ func (a *app) command(id string) {
 	a.t.Fatalf("no command %q", id)
 }
 
-// newChatIn switches to a folder with the space switcher, then opens a chat.
+// newChatIn switches to a workspace with the space switcher, then opens a chat.
 func (a *app) newChatIn(folder string) {
 	a.t.Helper()
 	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
-	current := "No folder"
+	current := "Inbox"
 	if space := open.Space(); space != "" {
 		current = path.Base(space)
 	}
@@ -176,13 +180,13 @@ func (a *app) openConversation(s agent.Session) {
 	a.settle()
 }
 
-func TestPaletteFindsTheFolderPickersCommand(t *testing.T) {
+func TestPaletteFindsTheWorkspacePickersCommand(t *testing.T) {
 	a := startApp(t)
 	a.command("palette.open")
-	a.tt.Type("open folder")
+	a.tt.Type("add project")
 	a.settle()
-	if !a.tt.HasText("Open Folder…") || !a.tt.HasText("⌘O") {
-		t.Fatalf("Open Folder… is not found: %q", a.tt.Texts())
+	if !a.tt.HasText("Add Project…") || !a.tt.HasText("⌘O") {
+		t.Fatalf("Add Project… is not found: %q", a.tt.Texts())
 	}
 }
 
@@ -234,7 +238,7 @@ func TestAllChatsOpensAConversationInATab(t *testing.T) {
 	}
 }
 
-func TestEachFolderIsASpaceOfItsOwn(t *testing.T) {
+func TestEachWorkspaceIsASpaceOfItsOwn(t *testing.T) {
 	a := startApp(t)
 	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
 	a.openConversation(agent.Session{ID: "s2", Title: "Write the docs", Directory: "/work/docs"})
@@ -252,7 +256,7 @@ func TestEachFolderIsASpaceOfItsOwn(t *testing.T) {
 		t.Fatalf("calls %q", a.agent.Calls())
 	}
 	ws, _ := kernel.Use[wscontract.Service](a.shell.Kernel, wscontract.ServiceKey)
-	if conv, ok := ws.Lookup("new"); !ok || conv.Folder != "/work/docs" {
+	if conv, ok := ws.Lookup("new"); !ok || conv.Directory != "/work/docs" || conv.Workspace != "wks:/work/docs" {
 		t.Fatalf("the new conversation was recorded as %+v, %v", conv, ok)
 	}
 }
@@ -343,7 +347,7 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	for _, e := range kernel.Items(a.shell.Kernel, chatcontract.Work) {
 		titles = append(titles, e.Value.Title)
 	}
-	if !slices.Equal(titles, []string{"Context", "File changes", "Cost"}) {
+	if !slices.Equal(titles, []string{"Workspace", "Context", "File changes", "Cost"}) {
 		t.Fatalf("work panel order: %q", titles)
 	}
 	for _, want := range []string{"Context", "File changes", "Cost", "1 file", "+3", "−1"} {
@@ -367,5 +371,22 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	a.settle()
 	if !a.tt.HasText("+new") {
 		t.Fatalf("file diff did not open: %q", a.tt.Texts())
+	}
+}
+
+func TestANewWorkspaceOpensAChatInItsSpace(t *testing.T) {
+	a := startApp(t)
+	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
+	a.command("worktrees.new")
+	if !a.tt.HasText("New workspace") || !a.tt.HasText("origin/main") {
+		t.Fatalf("the dialog: %q", a.tt.Texts())
+	}
+	if err := a.tt.Click("Create"); err != nil {
+		t.Fatal(err)
+	}
+	a.until("the new workspace's chat", func() bool { return a.tt.HasText("Space wada/") })
+	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+	if open.Space() != "/work/app-" {
+		t.Fatalf("space %q", open.Space())
 	}
 }

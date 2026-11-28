@@ -1,6 +1,6 @@
 // Package workers provides desktop UI for choosing the agent harness on new chats,
-// monitoring spawned external CLI workers, inspecting their live transcripts and
-// per-worktree diffs in a drawer, and managing secondary Git worktrees.
+// monitoring spawned external CLI workers, and inspecting their live transcripts
+// and diffs in a drawer.
 package workers
 
 import (
@@ -26,8 +26,8 @@ const (
 	tabDiff
 )
 
-// Plugin owns the composer harness picker, the Work panel's Agents & Worktrees
-// section, and the Worker Inspector drawer.
+// Plugin owns the composer harness picker, the Work panel's Agents section,
+// and the Worker Inspector drawer.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
@@ -42,18 +42,18 @@ type Plugin struct {
 	picker           onechat.PickerState
 	loadHarnesses    kernel.Task
 
+	// profiles are the agent profiles of the new chat's folder; the picker
+	// offers them beside the harnesses.
+	profiles        []agent.Profile
+	profilesDir     string
+	selectedProfile string
+	loadProfiles    kernel.Task
+
 	workers      []agent.Worker
 	workersEpoch uint64
-	worktrees    []agent.Worktree
 	loadWorkers  kernel.Task
-	loadTrees    kernel.Task
-	// One task per worker stopped and per worktree removed, so one action
-	// never cancels another's.
-	stopTasks   map[agent.SessionID]*kernel.Task
-	removeTasks map[string]*kernel.Task
-	// seen is each worker's last status and worktree, to refresh the
-	// worktrees only when one appears, moves or finishes.
-	seen map[agent.SessionID]workerMark
+	// One task per worker stopped, so one action never cancels another's.
+	stopTasks map[agent.SessionID]*kernel.Task
 
 	inspected      agent.SessionID
 	drawerTab      drawerTab
@@ -65,18 +65,13 @@ type Plugin struct {
 	loadDrawer     kernel.Task
 }
 
-type workerMark struct {
-	status agent.WorkerStatus
-	path   string
-}
-
 func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID:          "workers",
-		Title:       "Agents & Worktrees",
-		Description: "Select an agent harness, supervise external CLI workers, and inspect worktrees and diffs.",
+		Title:       "Agents",
+		Description: "Select an agent harness, supervise external CLI workers, and inspect their diffs.",
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey},
 	}
 }
@@ -89,8 +84,6 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.selectedProvider = agent.EmbeddedHarness
 	p.drawerOpenDiff = map[string]bool{}
 	p.stopTasks = map[agent.SessionID]*kernel.Task{}
-	p.removeTasks = map[string]*kernel.Task{}
-	p.seen = map[agent.SessionID]workerMark{}
 
 	p.follow(p.chat.Current())
 	kernel.On(c, chat.Changed, p.follow)
@@ -100,6 +93,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, kernel.PluginsChanged, func([]kernel.Status) {
 		if p.agent.Status().State == agent.Ready {
 			p.reloadHarnesses()
+			p.reloadProfiles()
 			p.reloadWorkspaceState()
 		}
 	})
@@ -107,6 +101,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	if p.agent.Status().State == agent.Ready {
 		p.attempt = p.agent.Status().Attempt
 		p.reloadHarnesses()
+		p.reloadProfiles()
 		p.reloadWorkspaceState()
 	}
 
@@ -116,8 +111,9 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Transform(c, chat.Outgoing, 5000, p.textOnly)
 
 	kernel.Contribute(c, chat.ComposerAccessory, "workers.harness", -5, shell.View{Render: p.harnessPickerView})
+	kernel.Contribute(c, chat.ComposerStrip, "workers.strip", 0, chat.StripView{Shown: p.workShown, Render: p.stripView})
 	kernel.Contribute(c, chat.Work, "workers.panel", 15, chat.WorkSection{
-		Title:  "Agents & worktrees",
+		Title:  "Agents",
 		Shown:  p.workShown,
 		Render: p.workPanelView,
 	})
@@ -127,23 +123,14 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 }
 
 func (p *Plugin) workShown() bool {
-	return p.conv.Session != "" && (len(p.workers) > 0 || p.secondaryWorktreeCount() > 0)
-}
-
-func (p *Plugin) secondaryWorktreeCount() int {
-	count := 0
-	for _, wt := range p.worktrees {
-		if !wt.IsMain {
-			count++
-		}
-	}
-	return count
+	return p.conv.Session != "" && len(p.workers) > 0
 }
 
 func (p *Plugin) onStatusChanged(st agent.Status) {
 	if st.State == agent.Ready && st.Attempt != p.attempt {
 		p.attempt = st.Attempt
 		p.reloadHarnesses()
+		p.reloadProfiles()
 		p.reloadWorkspaceState()
 	}
 }
@@ -156,22 +143,26 @@ func (p *Plugin) follow(conv chat.Conversation) {
 		return
 	}
 	p.loadWorkers.Cancel()
-	p.loadTrees.Cancel()
 	p.loadDrawer.Cancel()
 	p.workers = nil
 	p.workersEpoch++
-	p.worktrees = nil
 	if changedSess {
 		p.closeDrawer()
 	}
 	if p.agent.Status().State == agent.Ready {
 		p.reloadWorkspaceState()
+		if conv.Session == "" && conv.Directory != p.profilesDir {
+			p.reloadProfiles()
+		}
 	}
 }
 
 func (p *Plugin) outgoing(d chat.Draft) (chat.Draft, func(), error) {
 	if d.Session != "" {
 		return d, nil, nil
+	}
+	if prof, ok := p.profile(p.selectedProfile); ok {
+		d.Profile = prof.Name
 	}
 	chosen := p.selectedProvider
 	if !agent.ExternalHarness(chosen) {
@@ -238,6 +229,63 @@ func (p *Plugin) reloadHarnesses() {
 	})
 }
 
+// profile is the named profile of the new chat's folder.
+func (p *Plugin) profile(name string) (agent.Profile, bool) {
+	if name == "" {
+		return agent.Profile{}, false
+	}
+	i := slices.IndexFunc(p.profiles, func(pr agent.Profile) bool { return pr.Name == name })
+	if i < 0 {
+		return agent.Profile{}, false
+	}
+	return p.profiles[i], true
+}
+
+// choose picks a harness or, with an ID from profileOption, a profile and
+// its harness.
+func (p *Plugin) choose(id string) {
+	name, isProfile := strings.CutPrefix(id, profilePrefix)
+	if !isProfile {
+		p.selectedProvider, p.selectedProfile = id, ""
+		return
+	}
+	prof, ok := p.profile(name)
+	if !ok {
+		return
+	}
+	p.selectedProfile = prof.Name
+	p.selectedProvider = cmp.Or(prof.Provider, agent.EmbeddedHarness)
+}
+
+// profilePrefix marks a picker option that is a profile, not a harness.
+const profilePrefix = "profile:"
+
+func (p *Plugin) reloadProfiles() {
+	svc, ok := kernel.Use(p.ctx, agent.ProfilesKey)
+	dir := p.conv.Directory
+	p.profilesDir = dir
+	if !ok {
+		p.loadProfiles.Cancel()
+		p.profiles = nil
+		return
+	}
+	kernel.Go(p.ctx, &p.loadProfiles, func(ctx context.Context) ([]agent.Profile, error) {
+		return svc.Profiles(ctx, dir)
+	}, func(list []agent.Profile, err error) {
+		if dir != p.profilesDir {
+			return
+		}
+		if err != nil {
+			list = nil
+		}
+		p.profiles = list
+		if _, ok := p.profile(p.selectedProfile); !ok && p.selectedProfile != "" {
+			p.selectedProfile, p.selectedProvider = "", agent.EmbeddedHarness
+		}
+		p.ctx.Invalidate()
+	})
+}
+
 func (p *Plugin) reloadWorkspaceState() {
 	if p.conv.Session == "" && p.conv.Directory == "" {
 		return
@@ -265,31 +313,6 @@ func (p *Plugin) reloadWorkspaceState() {
 			})
 		}
 	}
-	if p.conv.Directory != "" {
-		if tsvc, ok := kernel.Use(p.ctx, agent.WorktreesKey); ok {
-			dir := p.conv.Directory
-			kernel.Go(p.ctx, &p.loadTrees, func(ctx context.Context) ([]agent.Worktree, error) {
-				list, err := tsvc.ListWorktrees(ctx, dir)
-				if err != nil {
-					return nil, err
-				}
-				for i := range list {
-					if !list[i].IsMain {
-						if pr, perr := tsvc.PRStatus(ctx, list[i].Path); perr == nil && pr != nil {
-							list[i].PR = pr
-						}
-					}
-				}
-				return list, nil
-			}, func(list []agent.Worktree, err error) {
-				if err != nil || dir != p.conv.Directory {
-					return
-				}
-				p.worktrees = list
-				p.ctx.Invalidate()
-			})
-		}
-	}
 }
 
 func (p *Plugin) onWorkerUpdated(w agent.Worker) {
@@ -309,40 +332,6 @@ func (p *Plugin) onWorkerUpdated(w agent.Worker) {
 		}
 		p.ctx.Invalidate()
 	}
-	prev, known := p.seen[w.ID]
-	p.seen[w.ID] = workerMark{status: w.Status, path: w.WorktreePath}
-	moved := !known || prev.path != w.WorktreePath || (isTerminalWorkerStatus(w.Status) && !isTerminalWorkerStatus(prev.status))
-	if moved && p.conv.Directory != "" && (w.ParentSession == p.conv.Session || w.WorktreePath != "") {
-		p.refreshWorktreesOnly()
-	}
-}
-
-func (p *Plugin) refreshWorktreesOnly() {
-	tsvc, ok := kernel.Use(p.ctx, agent.WorktreesKey)
-	if !ok || p.conv.Directory == "" {
-		return
-	}
-	dir := p.conv.Directory
-	kernel.Go(p.ctx, &p.loadTrees, func(ctx context.Context) ([]agent.Worktree, error) {
-		list, err := tsvc.ListWorktrees(ctx, dir)
-		if err != nil {
-			return nil, err
-		}
-		for i := range list {
-			if !list[i].IsMain {
-				if pr, perr := tsvc.PRStatus(ctx, list[i].Path); perr == nil && pr != nil {
-					list[i].PR = pr
-				}
-			}
-		}
-		return list, nil
-	}, func(list []agent.Worktree, err error) {
-		if err != nil || dir != p.conv.Directory {
-			return
-		}
-		p.worktrees = list
-		p.ctx.Invalidate()
-	})
 }
 
 func (p *Plugin) onEvents(batch []agent.Event) {
@@ -456,29 +445,6 @@ func (p *Plugin) stopWorker(id agent.SessionID) {
 			p.host.Toast(ui.Toast{Title: "Could not stop the agent", Description: err.Error(), Type: components.ToastError})
 		}
 		p.reloadWorkspaceState()
-	})
-}
-
-func (p *Plugin) removeWorktree(wtPath string) {
-	tsvc, ok := kernel.Use(p.ctx, agent.WorktreesKey)
-	if !ok || p.conv.Directory == "" {
-		return
-	}
-	dir := p.conv.Directory
-	task := p.removeTasks[wtPath]
-	if task == nil {
-		task = new(kernel.Task)
-		p.removeTasks[wtPath] = task
-	}
-	kernel.Go(p.ctx, task, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, tsvc.RemoveWorktree(ctx, dir, wtPath, false)
-	}, func(_ struct{}, err error) {
-		delete(p.removeTasks, wtPath)
-		if err != nil {
-			p.host.Toast(ui.Toast{Title: "Could not remove worktree", Description: err.Error(), Type: components.ToastError})
-			return
-		}
-		p.refreshWorktreesOnly()
 	})
 }
 

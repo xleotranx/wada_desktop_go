@@ -21,7 +21,20 @@ type SessionOptions struct {
 	Command   string
 	Args      []string
 	Env       []string
+	// MCP, when set, is an MCP server the session's agent may call, given to
+	// the CLI in its own way.
+	MCP *MCPServer
 }
+
+// MCPServer is a streamable-HTTP MCP server and the bearer token it takes.
+type MCPServer struct {
+	Name  string
+	URL   string
+	Token string
+}
+
+// mcpTokenEnv carries the token to CLIs that read it from the environment.
+const mcpTokenEnv = "WADA_MCP_TOKEN"
 
 // ErrNotSent reports that Session.Send refused a prompt before any of it
 // reached the harness, so sending it again cannot run it twice. Any other Send

@@ -2,10 +2,10 @@ package tabs
 
 import (
 	"cmp"
-	"path/filepath"
 	"slices"
 	"strconv"
 
+	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/tabs"
 
@@ -81,22 +81,21 @@ func (p *Plugin) strip(c *ui.Context) {
 	})
 }
 
-// spaceName is what the strip calls a folder.
-func spaceName(folder string) string {
-	if folder == "" {
-		return "No folder"
-	}
-	return filepath.Base(folder)
-}
+// spaceName is what the strip calls a space: its workspace's name.
+func (p *Plugin) spaceName(space string) string { return p.ws.Name(space) }
 
 // switcher is the space on show, in its project color, opening the list of
 // spaces.
 func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
-	name := spaceName(p.space)
+	name := p.spaceName(p.space)
 	b := ui.ButtonBase(c).Label("Space "+name).Height(controlSize).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
 		Cursor(ui.CursorPointer)
 	if !p.switching { // the tooltip would cover the list
-		b.Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder")))
+		dir := p.space
+		if box, ok := p.ws.At(""); ok && dir == "" {
+			dir = box.Directory
+		}
+		b.Tooltip(native.Tilde(cmp.Or(dir, "the agent's default folder")))
 	}
 	switch {
 	case p.switching:
@@ -118,10 +117,27 @@ func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	})
 }
 
-// spaces lists the folders to switch between, then what acts on them.
+// spaces lists the workspaces to switch between, then what acts on them.
 func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	ui.Text(c, "Spaces").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).Padding(2, 8, 4, 8)
+	// A project with more than one workspace shows its name above them.
+	count := map[agent.ProjectID]int{}
+	for _, w := range p.ws.Workspaces() {
+		count[w.Project]++
+	}
+	var heading agent.ProjectID
 	for _, folder := range p.spaceList() {
+		w, known := p.ws.At(folder)
+		nested := known && count[w.Project] > 1
+		if nested && w.Project != heading {
+			heading = w.Project
+			if pr, ok := p.ws.Project(w.Project); ok {
+				c.Key("project:" + string(pr.ID))
+				ui.Text(c, pr.Name).FontSize(12).FontWeight(500).TextColor(pal.Muted).Padding(6, 8, 2, 8).SingleLine().Ellipsis("…")
+			}
+		} else if !nested {
+			heading = ""
+		}
 		c.Key("space:" + folder)
 		n, state := 0, tabs.Idle
 		for _, t := range p.tabs {
@@ -131,8 +147,11 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 			}
 		}
 		current := folder == p.space
-		row := ui.ButtonBase(c).Label("Switch to "+spaceName(folder)).FillWidth().Height(30).Padding(0, 8).Radius(6).Gap(8).
+		row := ui.ButtonBase(c).Label("Switch to "+p.spaceName(folder)).FillWidth().Height(30).Padding(0, 8).Radius(6).Gap(8).
 			AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		if nested {
+			row.Padding(0, 8, 0, 20)
+		}
 		if current {
 			row.Background(pal.Selected)
 		} else if row.Hovered() {
@@ -144,7 +163,7 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 		})
 		row.Children(func() {
 			p.spaceDot(c, pal, folder)
-			ui.Text(c, spaceName(folder)).FontSize(13).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Text(c, p.spaceName(folder)).FontSize(13).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 			stateMark(c, pal, state)
 			if n > 0 {
 				ui.Text(c, strconv.Itoa(n)).FontSize(12).TextColor(pal.Faint).FontFeatures("tnum").Shrink(0)
@@ -170,22 +189,34 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 		b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(pal.Text).SingleLine().Ellipsis("…") })
 	}
 	space := p.space
-	action("New Chat in "+spaceName(space), func() { p.openDraft(space) })
-	action("Open Folder…", func() { p.ws.ChooseFolder(p.openDraft) })
-	if space != "" {
-		action("Remove “"+spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
+	action("New Chat in "+p.spaceName(space), func() { p.openDraft(space) })
+	action("Add Project…", func() { p.ws.ChooseProject(func(w agent.Workspace) { p.openDraft(p.spaceOf(w.Directory)) }) })
+	if p.hasCommand(newWorkspaceID) {
+		action("New Workspace…", func() { p.runCommand(newWorkspaceID) })
+	}
+	if p.hasCommand(restoreWorkspaceID) {
+		action("Restore Workspace…", func() { p.runCommand(restoreWorkspaceID) })
+	}
+	if w, ok := p.ws.At(space); ok && space != "" {
+		if w.Isolation == agent.IsolateProject {
+			action("Remove “"+p.spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
+		} else if p.hasCommand(archiveWorkspaceID) {
+			action("Archive “"+p.spaceName(space)+"”…", func() { p.runCommand(archiveWorkspaceID) })
+		}
 	}
 	if p.hasPage(settings.PageID) {
 		action("Tab Settings…", func() { p.host.ShowPage(settings.PageID) })
 	}
 }
 
-// spaceList is every space: the workspace's folders, then the folders open
-// tabs work in that it does not list, the default folder among them.
+// spaceList is every space: the active workspaces, the inbox last, then the
+// directories open tabs work in that no active workspace has.
 func (p *Plugin) spaceList() []string {
 	var out []string
-	for _, f := range p.ws.Folders() {
-		out = append(out, f.Path)
+	for _, w := range p.ws.Workspaces() {
+		if sp := p.spaceOf(w.Directory); !slices.Contains(out, sp) {
+			out = append(out, sp)
+		}
 	}
 	for _, t := range p.tabs {
 		if t.Kind != tabs.Page && !slices.Contains(out, t.Folder) {
@@ -299,6 +330,12 @@ func (p *Plugin) marker(c *ui.Context, pal native.Palette, t tabs.Tab) {
 		stateMark(c, pal, state)
 	case t.Kind == tabs.Draft:
 		ui.Icon(c, lucide.Plus()).FontSize(12).TextColor(pal.Muted).Shrink(0)
+	case t.Kind == tabs.Pane:
+		p.invokePane(t.Pane, func(k tabs.PaneKind) {
+			if k.Icon != nil {
+				ui.Icon(c, k.Icon()).FontSize(12).TextColor(pal.Muted).Shrink(0)
+			}
+		})
 	}
 }
 
@@ -354,4 +391,34 @@ func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) 
 		ui.Icon(c, lucide.ChevronsRight()).FontSize(14).TextColor(pal.Muted)
 		ui.Text(c, strconv.Itoa(len(hidden))).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum")
 	})
+}
+
+// The worktrees plugin's commands, which the switcher offers when they are
+// there.
+const (
+	newWorkspaceID     = "worktrees.new"
+	archiveWorkspaceID = "worktrees.archive"
+	restoreWorkspaceID = "worktrees.restore"
+)
+
+func (p *Plugin) hasCommand(id string) bool {
+	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// runCommand runs a contributed command when it is enabled.
+func (p *Plugin) runCommand(id string) {
+	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
+		if e.ID == id {
+			kernel.Invoke(p.ctx, e, func(cmd kernel.Command) {
+				if cmd.Run != nil && (cmd.Enabled == nil || cmd.Enabled()) {
+					cmd.Run()
+				}
+			})
+		}
+	}
 }

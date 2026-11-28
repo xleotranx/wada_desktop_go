@@ -39,7 +39,7 @@ func (x *commands) Setup(c *kernel.Context) error {
 func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Workspace, *plugintest.Chat, *commands, *ui.Tester) {
 	t.Helper()
 	ws := &plugintest.Workspace{Convs: []workspace.Conversation{
-		{ID: "s1", Title: "Fix the parser", Folder: "/w/app", Updated: 30},
+		{ID: "s1", Title: "Fix the parser", Directory: "/w/app", Updated: 30},
 		{ID: "s2", Title: "Write docs", Updated: 20},
 		{ID: "s3", Title: "Plan the release", Updated: 10},
 		{ID: "s4", Title: "Tidy the tests", Updated: 9},
@@ -68,7 +68,7 @@ func TestListsRecentConversationsThenEveryCommand(t *testing.T) {
 		t.Fatal("the palette is drawn while closed")
 	}
 	open(h, p, tt)
-	for _, want := range []string{"Fix the parser", "/w/app", "Write docs", "Say Hello", "⇧⌘H", "Stop Everything"} {
+	for _, want := range []string{"Fix the parser", "app", "Write docs", "Say Hello", "⇧⌘H", "Stop Everything"} {
 		if !tt.HasText(want) {
 			t.Fatalf("%q is missing from %q", want, tt.Texts())
 		}
@@ -201,10 +201,10 @@ func TestShortcutLabels(t *testing.T) {
 
 func TestGroupsOpenTabsEarlierChatsAndProjects(t *testing.T) {
 	ws := &plugintest.Workspace{
-		FolderSet: []workspace.Folder{{Path: "/w/app"}, {Path: "/w/web"}},
+		Dirs: []string{"/w/app", "/w/web"},
 		Convs: []workspace.Conversation{
-			{ID: "s1", Title: "Fix the parser", Folder: "/w/app"},
-			{ID: "s2", Title: "Write docs", Folder: "/w/app"},
+			{ID: "s1", Title: "Fix the parser", Directory: "/w/app"},
+			{ID: "s2", Title: "Write docs", Directory: "/w/app"},
 		}}
 	chat := &plugintest.Chat{}
 	var p *Plugin
@@ -230,9 +230,9 @@ func TestOnlyTheLatestFoldersShowBeforeTyping(t *testing.T) {
 	ws := &plugintest.Workspace{}
 	for i := range 8 {
 		path := "/w/f" + string(rune('a'+i))
-		ws.FolderSet = append(ws.FolderSet, workspace.Folder{Path: path, Added: int64(i)})
+		ws.Dirs = append(ws.Dirs, path)
 	}
-	ws.Convs = []workspace.Conversation{{ID: "s1", Title: "Old work", Folder: "/w/fa", Updated: 100}}
+	ws.Convs = []workspace.Conversation{{ID: "s1", Title: "Old work", Directory: "/w/fa", Updated: 100}}
 	var p *Plugin
 	h := kerneltest.New(t, ws.New, (&plugintest.Chat{}).New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()

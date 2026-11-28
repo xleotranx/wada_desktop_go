@@ -36,6 +36,11 @@ worktrees, and PTY terminals on your own workstation or server:
    - Open `http://my-mac.tailnet.ts.net:6767` on your phone or laptop and install it
      as a PWA, or run `wada daemon pair --app-url http://my-mac.tailnet.ts.net:6767`
      to generate an `#offer=` link.
+   - Browsers install and keep a PWA only from a secure origin: HTTPS, or
+     `localhost`. Behind Caddy or `tailscale serve` it works offline once
+     loaded: its service worker keeps this build's shell, scripts and icons, and
+     a new build waits until you choose **Reload** in the app's banner, so a
+     running chat is never swapped out under you.
 
 ---
 
@@ -89,6 +94,20 @@ worktrees, and PTY terminals on your own workstation or server:
    typed; `wada run` without it uses the daemon's inbox.
    Everything inside `#offer=...` remains in the browser URL hash fragment and is
    never sent in HTTP requests.
+
+   A machine you can SSH to needs no pairing, open port or password: install
+   `wadad` there and add it as an `ssh://` host.
+   ```sh
+   wada host add devbox ssh://me@devbox.local
+   wada --host devbox workspace ls
+   ```
+   The client runs the system's `ssh -T -o BatchMode=yes` (set `WADA_SSH` for
+   another binary), so the host must take your keys or agent; nothing prompts.
+   On the host it runs `sh -lc 'exec wadad --stdio-bridge'`, or the host's
+   `--ssh-command`. The bridge finds the host's daemon, starting it detached
+   when none runs, gives the client its local credential and carries the
+   WebSocket connection over ssh's stdio. Desktop takes the same `ssh://` target
+   under **Settings → Daemon → Add remote host**.
 
 4. *(Optional)* Run `wadad` + `wadad-term` + Web UI inside Docker too:
    ```sh

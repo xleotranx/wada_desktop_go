@@ -97,6 +97,9 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 	if opts.Endpoint == "" {
 		return nil, errors.New("client: endpoint is required")
 	}
+	if IsSSHEndpoint(opts.Endpoint) {
+		return DialSSH(ctx, opts.Endpoint, "", opts)
+	}
 	wsURL := normalizeWSURL(opts.Endpoint)
 	ws, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, http.Header{})
 	if err != nil {
@@ -694,23 +697,16 @@ func (c *Client) Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error) 
 	return out, c.Call(ctx, protocol.MethodHarnessesList, nil, &out)
 }
 
+// Profiles is the agent profiles for an agent starting in dir, or the user's
+// only when dir is "".
+func (c *Client) Profiles(ctx context.Context, dir string) ([]protocol.AgentProfile, error) {
+	var out []protocol.AgentProfile
+	return out, c.Call(ctx, protocol.MethodProfilesList, protocol.ProfilesListRequest{Directory: dir}, &out)
+}
+
 func (c *Client) Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error) {
 	var out []protocol.WorkerInfo
 	return out, c.Call(ctx, protocol.MethodWorkersList, protocol.WorkersListRequest{ParentSession: parentSession}, &out)
-}
-
-func (c *Client) ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error) {
-	var out []protocol.WorktreeInfo
-	return out, c.Call(ctx, protocol.MethodWorktreesList, protocol.WorktreesListRequest{Directory: dir}, &out)
-}
-
-func (c *Client) CreateWorktree(ctx context.Context, req protocol.WorktreeCreateRequest) (protocol.WorktreeInfo, error) {
-	var out protocol.WorktreeInfo
-	return out, c.Call(ctx, protocol.MethodWorktreeCreate, req, &out)
-}
-
-func (c *Client) RemoveWorktree(ctx context.Context, req protocol.WorktreeRemoveRequest) error {
-	return c.Call(ctx, protocol.MethodWorktreeRemove, req, nil)
 }
 
 func (c *Client) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {
@@ -891,4 +887,133 @@ func (c *Client) PairingOffer(ctx context.Context, appURL string) (protocol.Pair
 
 func (c *Client) SetPassword(ctx context.Context, password string) error {
 	return c.Call(ctx, protocol.MethodDaemonSetPassword, protocol.SetPasswordRequest{Password: password}, nil)
+}
+
+func (c *Client) Projects(ctx context.Context, archived bool) ([]protocol.ProjectInfo, error) {
+	var out []protocol.ProjectInfo
+	return out, c.Call(ctx, protocol.MethodProjectsList, protocol.ProjectsListRequest{Archived: archived}, &out)
+}
+
+func (c *Client) AddProject(ctx context.Context, root string) (protocol.ProjectAddResponse, error) {
+	var out protocol.ProjectAddResponse
+	return out, c.Call(ctx, protocol.MethodProjectAdd, protocol.ProjectAddRequest{Root: root}, &out)
+}
+
+func (c *Client) RenameProject(ctx context.Context, id, name string) error {
+	return c.Call(ctx, protocol.MethodProjectRename, protocol.ProjectRenameRequest{Project: id, Name: name}, nil)
+}
+
+func (c *Client) ArchiveProject(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodProjectArchive, protocol.ProjectArchiveRequest{Project: id}, nil)
+}
+
+func (c *Client) Workspaces(ctx context.Context, req protocol.WorkspacesListRequest) ([]protocol.WorkspaceInfo, error) {
+	var out []protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspacesList, req, &out)
+}
+
+func (c *Client) RenameWorkspace(ctx context.Context, id, title string) error {
+	return c.Call(ctx, protocol.MethodWorkspaceRename, protocol.WorkspaceRenameRequest{Workspace: id, Title: title}, nil)
+}
+
+func (c *Client) CreateWorkspace(ctx context.Context, req protocol.WorkspaceCreateRequest) (protocol.WorkspaceInfo, error) {
+	var out protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceCreate, req, &out)
+}
+
+func (c *Client) ArchiveWorkspace(ctx context.Context, id string, force bool) error {
+	return c.Call(ctx, protocol.MethodWorkspaceArchive, protocol.WorkspaceArchiveRequest{Workspace: id, Force: force}, nil)
+}
+
+func (c *Client) RestoreWorkspace(ctx context.Context, id string) (protocol.WorkspaceInfo, error) {
+	var out protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceRestore, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+func (c *Client) WorkspaceRefs(ctx context.Context, project string) (protocol.WorkspaceRefs, error) {
+	var out protocol.WorkspaceRefs
+	return out, c.Call(ctx, protocol.MethodWorkspaceRefs, protocol.WorkspaceRefsRequest{Project: project}, &out)
+}
+
+func (c *Client) WorkspaceChanges(ctx context.Context, id string) ([]protocol.FileChange, error) {
+	var out []protocol.FileChange
+	return out, c.Call(ctx, protocol.MethodWorkspaceChanges, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// WorkspaceConfig reads a workspace's wada.json, its setup and its services.
+func (c *Client) WorkspaceConfig(ctx context.Context, id string) (protocol.WorkspaceConfig, error) {
+	var out protocol.WorkspaceConfig
+	return out, c.Call(ctx, protocol.MethodWorkspaceConfig, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// TrustWorkspaceConfig allows the wada.json with this hash to run in the
+// workspace's project.
+func (c *Client) TrustWorkspaceConfig(ctx context.Context, id, hash string) error {
+	return c.Call(ctx, protocol.MethodWorkspaceTrust, protocol.WorkspaceTrustRequest{Workspace: id, Hash: hash}, nil)
+}
+
+// RunSetup starts the workspace's setup, or returns the one running.
+func (c *Client) RunSetup(ctx context.Context, id string) (protocol.TerminalInfo, error) {
+	var out protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceSetup, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// StartService starts a service of the workspace, or returns it running.
+func (c *Client) StartService(ctx context.Context, id, name string) (protocol.TerminalInfo, error) {
+	var out protocol.TerminalInfo
+	return out, c.Call(ctx, protocol.MethodServiceStart, protocol.WorkspaceServiceRequest{Workspace: id, Name: name}, &out)
+}
+
+// StopService ends a running service of the workspace.
+func (c *Client) StopService(ctx context.Context, id, name string) error {
+	return c.Call(ctx, protocol.MethodServiceStop, protocol.WorkspaceServiceRequest{Workspace: id, Name: name}, nil)
+}
+
+// DraftCommit writes a commit message for everything changed in a workspace.
+func (c *Client) DraftCommit(ctx context.Context, id string) (string, error) {
+	var out protocol.CommitDraft
+	return out.Message, c.Call(ctx, protocol.MethodCommitDraft, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// Commit commits everything changed in a workspace.
+func (c *Client) Commit(ctx context.Context, id, message string) (string, error) {
+	var out protocol.CommitResult
+	return out.SHA, c.Call(ctx, protocol.MethodCommit, protocol.WorkspaceCommitRequest{Workspace: id, Message: message}, &out)
+}
+
+// DraftPR writes a pull request's title and body for a workspace.
+func (c *Client) DraftPR(ctx context.Context, id string) (protocol.PRDraft, error) {
+	var out protocol.PRDraft
+	return out, c.Call(ctx, protocol.MethodPRDraft, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+// CreateWorkspacePR pushes a workspace's branch and opens a pull request.
+func (c *Client) CreateWorkspacePR(ctx context.Context, req protocol.WorkspacePRRequest) (*protocol.PRStatus, error) {
+	var out *protocol.PRStatus
+	return out, c.Call(ctx, protocol.MethodPRCreate, req, &out)
+}
+
+// Schedules is every schedule and heartbeat of the daemon.
+func (c *Client) Schedules(ctx context.Context) ([]protocol.Schedule, error) {
+	var out []protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodSchedulesList, nil, &out)
+}
+
+func (c *Client) CreateSchedule(ctx context.Context, spec protocol.ScheduleSpec) (protocol.Schedule, error) {
+	var out protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodScheduleCreate, spec, &out)
+}
+
+func (c *Client) UpdateSchedule(ctx context.Context, id string, spec protocol.ScheduleSpec) (protocol.Schedule, error) {
+	var out protocol.Schedule
+	return out, c.Call(ctx, protocol.MethodScheduleUpdate, protocol.ScheduleUpdateRequest{ID: id, Spec: spec}, &out)
+}
+
+func (c *Client) DeleteSchedule(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodScheduleDelete, protocol.ScheduleIDRequest{ID: id}, nil)
+}
+
+// RunSchedule runs a schedule now, without changing its next time.
+func (c *Client) RunSchedule(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodScheduleRun, protocol.ScheduleIDRequest{ID: id}, nil)
 }

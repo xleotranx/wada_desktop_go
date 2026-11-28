@@ -239,7 +239,7 @@ func TestACPAdapterStreamingAndPermissionReply(t *testing.T) {
 				protocol.EventToolCalled, protocol.EventToolFinished, protocol.EventInteractionRequested,
 				protocol.EventTurnStarted, protocol.EventTurnInterrupted, protocol.EventModelChanged,
 				protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for ACP turn")
@@ -286,7 +286,7 @@ func TestClaudeAdapterStreamingAndControlReply(t *testing.T) {
 				protocol.EventToolCalled, protocol.EventToolFinished, protocol.EventInteractionRequested,
 				protocol.EventTurnStarted, protocol.EventTurnInterrupted, protocol.EventModelChanged,
 				protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for Claude turn")
@@ -329,7 +329,7 @@ func TestCodexAdapterTurnAndResume(t *testing.T) {
 					protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventTurnInterrupted,
 					protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
 					protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
-					protocol.EventTerminalUpdated:
+					protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 				}
 			case <-deadline:
 				t.Fatal("timed out waiting for Codex turn")
@@ -490,5 +490,33 @@ func TestClaudeReplyKeepsTheRequestOnAnUnknownDecision(t *testing.T) {
 	}
 	if _, ok := s.pending["cr_1"]; !ok {
 		t.Fatal("an unknown decision dropped the pending request")
+	}
+}
+
+func TestMCPServerArguments(t *testing.T) {
+	m := MCPServer{Name: "wada", URL: "http://127.0.0.1:1/mcp", Token: "tok"}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(claudeMCPConfig(m)), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if s := cfg.MCPServers["wada"]; s.Type != "http" || s.URL != m.URL || s.Headers["Authorization"] != "Bearer tok" {
+		t.Fatalf("claude --mcp-config = %+v", cfg)
+	}
+	got := strings.Join(codexMCPArgs(m), " ")
+	if got != `-c mcp_servers.wada.url="http://127.0.0.1:1/mcp" -c mcp_servers.wada.bearer_token_env_var="WADA_MCP_TOKEN"` {
+		t.Fatalf("codex args = %s", got)
+	}
+	if n := len(acpMCPServers(json.RawMessage(`{"agentCapabilities":{}}`), &m)); n != 0 {
+		t.Fatalf("an agent without HTTP MCP got %d servers", n)
+	}
+	servers := acpMCPServers(json.RawMessage(`{"agentCapabilities":{"mcpCapabilities":{"http":true}}}`), &m)
+	if b, _ := json.Marshal(servers); !strings.Contains(string(b), `"type":"http"`) || !strings.Contains(string(b), `"value":"Bearer tok"`) {
+		t.Fatalf("acp mcpServers = %s", b)
 	}
 }

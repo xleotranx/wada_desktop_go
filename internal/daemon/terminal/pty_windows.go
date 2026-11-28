@@ -88,7 +88,11 @@ func startPTY(opts StartOptions) (PTY, error) {
 	si.ProcThreadAttributeList = attrList.List()
 
 	sh := defaultShell(opts.Shell)
-	cmdLine, err := windows.UTF16PtrFromString(sh)
+	line := sh
+	if opts.Command != "" {
+		line = sh + " /C " + opts.Command
+	}
+	cmdLine, err := windows.UTF16PtrFromString(line)
 	if err != nil {
 		attrList.Delete()
 		windows.ClosePseudoConsole(hpc)

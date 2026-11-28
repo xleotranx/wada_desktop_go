@@ -36,12 +36,36 @@ const (
 	MethodProviderLogout      = "agent.provider.logout"
 
 	MethodHarnessesList    = "agent.harnesses.list"
+	MethodProfilesList     = "agent.profiles.list"
+	MethodSchedulesList    = "schedules.list"
+	MethodScheduleCreate   = "schedules.create"
+	MethodScheduleUpdate   = "schedules.update"
+	MethodScheduleDelete   = "schedules.delete"
+	MethodScheduleRun      = "schedules.run"
 	MethodWorkersList      = "agent.workers.list"
-	MethodWorktreesList    = "worktree.list"
-	MethodWorktreeCreate   = "worktree.create"
-	MethodWorktreeRemove   = "worktree.remove"
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
+
+	MethodProjectsList     = "workspace.projects.list"
+	MethodProjectAdd       = "workspace.project.add"
+	MethodProjectRename    = "workspace.project.rename"
+	MethodProjectArchive   = "workspace.project.archive"
+	MethodWorkspacesList   = "workspace.list"
+	MethodWorkspaceRename  = "workspace.rename"
+	MethodWorkspaceCreate  = "workspace.create"
+	MethodWorkspaceArchive = "workspace.archive"
+	MethodWorkspaceRestore = "workspace.restore"
+	MethodWorkspaceRefs    = "workspace.refs"
+	MethodWorkspaceChanges = "workspace.changes"
+	MethodWorkspaceConfig  = "workspace.config"
+	MethodWorkspaceTrust   = "workspace.trust"
+	MethodWorkspaceSetup   = "workspace.setup"
+	MethodServiceStart     = "workspace.service.start"
+	MethodServiceStop      = "workspace.service.stop"
+	MethodCommitDraft      = "workspace.commit.draft"
+	MethodCommit           = "workspace.commit"
+	MethodPRDraft          = "workspace.pr.draft"
+	MethodPRCreate         = "workspace.pr.create"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -73,6 +97,8 @@ type (
 	ProviderAuthEventKind string
 	HarnessKind           string
 	WorkerStatus          string
+	Isolation             string
+	StartMode             string
 )
 
 const (
@@ -135,6 +161,21 @@ const (
 	EventProviderAuth         EventKind = "provider_auth"
 	EventWorkerUpdated        EventKind = "worker_updated"
 	EventTerminalUpdated      EventKind = "terminal_updated"
+	EventWorkspaceUpdated     EventKind = "workspace_updated"
+	EventScheduleUpdated      EventKind = "schedule_updated"
+)
+
+const (
+	IsolationProject  Isolation = "project"  // the project's own directory
+	IsolationWorktree Isolation = "worktree" // a Git worktree wadad made
+	IsolationExisting Isolation = "existing" // a Git worktree already on disk
+)
+
+// How a new worktree starts.
+const (
+	StartBranchOff      StartMode = "branch-off"      // a new branch from a ref
+	StartCheckoutBranch StartMode = "checkout-branch" // the branch itself
+	StartCheckoutPR     StartMode = "checkout-pr"     // a pull request's branch
 )
 
 const (
@@ -213,6 +254,7 @@ type Session struct {
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Directory string   `json:"directory"`
+	Workspace string   `json:"workspace,omitempty"` // the workspace at Directory, if any
 	Provider  string   `json:"provider,omitempty"`
 	Updated   int64    `json:"updated"`
 	Model     ModelRef `json:"model"`
@@ -223,6 +265,7 @@ type SessionQuery struct {
 	Cursor    string `json:"cursor,omitempty"`
 	Search    string `json:"search,omitempty"`
 	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"` // only conversations in this workspace's directory
 }
 
 type SessionPage struct {
@@ -231,12 +274,17 @@ type SessionPage struct {
 }
 
 type CreateSessionRequest struct {
-	IdempotencyKey string   `json:"idempotencyKey,omitempty"`
-	Title          string   `json:"title,omitempty"`
-	Directory      string   `json:"directory,omitempty"`
-	Provider       string   `json:"provider,omitempty"`
-	Model          ModelRef `json:"model"`
-	Mode           string   `json:"mode,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Directory      string `json:"directory,omitempty"`
+	Workspace      string `json:"workspace,omitempty"` // instead of Directory: an active workspace's
+	Provider       string `json:"provider,omitempty"`
+	// Profile, when set, starts the conversation as that agent profile: its
+	// harness unless Provider is set, and its instructions at the start of
+	// the first message.
+	Profile string   `json:"profile,omitempty"`
+	Model   ModelRef `json:"model"`
+	Mode    string   `json:"mode,omitempty"`
 }
 
 type ToolPolicy struct {
@@ -271,7 +319,20 @@ type SendRequest struct {
 	Text      string     `json:"text"`
 	Files     []File     `json:"files,omitempty"`
 	Skills    []SkillRef `json:"skills,omitempty"`
+	// Deliver says what happens to a message sent while a turn runs: steer
+	// it into the turn, queue it after the turn, or interrupt the turn and
+	// send it. Empty refuses it as not sent.
+	Deliver Delivery `json:"deliver,omitempty"`
 }
+
+// Delivery is how a message sent during a turn reaches the agent.
+type Delivery string
+
+const (
+	DeliverSteer     Delivery = "steer"     // before the turn's next model call
+	DeliverQueue     Delivery = "queue"     // once the turn ends, as the next turn
+	DeliverInterrupt Delivery = "interrupt" // stop the turn, then send
+)
 
 type SendResponse struct {
 	Disposition SendDisposition `json:"disposition"`
@@ -407,6 +468,88 @@ type WorkerInfo struct {
 	Updated       int64        `json:"updated"`
 }
 
+// ScheduleSpec is what a schedule does and when. It runs Prompt on Cron (a
+// five-field cron expression, or @hourly, @daily, @weekly or @monthly) or
+// Every (a Go duration of at least a minute), in the daemon's local time.
+//
+// With Session it is a heartbeat: each run sends Prompt to that conversation,
+// and a run while its turn is going is skipped. Without, each run starts a
+// new conversation in Workspace or Directory (empty: the inbox), on Provider
+// or as Profile, in Mode, and is skipped while the last run's is still going.
+type ScheduleSpec struct {
+	Name      string `json:"name"`
+	Prompt    string `json:"prompt"`
+	Cron      string `json:"cron,omitempty"`
+	Every     string `json:"every,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	Paused    bool   `json:"paused,omitempty"`
+}
+
+// ScheduleStatus is how a schedule's run went.
+type ScheduleStatus string
+
+const (
+	ScheduleRan     ScheduleStatus = "ran"     // the prompt was sent
+	ScheduleSkipped ScheduleStatus = "skipped" // the conversation was busy
+	ScheduleFailed  ScheduleStatus = "failed"  // see LastError; not retried
+)
+
+// Schedule is a stored schedule and how its runs have gone.
+type Schedule struct {
+	ScheduleSpec
+	ID      string `json:"id"`
+	Created int64  `json:"created"`
+	// NextRun is when it runs next, Unix ms; 0 while paused.
+	NextRun     int64          `json:"nextRun,omitempty"`
+	LastRun     int64          `json:"lastRun,omitempty"`
+	LastStatus  ScheduleStatus `json:"lastStatus,omitempty"`
+	LastError   string         `json:"lastError,omitempty"`
+	LastSession string         `json:"lastSession,omitempty"` // the conversation its last run sent to
+	// Removed is set on the event of a deleted schedule.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// ScheduleUpdateRequest replaces a schedule's spec.
+type ScheduleUpdateRequest struct {
+	ID   string       `json:"id"`
+	Spec ScheduleSpec `json:"spec"`
+}
+
+type ScheduleIDRequest struct {
+	ID string `json:"id"`
+}
+
+// ProfileSource is where an agent profile is defined.
+type ProfileSource string
+
+const (
+	ProfileUser    ProfileSource = "user"    // <DataDir>/agents.json
+	ProfileProject ProfileSource = "project" // the folder's wada.json "agents"
+)
+
+// AgentProfile is a named way to start a coding agent: its harness ("" or
+// "pig" for the embedded agent), mode, and the instructions its first prompt
+// begins with.
+type AgentProfile struct {
+	Name         string        `json:"name"`
+	Description  string        `json:"description,omitempty"`
+	Provider     string        `json:"provider,omitempty"`
+	Mode         string        `json:"mode,omitempty"`
+	Instructions string        `json:"instructions,omitempty"`
+	Source       ProfileSource `json:"source"`
+}
+
+// ProfilesListRequest asks for the profiles of an agent starting in
+// Directory, or the user's only.
+type ProfilesListRequest struct {
+	Directory string `json:"directory,omitempty"`
+}
+
 type WorkersListRequest struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
@@ -431,22 +574,6 @@ type WorktreeInfo struct {
 	PR         *PRStatus `json:"pr,omitempty"`
 }
 
-type WorktreesListRequest struct {
-	Directory string `json:"directory"`
-}
-
-type WorktreeCreateRequest struct {
-	Directory string `json:"directory"`
-	Name      string `json:"name"`
-	BaseRef   string `json:"baseRef,omitempty"`
-}
-
-type WorktreeRemoveRequest struct {
-	Directory string `json:"directory"`
-	Path      string `json:"path"`
-	Force     bool   `json:"force,omitempty"`
-}
-
 type WorktreePRRequest struct {
 	Directory string `json:"directory"`
 }
@@ -463,6 +590,7 @@ type TerminalInfo struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Directory string `json:"directory"`
+	Workspace string `json:"workspace,omitempty"` // the active workspace at Directory, if any
 	Shell     string `json:"shell,omitempty"`
 	Cols      int    `json:"cols"`
 	Rows      int    `json:"rows"`
@@ -470,14 +598,22 @@ type TerminalInfo struct {
 	Running   bool   `json:"running"`
 	ExitCode  int    `json:"exitCode,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
+	Command   string `json:"command,omitempty"` // what the shell runs instead of being interactive
+	Role      string `json:"role,omitempty"`    // what made it: "setup", or "service:<name>"
 }
 
 type TerminalCreateRequest struct {
 	Name      string `json:"name,omitempty"`
 	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"` // instead of Directory: an active workspace's
 	Shell     string `json:"shell,omitempty"`
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
+	// Command, when set, is run by the shell (as a login shell where it can
+	// be) instead of an interactive session; the terminal exits with it.
+	Command string   `json:"command,omitempty"`
+	Env     []string `json:"env,omitempty"` // KEY=value added to the daemon's environment
+	Role    string   `json:"role,omitempty"`
 }
 
 type TerminalAttachRequest struct {
@@ -519,6 +655,173 @@ type TerminalCaptureResponse struct {
 
 type TerminalKillRequest struct {
 	ID string `json:"id"`
+}
+
+// ProjectInfo is a folder the user works in. ID is opaque, never a path.
+type ProjectInfo struct {
+	ID       string `json:"id"`
+	Root     string `json:"root"`            // absolute and clean, as added
+	Name     string `json:"name"`            // the user's name, else Root's base name
+	Inbox    bool   `json:"inbox,omitempty"` // the project of conversations started without one
+	Created  int64  `json:"created"`
+	Archived int64  `json:"archived,omitempty"` // Unix ms; 0 while active
+}
+
+// WorkspaceInfo is one working directory of a project. No two active
+// workspaces share a Directory.
+type WorkspaceInfo struct {
+	ID           string    `json:"id"`
+	Project      string    `json:"project"`
+	Isolation    Isolation `json:"isolation"`
+	Directory    string    `json:"directory"`              // where agents and terminals run
+	WorktreeRoot string    `json:"worktreeRoot,omitempty"` // the checkout Directory is in, for a worktree
+	Owned        bool      `json:"owned,omitempty"`        // wadad made WorktreeRoot and removes it
+	Branch       string    `json:"branch,omitempty"`
+	BaseRef      string    `json:"baseRef,omitempty"` // what its changes compare against
+	PR           int       `json:"pr,omitempty"`      // the pull request it checks out or opened
+	Title        string    `json:"title,omitempty"`   // the user's title
+	Created      int64     `json:"created"`
+	Archived     int64     `json:"archived,omitempty"`
+}
+
+// WorkspaceCreateRequest makes a worktree workspace in a project.
+type WorkspaceCreateRequest struct {
+	IdempotencyKey string    `json:"idempotencyKey,omitempty"`
+	Project        string    `json:"project"`
+	Isolation      Isolation `json:"isolation"`       // worktree or existing
+	Mode           StartMode `json:"mode,omitempty"`  // worktree: default branch-off
+	From           string    `json:"from,omitempty"`  // branch-off: the ref; checkout-branch: the branch
+	PR             int       `json:"pr,omitempty"`    // checkout-pr
+	Path           string    `json:"path,omitempty"`  // existing: the worktree's directory
+	Slug           string    `json:"slug,omitempty"`  // worktree: names its directory and new branch
+	Title          string    `json:"title,omitempty"` // the user's title
+}
+
+type WorkspaceArchiveRequest struct {
+	Workspace string `json:"workspace"`
+	// Force discards a wadad-made worktree's uncommitted changes and
+	// unpushed commits; without it such a worktree is refused (conflict).
+	Force bool `json:"force,omitempty"`
+}
+
+type WorkspaceIDRequest struct {
+	Workspace string `json:"workspace"`
+}
+
+type WorkspaceRefsRequest struct {
+	Project string `json:"project"`
+}
+
+// PullRequestRef is an open pull request a workspace can check out.
+type PullRequestRef struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Branch string `json:"branch"`
+	Fork   bool   `json:"fork,omitempty"`
+}
+
+// WorkspaceRefs is what a project's repository offers a new workspace.
+type WorkspaceRefs struct {
+	Default   string           `json:"default,omitempty"` // the ref to branch off by default
+	Branches  []string         `json:"branches,omitempty"`
+	Remotes   []string         `json:"remotes,omitempty"` // remote-tracking branches, such as origin/main
+	PRs       []PullRequestRef `json:"prs,omitempty"`
+	Worktrees []WorktreeInfo   `json:"worktrees,omitempty"`
+}
+
+// WorkspaceConfig is a workspace's wada.json as read now, with what runs.
+type WorkspaceConfig struct {
+	Found    bool     `json:"found"`
+	Hash     string   `json:"hash,omitempty"`    // of the file; trusting names it
+	Trusted  bool     `json:"trusted,omitempty"` // its project's user allowed this file
+	Error    string   `json:"error,omitempty"`   // the file didn't parse
+	Setup    []string `json:"setup,omitempty"`
+	Teardown []string `json:"teardown,omitempty"` // runs before wadad removes the worktree
+	// SetupTerminal is the last setup started in the workspace, if any.
+	SetupTerminal *TerminalInfo   `json:"setupTerminal,omitempty"`
+	Services      []ServiceStatus `json:"services,omitempty"`
+}
+
+// ServiceStatus is a service of a wada.json, its port and its terminal.
+type ServiceStatus struct {
+	Name     string        `json:"name"`
+	Command  string        `json:"command"`
+	Port     int           `json:"port"`
+	Terminal *TerminalInfo `json:"terminal,omitempty"` // the last one started; Running says whether it is up
+}
+
+// WorkspaceCommitRequest commits everything changed in a workspace.
+type WorkspaceCommitRequest struct {
+	Workspace string `json:"workspace"`
+	Message   string `json:"message"`
+}
+
+// CommitDraft is a generated commit message.
+type CommitDraft struct {
+	Message string `json:"message"`
+}
+
+// CommitResult is a commit made.
+type CommitResult struct {
+	SHA string `json:"sha"`
+}
+
+// PRDraft is a generated pull request title and body.
+type PRDraft struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// WorkspacePRRequest pushes a workspace's branch and opens a pull request
+// against its base.
+type WorkspacePRRequest struct {
+	Workspace string `json:"workspace"`
+	Title     string `json:"title"`
+	Body      string `json:"body,omitempty"`
+	Draft     bool   `json:"draft,omitempty"`
+}
+
+type WorkspaceTrustRequest struct {
+	Workspace string `json:"workspace"`
+	Hash      string `json:"hash"` // the WorkspaceConfig.Hash the user saw
+}
+
+type WorkspaceServiceRequest struct {
+	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
+}
+
+type ProjectsListRequest struct {
+	Archived bool `json:"archived,omitempty"` // include archived projects
+}
+
+type ProjectAddRequest struct {
+	Root string `json:"root"`
+}
+
+// ProjectAddResponse is the project and its project-directory workspace.
+type ProjectAddResponse struct {
+	Project   ProjectInfo   `json:"project"`
+	Workspace WorkspaceInfo `json:"workspace"`
+}
+
+type ProjectRenameRequest struct {
+	Project string `json:"project"`
+	Name    string `json:"name"` // empty for the root's base name
+}
+
+type ProjectArchiveRequest struct {
+	Project string `json:"project"`
+}
+
+type WorkspacesListRequest struct {
+	Project  string `json:"project,omitempty"`  // empty for every project's
+	Archived bool   `json:"archived,omitempty"` // include archived workspaces
+}
+
+type WorkspaceRenameRequest struct {
+	Workspace string `json:"workspace"`
+	Title     string `json:"title"`
 }
 
 type PairingOfferRequest struct {
@@ -666,6 +969,9 @@ type Event struct {
 	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
 	Worker       *WorkerInfo        `json:"worker,omitempty"`
 	Terminal     *TerminalInfo      `json:"terminal,omitempty"`
+	Project      *ProjectInfo       `json:"project,omitempty"`
+	Workspace    *WorkspaceInfo     `json:"workspace,omitempty"`
+	Schedule     *Schedule          `json:"schedule,omitempty"`
 	Model        ModelRef           `json:"model"`
 	Title        string             `json:"title,omitempty"`
 	Error        string             `json:"error,omitempty"`

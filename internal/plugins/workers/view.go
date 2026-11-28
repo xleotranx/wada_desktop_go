@@ -2,7 +2,6 @@ package workers
 
 import (
 	"cmp"
-	"path"
 	"strconv"
 	"strings"
 
@@ -19,7 +18,7 @@ const (
 )
 
 func (p *Plugin) harnessPickerView(c *ui.Context) {
-	if p.conv.Session != "" || len(p.harnesses) <= 1 {
+	if p.conv.Session != "" || (len(p.harnesses) <= 1 && len(p.profiles) == 0) {
 		return
 	}
 	c.Key("harness")
@@ -44,14 +43,58 @@ func (p *Plugin) harnessPickerView(c *ui.Context) {
 			label = optLabel
 		}
 	}
+	for _, pr := range p.profiles {
+		desc := cmp.Or(pr.Description, "Starts with its instructions")
+		if pr.Provider != "" && pr.Provider != agent.EmbeddedHarness {
+			desc = p.harnessName(pr.Provider) + " · " + desc
+		}
+		group := "Your agents"
+		if pr.Source == agent.ProfileProject {
+			group = "This project's agents"
+		}
+		options = append(options, onechat.Option{ID: profilePrefix + pr.Name, Label: pr.Name, Description: desc, Group: group})
+	}
+	if prof, ok := p.profile(p.selectedProfile); ok {
+		selected, label = profilePrefix+prof.Name, prof.Name
+	}
 	picked := onechat.Picker(c, &p.picker, onechat.PickerOptions{
 		Label:    label,
 		Options:  options,
 		Selected: selected,
-		Width:    260,
+		Width:    280,
 	})
 	if chosen := picked.Chosen; chosen != "" {
-		p.ctx.Post(func() { p.selectedProvider = chosen })
+		p.ctx.Post(func() { p.choose(chosen) })
+	}
+}
+
+// stripView is the conversation's agents above the composer: one chip each,
+// which opens it in the Worker Inspector.
+func (p *Plugin) stripView(c *ui.Context) {
+	pal := native.PaletteFor(c)
+	const most = 6
+	for i, w := range p.workers {
+		if i == most {
+			ui.Text(c, "+"+strconv.Itoa(len(p.workers)-most)+" more in Agents").FontSize(11.5).TextColor(pal.Muted).
+				Padding(3, 4)
+			break
+		}
+		c.Key("chip:" + string(w.ID))
+		statusLabel, statusColor := workerStatusStyle(w.Status, pal)
+		id := w.ID
+		b := ui.ButtonBase(c).Label(cmp.Or(w.Name, w.Provider)+", "+statusLabel).Tooltip(w.Provider+" · "+statusLabel).
+			Radius(99).Padding(3, 9).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+			Border(1, pal.Hairline).OnClick(func() { p.openDrawer(id) })
+		if p.inspected == id {
+			b.Background(pal.Selected)
+		} else if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.Children(func() {
+			ui.Box(c).Size(7, 7).Radius(99).Background(statusColor).Shrink(0)
+			ui.Text(c, cmp.Or(w.Name, string(w.ID))).FontSize(12).FontWeight(500).TextColor(pal.Text).
+				SingleLine().Ellipsis("…").MaxWidth(160)
+		})
 	}
 }
 
@@ -64,17 +107,6 @@ func (p *Plugin) workPanelView(c *ui.Context) {
 				worker := w
 				c.Key("worker:" + string(worker.ID))
 				p.workerRow(c, pal, worker)
-			}
-		}
-		if p.secondaryWorktreeCount() > 0 {
-			ui.Text(c, "Worktrees").FontSize(11).FontWeight(500).TextColor(pal.Faint).Padding(4, 0, 0, 0)
-			for _, wt := range p.worktrees {
-				if wt.IsMain {
-					continue
-				}
-				tree := wt
-				c.Key("wt:" + tree.Path)
-				p.worktreeRow(c, pal, tree)
 			}
 		}
 	})
@@ -115,54 +147,6 @@ func (p *Plugin) workerRow(c *ui.Context, pal native.Palette, w agent.Worker) {
 			}
 			sb.Children(func() { ui.Icon(c, lucide.Square()).FontSize(11).TextColor(pal.Danger) })
 		}
-	})
-}
-
-func (p *Plugin) worktreeRow(c *ui.Context, pal native.Palette, wt agent.Worktree) {
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Padding(4, 6).Radius(6).Background(pal.Raised).Children(func() {
-		ui.Icon(c, lucide.GitPullRequest()).FontSize(11).TextColor(pal.Muted).Shrink(0)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
-			ui.Text(c, cmp.Or(wt.Branch, path.Base(wt.Path))).FontSize(12).TextColor(pal.Text).SingleLine().Ellipsis("…")
-			ui.Text(c, wt.Path).FontSize(10.5).TextColor(pal.Faint).SingleLine().Ellipsis("…")
-		})
-		if wt.PR != nil {
-			pr := wt.PR
-			prCol := pal.Muted
-			switch pr.Checks {
-			case "pass":
-				prCol = pal.GreenBadge
-			case "fail":
-				prCol = pal.DangerText
-			case "pending":
-				prCol = pal.Orange
-			}
-			c.Key("pr")
-			label := "#" + strconv.Itoa(pr.Number)
-			if pr.Checks != "" && pr.Checks != "none" {
-				label += " · " + pr.Checks
-			}
-			pb := ui.ButtonBase(c).Label("Open PR "+label).Tooltip(cmp.Or(pr.Title, pr.URL)).Height(20).Padding(0, 6).Radius(99).
-				Background(prCol.Alpha(.15)).Center().Cursor(ui.CursorPointer).Shrink(0).
-				OnClick(func() {
-					if ui.SafeToOpen(pr.URL) {
-						p.host.OpenURL(pr.URL)
-					}
-				})
-			pb.Children(func() {
-				ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(prCol).SingleLine()
-			})
-		}
-		if wt.Dirty {
-			ui.Text(c, "modified").FontSize(10.5).TextColor(pal.Orange).Shrink(0)
-		}
-		c.Key("remove")
-		wtPath := wt.Path
-		rb := ui.ButtonBase(c).Label("Remove worktree").Tooltip("Remove worktree").Size(22, 22).Radius(5).
-			Center().Cursor(ui.CursorPointer).OnClick(func() { p.removeWorktree(wtPath) })
-		if rb.Hovered() {
-			rb.Background(pal.Hover)
-		}
-		rb.Children(func() { ui.Icon(c, lucide.X()).FontSize(11).TextColor(pal.Muted) })
 	})
 }
 

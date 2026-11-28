@@ -43,3 +43,39 @@ func TestAskInteraction(t *testing.T) {
 		t.Fatalf("input at end of input = %+v, want cancelled", a)
 	}
 }
+
+func TestWorktreeFlags(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		mode protocol.StartMode
+		iso  protocol.Isolation
+		from string
+		pr   int
+		path string
+		bad  bool
+	}{
+		{args: nil, mode: protocol.StartBranchOff, iso: protocol.IsolationWorktree},
+		{args: []string{"--base", "origin/dev"}, mode: protocol.StartBranchOff, iso: protocol.IsolationWorktree, from: "origin/dev"},
+		{args: []string{"--checkout", "fix"}, mode: protocol.StartCheckoutBranch, iso: protocol.IsolationWorktree, from: "fix"},
+		{args: []string{"--pr", "12"}, mode: protocol.StartCheckoutPR, iso: protocol.IsolationWorktree, pr: 12},
+		{args: []string{"--existing", "/w/x"}, iso: protocol.IsolationExisting, path: "/w/x"},
+		{args: []string{"--pr", "1", "--checkout", "x"}, bad: true},
+	} {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		f := addWorktreeFlags(fs)
+		if err := fs.Parse(tc.args); err != nil {
+			t.Fatal(err)
+		}
+		req, err := f.request("prj_1")
+		if tc.bad {
+			if err == nil {
+				t.Fatalf("%v: accepted", tc.args)
+			}
+			continue
+		}
+		if err != nil || req.Project != "prj_1" || req.Mode != tc.mode || req.Isolation != tc.iso || req.From != tc.from ||
+			req.PR != tc.pr || req.Path != tc.path || req.IdempotencyKey == "" {
+			t.Fatalf("%v: %+v %v", tc.args, req, err)
+		}
+	}
+}

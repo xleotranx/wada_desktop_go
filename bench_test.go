@@ -104,13 +104,13 @@ func benchApp(b *testing.B, messages []agent.Message) (*shell.Shell, *ui.Tester,
 	// tabs, and the benchmark's own.
 	ws := &plugintest.Workspace{}
 	for i, folder := range []string{"/work/app", "/work/web", "/work/docs"} {
-		ws.FolderSet = append(ws.FolderSet, wscontract.Folder{Path: folder})
+		ws.Dirs = append(ws.Dirs, folder)
 		for j := range 4 {
 			ws.Convs = append(ws.Convs, wscontract.Conversation{ID: agent.SessionID(fmt.Sprintf("t%d", i*4+j)),
-				Title: fmt.Sprintf("Tab %d of %s", j+1, path.Base(folder)), Folder: folder})
+				Title: fmt.Sprintf("Tab %d of %s", j+1, path.Base(folder)), Directory: folder})
 		}
 	}
-	ws.Convs = append(ws.Convs, wscontract.Conversation{ID: benchSession, Title: "Benchmark", Folder: "/work/app"})
+	ws.Convs = append(ws.Convs, wscontract.Conversation{ID: benchSession, Title: "Benchmark", Directory: "/work/app"})
 
 	// Workers post from their own goroutines; run drains on this one.
 	var mu sync.Mutex

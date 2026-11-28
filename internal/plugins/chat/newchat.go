@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/workspace"
 
@@ -56,16 +57,16 @@ func (p *Plugin) chooseFolder() {
 		return
 	}
 	draft := p.conv.DraftID
-	ws.ChooseFolder(func(path string) {
-		if path == "" || p.conv.DraftID != draft {
+	ws.ChooseProject(func(w agent.Workspace) {
+		if p.conv.DraftID != draft {
 			return
 		}
-		p.SetDirectory(path)
+		p.SetDirectory(w.Directory)
 		p.focus = true
 	})
 }
 
-// folderGateView asks for the folder that everything else depends on.
+// folderGateView asks for the project that everything else depends on.
 func (p *Plugin) folderGateView(c *ui.Context, pal native.Palette) {
 	ui.Column(c).Fill().Center().Padding(32).Children(func() {
 		ui.Column(c).AlignItems(ui.Center).MaxWidth(440).Gap(16).Children(func() {
@@ -73,15 +74,15 @@ func (p *Plugin) folderGateView(c *ui.Context, pal native.Palette) {
 				ui.Icon(c, lucide.FolderOpen()).FontSize(22).TextColor(pal.Orange)
 			})
 			ui.Column(c).AlignItems(ui.Center).Gap(7).Children(func() {
-				ui.Text(c, "Choose a work folder").FontSize(24).FontWeight(600).TextColor(pal.Text).TextAlign(ui.Center)
-				ui.Text(c, "Wada reads and writes in the folder you choose, so the work stays where you can see it.").
+				ui.Text(c, "Choose a project").FontSize(24).FontWeight(600).TextColor(pal.Text).TextAlign(ui.Center)
+				ui.Text(c, "Wada reads and writes in the project you choose, so the work stays where you can see it.").
 					FontSize(13).TextColor(pal.Muted).TextAlign(ui.Center)
 			})
 			ui.Row(c).Gap(8).Children(func() {
-				components.Button(c, "Open a work folder", components.ButtonPrimary).OnClick(p.chooseFolder)
-				components.Button(c, "Ask without a folder", components.ButtonGhost).OnClick(p.askWithoutFolder)
+				components.Button(c, "Add a project", components.ButtonPrimary).OnClick(p.chooseFolder)
+				components.Button(c, "Ask in the Inbox", components.ButtonGhost).OnClick(p.askWithoutFolder)
 			})
-			ui.Text(c, "You can change the folder from the composer.").FontSize(11.5).TextColor(pal.Faint).TextAlign(ui.Center)
+			ui.Text(c, "You can change the workspace from the composer.").FontSize(11.5).TextColor(pal.Faint).TextAlign(ui.Center)
 		})
 	})
 }

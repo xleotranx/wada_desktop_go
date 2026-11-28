@@ -104,6 +104,13 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Contribute(c, kernel.Commands, "chat.stop", 10, kernel.Command{
 		Title: "Stop the Agent", Menu: "Chat", Keys: []string{"cmd+."},
 		Enabled: p.running, Run: p.stop})
+	during := func() bool { return p.running() && p.conv.Session != "" && strings.TrimSpace(p.draft) != "" }
+	kernel.Contribute(c, kernel.Commands, "chat.queue", 11, kernel.Command{
+		Title: "Send After This Turn", Menu: "Chat", Keys: []string{"shift+cmd+enter"},
+		Enabled: during, Run: func() { p.sendDuring(agent.DeliverQueue) }})
+	kernel.Contribute(c, kernel.Commands, "chat.interrupt", 12, kernel.Command{
+		Title: "Interrupt and Send", Menu: "Chat", Keys: []string{"alt+cmd+enter"},
+		Enabled: during, Run: func() { p.sendDuring(agent.DeliverInterrupt) }})
 	return nil
 }
 
@@ -295,6 +302,10 @@ func (p *Plugin) running() bool {
 // A failed send is reported, never retried: it may have reached the agent.
 func (p *Plugin) send() {
 	text := strings.TrimSpace(p.draft)
+	if p.running() && p.conv.Session != "" {
+		p.sendDuring(agent.DeliverSteer)
+		return
+	}
 	if text == "" || p.running() || p.loading.Running() {
 		return
 	}
@@ -334,7 +345,7 @@ func (p *Plugin) send() {
 	scope, backend := p.scope, p.agent
 	var task kernel.Task
 	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Session, error) {
-		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Provider: d.Provider, Model: d.Model, Mode: d.Mode})
+		return backend.Create(ctx, agent.CreateSession{Directory: d.Directory, Provider: d.Provider, Profile: d.Profile, Model: d.Model, Mode: d.Mode})
 	}, func(s agent.Session, err error) {
 		here := p.scope == scope
 		if s.ID == "" {
@@ -492,6 +503,54 @@ func (p *Plugin) deliver(id agent.SessionID, d chat.Draft) {
 			p.t.note("The message was not sent" + strings.TrimPrefix(err.Error(), agent.ErrNotSent.Error()) + ".")
 		default:
 			finish()
+			p.t.note("The message may not have reached the agent: " + err.Error() + ". Check the conversation before sending it again.")
+		}
+	})
+}
+
+// sendDuring sends the composer's words to the running turn: steered into
+// it, queued after it, or interrupting it. Only text goes with a running
+// turn; a draft the pipeline gave files or skills is refused.
+func (p *Plugin) sendDuring(deliver agent.Delivery) {
+	text := strings.TrimSpace(p.draft)
+	if text == "" || p.conv.Session == "" || p.loading.Running() {
+		return
+	}
+	d, commit, err := kernel.Run(p.ctx, chat.Outgoing, chat.Draft{Session: p.conv.Session, Directory: p.conv.Directory, Model: p.conv.Model, Text: text})
+	if err != nil {
+		p.host.Toast(ui.Toast{Title: "The message was not sent", Description: err.Error()})
+		return
+	}
+	if deliver != agent.DeliverInterrupt && (len(d.Files) > 0 || len(d.Skills) > 0) {
+		p.host.Toast(ui.Toast{Title: "The message was not sent", Description: "A message for a running turn takes text only; send it after the turn, or interrupt."})
+		return
+	}
+	if strings.TrimSpace(d.Text) == "" {
+		return
+	}
+	commit()
+	p.draft = ""
+	p.t.addUser(d.Text, d.Files)
+	p.list.ScrollToEnd()
+	// The transcript takes the message where the agent put it once the turn
+	// ends.
+	p.reloadAfterTurn = true
+	if deliver == agent.DeliverInterrupt {
+		p.sending = true
+		p.sendSeq++
+	}
+	seq, id, backend := p.sendSeq, d.Session, p.agent
+	var task kernel.Task
+	kernel.Go(p.scope, &task, func(ctx context.Context) (agent.SendDisposition, error) {
+		return backend.Send(ctx, agent.Send{Session: id, Mode: d.Mode, Text: d.Text, Files: d.Files, Skills: d.Skills, Deliver: deliver})
+	}, func(_ agent.SendDisposition, err error) {
+		if deliver == agent.DeliverInterrupt && p.sendSeq == seq {
+			p.sending = false
+		}
+		switch {
+		case errors.Is(err, agent.ErrNotSent):
+			p.t.note("The message was not sent" + strings.TrimPrefix(err.Error(), agent.ErrNotSent.Error()) + ".")
+		case err != nil:
 			p.t.note("The message may not have reached the agent: " + err.Error() + ". Check the conversation before sending it again.")
 		}
 	})

@@ -35,7 +35,9 @@ func TestChiefToolKinds(t *testing.T) {
 		"wait_agent":         protocol.ToolRead,
 		"inspect_agent_diff": protocol.ToolRead,
 		"stop_agent":         protocol.ToolEdit,
-		"create_worktree":    protocol.ToolEdit,
+		"create_workspace":   protocol.ToolEdit,
+		"archive_workspace":  protocol.ToolEdit,
+		"list_workspaces":    protocol.ToolRead,
 	} {
 		if got := toolKind(name); got != want {
 			t.Errorf("toolKind(%q) = %v, want %v", name, got, want)

@@ -205,12 +205,18 @@ func (r *Runtime) Send(ctx context.Context, req protocol.SendRequest) (protocol.
 		return "", err
 	}
 
+	if req.Deliver == protocol.DeliverInterrupt {
+		if err := r.interrupt(ctx, c); err != nil {
+			return "", err
+		}
+	}
 	c.ops.Lock()
 	defer c.ops.Unlock()
 	c.mu.Lock()
 	if c.busy {
+		s := c.session
 		c.mu.Unlock()
-		return "", fmt.Errorf("%w: this conversation is already running", ErrNotSent)
+		return queueInput(ctx, s, req, text, images)
 	}
 	if err = e.openLocked(c); err != nil {
 		c.mu.Unlock()
@@ -582,4 +588,95 @@ func (r *Runtime) Rewind(ctx context.Context, id, msg string) (string, error) {
 	e.sessions[fork.rec.Session.ID] = fork
 	e.mu.Unlock()
 	return fork.rec.Session.ID, e.saveLocked(fork)
+}
+
+// Generate asks the default model for a short piece of text outside any
+// conversation, such as a branch name or a commit message.
+func (r *Runtime) Generate(ctx context.Context, system, prompt string) (string, error) {
+	e, release, err := r.acquire()
+	defer release()
+	if err != nil {
+		return "", err
+	}
+	model := e.resolveModel(protocol.ModelRef{})
+	if model == nil {
+		return "", errors.New("pig: no model is available")
+	}
+	// Some providers route by session; each request is a session of its own.
+	opts := ai.StreamOptions{SessionID: "wada-generate-" + strconv.FormatInt(time.Now().UnixNano(), 36)}
+	msg := e.models.CompleteSimple(ctx, model, ai.Context{SystemPrompt: system,
+		Messages: []ai.Message{ai.UserMessage{Content: ai.UserText(prompt), Timestamp: time.Now().UnixMilli()}}}, opts)
+	if msg == nil {
+		return "", errors.New("pig: the model returned nothing")
+	}
+	if msg.ErrorMessage != "" {
+		return "", errors.New(msg.ErrorMessage)
+	}
+	var b strings.Builder
+	for _, block := range msg.Content {
+		if t, ok := block.(ai.TextContent); ok {
+			b.WriteString(t.Text)
+		}
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+// queueInput delivers a message to a running turn: steered into it, or
+// queued as the next turn. Files and skills go only with a turn of their
+// own.
+func queueInput(ctx context.Context, s *coding.Session, req protocol.SendRequest, text string, images []ai.ImageContent) (protocol.SendDisposition, error) {
+	if req.Deliver != protocol.DeliverSteer && req.Deliver != protocol.DeliverQueue {
+		return "", fmt.Errorf("%w: this conversation is already running", ErrNotSent)
+	}
+	if len(req.Files) > 0 || len(req.Skills) > 0 || s == nil {
+		return "", fmt.Errorf("%w: a message for a running turn takes text only", ErrNotSent)
+	}
+	var d coding.QueuedInputDisposition
+	var err error
+	if req.Deliver == protocol.DeliverSteer {
+		d, err = s.Steer(ctx, text, images, nil)
+	} else {
+		d, err = s.FollowUp(ctx, text, images, nil)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrNotSent, err)
+	}
+	if d == coding.DispositionHandled {
+		return protocol.SendHandled, nil
+	}
+	return protocol.SendQueued, nil
+}
+
+// interruptWait bounds how long an interrupting send waits for the turn to
+// stop.
+const interruptWait = 15 * time.Second
+
+// interrupt stops a running turn and waits for it to end.
+func (r *Runtime) interrupt(ctx context.Context, c *conversation) error {
+	c.mu.Lock()
+	busy := c.busy
+	if busy {
+		if c.session != nil {
+			c.session.RequestAbort()
+		}
+		if c.cancel != nil {
+			c.cancel()
+		}
+	}
+	c.mu.Unlock()
+	deadline := time.Now().Add(interruptWait)
+	for busy {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+		c.mu.Lock()
+		busy = c.busy
+		c.mu.Unlock()
+		if busy && time.Now().After(deadline) {
+			return fmt.Errorf("%w: the running turn didn't stop", ErrNotSent)
+		}
+	}
+	return nil
 }

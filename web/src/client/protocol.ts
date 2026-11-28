@@ -24,6 +24,8 @@ export const EV_TURN_INTERRUPTED = "turn_interrupted";
 export const EV_SESSION_RENAMED = "session_renamed";
 export const EV_WORKER_UPDATED = "worker_updated";
 export const EV_TERMINAL_UPDATED = "terminal_updated";
+export const EV_WORKSPACE_UPDATED = "workspace_updated";
+export const EV_SCHEDULE_UPDATED = "schedule_updated";
 
 export interface Envelope<T = unknown> {
   type:
@@ -54,10 +56,113 @@ export interface SessionInfo {
   id: string;
   title: string;
   directory: string;
+  workspace?: string; // the active workspace at directory, if any
   provider?: string;
   model?: { provider: string; id: string };
   updated?: number;
 }
+
+/** A repository or folder the daemon knows; its workspaces are its working directories. */
+export interface ProjectInfo {
+  id: string;
+  root: string;
+  name: string;
+  inbox?: boolean;
+  created: number;
+  archived?: number;
+}
+
+/** One working directory of a project: the project's own, or a worktree. */
+export interface WorkspaceInfo {
+  id: string;
+  project: string;
+  isolation: "project" | "worktree" | "existing";
+  directory: string;
+  worktreeRoot?: string;
+  owned?: boolean;
+  branch?: string;
+  baseRef?: string;
+  pr?: number;
+  title?: string;
+  created: number;
+  archived?: number;
+}
+
+/** A workspace's wada.json as the daemon read it. */
+export interface WorkspaceConfig {
+  found: boolean;
+  hash?: string;
+  trusted?: boolean;
+  error?: string;
+  setup?: string[];
+  teardown?: string[];
+  setupTerminal?: TerminalInfo;
+  services?: ServiceStatus[];
+}
+
+/** A wada.json service, its port and the terminal it last ran in. */
+export interface ServiceStatus {
+  name: string;
+  command: string;
+  port: number;
+  terminal?: TerminalInfo;
+}
+
+/** How a new worktree workspace starts. */
+export interface WorkspaceCreate {
+  project: string;
+  isolation: "worktree" | "existing";
+  mode?: "branch-off" | "checkout-branch" | "checkout-pr";
+  from?: string;
+  pr?: number;
+  path?: string;
+  slug?: string;
+  title?: string;
+}
+
+/** A named way to start an agent: harness, mode and opening instructions. */
+export interface AgentProfile {
+  name: string;
+  description?: string;
+  provider?: string;
+  mode?: string;
+  instructions?: string;
+  source: "user" | "project";
+}
+
+/**
+ * What a schedule does and when: prompt on cron or every (a Go duration), in
+ * the daemon's local time. With session it is a heartbeat to that
+ * conversation; without, each run starts one in workspace or directory.
+ */
+export interface ScheduleSpec {
+  name: string;
+  prompt: string;
+  cron?: string;
+  every?: string;
+  session?: string;
+  directory?: string;
+  workspace?: string;
+  provider?: string;
+  profile?: string;
+  mode?: string;
+  paused?: boolean;
+}
+
+/** A kept schedule and how its runs went. */
+export interface Schedule extends ScheduleSpec {
+  id: string;
+  created: number;
+  nextRun?: number;
+  lastRun?: number;
+  lastStatus?: "ran" | "skipped" | "failed";
+  lastError?: string;
+  lastSession?: string;
+  removed?: boolean;
+}
+
+/** How a message sent while a turn runs reaches the agent. */
+export type Delivery = "steer" | "queue" | "interrupt";
 
 interface ToolInfo {
   id: string;
@@ -127,6 +232,9 @@ export interface DaemonEvent {
   interaction?: InteractionItem;
   worker?: WorkerInfo;
   terminal?: TerminalInfo;
+  project?: ProjectInfo;
+  workspace?: WorkspaceInfo;
+  schedule?: Schedule;
   error?: string;
   title?: string;
 }

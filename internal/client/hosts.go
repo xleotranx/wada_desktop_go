@@ -25,6 +25,9 @@ type HostRecord struct {
 	Credential string `json:"credential,omitempty"`
 	RelayToken string `json:"relayToken,omitempty"` // Bearer token for the relay itself
 	RelayURL   string `json:"relayUrl,omitempty"`
+	// SSHCommand is what an ssh:// endpoint runs on the host; empty is
+	// DefaultSSHCommand.
+	SSHCommand string `json:"sshCommand,omitempty"`
 	ServerID   string `json:"serverId,omitempty"`
 	UpdatedAt  int64  `json:"updatedAt"`
 }
@@ -63,6 +66,9 @@ func SaveHost(dataDir string, rec HostRecord) error {
 	}
 	if rec.Offer == "" && rec.Endpoint == "" {
 		return errors.New("client: host requires offer or endpoint")
+	}
+	if rec.SSHCommand != "" && !IsSSHEndpoint(rec.Endpoint) {
+		return errNoSSHCommand
 	}
 	if rec.Offer != "" {
 		off, err := relay.DecodeOffer(rec.Offer)
@@ -126,8 +132,9 @@ func RemoveHost(dataDir, name string) error {
 const DefaultPort = "6767"
 
 // ParseHostTarget reads what a person typed to add a host: a pairing offer
-// (an #offer= link or a bare encoded offer) or a daemon endpoint. An endpoint
-// without a scheme or port gets DefaultPort.
+// (an #offer= link or a bare encoded offer) or a daemon endpoint, which may be
+// an ssh://[user@]host[:port] one. An endpoint without a scheme or port gets
+// DefaultPort.
 func ParseHostTarget(target string) (offer, endpoint string) {
 	target = strings.TrimSpace(target)
 	if strings.Contains(target, "#offer=") {
@@ -167,6 +174,9 @@ func DialHost(ctx context.Context, dataDir, name string, opts Options) (*Client,
 			}
 			if h.Offer != "" {
 				return DialOffer(ctx, h.Offer, opts)
+			}
+			if IsSSHEndpoint(h.Endpoint) {
+				return DialSSH(ctx, h.Endpoint, h.SSHCommand, opts)
 			}
 			opts.Endpoint = h.Endpoint
 			return Dial(ctx, opts)

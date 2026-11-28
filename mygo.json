@@ -9,5 +9,11 @@
   "publisher": "Leo Tran",
   "resources": [
     "LICENSE"
-  ]
+  ],
+  "macos": {
+    "infoPlist": {
+      "NSMicrophoneUsageDescription": "Wada listens while you dictate a message.",
+      "NSSpeechRecognitionUsageDescription": "Wada turns what you dictate into your message's text."
+    }
+  }
 }

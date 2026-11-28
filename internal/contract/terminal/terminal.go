@@ -17,6 +17,10 @@ var (
 	Updated = kernel.NewTopic[Info]("terminal.updated")
 )
 
+// PaneKind is the tabs.Panes kind that shows a terminal; a tab's Ref is the
+// terminal's ID.
+const PaneKind = "terminal.shell"
+
 // Info describes a detached daemon-managed PTY terminal session.
 type Info struct {
 	ID        string

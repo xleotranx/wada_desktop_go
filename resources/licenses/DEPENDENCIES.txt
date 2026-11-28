@@ -5059,7 +5059,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ========================================================================
-github.com/xleotranx/wada-kit v0.3.1
+github.com/xleotranx/wada-kit v0.4.0
 
 --- LICENSE ---
 MIT License

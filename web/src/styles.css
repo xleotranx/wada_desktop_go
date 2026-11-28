@@ -29,6 +29,11 @@ body,
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Installed on a phone, the app runs under the status bar and above the
+     home indicator. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  box-sizing: border-box;
 }
 
 .topbar {
@@ -161,6 +166,48 @@ body,
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.project-group,
+.workspace-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-group + .project-group {
+  margin-top: 8px;
+}
+
+.project-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 4px 8px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-name {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px 0 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-group .workspace-name ~ .session-item {
+  margin-left: 8px;
 }
 
 .session-item {
@@ -448,13 +495,112 @@ textarea {
   display: none;
 }
 
+.banner-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raised);
+  font-size: 13px;
+}
+
+.workspace-name .ws-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-name.active {
+  color: var(--text);
+}
+
+.icon-btn:disabled,
+.btn:disabled,
+.tab:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.workspace-panel {
+  padding: 16px;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.ws-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ws-head h3 {
+  margin: 0 0 4px;
+}
+
+.ws-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ws-run {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.ws-run > div:first-child {
+  min-width: 0;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ws-run a {
+  color: var(--accent);
+  font-size: 12px;
+}
+
 @media (max-width: 780px) {
+  .composer {
+    flex-wrap: wrap;
+  }
+  .composer input {
+    flex-basis: 100%;
+  }
+  .ws-run {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .mobile-only {
     display: inline-flex;
   }
   .sidebar {
     position: fixed;
-    top: 52px;
+    top: calc(52px + env(safe-area-inset-top));
     bottom: 0;
     left: 0;
     z-index: 30;
@@ -464,4 +610,15 @@ textarea {
   .sidebar.open {
     transform: translateX(0);
   }
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.approval-card textarea,
+.approval-card input {
+  width: 100%;
+  box-sizing: border-box;
 }

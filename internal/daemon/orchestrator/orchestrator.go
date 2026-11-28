@@ -15,19 +15,23 @@ import (
 
 	"github.com/google/uuid"
 	"wada-desktop-go/internal/daemon/harness"
+	"wada-desktop-go/internal/daemon/mcp"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/profiles"
 	"wada-desktop-go/internal/daemon/terminal"
+	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 )
 
 // Options configures a multi-provider Orchestrator.
 type Options struct {
-	DataDir   string
-	PiG       *pig.Runtime
-	Worktrees *worktree.Manager
-	Registry  *harness.Registry
-	Terminals *terminal.Supervisor
+	DataDir    string
+	PiG        *pig.Runtime
+	Worktrees  *worktree.Manager
+	Workspaces *workspaces.Service // optional: the Chief tools' workspaces
+	Registry   *harness.Registry
+	Terminals  *terminal.Supervisor
 }
 
 type managedWorker struct {
@@ -41,15 +45,25 @@ type managedWorker struct {
 	msgSeq      int
 	// approvals are the ones still waiting for a reply, by ID.
 	approvals map[string]protocol.Approval
+	// mcpToken is the worker's token on the orchestrator's MCP server.
+	mcpToken string
+	// profile is the agent profile it started as, whose instructions its
+	// first prompt begins with.
+	profile *protocol.AgentProfile
 }
 
 // Orchestrator implements server.Backend and server.OrchestrationBackend across
 // embedded PiG sessions and supervised external CLI harness workers.
 type Orchestrator struct {
-	pig       *pig.Runtime
-	worktrees *worktree.Manager
-	registry  *harness.Registry
-	terminals *terminal.Supervisor
+	dataDir    string
+	pig        *pig.Runtime
+	worktrees  *worktree.Manager
+	workspaces *workspaces.Service
+	registry   *harness.Registry
+	terminals  *terminal.Supervisor
+	// mcp serves the Chief tools to external workers; nil when it could not
+	// listen.
+	mcp *mcp.Server
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -60,6 +74,9 @@ type Orchestrator struct {
 	closed  bool // set by Close; no worker is added after it
 	workers map[string]*managedWorker
 	waiters map[string][]chan struct{}
+	// firstPrompts are the profiles of embedded conversations that have not
+	// had their first message yet.
+	firstPrompts map[string]protocol.AgentProfile
 }
 
 // New creates an Orchestrator and starts forwarding PiG events into its merged stream.
@@ -75,15 +92,22 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 	}
 	octx, cancel := context.WithCancel(ctx)
 	o := &Orchestrator{
-		pig:       opts.PiG,
-		worktrees: opts.Worktrees,
-		registry:  opts.Registry,
-		terminals: opts.Terminals,
-		ctx:       octx,
-		cancel:    cancel,
-		events:    make(chan protocol.Event, 512),
-		workers:   map[string]*managedWorker{},
-		waiters:   map[string][]chan struct{}{},
+		dataDir:    opts.DataDir,
+		pig:        opts.PiG,
+		worktrees:  opts.Worktrees,
+		workspaces: opts.Workspaces,
+		registry:   opts.Registry,
+		terminals:  opts.Terminals,
+		ctx:        octx,
+		cancel:     cancel,
+		events:     make(chan protocol.Event, 512),
+		workers:    map[string]*managedWorker{},
+		waiters:    map[string][]chan struct{}{},
+
+		firstPrompts: map[string]protocol.AgentProfile{},
+	}
+	if srv, err := mcp.Start("wadad"); err == nil {
+		o.mcp = srv
 	}
 
 	pigEvents := o.pig.Events()
@@ -104,6 +128,11 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 
 func (o *Orchestrator) Origin() string { return o.pig.Origin() }
 
+// Generate asks the embedded PiG runtime's default model for text.
+func (o *Orchestrator) Generate(ctx context.Context, system, prompt string) (string, error) {
+	return o.pig.Generate(ctx, system, prompt)
+}
+
 func (o *Orchestrator) Events() <-chan protocol.Event { return o.events }
 
 func (o *Orchestrator) Close() error {
@@ -123,6 +152,9 @@ func (o *Orchestrator) Close() error {
 	}
 
 	err := o.pig.Close()
+	if o.mcp != nil {
+		_ = o.mcp.Close()
+	}
 	if o.terminals != nil {
 		if terr := o.terminals.Close(); err == nil {
 			err = terr
@@ -291,7 +323,7 @@ func (o *Orchestrator) pumpWorker(w *managedWorker) {
 		case protocol.EventTextStarted, protocol.EventTextEnded, protocol.EventToolStarted,
 			protocol.EventInteractionRequested, protocol.EventModelChanged, protocol.EventSessionRenamed,
 			protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated, protocol.EventScheduleUpdated:
 			forward = append(forward, ev)
 		}
 		w.mu.Unlock()
@@ -418,6 +450,7 @@ type spawnWorkerArgs struct {
 	Command       string
 	Args          []string
 	Env           []string
+	Profile       *protocol.AgentProfile
 }
 
 func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (protocol.WorkerInfo, error) {
@@ -442,15 +475,31 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 	}
 
 	workerID := "wrk_" + uuid.NewString()[:12]
-	sess, err := prov.Start(ctx, harness.SessionOptions{
+	opts := harness.SessionOptions{
 		SessionID: workerID,
 		Directory: dir,
 		Mode:      mode,
 		Command:   args.Command,
 		Args:      args.Args,
 		Env:       args.Env,
-	})
+	}
+	var token string
+	if o.mcp != nil {
+		// The worker calls the Chief tools as itself: what it spawns is its
+		// own, and it gets no more access than it has.
+		cc := pig.ChiefContext{SessionID: workerID, Dir: dir, FullAccess: mode == "full"}
+		ep, err := o.mcp.Register(mcpTools(o.ChiefTools(func() pig.ChiefContext { return cc })))
+		if err != nil {
+			return protocol.WorkerInfo{}, err
+		}
+		token = ep.Token
+		opts.MCP = &harness.MCPServer{Name: mcp.Name, URL: ep.URL, Token: ep.Token}
+	}
+	sess, err := prov.Start(ctx, opts)
 	if err != nil {
+		if token != "" {
+			o.mcp.Revoke(token)
+		}
 		return protocol.WorkerInfo{}, err
 	}
 
@@ -466,12 +515,15 @@ func (o *Orchestrator) spawnWorker(ctx context.Context, args spawnWorkerArgs) (p
 		Status:        protocol.WorkerIdle,
 		Updated:       time.Now().UnixMilli(),
 	}
-	w := &managedWorker{info: info, sess: sess}
+	w := &managedWorker{info: info, sess: sess, mcpToken: token, profile: args.Profile}
 
 	o.mu.Lock()
 	if o.closed {
 		o.mu.Unlock()
 		_ = sess.Close()
+		if token != "" {
+			o.mcp.Revoke(token)
+		}
 		return protocol.WorkerInfo{}, errors.New("orchestrator is shutting down")
 	}
 	o.workers[workerID] = w
@@ -532,18 +584,6 @@ func (o *Orchestrator) Workers(_ context.Context, parentSession string) ([]proto
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
-}
-
-func (o *Orchestrator) ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error) {
-	return o.worktrees.List(ctx, dir)
-}
-
-func (o *Orchestrator) CreateWorktree(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error) {
-	return o.worktrees.Create(ctx, dir, name, baseRef)
-}
-
-func (o *Orchestrator) RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error {
-	return o.worktrees.Remove(ctx, dir, wtPath, force)
 }
 
 func (o *Orchestrator) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {
@@ -651,10 +691,26 @@ func (o *Orchestrator) Sessions(ctx context.Context, q protocol.SessionQuery) (p
 }
 
 func (o *Orchestrator) Create(ctx context.Context, req protocol.CreateSessionRequest) (protocol.Session, error) {
+	var prof *protocol.AgentProfile
+	if req.Profile != "" {
+		p, err := profiles.Find(o.dataDir, req.Directory, req.Profile)
+		if err != nil {
+			return protocol.Session{}, err
+		}
+		prof = &p
+		req.Provider = cmp.Or(req.Provider, p.Provider)
+		req.Mode = cmp.Or(req.Mode, p.Mode)
+		req.Title = cmp.Or(req.Title, p.Name)
+	}
 	if req.Provider == "" || req.Provider == "pig" {
 		s, err := o.pig.Create(ctx, req)
 		if err == nil && s.Provider == "" {
 			s.Provider = "pig"
+		}
+		if err == nil && prof != nil && strings.TrimSpace(prof.Instructions) != "" {
+			o.mu.Lock()
+			o.firstPrompts[s.ID] = *prof
+			o.mu.Unlock()
 		}
 		return s, err
 	}
@@ -663,6 +719,7 @@ func (o *Orchestrator) Create(ctx context.Context, req protocol.CreateSessionReq
 		Name:      req.Title,
 		Directory: req.Directory,
 		Mode:      req.Mode,
+		Profile:   prof,
 	})
 	if err != nil {
 		return protocol.Session{}, err
@@ -691,10 +748,17 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		if err := harnessCanTake(req); err != nil {
 			return "", fmt.Errorf("%w: %s %w", pig.ErrNotSent, w.snapshot().Provider, err)
 		}
+		if err := o.clearWorker(ctx, w, req.Deliver); err != nil {
+			return "", err
+		}
 		// Mark the worker running before the prompt goes out, so a wait right
 		// after this send cannot see the previous turn's result.
 		w.mu.Lock()
 		prevStatus, prevErr := w.info.Status, w.info.LastError
+		prof := w.profile
+		if prof != nil && !slices.ContainsFunc(w.msgs, func(m protocol.Message) bool { return m.Role == protocol.RoleUser }) {
+			req.Text = profiles.Prompt(*prof, req.Text)
+		}
 		w.msgSeq++
 		msgID := fmt.Sprintf("%s_m%d", w.info.ID, w.msgSeq)
 		w.msgs = append(w.msgs, protocol.Message{ID: msgID, Role: protocol.RoleUser, Text: req.Text})
@@ -728,11 +792,62 @@ func (o *Orchestrator) Send(ctx context.Context, req protocol.SendRequest) (prot
 		}
 		return "", fmt.Errorf("%w: %w", pig.ErrNotSent, err)
 	}
-	return o.pig.Send(ctx, req)
+	o.mu.Lock()
+	prof, first := o.firstPrompts[req.Session]
+	o.mu.Unlock()
+	if !first {
+		return o.pig.Send(ctx, req)
+	}
+	text := req.Text
+	req.Text = profiles.Prompt(prof, text)
+	disp, err := o.pig.Send(ctx, req)
+	if err == nil || !errors.Is(err, pig.ErrNotSent) {
+		// Sent, or maybe: either way its first message has gone out.
+		o.mu.Lock()
+		delete(o.firstPrompts, req.Session)
+		o.mu.Unlock()
+	}
+	return disp, err
+}
+
+// Profiles is the agent profiles for an agent starting in dir.
+func (o *Orchestrator) Profiles(_ context.Context, dir string) ([]protocol.AgentProfile, error) {
+	return profiles.Load(o.dataDir, dir)
 }
 
 // harnessCanTake refuses what an external CLI harness cannot be given: it
 // takes a prompt's text, nothing else.
+// clearWorker readies a running worker for a message: an interrupt stops
+// its turn and waits for it to end. External harnesses can't be steered, so
+// a steer or a queue is refused; a plain send goes to the harness as before.
+func (o *Orchestrator) clearWorker(ctx context.Context, w *managedWorker, deliver protocol.Delivery) error {
+	busy := func() bool {
+		st := w.snapshot().Status
+		return st == protocol.WorkerRunning || st == protocol.WorkerWaitingApproval
+	}
+	if deliver == "" || !busy() {
+		return nil
+	}
+	if deliver != protocol.DeliverInterrupt {
+		return fmt.Errorf("%w: %s is running and can only be interrupted", pig.ErrNotSent, w.snapshot().Provider)
+	}
+	if err := w.sess.Abort(ctx); err != nil {
+		return fmt.Errorf("%w: %v", pig.ErrNotSent, err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for busy() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: the running turn didn't stop", pig.ErrNotSent)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
 func harnessCanTake(req protocol.SendRequest) error {
 	var unsupported []string
 	if len(req.Files) > 0 {
@@ -807,6 +922,9 @@ func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 	if err := o.pig.Delete(ctx, id); err != nil {
 		return err
 	}
+	o.mu.Lock()
+	delete(o.firstPrompts, id)
+	o.mu.Unlock()
 	// Workers the conversation spawned would otherwise run on with nothing
 	// left that shows them.
 	o.mu.Lock()
@@ -823,15 +941,37 @@ func (o *Orchestrator) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// removeWorker stops w's process and forgets it.
+// removeWorker stops w's process and forgets it, and the workers it spawned
+// through its MCP tools.
 func (o *Orchestrator) removeWorker(w *managedWorker) {
 	id := w.id()
 	_ = w.sess.Close()
+	if w.mcpToken != "" {
+		o.mcp.Revoke(w.mcpToken)
+	}
 	o.mu.Lock()
 	delete(o.workers, id)
+	rest := make([]*managedWorker, 0, len(o.workers))
+	for _, c := range o.workers {
+		rest = append(rest, c)
+	}
 	o.mu.Unlock()
 	o.notifyWaiters(id)
 	o.emit(protocol.Event{Kind: protocol.EventSessionDeleted, Session: id})
+	for _, c := range rest {
+		if c.snapshot().ParentSession == id {
+			o.removeWorker(c)
+		}
+	}
+}
+
+// mcpTools are the Chief tools as MCP tools.
+func mcpTools(tools []pig.Tool) []mcp.Tool {
+	out := make([]mcp.Tool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: t.Parameters, Call: t.Execute})
+	}
+	return out
 }
 
 func (o *Orchestrator) Spawn(ctx context.Context, req protocol.SpawnRequest) (protocol.Session, error) {

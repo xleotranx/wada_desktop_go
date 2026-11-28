@@ -25,6 +25,15 @@ func (p *Plugin) tabMenu(m *ui.Menu, t tabs.Tab) {
 			p.renaming, p.title, p.renameOn = t, t.Title, true
 		}
 	}
+	if t.Kind == tabs.Pane {
+		if p.beside[t.Folder] == t.ID {
+			if m.Item("Remove from Split").Chosen() {
+				p.ctx.Post(func() { p.closeSplit(t.Folder) })
+			}
+		} else if p.chatFor(t.Folder) != "" && m.Item("Show Beside Chat").Chosen() {
+			p.ctx.Post(func() { p.showBeside(t) })
+		}
+	}
 	if m.Item("Close Tab").Chosen() {
 		p.ctx.Post(func() { p.Close(t.ID) })
 	}

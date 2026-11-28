@@ -25,6 +25,7 @@ import (
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 	"wada-desktop-go/internal/daemon/pig"
+	"wada-desktop-go/internal/daemon/preview"
 	"wada-desktop-go/internal/daemon/schedules"
 	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/daemon/workspaces"
@@ -123,6 +124,7 @@ type Config struct {
 	Store          *store.Store
 	Workspaces     *workspaces.Service
 	DesktopManaged bool
+	Preview        *preview.Broker
 	Backend        Backend
 	OnShutdown     func()
 }
@@ -154,7 +156,8 @@ type clientConn struct {
 	done         chan struct{}
 	// local is set for a client that proved the local credential, which only
 	// processes that can read the data directory have.
-	local bool
+	local          bool
+	previewDesktop bool
 }
 
 // Server serves wadad's HTTP health endpoint and WebSocket RPC/stream protocol.
@@ -495,6 +498,7 @@ func (s *Server) ServeTransport(tr relay.Transport, peer string) {
 		return
 	}
 	conn.local = local
+	conn.previewDesktop = local && hello.ClientType == "desktop" && net.ParseIP(peer).IsLoopback()
 	_ = tr.SetReadDeadline(time.Time{})
 
 	info := protocol.ServerInfoPayload{
@@ -829,6 +833,8 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		return v, rerr
 	}
 	switch method {
+	case protocol.MethodPreviewPending, protocol.MethodPreviewClaim, protocol.MethodPreviewReply:
+		return s.previewRPC(ctx, c, method, payload)
 	case protocol.MethodDaemonStatus:
 		return protocol.DaemonStatusResponse{
 			ServerID:       s.serverID,

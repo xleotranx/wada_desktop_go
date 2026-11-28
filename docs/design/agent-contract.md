@@ -280,6 +280,21 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
   pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
   workspace against the merge base with its base ref, untracked files included.
 
+### Agent preview requests
+
+The Chief `workspace_preview` tool accepts a service name and an action
+(`open`, `read`, or `click`). It resolves the service within the calling
+conversation's active workspace. The service must be trusted and running
+through Wada. `open` takes a relative path, and `click` takes the exact text
+of a visible, unique button outside forms.
+
+The local desktop polls `preview.pending` for the selected workspace. It
+uses `preview.claim` after a user chooses **Allow once** or **Decline**.
+Before allowing the request, the daemon checks that the preview is still
+running. The desktop returns the action result in `preview.reply` on the
+connection that claimed it. A request expires after 90 seconds. Read and
+click check the preview's origin in the page before acting.
+
 ### Workspace file editor
 
 `workspace.files.find` searches relative paths in an active workspace named by

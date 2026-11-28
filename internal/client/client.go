@@ -1042,3 +1042,17 @@ func (c *Client) SaveWorkspaceFile(ctx context.Context, workspace, path, text, r
 		Text:                 text, Revision: revision,
 	}, &out)
 }
+
+func (c *Client) PendingPreview(ctx context.Context, workspace string) (*protocol.PreviewRequest, error) {
+	var out *protocol.PreviewRequest
+	return out, c.Call(ctx, protocol.MethodPreviewPending, protocol.WorkspaceIDRequest{Workspace: workspace}, &out)
+}
+
+func (c *Client) ClaimPreview(ctx context.Context, id string, allow bool) (*protocol.PreviewRequest, error) {
+	var out *protocol.PreviewRequest
+	return out, c.Call(ctx, protocol.MethodPreviewClaim, map[string]any{"id": id, "allow": allow}, &out)
+}
+
+func (c *Client) ReplyPreview(ctx context.Context, reply protocol.PreviewReply) error {
+	return c.Call(ctx, protocol.MethodPreviewReply, reply, nil)
+}

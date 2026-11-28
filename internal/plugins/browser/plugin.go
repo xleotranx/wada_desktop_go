@@ -25,6 +25,12 @@ type Plugin struct {
 
 	openOn   bool
 	openText string
+
+	previewScope *kernel.Scope
+	previewSpace string
+	previewOpen  bool
+	request      *browser.Request
+	decision     kernel.Task
 }
 
 // page is one tab's web page and what its toolbar shows.
@@ -54,6 +60,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.host = kernel.Require(c, shell.HostKey)
 	p.pages = map[string]*page{}
 	p.titles = map[string]string{}
+	p.setupPreview(c)
 	c.OnDispose(func() {
 		for _, pg := range p.pages {
 			pg.close()
@@ -79,7 +86,7 @@ func (p *Plugin) tabTitle(ref string) string {
 	if t := p.titles[ref]; t != "" {
 		return t
 	}
-	if u, err := url.Parse(Normalize(ref)); err == nil && u.Host != "" {
+	if u, err := url.Parse(Normalize(strings.TrimPrefix(ref, previewTag))); err == nil && u.Host != "" {
 		return u.Host
 	}
 	return "Browser"
@@ -90,7 +97,7 @@ func (p *Plugin) show(t tabs.Tab) {
 	if p.pages[t.ID] != nil {
 		return
 	}
-	pg := &page{ref: t.Ref, address: Normalize(t.Ref)}
+	pg := &page{ref: t.Ref, address: Normalize(strings.TrimPrefix(t.Ref, previewTag))}
 	p.pages[t.ID] = pg
 	v, err := p.host.NewWebView()
 	if err != nil {

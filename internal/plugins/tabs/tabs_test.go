@@ -638,3 +638,50 @@ func TestPaneTabsCloseWhenTheirKindGoes(t *testing.T) {
 		t.Fatalf("page %q", f.host.PageID)
 	}
 }
+
+type splitChatPage struct{}
+
+func (*splitChatPage) Manifest() kernel.Manifest { return kernel.Manifest{ID: "chat"} }
+func (*splitChatPage) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, shell.Pages, chat.PageID, 0, shell.Page{
+		Render: func(c *ui.Context) { ui.Text(c, "Conversation content") },
+	})
+}
+
+func TestSplitKeepsChatAndPaneTogetherWithinTheirWorkspace(t *testing.T) {
+	panes := &panesPlugin{}
+	f := start(t, nil, record(), panes.New, func() kernel.Plugin { return &splitChatPage{} })
+	f.open("s1")
+	f.p.Open("panes.term", "1", "/w/app")
+	side := f.tab("Terminal 1")
+	f.p.showBeside(side)
+	if f.p.active != f.tab("First").ID || f.host.PageID != panePage {
+		t.Fatalf("active %s, page %s", f.p.active, f.host.PageID)
+	}
+	tt := ui.NewTester(f.p.paneView, 1120, 700)
+	tt.Frame()
+	chatBounds, chatVisible := tt.Find("Conversation content")
+	paneBounds, paneVisible := tt.Find("pane of 1")
+	if !chatVisible || !paneVisible || chatBounds.X >= paneBounds.X {
+		t.Fatalf("split showed %q, with chat at %v and companion at %v", tt.Texts(), chatBounds, paneBounds)
+	}
+	f.p.Select(f.tab("Terminal 1").ID)
+	tt.Frame()
+	if tt.HasText("Conversation content") || !tt.HasText("pane of 1") {
+		t.Fatalf("full pane showed %q", tt.Texts())
+	}
+	f.open("s3")
+	tt.Frame()
+	if f.p.splitTab().ID != "" || f.host.PageID != chat.PageID {
+		t.Fatal("companion followed the chat to another workspace")
+	}
+	f.p.Select(f.tab("First").ID)
+	tt.Frame()
+	if !tt.HasText("pane of 1") {
+		t.Fatalf("companion did not return: %q", tt.Texts())
+	}
+	f.p.Close(side.ID)
+	if f.p.splitTab().ID != "" || f.host.PageID != chat.PageID {
+		t.Fatal("closing the pinned pane did not restore the standalone chat")
+	}
+}

@@ -246,6 +246,14 @@ inbox, "Inbox" (a chat without a project) and "Add project…", applied through
 `chat.Controller.SetDirectory` after the frame. A stored conversation, or one
 Starting, shows none.
 
+## Desktop split panes
+
+**Show Beside Chat** pins a pane tab beside the chat in its workspace for the
+current run. The chat remains the active tab and the work panel yields its
+space to the companion. Selecting the companion tab directly opens it at full
+width. **Close split** removes the companion from the layout and leaves its
+tab open.
+
 ## Workspace files
 
 The `editor` plugin contributes a Files tab for the selected workspace through

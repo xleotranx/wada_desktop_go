@@ -68,3 +68,23 @@ func TestParseHostTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestSSHHosts(t *testing.T) {
+	if _, endpoint := ParseHostTarget("ssh://me@box:2222"); endpoint != "ssh://me@box:2222" {
+		t.Fatalf("ssh target = %q", endpoint)
+	}
+	dir := t.TempDir()
+	if err := SaveHost(dir, HostRecord{Name: "x", Endpoint: "box:6767", SSHCommand: "wadad --stdio-bridge"}); err == nil {
+		t.Fatal("saved an ssh command for a WebSocket endpoint")
+	}
+	if err := SaveHost(dir, HostRecord{Name: "box", Endpoint: "ssh://box", SSHCommand: "~/bin/wadad --stdio-bridge"}); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := LoadHosts(dir)
+	if len(list) != 1 || list[0].SSHCommand != "~/bin/wadad --stdio-bridge" {
+		t.Fatalf("hosts = %+v", list)
+	}
+	if _, err := DialSSH(t.Context(), "ssh://", "", Options{}); err == nil {
+		t.Fatal("dialed an ssh endpoint without a host")
+	}
+}

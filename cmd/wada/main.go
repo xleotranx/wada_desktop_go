@@ -111,7 +111,8 @@ Commands:
   daemon stop            Stop the running wadad daemon
   daemon pair            Print a pairing offer & #offer= link for remote/mobile clients
   daemon set-password    Configure or clear the remote daemon password
-  host <ls|add|remove>   Manage saved remote wadad host profiles
+  host <ls|add|remove>   Manage saved remote wadad host profiles; add takes an
+                         #offer= link, host[:port] or ssh://[user@]host[:port]
   providers              List embedded and external coding-agent harnesses
   profiles [--dir DIR]   List agent profiles: agents.json and the folder's wada.json
   workers [--parent ID]  List managed external harness workers
@@ -211,11 +212,12 @@ func runHostCmd(dataDir string, args []string) error {
 		endpoint := fs.String("endpoint", "", "Direct WebSocket endpoint (host[:port] or ws://...)")
 		cred := fs.String("credential", "", "Credential or remote token")
 		relayToken := fs.String("relay-token", "", "Bearer token the host's wada-relay requires")
+		sshCommand := fs.String("ssh-command", "", "For an ssh:// host: what to run there (default: "+client.DefaultSSHCommand+")")
 		pos, err := parseInterspersed(fs, args[1:])
 		if err != nil {
 			return err
 		}
-		const hostAddUsage = "usage: wada host add <name> (<offer-url> | <host[:port]> | --endpoint <url>) [--credential <tok>] [--relay-token <tok>]"
+		const hostAddUsage = "usage: wada host add <name> (<offer-url> | <host[:port]> | ssh://[user@]host[:port] | --endpoint <url>) [--credential <tok>] [--relay-token <tok>] [--ssh-command <cmd>]"
 		if len(pos) < 1 || len(pos) > 2 || (len(pos) == 2) == (*endpoint != "") {
 			return errors.New(hostAddUsage)
 		}
@@ -224,6 +226,7 @@ func runHostCmd(dataDir string, args []string) error {
 			Endpoint:   *endpoint,
 			Credential: *cred,
 			RelayToken: *relayToken,
+			SSHCommand: *sshCommand,
 		}
 		if len(pos) == 2 {
 			rec.Offer, rec.Endpoint = client.ParseHostTarget(pos[1])

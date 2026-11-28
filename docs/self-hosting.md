@@ -90,6 +90,20 @@ worktrees, and PTY terminals on your own workstation or server:
    Everything inside `#offer=...` remains in the browser URL hash fragment and is
    never sent in HTTP requests.
 
+   A machine you can SSH to needs no pairing, open port or password: install
+   `wadad` there and add it as an `ssh://` host.
+   ```sh
+   wada host add devbox ssh://me@devbox.local
+   wada --host devbox workspace ls
+   ```
+   The client runs the system's `ssh -T -o BatchMode=yes` (set `WADA_SSH` for
+   another binary), so the host must take your keys or agent; nothing prompts.
+   On the host it runs `sh -lc 'exec wadad --stdio-bridge'`, or the host's
+   `--ssh-command`. The bridge finds the host's daemon, starting it detached
+   when none runs, gives the client its local credential and carries the
+   WebSocket connection over ssh's stdio. Desktop takes the same `ssh://` target
+   under **Settings → Daemon → Add remote host**.
+
 4. *(Optional)* Run `wadad` + `wadad-term` + Web UI inside Docker too:
    ```sh
    docker compose --env-file .env --profile daemon --profile tls up -d --build

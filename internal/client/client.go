@@ -97,6 +97,9 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 	if opts.Endpoint == "" {
 		return nil, errors.New("client: endpoint is required")
 	}
+	if IsSSHEndpoint(opts.Endpoint) {
+		return DialSSH(ctx, opts.Endpoint, "", opts)
+	}
 	wsURL := normalizeWSURL(opts.Endpoint)
 	ws, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, http.Header{})
 	if err != nil {

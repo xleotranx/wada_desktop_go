@@ -43,8 +43,8 @@ added or changed. Consumers depend on these declarations, not the SDK.
 
 The daemon plugin requires `shell.HostKey`. On activation, if the `active-host`
 setting names a saved remote profile in `<DataDir>/hosts.json`, it dials that
-remote `wadad` host via `client.DialHost` (using direct WebSocket or Noise NK E2EE
-relay); otherwise it attaches to an already running local `wadad` instance (via
+remote `wadad` host via `client.DialHost` (using direct WebSocket, Noise NK E2EE
+relay, or `ssh://` through `wadad --stdio-bridge` on the host); otherwise it attaches to an already running local `wadad` instance (via
 `wadad.pid` and `local-credential`), or spawns a detached
 `os.Executable() --daemon --desktop-managed` worker inside `<DataDir>` and
 reconnects automatically if the WebSocket drops, except after the daemon or

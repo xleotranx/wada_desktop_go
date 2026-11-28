@@ -195,7 +195,7 @@ func (p *Plugin) remoteSettingsSection(c *ui.Context, pal native.Palette, active
 			})
 			ui.Box(c.Key("host-target")).Grow(1).MinWidth(0).Children(func() {
 				components.TextBox(c, &p.remote.newTarget, components.TextBoxOptions{}).
-					FillWidth().Placeholder("#offer= link or host:port")
+					FillWidth().Placeholder("#offer= link, host:port or ssh://user@host")
 			})
 		})
 		ui.Row(c).FillWidth().Gap(6).Children(func() {
@@ -298,7 +298,7 @@ func (p *Plugin) addAndConnectHost() {
 	target := strings.TrimSpace(p.remote.newTarget)
 	pw := p.remote.newPassword
 	if name == "" || target == "" {
-		p.remote.err = "Host name and #offer= link or endpoint are required"
+		p.remote.err = "Host name and #offer= link, endpoint or ssh:// host are required"
 		p.ctx.Invalidate()
 		return
 	}

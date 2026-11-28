@@ -9,11 +9,11 @@ import (
 	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
 	"github.com/xleotranx/wada-kit/native"
+	"wada-desktop-go/internal/contract/tabs"
 	contractterm "wada-desktop-go/internal/contract/terminal"
 )
 
 const (
-	drawerWidth  = 460
 	lineFontSize = 11.5
 	// lineHeight is one row of output: the text's line height plus the gap.
 	lineHeight   = lineFontSize*1.4 + 1
@@ -21,33 +21,24 @@ const (
 	viewportPadY = 10
 )
 
-func (p *Plugin) drawerView(c *ui.Context) {
-	if !p.open {
-		return
-	}
+// paneView is a terminal tab: its header, output and input.
+func (p *Plugin) paneView(c *ui.Context, t tabs.Tab) {
 	pal := native.PaletteFor(c)
 	active, hasActive := p.activeTerminal()
-
-	ui.Row(c.Key("terminal-drawer")).Width(drawerWidth).FillHeight().Shrink(0).Label("Terminal").Children(func() {
-		ui.Box(c).Width(1).FillHeight().Background(pal.Hairline)
-		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Background(pal.Bg).Children(func() {
-			p.drawerHeader(c, pal, active, hasActive)
-			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
-			if len(p.terminals) > 0 {
-				p.drawerTabs(c, pal)
-				ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
-			}
-			p.drawerViewport(c, pal, hasActive)
-			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
-			p.drawerFooter(c, pal, active, hasActive)
-		})
+	hasActive = hasActive && t.Ref == p.activeID
+	ui.Column(c.Key("terminal-pane")).Fill().Background(pal.Bg).Label("Terminal").Children(func() {
+		p.paneHeader(c, pal, t, active, hasActive)
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
+		p.paneViewport(c, pal, hasActive)
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pal.Hairline)
+		p.paneFooter(c, pal, active, hasActive)
 	})
 }
 
-func (p *Plugin) drawerHeader(c *ui.Context, pal native.Palette, active contractterm.Info, hasActive bool) {
+func (p *Plugin) paneHeader(c *ui.Context, pal native.Palette, t tabs.Tab, active contractterm.Info, hasActive bool) {
 	sub := "Interactive PTY shell"
 	if hasActive {
-		dir := cmp.Or(active.Directory, p.conv.Directory)
+		dir := native.Tilde(active.Directory)
 		sh := filepath.Base(active.Shell)
 		switch {
 		case sh != "" && sh != "." && dir != "":
@@ -57,81 +48,31 @@ func (p *Plugin) drawerHeader(c *ui.Context, pal native.Palette, active contract
 		case sh != "" && sh != ".":
 			sub = sh
 		}
-	} else if p.conv.Directory != "" {
-		sub = p.conv.Directory
 	}
 
-	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 10, 0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Icon(c, lucide.Terminal()).FontSize(14).TextColor(pal.Muted).Shrink(0)
+	ui.Row(c).FillWidth().Height(44).Shrink(0).Padding(0, 10, 0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
-			ui.Text(c, "Terminal").FontSize(13.5).FontWeight(600).TextColor(pal.Text).SingleLine()
+			ui.Text(c, cmp.Or(p.title(t.Ref), t.Title, "Terminal")).FontSize(13.5).FontWeight(600).TextColor(pal.Text).SingleLine().Ellipsis("…")
 			ui.Text(c, sub).FontSize(11).TextColor(pal.Muted).SingleLine().Ellipsis("…")
 		})
-		nb := ui.ButtonBase(c.Key("new-term")).Label("New terminal").Tooltip("New terminal  ⇧⌘J").Size(26, 26).Radius(6).
-			Center().Cursor(ui.CursorPointer).OnClick(p.createTerminal)
-		if nb.Hovered() {
-			nb.Background(pal.Hover)
-		}
-		nb.Children(func() { ui.Icon(c, lucide.Plus()).FontSize(13).TextColor(pal.Muted) })
-
+		p.iconButton(c, pal, "new-term", "New terminal", "New terminal  ⇧⌘J", lucide.Plus(), func() { p.createTerminal(t.Folder) })
 		if hasActive {
-			cp := ui.ButtonBase(c.Key("copy-term")).Label("Copy output").Tooltip("Copy output").Size(26, 26).Radius(6).
-				Center().Cursor(ui.CursorPointer).OnClick(p.copyOutput)
-			if cp.Hovered() {
-				cp.Background(pal.Hover)
-			}
-			cp.Children(func() { ui.Icon(c, lucide.Copy()).FontSize(12.5).TextColor(pal.Muted) })
-		}
-
-		cb := ui.ButtonBase(c.Key("close-term")).Label("Close terminal").Tooltip("Close terminal  ⌘J").Size(26, 26).Radius(6).
-			Center().Cursor(ui.CursorPointer).OnClick(p.closeDrawer)
-		if cb.Hovered() {
-			cb.Background(pal.Hover)
-		}
-		cb.Children(func() { ui.Icon(c, lucide.X()).FontSize(13).TextColor(pal.Muted) })
-	})
-}
-
-func (p *Plugin) drawerTabs(c *ui.Context, pal native.Palette) {
-	ui.Row(c).FillWidth().Padding(6, 10).Gap(6).AlignItems(ui.Center).Children(func() {
-		for _, t := range p.terminals {
-			term := t
-			active := term.ID == p.activeID
-			dotColor := pal.Faint
-			if term.Running {
-				dotColor = pal.GreenBadge
-			}
-			row := ui.Row(c.Key("tab:"+term.ID)).Height(26).Radius(6).Padding(0, 6, 0, 8).Gap(5).AlignItems(ui.Center)
-			if active {
-				row.Background(pal.Selected)
-			}
-			row.Children(func() {
-				sel := ui.ButtonBase(c.Key("select")).Label(cmp.Or(term.Name, term.ID)).Height(24).Gap(5).
-					AlignItems(ui.Center).Cursor(ui.CursorPointer).OnClick(func() { p.selectTerminal(term.ID) })
-				if !active && sel.Hovered() {
-					sel.Background(pal.Hover)
-				}
-				sel.Children(func() {
-					ui.Box(c).Size(6, 6).Radius(99).Background(dotColor).Shrink(0)
-					col := pal.Muted
-					if active {
-						col = pal.Text
-					}
-					ui.Text(c, cmp.Or(term.Name, term.ID)).FontSize(12).FontWeight(500).TextColor(col).SingleLine()
-				})
-
-				kb := ui.ButtonBase(c.Key("kill")).Label("Kill "+cmp.Or(term.Name, term.ID)).Tooltip("Kill terminal").
-					Size(18, 18).Radius(4).Center().Cursor(ui.CursorPointer).OnClick(func() { p.killTerminal(term.ID) })
-				if kb.Hovered() {
-					kb.Background(pal.Hover)
-				}
-				kb.Children(func() { ui.Icon(c, lucide.X()).FontSize(11).TextColor(pal.Muted) })
-			})
+			p.iconButton(c, pal, "copy-term", "Copy output", "Copy output", lucide.Copy(), p.copyOutput)
+			p.iconButton(c, pal, "kill-term", "Kill terminal", "Kill terminal and close its tab", lucide.Trash(), func() { p.killTerminal(t.Ref) })
 		}
 	})
 }
 
-func (p *Plugin) drawerViewport(c *ui.Context, pal native.Palette, hasActive bool) {
+func (p *Plugin) iconButton(c *ui.Context, pal native.Palette, key, label, tip string, icon *ui.SVG, on func()) {
+	b := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tip).Size(26, 26).Radius(6).
+		Center().Cursor(ui.CursorPointer).OnClick(on)
+	if b.Hovered() {
+		b.Background(pal.Hover)
+	}
+	b.Children(func() { ui.Icon(c, icon).FontSize(13).TextColor(pal.Muted) })
+}
+
+func (p *Plugin) paneViewport(c *ui.Context, pal native.Palette, hasActive bool) {
 	ui.Column(c.Key("viewport")).Bind(&p.viewport).FillWidth().Grow(1).MinHeight(0).Background(pal.DetailBg).Children(func() {
 		if p.errText != "" {
 			ui.Box(c).FillWidth().Padding(6, 12).Background(pal.Danger.Alpha(.12)).Children(func() {
@@ -141,10 +82,7 @@ func (p *Plugin) drawerViewport(c *ui.Context, pal native.Palette, hasActive boo
 		if !hasActive {
 			ui.Column(c).Fill().Center().Gap(10).Padding(24).Children(func() {
 				ui.Icon(c, lucide.Terminal()).FontSize(22).TextColor(pal.Muted)
-				ui.Text(c, "No open terminal").FontSize(13.5).FontWeight(500).TextColor(pal.Text)
-				ui.Text(c, "Start a detached PTY shell in the project folder. It stays running even if you close this drawer.").
-					FontSize(12).LineHeight(1.45).TextColor(pal.Muted).TextAlign(ui.Center).MaxWidth(320)
-				components.Button(c, "New terminal", components.ButtonPrimary).OnClick(p.createTerminal)
+				ui.Text(c, "Connecting to the terminal…").FontSize(13).TextColor(pal.Muted)
 			})
 			return
 		}
@@ -163,7 +101,7 @@ func (p *Plugin) drawerViewport(c *ui.Context, pal native.Palette, hasActive boo
 	})
 }
 
-func (p *Plugin) drawerFooter(c *ui.Context, pal native.Palette, active contractterm.Info, hasActive bool) {
+func (p *Plugin) paneFooter(c *ui.Context, pal native.Palette, active contractterm.Info, hasActive bool) {
 	statusText := "idle"
 	statusColor := pal.Faint
 	if hasActive {

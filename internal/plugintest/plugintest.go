@@ -896,10 +896,14 @@ func Outgoing(t *testing.T, o kernel.Owner, d chat.Draft) chat.Draft {
 	return out
 }
 
-// Tabs provides tabs.ServiceKey over fixed test state.
+// Tabs provides tabs.ServiceKey over test state. Open, Select and Close
+// keep List and Current and tell pane kinds what comes on and goes off
+// show, as the tabs plugin does; Opened records Open's calls.
 type Tabs struct {
 	List    []tabs.Tab
 	Current tabs.Tab
+	Opened  []string // "<pane> <ref> <folder>"
+	ctx     *kernel.Context
 }
 
 func (t *Tabs) New() kernel.Plugin { return t }
@@ -907,6 +911,7 @@ func (*Tabs) Manifest() kernel.Manifest {
 	return kernel.Manifest{ID: "fake-tabs", Provides: []kernel.Named{tabs.ServiceKey}}
 }
 func (t *Tabs) Setup(c *kernel.Context) error {
+	t.ctx = c
 	return kernel.Provide[tabs.Service](c, tabs.ServiceKey, t)
 }
 func (t *Tabs) Tabs() []tabs.Tab {
@@ -919,9 +924,57 @@ func (t *Tabs) Tabs() []tabs.Tab {
 	return nil
 }
 func (t *Tabs) Active() (tabs.Tab, bool) { return t.Current, t.Current.ID != "" }
-func (t *Tabs) Select(string)            {}
-func (t *Tabs) Close(string)             {}
 func (t *Tabs) Space() string            { return t.Current.Folder }
+
+func (t *Tabs) Select(id string) {
+	if i := slices.IndexFunc(t.List, func(x tabs.Tab) bool { return x.ID == id }); i >= 0 {
+		t.show(t.List[i])
+	}
+}
+
+func (t *Tabs) Close(id string) {
+	t.List = slices.DeleteFunc(t.List, func(x tabs.Tab) bool { return x.ID == id })
+	if t.Current.ID == id {
+		t.show(tabs.Tab{Folder: t.Current.Folder})
+	}
+}
+
+func (t *Tabs) Open(pane, ref, folder string) {
+	t.Opened = append(t.Opened, pane+" "+ref+" "+folder)
+	id := "pane:" + pane + ":" + folder + ":" + ref
+	if !slices.ContainsFunc(t.List, func(x tabs.Tab) bool { return x.ID == id }) {
+		t.List = append(t.List, tabs.Tab{ID: id, Kind: tabs.Pane, Pane: pane, Ref: ref, Folder: folder})
+	}
+	t.Select(id)
+}
+
+// show makes next the current tab, telling the pane kinds.
+func (t *Tabs) show(next tabs.Tab) {
+	prev := t.Current
+	t.Current = next
+	if prev.Kind == tabs.Pane && prev.ID != "" && prev.Pane != next.Pane {
+		t.pane(prev.Pane, func(k tabs.PaneKind) {
+			if k.Hide != nil {
+				k.Hide()
+			}
+		})
+	}
+	if next.Kind == tabs.Pane && next.ID != "" && next.ID != prev.ID {
+		t.pane(next.Pane, func(k tabs.PaneKind) {
+			if k.Show != nil {
+				k.Show(next)
+			}
+		})
+	}
+}
+
+func (t *Tabs) pane(kind string, fn func(tabs.PaneKind)) {
+	for _, e := range kernel.Items(t.ctx, tabs.Panes) {
+		if e.ID == kind {
+			kernel.Invoke(t.ctx, e, fn)
+		}
+	}
+}
 
 // Images provides attachment.ServiceKey in memory for tests.
 type Images struct {

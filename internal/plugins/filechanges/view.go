@@ -6,19 +6,53 @@ import (
 	"strings"
 
 	"wada-desktop-go/internal/contract/agent"
+	"wada-desktop-go/internal/contract/tabs"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/icons/lucide"
+	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/native"
 )
 
 const patchShown = 400 // lines of one file's diff
 
-// changesView lists the changed files with their line counts; a file opens
-// to its diff.
-func (p *Plugin) changesView(c *ui.Context) {
+// panelView is the work panel's section.
+func (p *Plugin) panelView(c *ui.Context) {
+	p.changesView(c, func() {
+		if _, ok := kernel.Use(p.ctx, tabs.ServiceKey); !ok {
+			return
+		}
+		pal := native.PaletteFor(c)
+		c.Key("open-tab")
+		b := ui.ButtonBase(c).Label("Open changes in a tab").Tooltip("Open the workspace’s changes in a tab  ⇧⌘D").
+			Size(28, 28).Radius(6).Cursor(ui.CursorPointer).Center().OnClick(p.openTab)
+		if b.Hovered() {
+			b.Background(pal.Hover)
+		}
+		b.Children(func() { ui.Icon(c, lucide.Maximize2()).FontSize(13).TextColor(pal.Faint) })
+	})
+}
+
+// paneView is a workspace's Changes tab: the same list, across the page.
+func (p *Plugin) paneView(c *ui.Context) {
 	pal := native.PaletteFor(c)
-	p.sourcePicker(c, pal)
+	v := &p.pane
+	ui.Column(c).Fill().Background(pal.Bg).Children(func() {
+		ui.Column(c).FillWidth().Shrink(0).Padding(14, 20, 6, 20).Gap(2).Children(func() {
+			ui.Text(c, "Changes").FontSize(15).FontWeight(600).TextColor(pal.Text)
+			ui.Text(c, native.Tilde(v.directory)).FontSize(11.5).TextColor(pal.Muted).SingleLine().Ellipsis("…")
+		})
+		ui.Scroll(c.Key("changes")).FillWidth().Grow(1).MinHeight(0).Children(func() {
+			ui.Column(c).FillWidth().MaxWidth(980).Padding(6, 20, 20, 20).Children(func() { v.changesView(c, nil) })
+		})
+	})
+}
+
+// changesView lists the changed files with their line counts; a file opens
+// to its diff. extra draws buttons beside the source picker.
+func (p *changeView) changesView(c *ui.Context, extra func()) {
+	pal := native.PaletteFor(c)
+	p.sourcePicker(c, pal, extra)
 	if p.mode == uncommittedChanges {
 		ui.Text(c, "Staged, unstaged & untracked").FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
 	}
@@ -73,7 +107,7 @@ func (p *Plugin) changesView(c *ui.Context) {
 	})
 }
 
-func (p *Plugin) summary(c *ui.Context, pal native.Palette, added, removed int) {
+func (p *changeView) summary(c *ui.Context, pal native.Palette, added, removed int) {
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(2).Padding(0, 0, 4, 0).Children(func() {
 		label, chevron := "Collapse file list", lucide.ChevronDown
 		if !p.expanded {
@@ -128,7 +162,7 @@ func (p *Plugin) summary(c *ui.Context, pal native.Palette, added, removed int) 
 	})
 }
 
-func (p *Plugin) sourcePicker(c *ui.Context, pal native.Palette) {
+func (p *changeView) sourcePicker(c *ui.Context, pal native.Palette, extra func()) {
 	ui.Row(c).FillWidth().Gap(6).Padding(0, 0, 8, 0).Children(func() {
 		c.Key("source")
 		sel := ui.SelectBase(c, &p.mode)
@@ -157,10 +191,13 @@ func (p *Plugin) sourcePicker(c *ui.Context, pal native.Palette) {
 			Disabled(p.load.Running()).Cursor(ui.CursorPointer).Center().OnClick(p.readChanges).Children(func() {
 			ui.Icon(c, lucide.RefreshCw()).FontSize(13).TextColor(pal.Faint)
 		})
+		if extra != nil {
+			extra()
+		}
 	})
 }
 
-func (p *Plugin) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
+func (p *changeView) file(c *ui.Context, pal native.Palette, ch agent.FileChange) {
 	open := p.open[ch.Path]
 	status, marker, color := "Modified", "M", pal.Faint
 	switch ch.Status {

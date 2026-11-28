@@ -1,5 +1,5 @@
-// Package tabs keeps the window's tabs: the conversations, new chats and
-// pages the user has open. The title strip shows one workspace at a time, its
+// Package tabs keeps the window's tabs: the conversations, new chats, panes
+// and pages the user has open. The title strip shows one workspace at a time, its
 // space: that workspace's tabs, then the pages, with a switcher for the other
 // workspaces. Tabs follow navigation: whatever the chat or the shell shows
 // becomes the active tab, and its workspace the space on show, so nothing has
@@ -16,6 +16,7 @@ import (
 	"wada-desktop-go/internal/contract/tabs"
 	"wada-desktop-go/internal/contract/workspace"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/contract/settings"
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
@@ -61,6 +62,9 @@ type Plugin struct {
 	// shown is the strip's buffer for the tabs it draws; only the strip
 	// uses it, so a handler running during a frame cannot overwrite it.
 	shown []tabs.Tab
+	// paneOn is the pane tab on show and paneKind its kind, so the kind is
+	// told when it goes.
+	paneOn, paneKind string
 
 	// The dialogs the menus open.
 	renaming tabs.Tab
@@ -78,10 +82,15 @@ type saved struct {
 	Session agent.SessionID `json:"session,omitempty"`
 	Folder  string          `json:"folder,omitempty"`
 	Page    string          `json:"page,omitempty"`
+	Pane    string          `json:"pane,omitempty"`
+	Ref     string          `json:"ref,omitempty"`
 	Title   string          `json:"title,omitempty"`
 }
 
 const newChatTitle = "New chat"
+
+// panePage is the page that shows the active pane tab.
+const panePage = "tabs.pane"
 
 // New makes the plugin; the kernel makes one for each activation.
 func New() kernel.Plugin { return &Plugin{} }
@@ -89,7 +98,7 @@ func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "tabs", Title: "Tabs", Locked: true,
-		Description: "Open chats as tabs across the window, grouped by workspace.",
+		Description: "Open chats, terminals and changes as tabs across the window, grouped by workspace.",
 		Provides:    []kernel.Named{tabs.ServiceKey},
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
 	}
@@ -117,12 +126,16 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.On(c, agent.Events, p.events)
 	kernel.On(c, workspace.Changed, func(struct{}) { p.recordChanged() })
 	kernel.On(c, kernel.PointChanged, func(point string) {
-		if point == shell.Pages.Name() {
+		switch point {
+		case shell.Pages.Name():
 			p.pagesChanged()
+		case tabs.Panes.Name():
+			p.panesChanged()
 		}
 	})
 	// Restoring navigates, which is not Setup's job: do it once set up.
 	c.Post(p.restore)
+	kernel.Contribute(c, shell.Pages, panePage, 100, shell.Page{Title: p.paneTitleOnShow, Render: p.paneView})
 	kernel.Contribute(c, shell.Strip, "tabs.strip", 0, shell.View{Render: p.strip, Grow: true})
 	kernel.Contribute(c, shell.Overlays, "tabs.dialogs", 0, shell.View{Render: p.dialogs})
 	kernel.Contribute(c, settings.Sections, "tabs.settings", 10, settings.Section{
@@ -147,7 +160,7 @@ func (p *Plugin) Tabs() []tabs.Tab {
 	out := make([]tabs.Tab, len(p.tabs))
 	for i, t := range p.tabs {
 		t.State = p.state(t)
-		out[i] = t
+		out[i] = p.titled(t)
 	}
 	return out
 }
@@ -159,7 +172,7 @@ func (p *Plugin) Active() (tabs.Tab, bool) {
 	}
 	t := p.tabs[i]
 	t.State = p.state(t)
-	return t, true
+	return p.titled(t), true
 }
 
 func (p *Plugin) Select(id string) {
@@ -182,9 +195,23 @@ func (p *Plugin) Select(id string) {
 		p.host.ShowPage(chat.PageID)
 	case tabs.Page:
 		p.host.ShowPage(t.Page)
+	case tabs.Pane:
+		p.host.ShowPage(panePage)
 	}
 	p.selecting = false
 	p.activate(t.ID)
+}
+
+func (p *Plugin) Open(pane, ref, folder string) {
+	folder = p.spaceOf(folder)
+	id := paneTabID(pane, ref, folder)
+	if p.find(id) < 0 {
+		p.ensureColor(folder)
+		t := tabs.Tab{ID: id, Kind: tabs.Pane, Pane: pane, Ref: ref, Folder: folder}
+		t.Title = p.titled(t).Title
+		p.tabs = slices.Insert(p.tabs, p.slot(folder, -1), t)
+	}
+	p.Select(id)
 }
 
 func (p *Plugin) Close(id string) {
@@ -245,7 +272,7 @@ func (p *Plugin) visibleInto(buf []tabs.Tab) []tabs.Tab {
 	out := buf[:0]
 	for _, t := range p.tabs {
 		if t.Kind != tabs.Page && t.Folder == p.space {
-			out = append(out, t)
+			out = append(out, p.titled(t))
 		}
 	}
 	for _, t := range p.tabs {
@@ -287,6 +314,9 @@ func (p *Plugin) followChat(conv chat.Conversation) {
 func (p *Plugin) followPage(id string) {
 	if !p.restored || p.selecting {
 		return
+	}
+	if id == panePage {
+		return // only Select shows it
 	}
 	if id == "" || id == chat.PageID {
 		p.showConversation(p.chat.Current())
@@ -400,6 +430,12 @@ func (p *Plugin) restore() {
 				continue
 			}
 			t = tabs.Tab{ID: pageID(s.Page), Kind: tabs.Page, Page: s.Page, Title: p.pageTitle(s.Page)}
+		case tabs.Pane:
+			folder := p.spaceOf(s.Folder)
+			if !p.hasPane(s.Pane) || p.find(paneTabID(s.Pane, s.Ref, folder)) >= 0 {
+				continue
+			}
+			t = tabs.Tab{ID: paneTabID(s.Pane, s.Ref, folder), Kind: tabs.Pane, Pane: s.Pane, Ref: s.Ref, Folder: folder, Title: s.Title}
 		default:
 			continue
 		}
@@ -472,6 +508,108 @@ func (p *Plugin) pagesChanged() {
 	if retitled {
 		p.changed()
 	}
+}
+
+// panesChanged closes the tabs of panes no plugin contributes any more.
+func (p *Plugin) panesChanged() {
+	if !p.restored {
+		return
+	}
+	var gone []string
+	for _, t := range p.tabs {
+		if t.Kind == tabs.Pane && !p.hasPane(t.Pane) {
+			gone = append(gone, t.ID)
+		}
+	}
+	if t, ok := p.paneTab(p.paneOn); !ok || !p.hasPane(t.Pane) {
+		p.paneOn, p.paneKind = "", "" // nothing is left to tell it went
+	}
+	for _, id := range gone {
+		p.Close(id)
+	}
+}
+
+// ---- Panes
+
+// syncPane tells the pane kinds which tab went off show and which came on,
+// after the active tab changed.
+func (p *Plugin) syncPane() {
+	want, _ := p.paneTab(p.active)
+	if want.ID == p.paneOn {
+		return
+	}
+	if p.paneOn != "" && want.Pane != p.paneKind {
+		p.invokePane(p.paneKind, func(k tabs.PaneKind) {
+			if k.Hide != nil {
+				k.Hide()
+			}
+		})
+	}
+	p.paneOn, p.paneKind = want.ID, want.Pane
+	if want.ID != "" {
+		p.invokePane(want.Pane, func(k tabs.PaneKind) {
+			if k.Show != nil {
+				k.Show(want)
+			}
+		})
+	}
+}
+
+// paneTab is the pane tab with the ID.
+func (p *Plugin) paneTab(id string) (tabs.Tab, bool) {
+	if i := p.find(id); i >= 0 && p.tabs[i].Kind == tabs.Pane {
+		return p.tabs[i], true
+	}
+	return tabs.Tab{}, false
+}
+
+// paneView is the pane page: the active pane tab, drawn by its kind.
+func (p *Plugin) paneView(c *ui.Context) {
+	t, ok := p.paneTab(p.active)
+	if !ok {
+		return
+	}
+	c.Key(t.ID)
+	p.invokePane(t.Pane, func(k tabs.PaneKind) { k.Render(c, t) })
+}
+
+func (p *Plugin) paneTitleOnShow() string {
+	t, ok := p.paneTab(p.active)
+	if !ok {
+		return ""
+	}
+	return p.titled(t).Title
+}
+
+// titled is the tab with its pane's current title; other tabs keep theirs.
+func (p *Plugin) titled(t tabs.Tab) tabs.Tab {
+	if t.Kind != tabs.Pane {
+		return t
+	}
+	p.invokePane(t.Pane, func(k tabs.PaneKind) {
+		if k.Title != nil {
+			if title := k.Title(t.Ref); title != "" {
+				t.Title = title
+			}
+		}
+	})
+	if t.Title == "" {
+		t.Title = "Pane"
+	}
+	return t
+}
+
+func (p *Plugin) invokePane(kind string, fn func(tabs.PaneKind)) {
+	for _, e := range kernel.Items(p.ctx, tabs.Panes) {
+		if e.ID == kind {
+			kernel.Invoke(p.ctx, e, fn)
+			return
+		}
+	}
+}
+
+func (p *Plugin) hasPane(kind string) bool {
+	return slices.ContainsFunc(kernel.Items(p.ctx, tabs.Panes), func(e kernel.Entry[tabs.PaneKind]) bool { return e.ID == kind })
 }
 
 // ---- What conversations are doing
@@ -553,6 +691,8 @@ func (p *Plugin) activate(id string) {
 		}
 		if t.Kind != tabs.Page {
 			p.space, p.lastIn[t.Folder] = t.Folder, t.ID
+		}
+		if t.Kind == tabs.Conversation || t.Kind == tabs.Draft {
 			p.chatTab = t.ID
 			if text, ok := p.unsent[t.ID]; ok {
 				delete(p.unsent, t.ID)
@@ -560,6 +700,7 @@ func (p *Plugin) activate(id string) {
 			}
 		}
 	}
+	p.syncPane()
 	p.changed()
 }
 
@@ -623,7 +764,7 @@ func (p *Plugin) changed() {
 		if t.ID == p.active {
 			active = i
 		}
-		keep = append(keep, saved{Kind: t.Kind, Session: t.Session, Folder: t.Folder, Page: t.Page, Title: t.Title})
+		keep = append(keep, saved{Kind: t.Kind, Session: t.Session, Folder: t.Folder, Page: t.Page, Pane: t.Pane, Ref: t.Ref, Title: t.Title})
 	}
 	p.saved.Set(keep)
 	p.savedActive.Set(active)
@@ -691,6 +832,11 @@ func titleOr(title, fallback string) string {
 
 func conversationID(s agent.SessionID) string { return "chat:" + string(s) }
 func pageID(id string) string                 { return "page:" + id }
+
+// paneTabID names a pane tab; there is one per pane, ref and space.
+func paneTabID(pane, ref, folder string) string {
+	return "pane:" + pane + "\x00" + folder + "\x00" + ref
+}
 
 // spaceOf is the space of a directory's tabs: its own, except that the
 // inbox's directory and the backend's default, "", are one space, "".

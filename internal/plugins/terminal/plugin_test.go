@@ -14,7 +14,7 @@ import (
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
 	"github.com/xleotranx/wada-kit/kittest"
 	"wada-desktop-go/internal/contract/agent"
-	chatcontract "wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/tabs"
 	contractterm "wada-desktop-go/internal/contract/terminal"
 	"wada-desktop-go/internal/plugintest"
 )
@@ -213,201 +213,243 @@ func waitCond(t *testing.T, h *kerneltest.Harness, what string, cond func() bool
 	}
 }
 
-func startTerminalTest(t *testing.T) (*kerneltest.Harness, *Plugin, *fakeTermService, *kittest.Host) {
-	t.Helper()
-	svc := newFakeTermService()
-	chatFake := &plugintest.Chat{}
-	host := &kittest.Host{Data: t.TempDir()}
-	var p *Plugin
-	h := kerneltest.New(t, host.New, svc.NewPlugin, chatFake.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
-	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "s1", Directory: "/repo/wada"})
-	return h, p, svc, host
+type fixture struct {
+	h    *kerneltest.Harness
+	p    *Plugin
+	svc  *fakeTermService
+	host *kittest.Host
+	tabs *plugintest.Tabs
 }
 
-func TestToggleOpensCreatesAndRendersSnapshot(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
+func startTerminalTest(t *testing.T) fixture {
+	t.Helper()
+	f := fixture{svc: newFakeTermService(), host: &kittest.Host{Data: t.TempDir()},
+		tabs: &plugintest.Tabs{Current: tabs.Tab{ID: "chat:s1", Kind: tabs.Conversation, Folder: "/repo/wada"}}}
+	f.h = kerneltest.New(t, f.host.New, f.svc.NewPlugin, f.tabs.New, kerneltest.Keep(&f.p, func() *Plugin { return &Plugin{} }))
+	return f
+}
 
-	p.toggle()
-	if !p.open {
-		t.Fatal("expected drawer open after toggle")
-	}
-	waitCond(t, h, "created and attached terminal", func() bool {
-		return p.streamID == "term_1" && p.screen.PlainText() != ""
-	})
+// pane draws the tab on show.
+func (f fixture) pane() *ui.Tester {
+	return ui.NewTester(func(c *ui.Context) { f.p.paneView(c, f.tabs.Current) }, 480, 600)
+}
 
-	svc.mu.Lock()
-	created := slices.Clone(svc.created)
-	svc.mu.Unlock()
+// showTerminal runs ⌘J and waits for the terminal to be attached.
+func (f fixture) showTerminal(t *testing.T, id string) {
+	t.Helper()
+	f.p.showTerminal()
+	waitCond(t, f.h, "attached "+id, func() bool { return f.p.streamID == id })
+}
+
+func TestShowTerminalOpensATabAndRendersTheSnapshot(t *testing.T) {
+	f := startTerminalTest(t)
+	f.showTerminal(t, "term_1")
+	waitCond(t, f.h, "snapshot", func() bool { return f.p.screen.PlainText() != "" })
+
+	f.svc.mu.Lock()
+	created := slices.Clone(f.svc.created)
+	f.svc.mu.Unlock()
 	if len(created) != 1 || created[0].Directory != "/repo/wada" {
 		t.Fatalf("created = %+v, want dir /repo/wada", created)
 	}
-
-	tt := ui.NewTester(p.drawerView, 480, 600)
+	if !slices.Equal(f.tabs.Opened, []string{Kind + " term_1 /repo/wada"}) || f.tabs.Current.Ref != "term_1" {
+		t.Fatalf("opened %q, current %+v", f.tabs.Opened, f.tabs.Current)
+	}
+	tt := f.pane()
 	tt.Frame()
-	if !tt.HasText("$ ready") {
-		t.Fatalf("drawer missing snapshot text: %q", tt.Texts())
+	for _, want := range []string{"zsh 1", "$ ready", "zsh · /repo/wada"} {
+		if !tt.HasText(want) {
+			t.Fatalf("%q is missing from the pane: %q", want, tt.Texts())
+		}
 	}
 
-	// Closing hides the drawer and detaches without killing the PTY.
-	p.toggle()
-	waitCond(t, h, "stream closed on detach", func() bool {
-		st := svc.latestStream("term_1")
-		return st != nil && st.isClosed()
+	// ⌘J again on the terminal does nothing; leaving the tab detaches
+	// without killing the PTY, and ⌘J comes back to the same tab.
+	f.p.showTerminal()
+	f.tabs.Close("chat:none")
+	f.tabs.Select("missing")
+	f.tabs.List = append(f.tabs.List, tabs.Tab{ID: "chat:s1", Kind: tabs.Conversation, Folder: "/repo/wada"})
+	f.tabs.Select("chat:s1")
+	waitCond(t, f.h, "stream closed on detach", func() bool {
+		st := f.svc.latestStream("term_1")
+		return st != nil && st.isClosed() && f.p.streamID == ""
 	})
-	svc.mu.Lock()
-	killed := len(svc.killed)
-	svc.mu.Unlock()
+	f.svc.mu.Lock()
+	killed, made := len(f.svc.killed), len(f.svc.created)
+	f.svc.mu.Unlock()
 	if killed != 0 {
-		t.Fatalf("closing drawer killed %d terminals, want 0", killed)
+		t.Fatalf("leaving the tab killed %d terminals", killed)
+	}
+	f.showTerminal(t, "term_1")
+	if made != 1 || len(f.tabs.Opened) != 1 {
+		t.Fatalf("⌘J made %d terminals and opened %q", made, f.tabs.Opened)
+	}
+}
+
+func TestShowTerminalReusesARunningTerminalWithoutATab(t *testing.T) {
+	f := startTerminalTest(t)
+	f.svc.list = []contractterm.Info{
+		{ID: "term_7", Name: "elsewhere", Directory: "/repo/other", Running: true},
+		{ID: "term_8", Name: "server", Directory: "/repo/wada", Running: true},
+	}
+	f.showTerminal(t, "term_8")
+	f.svc.mu.Lock()
+	created := len(f.svc.created)
+	f.svc.mu.Unlock()
+	if created != 0 || f.tabs.Current.Ref != "term_8" {
+		t.Fatalf("created %d, current %+v", created, f.tabs.Current)
+	}
+	if title := f.p.title("term_8"); title != "server" {
+		t.Fatalf("title %q", title)
 	}
 }
 
 func TestLiveANSIStreamInputAndControlKeys(t *testing.T) {
-	h, p, svc, host := startTerminalTest(t)
-	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return svc.latestStream("term_1") != nil })
-	st := svc.latestStream("term_1")
+	f := startTerminalTest(t)
+	f.showTerminal(t, "term_1")
+	st := f.svc.latestStream("term_1")
 
 	st.out <- []byte("\x1b[32mok\x1b[0m build done\r\nnext> ")
-	waitCond(t, h, "live output applied", func() bool {
-		return strings.Contains(p.screen.PlainText(), "ok build done")
+	waitCond(t, f.h, "live output applied", func() bool {
+		return strings.Contains(f.p.screen.PlainText(), "ok build done")
 	})
 
-	tt := ui.NewTester(p.drawerView, 480, 600)
+	tt := f.pane()
 	tt.Frame()
 	if !tt.HasText("ok build done") {
-		t.Fatalf("drawer missing live output: %q", tt.Texts())
+		t.Fatalf("pane missing live output: %q", tt.Texts())
 	}
 
-	p.input = "go test ./..."
-	p.submitInput()
-	waitCond(t, h, "command delivered", func() bool {
-		return len(st.sentInputs()) == 1
-	})
-	p.sendControl(0x03)
-	waitCond(t, h, "ctrl-c delivered", func() bool {
-		return len(st.sentInputs()) == 2
-	})
+	f.p.input = "go test ./..."
+	f.p.submitInput()
+	waitCond(t, f.h, "command delivered", func() bool { return len(st.sentInputs()) == 1 })
+	f.p.sendControl(0x03)
+	waitCond(t, f.h, "ctrl-c delivered", func() bool { return len(st.sentInputs()) == 2 })
 	got := st.sentInputs()
 	if got[0] != "go test ./...\r" || got[1] != "\x03" {
 		t.Fatalf("sentInputs = %q", got)
 	}
 
-	p.copyOutput()
-	if !strings.Contains(host.Copied, "ok build done") {
-		t.Fatalf("copied clipboard text = %q", host.Copied)
+	f.p.copyOutput()
+	if !strings.Contains(f.host.Copied, "ok build done") {
+		t.Fatalf("copied clipboard text = %q", f.host.Copied)
 	}
 }
 
-func TestMultiTabSwitchAndKill(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
-	svc.list = []contractterm.Info{
+func TestEachTabAttachesItsTerminalAndKillClosesIt(t *testing.T) {
+	f := startTerminalTest(t)
+	f.svc.list = []contractterm.Info{
 		{ID: "term_1", Name: "server", Directory: "/repo/wada", Shell: "/bin/zsh", Running: true, PID: 101},
 		{ID: "term_2", Name: "tests", Directory: "/repo/wada", Shell: "/bin/zsh", Running: true, PID: 102},
 	}
-	svc.snapshots["term_1"] = "server listening :8080\r\n"
-	svc.snapshots["term_2"] = "PASS ok all tests\r\n"
+	f.svc.snapshots["term_1"] = "server listening :8080\r\n"
+	f.svc.snapshots["term_2"] = "PASS ok all tests\r\n"
 
-	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.streamID == "term_1" })
-
-	tt := ui.NewTester(p.drawerView, 480, 600)
+	f.tabs.Open(Kind, "term_1", "/repo/wada")
+	waitCond(t, f.h, "attached term_1", func() bool {
+		return f.p.streamID == "term_1" && strings.Contains(f.p.screen.PlainText(), "server listening")
+	})
+	f.tabs.Open(Kind, "term_2", "/repo/wada")
+	waitCond(t, f.h, "attached term_2", func() bool {
+		return f.p.streamID == "term_2" && strings.Contains(f.p.screen.PlainText(), "PASS ok all tests")
+	})
+	tt := f.pane()
 	tt.Frame()
-	if !tt.HasText("server listening :8080") {
-		t.Fatalf("missing term_1 text: %q", tt.Texts())
+	if !tt.HasText("PASS ok all tests") || tt.HasText("server listening :8080") {
+		t.Fatalf("term_2's tab shows %q", tt.Texts())
 	}
 
-	p.selectTerminal("term_2")
-	waitCond(t, h, "attached term_2", func() bool {
-		return p.streamID == "term_2" && strings.Contains(p.screen.PlainText(), "PASS ok all tests")
+	f.p.killTerminal("term_2")
+	waitCond(t, f.h, "term_2's tab closed", func() bool {
+		return !slices.ContainsFunc(f.tabs.List, func(x tabs.Tab) bool { return x.Ref == "term_2" })
 	})
-	tt.Frame()
-	if !tt.HasText("PASS ok all tests") {
-		t.Fatalf("missing term_2 text after switch: %q", tt.Texts())
+	f.svc.mu.Lock()
+	killed := slices.Clone(f.svc.killed)
+	f.svc.mu.Unlock()
+	if killed[0] != "term_2" || !slices.ContainsFunc(f.tabs.List, func(x tabs.Tab) bool { return x.Ref == "term_1" }) {
+		t.Fatalf("killed %q, tabs %+v", killed, f.tabs.List)
 	}
+}
 
-	p.killTerminal("term_2")
-	waitCond(t, h, "fallback to term_1 after kill", func() bool {
-		return p.activeID == "term_1" && p.streamID == "term_1"
-	})
+func TestATabWhoseTerminalIsGoneCloses(t *testing.T) {
+	f := startTerminalTest(t)
+	f.tabs.Open(Kind, "term_9", "/repo/wada")
+	waitCond(t, f.h, "the gone terminal's tab closed", func() bool { return len(f.tabs.List) == 0 })
 }
 
 func TestReattachesAfterDaemonReconnect(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
-	svc.list = []contractterm.Info{
+	f := startTerminalTest(t)
+	f.svc.list = []contractterm.Info{
 		{ID: "term_1", Name: "shell", Directory: "/repo/wada", Running: true, PID: 200},
 	}
-	svc.setSnapshot("term_1", "first\r\n")
+	f.svc.setSnapshot("term_1", "first\r\n")
 
-	p.toggle()
-	waitCond(t, h, "initial attach", func() bool { return svc.streamCount("term_1") == 1 })
+	f.showTerminal(t, "term_1")
+	waitCond(t, f.h, "initial attach", func() bool { return f.svc.streamCount("term_1") == 1 })
 
-	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Down, Attempt: 1})
-	waitCond(t, h, "detached on socket drop", func() bool { return p.streamID == "" })
+	kernel.Emit(f.h, agent.StatusChanged, agent.Status{State: agent.Down, Attempt: 1})
+	waitCond(t, f.h, "detached on socket drop", func() bool { return f.p.streamID == "" })
 
-	svc.setSnapshot("term_1", "reconnected\r\n")
-	kernel.Emit(h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
-	waitCond(t, h, "reattached after reconnect", func() bool {
-		return p.streamID == "term_1" && strings.Contains(p.screen.PlainText(), "reconnected")
+	f.svc.setSnapshot("term_1", "reconnected\r\n")
+	kernel.Emit(f.h, agent.StatusChanged, agent.Status{State: agent.Ready, Attempt: 2})
+	waitCond(t, f.h, "reattached after reconnect", func() bool {
+		return f.p.streamID == "term_1" && strings.Contains(f.p.screen.PlainText(), "reconnected")
 	})
 }
 
 func TestInputKeepsItsOrder(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
-	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
-	st := svc.latestStream("term_1")
+	f := startTerminalTest(t)
+	f.showTerminal(t, "term_1")
+	st := f.svc.latestStream("term_1")
 
 	want := make([]string, 100)
 	for i := range want {
 		want[i] = fmt.Sprintf("cmd %d\r", i)
-		p.sendBytes([]byte(want[i]))
+		f.p.sendBytes([]byte(want[i]))
 	}
-	p.sendControl(0x03)
+	f.p.sendControl(0x03)
 	want = append(want, "\x03")
-	waitCond(t, h, "every input delivered", func() bool { return len(st.sentInputs()) == len(want) })
+	waitCond(t, f.h, "every input delivered", func() bool { return len(st.sentInputs()) == len(want) })
 	if got := st.sentInputs(); !slices.Equal(got, want) {
 		t.Fatalf("inputs arrived out of order: %q", got)
 	}
 }
 
-func TestDrawerFitsThePTY(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
-	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
-	st := svc.latestStream("term_1")
+func TestThePaneFitsThePTY(t *testing.T) {
+	f := startTerminalTest(t)
+	f.showTerminal(t, "term_1")
+	st := f.svc.latestStream("term_1")
 
-	tt := ui.NewTester(p.drawerView, 480, 600)
+	tt := f.pane()
 	tt.Frame()
 	tt.Frame()
-	waitCond(t, h, "PTY resized to the drawer", func() bool {
+	waitCond(t, f.h, "PTY resized to the pane", func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
 		return st.info.Cols != 0 && st.info.Cols < defaultCols
 	})
-	if p.cols >= defaultCols || p.rows <= minRows || p.screen.cols != p.cols {
-		t.Fatalf("fitted size = %dx%d (screen %d cols)", p.cols, p.rows, p.screen.cols)
+	if f.p.cols >= defaultCols || f.p.rows <= minRows || f.p.screen.cols != f.p.cols {
+		t.Fatalf("fitted size = %dx%d (screen %d cols)", f.p.cols, f.p.rows, f.p.screen.cols)
 	}
 }
 
 func TestInputWhileAttachingWaitsForTheAttachment(t *testing.T) {
-	h, p, svc, _ := startTerminalTest(t)
-	p.toggle()
-	waitCond(t, h, "attached term_1", func() bool { return p.streamID != "" })
+	f := startTerminalTest(t)
+	f.showTerminal(t, "term_1")
 
 	// Re-attach and type before the attachment has been posted back.
-	p.attach("term_1")
-	if p.streamID != "" {
+	f.p.attach("term_1")
+	if f.p.streamID != "" {
 		t.Fatal("attachment finished synchronously; the test needs it pending")
 	}
-	p.input = "echo early"
-	p.submitInput()
-	if p.errText != "" {
-		t.Fatalf("input while attaching reported %q", p.errText)
+	f.p.input = "echo early"
+	f.p.submitInput()
+	if f.p.errText != "" {
+		t.Fatalf("input while attaching reported %q", f.p.errText)
 	}
-	waitCond(t, h, "second attachment", func() bool { return svc.streamCount("term_1") == 2 })
-	st := svc.latestStream("term_1")
-	waitCond(t, h, "early input delivered", func() bool { return len(st.sentInputs()) == 1 })
+	waitCond(t, f.h, "second attachment", func() bool { return f.svc.streamCount("term_1") == 2 })
+	st := f.svc.latestStream("term_1")
+	waitCond(t, f.h, "early input delivered", func() bool { return len(st.sentInputs()) == 1 })
 	if got := st.sentInputs()[0]; got != "echo early\r" {
 		t.Fatalf("input = %q", got)
 	}

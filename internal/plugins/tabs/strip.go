@@ -330,6 +330,12 @@ func (p *Plugin) marker(c *ui.Context, pal native.Palette, t tabs.Tab) {
 		stateMark(c, pal, state)
 	case t.Kind == tabs.Draft:
 		ui.Icon(c, lucide.Plus()).FontSize(12).TextColor(pal.Muted).Shrink(0)
+	case t.Kind == tabs.Pane:
+		p.invokePane(t.Pane, func(k tabs.PaneKind) {
+			if k.Icon != nil {
+				ui.Icon(c, k.Icon()).FontSize(12).TextColor(pal.Muted).Shrink(0)
+			}
+		})
 	}
 }
 

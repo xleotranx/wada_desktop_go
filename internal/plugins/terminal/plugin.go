@@ -6,13 +6,14 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
 	"github.com/oneo-me/onevra/source/icons/lucide"
 	"github.com/xleotranx/wada-kit/contract/shell"
 	"github.com/xleotranx/wada-kit/kernel"
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/tabs"
 	contractterm "wada-desktop-go/internal/contract/terminal"
+	"wada-desktop-go/internal/contract/workspace"
 )
 
 const (
@@ -33,20 +34,25 @@ type termOp struct {
 	cols, rows int // a resize when input is nil
 }
 
-// Plugin hosts the right-edge interactive PTY terminal drawer.
+// Kind is the terminal pane's kind in tabs.Panes; a tab's Ref is the
+// terminal's ID.
+const Kind = "terminal.shell"
+
+// Plugin shows the daemon's detached PTY terminals as tabs: one tab per
+// terminal, in the space of its directory. Only the terminal on show is
+// attached; the others keep running.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
-	chat  chat.Controller
 	host  shell.Host
+	tabs  tabs.Service
 
-	conv    chat.Conversation
 	attempt uint64
 
-	open      bool
+	shown     bool // a terminal tab is on show
 	terminals []contractterm.Info
 	epoch     uint64
-	activeID  string
+	activeID  string // the terminal on show
 
 	cols int
 	rows int
@@ -77,52 +83,55 @@ func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID:          "terminal",
 		Title:       "Terminal",
-		Description: "Interactive PTY terminals attached to the current project folder.",
-		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey},
+		Description: "Interactive PTY terminals as tabs in each workspace.",
+		Requires:    []kernel.Named{agent.ServiceKey, shell.HostKey, tabs.ServiceKey},
 	}
 }
 
 func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
-	p.chat = kernel.Require(c, chat.ControllerKey)
 	p.host = kernel.Require(c, shell.HostKey)
+	p.tabs = kernel.Require(c, tabs.ServiceKey)
 	p.cols = defaultCols
 	p.rows = defaultRows
 	p.screen = newScreen(defaultCols, defaultRows)
 	p.listState.FollowEnd = true
-	p.conv = p.chat.Current()
 
 	c.OnDispose(p.detach)
-	kernel.On(c, chat.Changed, p.onChatChanged)
 	kernel.On(c, agent.StatusChanged, p.onAgentStatusChanged)
 	kernel.On(c, contractterm.Updated, p.onTerminalUpdated)
 	kernel.On(c, kernel.PluginsChanged, func([]kernel.Status) {
-		if p.open && p.agent.Status().State == agent.Ready {
-			p.reload(false)
+		if p.shown && p.agent.Status().State == agent.Ready {
+			p.reload()
 		}
 	})
 
-	kernel.Contribute(c, kernel.Commands, "terminal.toggle", 0, kernel.Command{
-		Title: "Toggle Terminal",
+	kernel.Contribute(c, tabs.Panes, Kind, 0, tabs.PaneKind{
+		Title:  p.title,
+		Icon:   lucide.Terminal,
+		Render: p.paneView,
+		Show:   p.show,
+		Hide:   p.hide,
+	})
+	kernel.Contribute(c, kernel.Commands, "terminal.show", 0, kernel.Command{
+		Title: "Show Terminal",
 		Menu:  "View",
 		Keys:  []string{"cmd+j"},
-		Run:   p.toggle,
+		Run:   p.showTerminal,
 	})
 	kernel.Contribute(c, kernel.Commands, "terminal.new", 0, kernel.Command{
 		Title: "New Terminal",
 		Menu:  "View",
 		Keys:  []string{"cmd+shift+j"},
-		Run:   p.openAndCreate,
+		Run:   func() { p.createTerminal(p.tabs.Space()) },
 	})
-	kernel.Contribute(c, tabs.EndActions, "terminal.toggle", 5, tabs.EndAction{
+	kernel.Contribute(c, tabs.EndActions, "terminal.show", 5, tabs.EndAction{
 		Label:   "Terminal",
-		Tooltip: "Toggle terminal  ⌘J",
+		Tooltip: "Terminal  ⌘J",
 		Icon:    lucide.Terminal,
-		Run:     p.toggle,
+		Run:     p.showTerminal,
 	})
-	kernel.Contribute(c, chat.HideWork, "terminal.hide-work", 0, func() bool { return p.open })
-	kernel.Contribute(c, chat.Drawers, "terminal.drawer", 20, shell.View{Render: p.drawerView})
 
 	if st := p.agent.Status(); st.State == agent.Ready {
 		p.attempt = st.Attempt
@@ -134,10 +143,6 @@ func (p *Plugin) service() (contractterm.Service, bool) {
 	return kernel.Use(p.ctx, contractterm.ServiceKey)
 }
 
-func (p *Plugin) onChatChanged(conv chat.Conversation) {
-	p.conv = conv
-}
-
 func (p *Plugin) onAgentStatusChanged(st agent.Status) {
 	switch st.State {
 	case agent.Down, agent.Stopped:
@@ -145,8 +150,8 @@ func (p *Plugin) onAgentStatusChanged(st agent.Status) {
 	case agent.Ready:
 		if st.Attempt != p.attempt {
 			p.attempt = st.Attempt
-			if p.open {
-				p.reload(false)
+			if p.shown {
+				p.reload()
 			}
 		}
 	case agent.Connecting:
@@ -174,36 +179,97 @@ func (p *Plugin) upsertTerminal(info contractterm.Info) {
 	p.terminals = append(p.terminals, info)
 }
 
-func (p *Plugin) toggle() {
-	if p.open {
-		p.closeDrawer()
-		return
+// ---- The pane
+
+// title is a terminal's name; "" until it is listed keeps the tab's own.
+func (p *Plugin) title(ref string) string {
+	for _, t := range p.terminals {
+		if t.ID == ref {
+			return cmp.Or(t.Name, "Terminal")
+		}
 	}
-	p.open = true
-	p.focusInput = true
+	return ""
+}
+
+// show attaches the terminal of the tab coming on show.
+func (p *Plugin) show(t tabs.Tab) {
+	p.shown = true
+	p.activeID = t.Ref
 	p.errText = ""
-	p.reload(true)
+	p.focusInput = true
+	if p.streamID != t.Ref {
+		p.screen.Reset()
+		p.attach(t.Ref)
+	}
+	p.reload()
 	p.ctx.Invalidate()
 }
 
-func (p *Plugin) openAndCreate() {
-	p.open = true
-	p.focusInput = true
-	p.errText = ""
-	p.createTerminal()
-	p.ctx.Invalidate()
-}
-
-func (p *Plugin) closeDrawer() {
-	if !p.open {
-		return
-	}
-	p.open = false
+// hide detaches; the terminal keeps running.
+func (p *Plugin) hide() {
+	p.shown = false
 	p.detach()
-	p.ctx.Invalidate()
 }
 
-func (p *Plugin) reload(createIfEmpty bool) {
+// showTerminal shows a terminal of the space on show: the tab of one, else
+// a running terminal in its directory without a tab, else a new one.
+func (p *Plugin) showTerminal() {
+	folder := p.tabs.Space()
+	if active, ok := p.tabs.Active(); ok && active.Kind == tabs.Pane && active.Pane == Kind {
+		return
+	}
+	var open []tabs.Tab
+	for _, t := range p.tabs.Tabs() {
+		if t.Kind == tabs.Pane && t.Pane == Kind && t.Folder == folder {
+			open = append(open, t)
+		}
+	}
+	if len(open) > 0 {
+		p.tabs.Select(open[len(open)-1].ID)
+		return
+	}
+	svc, ok := p.service()
+	if !ok {
+		p.unavailable()
+		return
+	}
+	dir := p.directoryOf(folder)
+	kernel.Go(p.ctx, &p.loadTask, func(ctx context.Context) ([]contractterm.Info, error) {
+		return svc.List(ctx)
+	}, func(list []contractterm.Info, err error) {
+		if err == nil {
+			p.terminals = list
+			for _, t := range list {
+				if t.Running && t.Directory == dir && dir != "" {
+					p.tabs.Open(Kind, t.ID, folder)
+					return
+				}
+			}
+		}
+		p.createTerminal(folder)
+	})
+}
+
+// directoryOf is where a space's terminals start: its folder, or the
+// inbox's for the agent's default space.
+func (p *Plugin) directoryOf(folder string) string {
+	if folder != "" {
+		return folder
+	}
+	if ws, ok := kernel.Use(p.ctx, workspace.ServiceKey); ok {
+		if box, ok := ws.At(""); ok {
+			return box.Directory
+		}
+	}
+	return ""
+}
+
+func (p *Plugin) unavailable() {
+	p.host.Toast(ui.Toast{Title: "Terminals are unavailable", Description: "The agent's backend has no terminals.", Type: components.ToastError})
+}
+
+// reload reads the terminals again and closes the tabs of those gone.
+func (p *Plugin) reload() {
 	svc, ok := p.service()
 	if !ok {
 		p.errText = "Terminal service unavailable"
@@ -221,6 +287,7 @@ func (p *Plugin) reload(createIfEmpty bool) {
 		}
 		if p.epoch == epoch {
 			p.terminals = list
+			p.closeGone()
 		} else {
 			for _, t := range list {
 				if !slices.ContainsFunc(p.terminals, func(cur contractterm.Info) bool { return cur.ID == t.ID }) {
@@ -228,55 +295,37 @@ func (p *Plugin) reload(createIfEmpty bool) {
 				}
 			}
 		}
-		p.errText = ""
-		if len(p.terminals) == 0 {
-			p.activeID = ""
-			p.detach()
-			if createIfEmpty && p.open {
-				p.createTerminal()
-			}
-			p.ctx.Invalidate()
-			return
-		}
-		if p.activeID == "" || !slices.ContainsFunc(p.terminals, func(t contractterm.Info) bool { return t.ID == p.activeID }) {
-			p.activeID = p.pickDefaultTerminal()
-		}
-		if p.open && p.activeID != "" && p.streamID != p.activeID {
+		// After a reconnect nothing is attached; an attachment under way
+		// is left to finish.
+		if p.shown && p.activeID != "" && p.attachScope == nil && p.has(p.activeID) {
 			p.attach(p.activeID)
 		}
 		p.ctx.Invalidate()
 	})
 }
 
-func (p *Plugin) pickDefaultTerminal() string {
-	dir := p.conv.Directory
-	if dir != "" {
-		for _, t := range p.terminals {
-			if t.Running && t.Directory == dir {
-				return t.ID
-			}
+// closeGone closes the tabs of terminals the backend no longer lists.
+func (p *Plugin) closeGone() {
+	for _, t := range p.tabs.Tabs() {
+		if t.Kind == tabs.Pane && t.Pane == Kind && !p.has(t.Ref) {
+			p.tabs.Close(t.ID)
 		}
 	}
-	for _, t := range p.terminals {
-		if t.Running {
-			return t.ID
-		}
-	}
-	if len(p.terminals) > 0 {
-		return p.terminals[0].ID
-	}
-	return ""
 }
 
-func (p *Plugin) createTerminal() {
+func (p *Plugin) has(id string) bool {
+	return slices.ContainsFunc(p.terminals, func(t contractterm.Info) bool { return t.ID == id })
+}
+
+// createTerminal starts a terminal in a space and opens its tab.
+func (p *Plugin) createTerminal(folder string) {
 	svc, ok := p.service()
 	if !ok {
-		p.errText = "Terminal service unavailable"
-		p.ctx.Invalidate()
+		p.unavailable()
 		return
 	}
 	req := contractterm.CreateRequest{
-		Directory: p.conv.Directory,
+		Directory: p.directoryOf(folder),
 		Cols:      p.cols,
 		Rows:      p.rows,
 	}
@@ -284,35 +333,16 @@ func (p *Plugin) createTerminal() {
 		return svc.Create(ctx, req)
 	}, func(info contractterm.Info, err error) {
 		if err != nil {
-			p.errText = err.Error()
-			p.ctx.Invalidate()
+			p.host.Toast(ui.Toast{Title: "The terminal didn’t start", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		p.errText = ""
 		p.epoch++
 		p.upsertTerminal(info)
-		p.activeID = info.ID
-		p.focusInput = true
-		if p.open {
-			p.attach(info.ID)
-		}
-		p.ctx.Invalidate()
+		p.tabs.Open(Kind, info.ID, folder)
 	})
 }
 
-func (p *Plugin) selectTerminal(id string) {
-	if id == "" {
-		return
-	}
-	p.activeID = id
-	p.errText = ""
-	p.focusInput = true
-	if p.open && p.streamID != id {
-		p.attach(id)
-	}
-	p.ctx.Invalidate()
-}
-
+// killTerminal ends the terminal and closes its tab.
 func (p *Plugin) killTerminal(id string) {
 	if id == "" {
 		return
@@ -323,24 +353,21 @@ func (p *Plugin) killTerminal(id string) {
 	}
 	if p.activeID == id {
 		p.detach()
-		p.screen.Reset()
 	}
 	kernel.Go(p.ctx, &p.killTask, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, svc.Kill(ctx, id)
 	}, func(_ struct{}, err error) {
 		if err != nil {
 			p.errText = err.Error()
+			if p.shown && p.activeID == id {
+				p.attach(id)
+			}
 			p.ctx.Invalidate()
 			return
 		}
 		p.epoch++
 		p.terminals = slices.DeleteFunc(p.terminals, func(t contractterm.Info) bool { return t.ID == id })
-		if p.activeID == id {
-			p.activeID = p.pickDefaultTerminal()
-			if p.open && p.activeID != "" {
-				p.attach(p.activeID)
-			}
-		}
+		p.closeGone()
 		p.ctx.Invalidate()
 	})
 }
@@ -497,7 +524,7 @@ func (p *Plugin) sendBytes(data []byte) {
 	p.enqueue(termOp{input: append([]byte(nil), data...)})
 }
 
-// fitTo sizes the PTY to the drawer's viewport, as it was laid out last frame.
+// fitTo sizes the PTY to the pane's viewport, as it was laid out last frame.
 func (p *Plugin) fitTo(c *ui.Context) {
 	b := p.viewport.Bounds(c)
 	if b.W <= 0 || b.H <= 0 {

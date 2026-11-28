@@ -28,7 +28,7 @@ keep its types inside `internal/daemon/pig`.
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
-  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs and the
+  slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs, the pane kinds other plugins contribute, and the
   buttons at the strip's end),
   `workspace` (the backend's projects and workspaces, and the conversations in them),
   `attachments` (images waiting in the composer, their actions and replacement),
@@ -36,12 +36,12 @@ keep its types inside `internal/daemon/pig`.
 - `internal/plugins/*`: every feature. `daemon` (connects to local or remote `wadad` over WebSocket RPC via `hosts.json`, auto-spawns local `wadad`, provides `agent.*` and `terminal.ServiceKey`, and hosts Settings → Daemon pairing/password/host switcher and first-run/settings provider auth), `chat` (conversation
   page, which asks for a project before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode), `usage` (cost and context in the work panel or the composer), `filechanges`
-  (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
+  (session, uncommitted and since-the-base Git changes and diffs below Context in the work panel, and a workspace's Changes tab), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
   `workspace` (the app's copy of the daemon's projects, workspaces and their
-  conversations, needing no chat), `workers` (harness picker, live supervised workers, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, and the work panel's Workspace section with branch, base and PR), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
-  in the composer), `tabs` (open chats and pages as tabs across the title
+  conversations, needing no chat), `workers` (harness picker, live supervised workers, and Worker Inspector drawer), `worktrees` (New Workspace… in a Git worktree from a branch or pull request, Archive and Restore Workspace…, and the work panel's Workspace section with branch, base and PR), `terminal` (interactive PTY terminals as tabs in each workspace, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
+  in the composer), `tabs` (open chats, terminals, changes and pages as tabs across the title
   strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).

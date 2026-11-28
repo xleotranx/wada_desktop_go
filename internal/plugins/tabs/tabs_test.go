@@ -558,3 +558,83 @@ func TestEndActionsGoAtTheStripsEnd(t *testing.T) {
 		t.Fatalf("ran %d times", ran)
 	}
 }
+
+// panesPlugin contributes a pane kind, as the terminal does, and records
+// what it is told.
+type panesPlugin struct {
+	log []string
+}
+
+func (f *panesPlugin) New() kernel.Plugin      { return f }
+func (*panesPlugin) Manifest() kernel.Manifest { return kernel.Manifest{ID: "panes"} }
+func (f *panesPlugin) Setup(c *kernel.Context) error {
+	return kernel.Contribute(c, tabs.Panes, "panes.term", 0, tabs.PaneKind{
+		Title:  func(ref string) string { return "Terminal " + ref },
+		Icon:   lucide.Terminal,
+		Render: func(c *ui.Context, t tabs.Tab) { ui.Text(c, "pane of "+t.Ref) },
+		Show:   func(t tabs.Tab) { f.log = append(f.log, "show "+t.Ref) },
+		Hide:   func() { f.log = append(f.log, "hide") },
+	})
+}
+
+func TestPanesOpenAsTabsInTheirSpace(t *testing.T) {
+	store := kerneltest.NewStore()
+	panes := &panesPlugin{}
+	f := start(t, store, record(), panes.New)
+	f.open("s1")
+	f.p.Open("panes.term", "1", "/w/app")
+	f.want(t, "First", "[Terminal 1]")
+	if f.host.PageID != panePage || !slices.Equal(panes.log, []string{"show 1"}) {
+		t.Fatalf("page %q, panes told %q", f.host.PageID, panes.log)
+	}
+	tt := ui.NewTester(f.p.paneView, 400, 300)
+	tt.Frame()
+	if !tt.HasText("pane of 1") {
+		t.Fatalf("the pane page shows %q", tt.Texts())
+	}
+
+	// Opening it again shows the same tab; another ref gets its own, and a
+	// second tab of the kind is shown without hiding the kind.
+	f.p.Open("panes.term", "1", "/w/app")
+	f.p.Open("panes.term", "2", "/w/app")
+	f.want(t, "First", "Terminal 1", "[Terminal 2]")
+	f.p.Select(f.tab("First").ID)
+	if !slices.Equal(panes.log, []string{"show 1", "show 2", "hide"}) || f.host.PageID != chat.PageID {
+		t.Fatalf("panes told %q, page %q", panes.log, f.host.PageID)
+	}
+
+	// A pane in another space switches the strip to it.
+	f.p.Open("panes.term", "3", "/w/web")
+	f.want(t, "First", "Terminal 1", "Terminal 2", "[Terminal 3]")
+	if f.p.Space() != "/w/web" {
+		t.Fatalf("space %q", f.p.Space())
+	}
+	f.p.Select(f.tab("Terminal 3").ID)
+	f.h.Close()
+
+	// Pane tabs come back after a restart, and the active one is shown.
+	panes2 := &panesPlugin{}
+	g := start(t, store, record(), panes2.New)
+	g.want(t, "First", "Terminal 1", "Terminal 2", "[Terminal 3]")
+	if !slices.Equal(panes2.log, []string{"show 3"}) || g.p.Space() != "/w/web" || g.host.PageID != panePage {
+		t.Fatalf("restored: panes told %q, space %q, page %q", panes2.log, g.p.Space(), g.host.PageID)
+	}
+}
+
+func TestPaneTabsCloseWhenTheirKindGoes(t *testing.T) {
+	runs := &runPages{}
+	f := start(t, nil, record(), runs.New)
+	scope := runs.ctx.NewScope()
+	_ = kernel.Contribute(scope, tabs.Panes, "runs.term", 0, tabs.PaneKind{
+		Title: func(ref string) string { return "Terminal " + ref }, Render: func(*ui.Context, tabs.Tab) {}})
+	f.h.Flush()
+	f.open("s1")
+	f.p.Open("runs.term", "1", "/w/app")
+	f.want(t, "First", "[Terminal 1]")
+	scope.Dispose()
+	f.h.Flush()
+	f.want(t, "[First]")
+	if f.host.PageID != chat.PageID {
+		t.Fatalf("page %q", f.host.PageID)
+	}
+}

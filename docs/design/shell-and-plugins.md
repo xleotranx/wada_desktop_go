@@ -241,8 +241,17 @@ Starting, shows none.
 the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
 - A tab only points at what it shows: a stored conversation, a new chat in a
-  workspace (a draft), or a shell page other than the chat. The chat still has one open
-  conversation; selecting a tab opens it there (`Open`, `NewChat`) or shows its page.
+  workspace (a draft), a pane, or a shell page other than the chat. The chat still has
+  one open conversation; selecting a tab opens it there (`Open`, `NewChat`) or shows
+  its page.
+- A pane is a view another plugin contributes to `tabs.Panes` under its kind's ID:
+  its title for a ref, an icon, how it draws, and `Show` and `Hide`, called when a
+  tab of the kind comes on show and when the one on show goes. `tabs.Service.Open`
+  shows the tab of a kind, ref and folder, opening it in that folder's space beside
+  the active tab when there is none. The plugin contributes one page, `tabs.pane`,
+  that draws the active pane tab through its kind; selecting a pane tab shows that
+  page. Pane tabs belong to their folder's space like conversations, keep the
+  space's last-shown tab, and are titled by their kind on every frame.
 - Tabs follow navigation rather than drive it. After `chat.Changed` while the chat
   page is on show, and after `shell.PageChanged`, what is shown becomes the active
   tab: an open tab is selected, otherwise one opens. A new chat takes over the active
@@ -291,11 +300,12 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   new chat in its workspace, so the space stays. A tab whose conversation the record stops
   listing closes. Show Next Tab and Show Previous Tab move within the space.
 - The open tabs and the active one are saved (`open`, `active`) and reopened once the
-  workspace record is read, without the conversations it no longer lists and pages no
-  plugin contributes. A conversation the chat already shows by then becomes the active
+  workspace record is read, without the conversations it no longer lists and pages and
+  panes no plugin contributes. A conversation the chat already shows by then becomes the active
   tab instead.
 - After `kernel.PointChanged` for `shell.Pages`, a page tab whose page is gone closes,
-  and the others take their page's current title.
+  and the others take their page's current title; for `tabs.Panes`, a pane tab whose
+  kind is gone closes. Pane tabs are saved and reopened with the others.
 - The strip draws each tab as a 28 px pill centered in the strip, as wide as its
   marker and title (80–220 px): the active one filled with `ActiveTab` and a faint
   shadow, the others only while hovered. The close button sits over a tab's end and
@@ -404,6 +414,13 @@ while navigating conversations but is not saved across launches:
 - **Changes since the base** is offered for a conversation in a worktree workspace
   that has a base ref. It reads `agent.WorkspacesKey.BaseChanges`: the workspace's
   files against the merge base with its base, committed or not, untracked included.
+
+**Show Changes** (⇧⌘D, View), and a button beside the section's refresh, open the
+space's **Changes** tab, a `tabs.Panes` kind (`filechanges.changes`) that lists the
+workspace's own changes across the page: uncommitted Git changes, and changes since
+the base where there is one, which it starts on. It offers no session changes. Its
+file list starts open, and it is read again when the tab comes on show and after any
+turn ends while it is on show.
 
 The section shows the number of files and total lines added and removed in a
 disclosure that collapses the file list while keeping the summary and source
@@ -677,37 +694,41 @@ or projects, or removing, sending or replacing the pending image, ends that edit
 Cancel, Escape and the backdrop leave the attachment unchanged, and the decoded
 image is released once the dialog closes.
 
-## Interactive terminal drawer
+## Terminals
 
-`internal/plugins/terminal` requires `agent.ServiceKey`, `chat.ControllerKey`,
-and `shell.HostKey`, and uses `terminal.ServiceKey` (provided by `daemon`) to
-host detached interactive PTY terminals in a 460 px `chat.Drawers` drawer while
-hiding the work panel (`chat.HideWork`).
+`internal/plugins/terminal` requires `agent.ServiceKey`, `shell.HostKey` and
+`tabs.ServiceKey`, and uses `terminal.ServiceKey` (provided by `daemon`) to show
+detached interactive PTY terminals as tabs: a `tabs.Panes` kind
+(`terminal.shell`) whose ref is the terminal's ID, one tab per terminal in the
+space of its directory.
 
-- **Commands and title-strip button.** **Toggle Terminal** (⌘J, View menu) and a
-  Terminal button in `tabs.EndActions` toggle the drawer; **New Terminal**
-  (⇧⌘J, View menu) opens the drawer and starts a new PTY in the open
-  conversation's folder. Closing the drawer detaches the live binary WebSocket
-  stream without killing the underlying PTY.
-- **Sessions and reconnect.** Opening reloads `terminal.List`, attaches to the
-  active terminal via `terminal.Service.Attach`, applies the ANSI/VT reconnect
-  snapshot and live `terminal.Stream.Output()` bytes in a child `kernel.Scope`
-  screen buffer (`2,000`-line scrollback), and reattaches automatically when
-  `agent.StatusChanged` reports a new `agent.Ready` attempt. Multiple tabs switch
-  between PTYs and `Kill` terminates a terminal permanently.
+- **Commands and title-strip button.** **Show Terminal** (⌘J, View menu) and a
+  Terminal button in `tabs.EndActions` show the space's terminal: the last of its
+  terminal tabs, else a running terminal in its directory that has no tab, else a
+  new one. **New Terminal** (⇧⌘J, View menu), and the plus in a terminal's header,
+  start a PTY in the space's directory (the inbox's for the default space) and open
+  its tab. A start that fails shows a toast.
+- **Sessions and reconnect.** Only the terminal on show is attached. When its tab
+  comes on show the plugin attaches via `terminal.Service.Attach`, applies the
+  ANSI/VT reconnect snapshot and live `terminal.Stream.Output()` bytes in a child
+  `kernel.Scope` screen buffer (`2,000`-line scrollback), and lists the terminals
+  again; leaving the tab detaches the live binary WebSocket stream without killing
+  the PTY. It reattaches when `agent.StatusChanged` reports a new `agent.Ready`
+  attempt. Closing a tab leaves its terminal running; Kill in its header ends it
+  and closes the tab. A tab whose terminal the backend no longer lists closes.
 - **Screen.** The buffer moves the cursor, erases, switches to the alternate
   screen, saves and restores the cursor (`ESC 7`/`ESC 8`) and reverse-indexes
   (`ESC M`). It skips charset designators (`ESC ( B` and the like) and OSC, DCS,
   SOS, PM and APC strings without printing them. East Asian wide characters and
   emoji take two cells; combining marks take none. The output list reads each
   visible line from the buffer as it draws, copying nothing else.
-- **Size.** The PTY follows the drawer: from the viewport's size in the last frame
+- **Size.** The PTY follows the pane: from the viewport's size in the last frame
   and the measured monospace cell, the plugin resizes the screen and the PTY
   (at least 20×4) when the columns or rows change, and a new or attached
   terminal starts at that size.
 - **Input.** Each attachment has one writer that sends input and resizes in the
   order they were made; when its queue (256) is full, the input is not sent and
-  the drawer says so.
+  the pane says so.
 - **Controls.** Includes a monospace output list, clipboard copy, `Ctrl+C` (`0x03`),
   `Ctrl+D` (`0x04`), `Clear`, and a command input sending `<line>\r`.
 

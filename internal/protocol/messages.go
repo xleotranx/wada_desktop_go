@@ -43,6 +43,13 @@ const (
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
 
+	MethodProjectsList    = "workspace.projects.list"
+	MethodProjectAdd      = "workspace.project.add"
+	MethodProjectRename   = "workspace.project.rename"
+	MethodProjectArchive  = "workspace.project.archive"
+	MethodWorkspacesList  = "workspace.list"
+	MethodWorkspaceRename = "workspace.rename"
+
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
 	MethodTerminalAttach  = "terminal.attach"
@@ -73,6 +80,7 @@ type (
 	ProviderAuthEventKind string
 	HarnessKind           string
 	WorkerStatus          string
+	Isolation             string
 )
 
 const (
@@ -135,7 +143,11 @@ const (
 	EventProviderAuth         EventKind = "provider_auth"
 	EventWorkerUpdated        EventKind = "worker_updated"
 	EventTerminalUpdated      EventKind = "terminal_updated"
+	EventWorkspaceUpdated     EventKind = "workspace_updated"
 )
+
+// IsolationProject is a workspace in its project's own directory.
+const IsolationProject Isolation = "project"
 
 const (
 	HarnessEmbedded HarnessKind = "embedded"
@@ -213,6 +225,7 @@ type Session struct {
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Directory string   `json:"directory"`
+	Workspace string   `json:"workspace,omitempty"` // the workspace at Directory, if any
 	Provider  string   `json:"provider,omitempty"`
 	Updated   int64    `json:"updated"`
 	Model     ModelRef `json:"model"`
@@ -223,6 +236,7 @@ type SessionQuery struct {
 	Cursor    string `json:"cursor,omitempty"`
 	Search    string `json:"search,omitempty"`
 	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"` // only conversations in this workspace's directory
 }
 
 type SessionPage struct {
@@ -234,6 +248,7 @@ type CreateSessionRequest struct {
 	IdempotencyKey string   `json:"idempotencyKey,omitempty"`
 	Title          string   `json:"title,omitempty"`
 	Directory      string   `json:"directory,omitempty"`
+	Workspace      string   `json:"workspace,omitempty"` // instead of Directory: an active workspace's
 	Provider       string   `json:"provider,omitempty"`
 	Model          ModelRef `json:"model"`
 	Mode           string   `json:"mode,omitempty"`
@@ -463,6 +478,7 @@ type TerminalInfo struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Directory string `json:"directory"`
+	Workspace string `json:"workspace,omitempty"` // the active workspace at Directory, if any
 	Shell     string `json:"shell,omitempty"`
 	Cols      int    `json:"cols"`
 	Rows      int    `json:"rows"`
@@ -475,6 +491,7 @@ type TerminalInfo struct {
 type TerminalCreateRequest struct {
 	Name      string `json:"name,omitempty"`
 	Directory string `json:"directory,omitempty"`
+	Workspace string `json:"workspace,omitempty"` // instead of Directory: an active workspace's
 	Shell     string `json:"shell,omitempty"`
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
@@ -519,6 +536,61 @@ type TerminalCaptureResponse struct {
 
 type TerminalKillRequest struct {
 	ID string `json:"id"`
+}
+
+// ProjectInfo is a folder the user works in. ID is opaque, never a path.
+type ProjectInfo struct {
+	ID       string `json:"id"`
+	Root     string `json:"root"`            // absolute and clean, as added
+	Name     string `json:"name"`            // the user's name, else Root's base name
+	Inbox    bool   `json:"inbox,omitempty"` // the project of conversations started without one
+	Created  int64  `json:"created"`
+	Archived int64  `json:"archived,omitempty"` // Unix ms; 0 while active
+}
+
+// WorkspaceInfo is one working directory of a project. No two active
+// workspaces share a Directory.
+type WorkspaceInfo struct {
+	ID        string    `json:"id"`
+	Project   string    `json:"project"`
+	Isolation Isolation `json:"isolation"`
+	Directory string    `json:"directory"`
+	Title     string    `json:"title,omitempty"` // the user's title; empty shows the project's name
+	Created   int64     `json:"created"`
+	Archived  int64     `json:"archived,omitempty"`
+}
+
+type ProjectsListRequest struct {
+	Archived bool `json:"archived,omitempty"` // include archived projects
+}
+
+type ProjectAddRequest struct {
+	Root string `json:"root"`
+}
+
+// ProjectAddResponse is the project and its project-directory workspace.
+type ProjectAddResponse struct {
+	Project   ProjectInfo   `json:"project"`
+	Workspace WorkspaceInfo `json:"workspace"`
+}
+
+type ProjectRenameRequest struct {
+	Project string `json:"project"`
+	Name    string `json:"name"` // empty for the root's base name
+}
+
+type ProjectArchiveRequest struct {
+	Project string `json:"project"`
+}
+
+type WorkspacesListRequest struct {
+	Project  string `json:"project,omitempty"`  // empty for every project's
+	Archived bool   `json:"archived,omitempty"` // include archived workspaces
+}
+
+type WorkspaceRenameRequest struct {
+	Workspace string `json:"workspace"`
+	Title     string `json:"title"`
 }
 
 type PairingOfferRequest struct {
@@ -666,6 +738,8 @@ type Event struct {
 	ProviderAuth *ProviderAuthEvent `json:"providerAuth,omitempty"`
 	Worker       *WorkerInfo        `json:"worker,omitempty"`
 	Terminal     *TerminalInfo      `json:"terminal,omitempty"`
+	Project      *ProjectInfo       `json:"project,omitempty"`
+	Workspace    *WorkspaceInfo     `json:"workspace,omitempty"`
 	Model        ModelRef           `json:"model"`
 	Title        string             `json:"title,omitempty"`
 	Error        string             `json:"error,omitempty"`

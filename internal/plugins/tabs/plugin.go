@@ -1,8 +1,8 @@
 // Package tabs keeps the window's tabs: the conversations, new chats and
-// pages the user has open. The title strip shows one folder at a time, its
-// space: that folder's tabs, then the pages, with a switcher for the other
-// folders. Tabs follow navigation: whatever the chat or the shell shows
-// becomes the active tab, and its folder the space on show, so nothing has
+// pages the user has open. The title strip shows one workspace at a time, its
+// space: that workspace's tabs, then the pages, with a switcher for the other
+// workspaces. Tabs follow navigation: whatever the chat or the shell shows
+// becomes the active tab, and its workspace the space on show, so nothing has
 // to open things through them. A background tab shows what its conversation
 // is doing, read from the agent's events.
 package tabs
@@ -53,8 +53,8 @@ type Plugin struct {
 	// chatTab is the tab the chat shows or showed last, which names the new
 	// chat whose text the chat leaves behind.
 	chatTab string
-	// space is the folder whose tabs the strip shows; lastIn holds each
-	// folder's tab shown last, to come back to.
+	// space is the directory of the workspace whose tabs the strip shows, ""
+	// for the inbox; lastIn holds each space's tab shown last, to come back to.
 	space     string
 	lastIn    map[string]string
 	switching bool // the space switcher is open
@@ -68,7 +68,7 @@ type Plugin struct {
 	renameOn bool
 	deleting tabs.Tab
 	deleteOn bool
-	removing string // the folder whose removal is being confirmed
+	removing string // the space whose project's removal is being confirmed
 	removeOn bool
 }
 
@@ -89,7 +89,7 @@ func New() kernel.Plugin { return &Plugin{} }
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
 		ID: "tabs", Title: "Tabs", Locked: true,
-		Description: "Open chats as tabs across the window, grouped by folder.",
+		Description: "Open chats as tabs across the window, grouped by workspace.",
 		Provides:    []kernel.Named{tabs.ServiceKey},
 		Requires:    []kernel.Named{agent.ServiceKey, chat.ControllerKey, shell.HostKey, workspace.ServiceKey},
 	}
@@ -313,16 +313,16 @@ func (p *Plugin) showConversation(conv chat.Conversation) {
 	}
 	if conv.Session == "" {
 		if draft < 0 {
-			p.insert(tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: conv.Directory, Title: newChatTitle})
+			p.insert(tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: p.spaceOf(conv.Directory), Title: newChatTitle})
 			return
 		}
-		if p.tabs[draft].Folder != conv.Directory {
+		if p.tabs[draft].Folder != p.spaceOf(conv.Directory) {
 			// Text typed for one folder stays in its tab.
 			if p.unsent[p.tabs[draft].ID] != "" {
-				p.insert(tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: conv.Directory, Title: newChatTitle})
+				p.insert(tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: p.spaceOf(conv.Directory), Title: newChatTitle})
 				return
 			}
-			p.tabs[draft].Folder = conv.Directory
+			p.tabs[draft].Folder = p.spaceOf(conv.Directory)
 			p.regroup(draft)
 			p.activate(p.active) // the space follows the draft's folder
 			return
@@ -341,7 +341,7 @@ func (p *Plugin) showConversation(conv chat.Conversation) {
 		p.activate(id)
 		return
 	}
-	t := tabs.Tab{ID: id, Kind: tabs.Conversation, Session: conv.Session, Folder: conv.Directory, Title: p.titleOf(conv)}
+	t := tabs.Tab{ID: id, Kind: tabs.Conversation, Session: conv.Session, Folder: p.spaceOf(conv.Directory), Title: p.titleOf(conv)}
 	// A draft the user left text in keeps its tab.
 	if draft < 0 || p.unsent[p.tabs[draft].ID] != "" {
 		p.insert(t)
@@ -362,7 +362,7 @@ func (p *Plugin) started(conv chat.Conversation) {
 	}
 	active := p.active
 	p.insert(tabs.Tab{ID: conversationID(conv.Session), Kind: tabs.Conversation, Session: conv.Session,
-		Folder: conv.Directory, Title: p.titleOf(conv)})
+		Folder: p.spaceOf(conv.Directory), Title: p.titleOf(conv)})
 	p.active = active
 	p.changed()
 }
@@ -392,9 +392,9 @@ func (p *Plugin) restore() {
 			}
 			p.recorded[s.Session] = true
 			t = tabs.Tab{ID: conversationID(s.Session), Kind: tabs.Conversation, Session: s.Session,
-				Folder: conv.Folder, Title: titleOr(conv.Title, s.Title)}
+				Folder: p.spaceOf(conv.Directory), Title: titleOr(conv.Title, s.Title)}
 		case tabs.Draft:
-			t = tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: s.Folder, Title: newChatTitle}
+			t = tabs.Tab{ID: p.draftID(), Kind: tabs.Draft, Folder: p.spaceOf(s.Folder), Title: newChatTitle}
 		case tabs.Page:
 			if !p.hasPage(s.Page) || p.find(pageID(s.Page)) >= 0 {
 				continue
@@ -691,3 +691,12 @@ func titleOr(title, fallback string) string {
 
 func conversationID(s agent.SessionID) string { return "chat:" + string(s) }
 func pageID(id string) string                 { return "page:" + id }
+
+// spaceOf is the space of a directory's tabs: its own, except that the
+// inbox's directory and the backend's default, "", are one space, "".
+func (p *Plugin) spaceOf(dir string) string {
+	if box, ok := p.ws.At(""); ok && dir == box.Directory {
+		return ""
+	}
+	return dir
+}

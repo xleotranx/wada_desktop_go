@@ -2,10 +2,10 @@ package tabs
 
 import (
 	"cmp"
-	"path/filepath"
 	"slices"
 	"strconv"
 
+	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
 	"wada-desktop-go/internal/contract/tabs"
 
@@ -81,22 +81,21 @@ func (p *Plugin) strip(c *ui.Context) {
 	})
 }
 
-// spaceName is what the strip calls a folder.
-func spaceName(folder string) string {
-	if folder == "" {
-		return "No folder"
-	}
-	return filepath.Base(folder)
-}
+// spaceName is what the strip calls a space: its workspace's name.
+func (p *Plugin) spaceName(space string) string { return p.ws.Name(space) }
 
 // switcher is the space on show, in its project color, opening the list of
 // spaces.
 func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
-	name := spaceName(p.space)
+	name := p.spaceName(p.space)
 	b := ui.ButtonBase(c).Label("Space "+name).Height(controlSize).MaxWidth(220).Padding(0, 8).Radius(8).Gap(7).AlignItems(ui.Center).Shrink(0).
 		Cursor(ui.CursorPointer)
 	if !p.switching { // the tooltip would cover the list
-		b.Tooltip(native.Tilde(cmp.Or(p.space, "the agent's default folder")))
+		dir := p.space
+		if box, ok := p.ws.At(""); ok && dir == "" {
+			dir = box.Directory
+		}
+		b.Tooltip(native.Tilde(cmp.Or(dir, "the agent's default folder")))
 	}
 	switch {
 	case p.switching:
@@ -118,7 +117,7 @@ func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 	})
 }
 
-// spaces lists the folders to switch between, then what acts on them.
+// spaces lists the workspaces to switch between, then what acts on them.
 func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	ui.Text(c, "Spaces").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).Padding(2, 8, 4, 8)
 	for _, folder := range p.spaceList() {
@@ -131,7 +130,7 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 			}
 		}
 		current := folder == p.space
-		row := ui.ButtonBase(c).Label("Switch to "+spaceName(folder)).FillWidth().Height(30).Padding(0, 8).Radius(6).Gap(8).
+		row := ui.ButtonBase(c).Label("Switch to "+p.spaceName(folder)).FillWidth().Height(30).Padding(0, 8).Radius(6).Gap(8).
 			AlignItems(ui.Center).Cursor(ui.CursorPointer)
 		if current {
 			row.Background(pal.Selected)
@@ -144,7 +143,7 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 		})
 		row.Children(func() {
 			p.spaceDot(c, pal, folder)
-			ui.Text(c, spaceName(folder)).FontSize(13).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Text(c, p.spaceName(folder)).FontSize(13).TextColor(pal.Text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 			stateMark(c, pal, state)
 			if n > 0 {
 				ui.Text(c, strconv.Itoa(n)).FontSize(12).TextColor(pal.Faint).FontFeatures("tnum").Shrink(0)
@@ -170,22 +169,24 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 		b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(pal.Text).SingleLine().Ellipsis("…") })
 	}
 	space := p.space
-	action("New Chat in "+spaceName(space), func() { p.openDraft(space) })
-	action("Open Folder…", func() { p.ws.ChooseFolder(p.openDraft) })
-	if space != "" {
-		action("Remove “"+spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
+	action("New Chat in "+p.spaceName(space), func() { p.openDraft(space) })
+	action("Add Project…", func() { p.ws.ChooseProject(func(w agent.Workspace) { p.openDraft(p.spaceOf(w.Directory)) }) })
+	if _, ok := p.ws.At(space); ok && space != "" {
+		action("Remove “"+p.spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
 	}
 	if p.hasPage(settings.PageID) {
 		action("Tab Settings…", func() { p.host.ShowPage(settings.PageID) })
 	}
 }
 
-// spaceList is every space: the workspace's folders, then the folders open
-// tabs work in that it does not list, the default folder among them.
+// spaceList is every space: the active workspaces, the inbox last, then the
+// directories open tabs work in that no active workspace has.
 func (p *Plugin) spaceList() []string {
 	var out []string
-	for _, f := range p.ws.Folders() {
-		out = append(out, f.Path)
+	for _, w := range p.ws.Workspaces() {
+		if sp := p.spaceOf(w.Directory); !slices.Contains(out, sp) {
+			out = append(out, sp)
+		}
 	}
 	for _, t := range p.tabs {
 		if t.Kind != tabs.Page && !slices.Contains(out, t.Folder) {

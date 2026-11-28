@@ -892,3 +892,30 @@ func (c *Client) PairingOffer(ctx context.Context, appURL string) (protocol.Pair
 func (c *Client) SetPassword(ctx context.Context, password string) error {
 	return c.Call(ctx, protocol.MethodDaemonSetPassword, protocol.SetPasswordRequest{Password: password}, nil)
 }
+
+func (c *Client) Projects(ctx context.Context, archived bool) ([]protocol.ProjectInfo, error) {
+	var out []protocol.ProjectInfo
+	return out, c.Call(ctx, protocol.MethodProjectsList, protocol.ProjectsListRequest{Archived: archived}, &out)
+}
+
+func (c *Client) AddProject(ctx context.Context, root string) (protocol.ProjectAddResponse, error) {
+	var out protocol.ProjectAddResponse
+	return out, c.Call(ctx, protocol.MethodProjectAdd, protocol.ProjectAddRequest{Root: root}, &out)
+}
+
+func (c *Client) RenameProject(ctx context.Context, id, name string) error {
+	return c.Call(ctx, protocol.MethodProjectRename, protocol.ProjectRenameRequest{Project: id, Name: name}, nil)
+}
+
+func (c *Client) ArchiveProject(ctx context.Context, id string) error {
+	return c.Call(ctx, protocol.MethodProjectArchive, protocol.ProjectArchiveRequest{Project: id}, nil)
+}
+
+func (c *Client) Workspaces(ctx context.Context, req protocol.WorkspacesListRequest) ([]protocol.WorkspaceInfo, error) {
+	var out []protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspacesList, req, &out)
+}
+
+func (c *Client) RenameWorkspace(ctx context.Context, id, title string) error {
+	return c.Call(ctx, protocol.MethodWorkspaceRename, protocol.WorkspaceRenameRequest{Workspace: id, Title: title}, nil)
+}

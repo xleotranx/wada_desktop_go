@@ -31,8 +31,8 @@ Conversation settings section with the work panel's switch.
 - A chat with nothing in it yet centers the composer between a greeting (with the
   chosen folder) and, for a new chat, the `chat.Starters` views. A new chat with no
   folder, no draft and no Inbox choice shows the folder gate instead of the
-  composer: **Open a work folder** asks the workspace for one, and **Ask without a
-  folder** opens the composer in the backend's Inbox. Once the transcript has rows the composer sits at the foot of
+  composer ("Choose a project"): **Add a project** asks the workspace record for one,
+  and **Ask in the Inbox** opens the composer in the backend's Inbox. Once the transcript has rows the composer sits at the foot of
   the page; it keeps its place in the tree, so it keeps its focus as it moves.
 - A `chat.Requirements` entry stands in front of an empty new chat while something
   is missing. The daemon plugin contributes one while no provider is connected: its setup reuses
@@ -177,81 +177,62 @@ with the rest counted. Choosing a starter fills the composer; the user sends it.
 Onevra's command dialog from a `shell.Overlays` entry. It needs no other plugin: the
 commands are every `kernel.Commands` entry that has a `Run`, shown with their
 shortcut spelled as in a macOS menu, and one that is not `Enabled` is listed greyed
-out and does nothing. Conversations and folders come from the workspace record
+out and does nothing. Conversations and workspaces come from the workspace record
 (`workspace.ServiceKey`) when it is active, so the palette keeps working without it:
-only the conversations the app started, with their folder.
+the conversations of active workspaces, each with its workspace's name.
 
 With nothing typed it lists, in groups: the conversations open in tabs (from
 `tabs.ServiceKey`, when there is one), the five newest others ("Earlier"), the five
-folders worked in last ("Projects", by their newest conversation or when they were
-added, each with its count of chats), then the commands. Typing filters all of them with one matcher, older conversations
+workspaces worked in last ("Projects", by their newest conversation or when they were
+created, each with its count of chats and its directory), then the commands. Typing filters all of them with one matcher, older conversations
 included. Choosing runs the command, opens the conversation through
-`chat.Controller` (the tabs follow), or starts a new chat in the folder, once the
+`chat.Controller` (the tabs follow), or starts a new chat in the workspace, once the
 handler that chose it has returned. The query is dropped each time the palette opens.
 
 ## Workspace
 
 `internal/plugins/workspace` (locked) requires `agent.ServiceKey` and `shell.HostKey`,
-and provides `workspace.ServiceKey`: the app's own record of the
-folders the user works in and of the conversations started in this app. The backend
-keeps the messages; the record says which conversations are the app's and where they
-belong, so the tabs, All chats and the notifications show nothing else. It and the
-tabs are locked: without them the app would keep no record of its
-conversations and offer no way back to one. Like Chat, they still become Blocked
-while no backend is active. The record needs no chat: it hears `chat.Started` but
-requires no controller, so its consumers keep it when the chat fails.
+uses the optional `agent.WorkspacesKey`, and provides `workspace.ServiceKey`: the
+app's copy of the backend's projects, their active workspaces, and the conversations
+in them. The tabs, All chats and the notifications show nothing else. It and the
+tabs are locked: without them the app would list no conversations and offer no way
+back to one. Like Chat, they still become Blocked while no backend is active. The
+copy needs no chat: it hears `chat.Started` but requires no controller, so its
+consumers keep it when the chat fails.
 
-- It records a conversation on `chat.Started`, with the folder the user chose (empty
-  for the backend's default, and for a folder that isn't absolute) and the backend's origin (`agent.Status.Origin`). A chosen
-  absolute folder that isn't known yet is added. Only the current origin's
-  conversations are listed, newest first; switching backend or server changes the list.
-- It follows `agent.Events`: a turn starting, ending or interrupted is activity;
-  `SessionRenamed` and `ModelChanged` update the title and model. When a recorded
-  conversation finishes a turn it reads the backend's newest page for titles, and once
-  per connection attempt it reads up to 20 pages until it has seen every recorded
-  conversation or reached activity more than ten minutes older than the oldest
-  one's creation. A failed connection sync is tried again after the next finished
-  turn. A conversation the backend doesn't list stays recorded: a listing can't
-  prove it is gone.
-- `ChooseFolder` shows the system folder dialog off the UI thread, one at a time; the
-  chosen folder is added before its callback runs. A folder is a local path used by
-  the embedded agent.
-- Folders are listed by name. Removing one forgets the record of its conversations
-  under every origin; nothing is deleted from the backend or the disk.
-
-The record is kept in `workspace.db` (pure-Go SQLite with WAL and numbered migrations)
-in `shell.Host.DataDir` and read into memory when
-the plugin starts; until then `Loaded` is false and the lists are empty. Changes apply
-in memory and are announced on `workspace.Changed` at once. One worker writes them in
-order, a transaction per batch, and writes what is still queued when the plugin stops.
-Every statement is an upsert or a delete, so a failed batch is written again with the
-next change; the first failure in a run is reported in a toast. An unrecognized
-database or future unsupported schema is refused: the record lives in memory for
-that run and a toast says so. Without a data folder (tests) it always lives in memory.
-
-```sql
--- PRAGMA user_version = 1
-CREATE TABLE folders (
-  path      TEXT PRIMARY KEY,   -- absolute and clean
-  collapsed INTEGER NOT NULL,   -- unused; always 0
-  added     INTEGER NOT NULL);  -- Unix ms
-CREATE TABLE conversations (
-  origin         TEXT NOT NULL, -- agent.Status.Origin
-  session        TEXT NOT NULL,
-  folder         TEXT NOT NULL, -- a folders.path, or '' for the backend's default
-  title          TEXT NOT NULL,
-  model_provider TEXT NOT NULL, model_id TEXT NOT NULL, model_variant TEXT NOT NULL,
-  created        INTEGER NOT NULL,
-  updated        INTEGER NOT NULL, -- last activity seen, Unix ms
-  PRIMARY KEY (origin, session));
-```
+- Once per connection attempt it reads up to 20 pages of the backend's conversations,
+  then the projects and the active workspaces, so the projects the listing added for
+  new folders are among them; updates that land while it runs are applied again over
+  what it read. `Loaded` is false until that has worked on the current connection. A conversation is listed while an active workspace is
+  at its directory, newest first. Projects are listed by name with the inbox last,
+  workspaces in their projects' order, then oldest first. A failed read is tried
+  again after the next finished turn. A listing that reached its end drops the
+  conversations known before it that it no longer has; one that stopped early drops
+  nothing. Another backend origin starts the copy over.
+- `agent.WorkspaceUpdated` adds or replaces a project or workspace; an archived
+  project takes its workspaces and their conversations off the lists.
+- `chat.Started` adds a conversation at once, in the workspace at its directory;
+  one without a directory is the inbox's. `agent.Events` keep the rest current: a
+  turn starting, ending or interrupted is activity; `SessionRenamed` and
+  `ModelChanged` update the title and model; `agent.Deleted` drops it. A turn of a
+  conversation it doesn't know reads the newest page once, which finds conversations
+  started by other clients; one that page doesn't list (a side chat) is not read for
+  again.
+- `At` finds the active workspace at a directory, `""` being the inbox's; `Name` is
+  its title, else its project's name, else the directory's base name.
+- `ChooseProject` shows the system folder dialog off the UI thread, one at a time,
+  then adds the folder through `AddProject`; its callback gets the project's
+  workspace. `ArchiveProject` archives a project; its callback runs once the backend
+  has. Either failure is reported in a toast and changes nothing. Without
+  `agent.WorkspacesKey` nothing is listed.
 
 `internal/plugins/folderpicker` requires `chat.ControllerKey` and
-`workspace.ServiceKey`. "Open Folder…" (⌘O, File menu) chooses a folder and starts a
-new chat there. For a new chat it adds a folder picker to `chat.ComposerAccessory`
-(footer leading): the known folders, "No folder" (the agent's default) and "Choose
-folder…", applied through `chat.Controller.SetDirectory` after the frame. A stored
-conversation, or one Starting, shows none.
+`workspace.ServiceKey`. "Add Project…" (⌘O, File menu) adds a project and starts a
+new chat in it. For a new chat it adds a workspace picker to
+`chat.ComposerAccessory` (footer leading): the active workspaces other than the
+inbox, "Inbox" (a chat without a project) and "Add project…", applied through
+`chat.Controller.SetDirectory` after the frame. A stored conversation, or one
+Starting, shows none.
 
 ## Tabs
 
@@ -259,34 +240,36 @@ conversation, or one Starting, shows none.
 `shell.HostKey` and `workspace.ServiceKey`, provides `tabs.ServiceKey` and contributes
 the `shell.Strip` view and its dialogs (`shell.Overlays`).
 
-- A tab only points at what it shows: a stored conversation, a new chat in a folder
-  (a draft), or a shell page other than the chat. The chat still has one open
+- A tab only points at what it shows: a stored conversation, a new chat in a
+  workspace (a draft), or a shell page other than the chat. The chat still has one open
   conversation; selecting a tab opens it there (`Open`, `NewChat`) or shows its page.
 - Tabs follow navigation rather than drive it. After `chat.Changed` while the chat
   page is on show, and after `shell.PageChanged`, what is shown becomes the active
   tab: an open tab is selected, otherwise one opens. A new chat takes over the active
   draft tab, and so does a stored conversation shown from one: sending a draft turns
   its tab into the conversation. A draft with unsent text keeps its tab, and the
-  conversation, or a new chat in another folder, opens in a new one. A conversation announced on `chat.Started` after the
+  conversation, or a new chat in another workspace, opens in a new one. A conversation announced on `chat.Started` after the
   user moved on opens in a background tab.
-- The strip shows one space at a time: the tabs of one folder (or of the agent's
-  default folder), then the page tabs, which every space shows. Showing a conversation
-  or a draft makes its folder the space; showing a page leaves the space as it is.
-  Each space remembers the tab shown there last. A folder's tabs stay adjacent: a new
-  tab opens beside the active one when that is in its folder, else after its folder's
-  tabs, else at the end; a draft whose folder changes moves with it, and the space
-  follows. `tabs.Service.Space` names the space on show.
+- The strip shows one space at a time: the tabs of one workspace, then the page tabs,
+  which every space shows. A space is its workspace's directory; the inbox's
+  directory and the agent's default (`""`) are one space, `""`. Showing a
+  conversation or a draft makes its workspace the space; showing a page leaves the
+  space as it is. Each space remembers the tab shown there last. A space's tabs stay
+  adjacent: a new tab opens beside the active one when that is in its space, else
+  after its space's tabs, else at the end; a draft whose workspace changes moves with
+  it, and the space follows. `tabs.Service.Space` names the space on show.
 - The switcher leads the strip: the space's name after a dot in its project color,
   and an orange mark while a conversation in another space waits for the user or has
-  an unread end. It opens a popover listing every space (the workspace's folders, then
-  the folders of open tabs it does not list, "No folder" among them), each with its
+  an unread end. Its tooltip is the workspace's directory. It opens a popover listing
+  every space (the active workspaces in their projects' order, the inbox last, then
+  the directories of open tabs no active workspace has), each with its name, its
   color, the most urgent state of its conversations, its count of tabs and a check on
   the one on show. Choosing one shows its last tab, else its first, else a new chat in
-  it. Below the list: New Chat in the space, Open Folder… (which starts a chat in the
-  chosen folder), Remove “name”… for a folder, which asks first, counting the
-  conversations that leave the record, then closes its tabs; and Tab Settings….
-  Each folder keeps the first of the palette's project colors no other folder has,
-  saved under `colors`.
+  it. Below the list: New Chat in the space, Add Project… (which starts a chat in the
+  added project), Remove “name”… for a workspace other than the inbox, which asks
+  first, counting the conversations that leave the lists, archives its project and
+  then closes the tabs of its workspaces; and Tab Settings…. Each space keeps the
+  first of the palette's project colors no other space has, saved under `colors`.
 - A conversation tab shows what the conversation is doing, from `agent.Events`:
   working once a turn starts or produces output, waiting for an approval or an answer,
   unread when a turn ends while the tab is not on show (an interrupted turn is not),
@@ -301,7 +284,7 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   for the run only; files attached and mentions are dropped, as on any switch.
 - Closing a tab deletes nothing. Closing the active tab shows its right neighbour on
   the strip, else its left one; closing the space's last conversation or draft opens a
-  new chat in its folder, so the space stays. A tab whose conversation the record stops
+  new chat in its workspace, so the space stays. A tab whose conversation the record stops
   listing closes. Show Next Tab and Show Previous Tab move within the space.
 - The open tabs and the active one are saved (`open`, `active`) and reopened once the
   workspace record is read, without the conversations it no longer lists and pages no
@@ -319,15 +302,15 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
 - The strip fits its tabs to the width their row had in the previous frame (the first
   frame draws everything and asks for another). Tabs shrink to 80 px; past that, tabs
   move, from the end, into a "More tabs" menu, never the active one.
-- A tab's context menu has Close Tab, and for a conversation Rename…, Remove from List
-  and Delete…. Rename and delete go to the backend, then the record; Remove from List
-  only forgets the record. Either closes the tab. A failed rename or delete is
-  reported and changes nothing. Menu choices act after the frame.
+- A tab's context menu has Close Tab, and for a conversation Rename… and Delete….
+  Rename and delete go to the backend, then the workspace copy; a delete closes the
+  tab. A failed rename or delete is reported and changes nothing. Menu choices act
+  after the frame.
 - Commands: New Chat (⌘N, File; the same as "+"), Close Tab (⌘W, File), Show Next Tab
   (⌃Tab) and Show Previous Tab (⌃⇧Tab, View).
 - A Tabs settings section: Reopen tabs when Wada starts (`reopen`; off, the saved tabs
-  are ignored at launch), and a row of the five project colors for each folder, which
-  sets `colors`.
+  are ignored at launch), and a row of the five project colors for each workspace
+  other than the inbox, which sets `colors`.
 
 ## Settings
 

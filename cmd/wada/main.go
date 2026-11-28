@@ -676,7 +676,7 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 		case protocol.EventTextStarted, protocol.EventToolStarted, protocol.EventToolFinished,
 			protocol.EventTurnStarted, protocol.EventModelChanged,
 			protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+			protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 		}
 	}
 	// The event stream ends only when the connection does; the turn may still

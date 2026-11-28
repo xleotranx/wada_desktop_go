@@ -2,8 +2,8 @@
 // and what consumers may rely on. It holds declarations only.
 //
 // A backend plugin provides ServiceKey, and optionally ModelsKey, ModesKey,
-// FileTypesKey, ImagesKey, FilesKey, SkillsKey, RewindKey, ChangesKey and
-// ChildrenKey.
+// FileTypesKey, ImagesKey, FilesKey, SkillsKey, RewindKey, ChangesKey,
+// ChildrenKey and WorkspacesKey.
 // It owns its connection: it connects, reconnects, and publishes Status and
 // event batches on the UI thread through the kernel. Consumers call Service
 // methods off the UI thread (from kernel.Go work) and listen to Events.
@@ -279,9 +279,10 @@ type Mode struct{ ID, Name, Description string }
 type Session struct {
 	ID        SessionID
 	Title     string
-	Directory string // where the conversation works; empty for the backend's default
-	Provider  string // optional; empty for embedded PiG
-	Updated   int64  // Unix milliseconds
+	Directory string      // where the conversation works; empty for the backend's default
+	Workspace WorkspaceID // the workspace at Directory; empty when the backend keeps none
+	Provider  string      // optional; empty for embedded PiG
+	Updated   int64       // Unix milliseconds
 	Model     ModelRef
 	Cost      float64
 }

@@ -1,14 +1,11 @@
-// Package workspace keeps the app's own record of where the user works: the
-// folders they opened and the conversations started in this app, in
-// workspace.db beside the settings. The tabs and All chats list only
-// these.
+// Package workspace keeps the app's copy of the backend's record of where the
+// user works: the projects, their workspaces, and the conversations in them.
+// The tabs, All chats and the notifications list only these.
 package workspace
 
 import (
 	"cmp"
 	"context"
-	"errors"
-	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -26,30 +23,30 @@ import (
 )
 
 // syncPages bounds how far a full sync reads back through the backend's
-// conversations looking for the ones the app started.
+// conversations.
 const syncPages = 20
 
-// syncSkew is how much older than its record a conversation's backend
-// activity may look, for the backend's clock and the time creating it took.
-const syncSkew = int64(10 * 60 * 1000)
-
-// Plugin is the workspace record.
+// Plugin is the copy of the record.
 type Plugin struct {
 	ctx   *kernel.Context
 	agent agent.Service
 	host  shell.Host
 
-	store   *storeQueue // nil when nothing is saved
-	loaded  bool
-	folders []workspace.Folder // by name
-	convs   map[key]workspace.Conversation
-	list    []workspace.Conversation // the current origin's, newest first
-	origin  string                   // the backend's, as last seen
-	synced  uint64                   // the connection attempt last synced in full
-	full    kernel.Task
-	recent  kernel.Task
-	picking kernel.Task
-	warned  bool // a failed save was reported
+	loaded     bool
+	origin     string // the backend's, as last seen
+	synced     uint64 // the connection attempt last read in full
+	projects   []agent.Project
+	workspaces []agent.Workspace // active, in the order of their projects
+	sessions   map[agent.SessionID]agent.Session
+	missed     map[agent.SessionID]bool // seen in events, not in a listing since
+	// since holds the updates applied while a full sync runs, to apply again
+	// over the record it read.
+	since []agent.WorkspaceUpdate
+	list       []workspace.Conversation
+	full       kernel.Task
+	recent     kernel.Task
+	picking    kernel.Task
+	archiving  kernel.Task
 
 	// choose asks the user for a folder, off the UI thread; tests replace it.
 	choose func() (string, error)
@@ -64,8 +61,8 @@ func New() kernel.Plugin { return &Plugin{} }
 
 func (*Plugin) Manifest() kernel.Manifest {
 	return kernel.Manifest{
-		ID: "workspace", Title: "Folders", Locked: true,
-		Description: "The folders you work in and the conversations started in this app.",
+		ID: "workspace", Title: "Projects", Locked: true,
+		Description: "The projects you work in, their workspaces and their conversations.",
 		Requires:    []kernel.Named{agent.ServiceKey, shell.HostKey},
 		Provides:    []kernel.Named{workspace.ServiceKey},
 	}
@@ -75,11 +72,12 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.agent = kernel.Require(c, agent.ServiceKey)
 	p.host = kernel.Require(c, shell.HostKey)
-	p.convs = map[key]workspace.Conversation{}
+	p.sessions = map[agent.SessionID]agent.Session{}
+	p.missed = map[agent.SessionID]bool{}
 	p.origin = p.agent.Status().Origin
 	if p.choose == nil {
 		p.choose = func() (string, error) {
-			paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Open folder", ButtonLabel: "Open",
+			paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Add project", ButtonLabel: "Add",
 				Message: "Choose a folder for the agent to work in.", Directory: true, CreateDirectories: true})
 			if err != nil || len(paths) == 0 {
 				return "", err
@@ -92,233 +90,268 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	}
 	kernel.On(c, agent.StatusChanged, p.statusChanged)
 	kernel.On(c, agent.Events, p.events)
+	kernel.On(c, agent.Deleted, p.Forget)
+	kernel.On(c, agent.WorkspaceUpdated, p.updated)
 	kernel.On(c, chat.Started, p.started)
-	if dir := p.host.DataDir(); dir != "" {
-		st := newStore(filepath.Join(dir, "workspace.db"))
-		p.store = st
-		c.Spawn(func(ctx context.Context) {
-			st.run(ctx, func(snap snapshot, err error) {
-				c.Post(func() { p.load(snap, err) })
-			}, func(err error) {
-				c.Post(func() { p.saveFailed(err) })
-			})
-		})
-	} else {
-		p.loaded = true
-	}
 	kernel.Provide[workspace.Service](c, workspace.ServiceKey, p)
 	p.maybeSync()
 	return nil
 }
 
-// load takes in what the database held. Anything recorded meanwhile wins.
-func (p *Plugin) load(snap snapshot, err error) {
-	if err != nil {
-		p.store = nil
-		p.host.Toast(ui.Toast{Title: "Folders and conversations won't be saved", Description: err.Error(), Type: components.ToastError})
-	}
-	for _, f := range snap.folders {
-		if !slices.ContainsFunc(p.folders, func(x workspace.Folder) bool { return x.Path == f.Path }) {
-			p.folders = append(p.folders, f)
-		}
-	}
-	for k, c := range snap.convs {
-		if _, ok := p.convs[k]; !ok {
-			p.convs[k] = c
-		}
-	}
-	p.loaded = true
-	p.sortFolders()
-	p.changed()
-	p.maybeSync()
-}
-
-func (p *Plugin) saveFailed(err error) {
-	if p.warned {
-		return
-	}
-	p.warned = true
-	p.host.Toast(ui.Toast{Title: "Folders and conversations were not saved", Description: err.Error() + ". The app tries again with the next change.", Type: components.ToastError})
-}
-
-// changed rebuilds the list and tells the consumers.
-func (p *Plugin) changed() {
-	p.list = nil // a fresh slice: consumers may still hold the last one
-	for k, c := range p.convs {
-		if k.origin == p.origin && p.origin != "" {
-			p.list = append(p.list, c)
-		}
-	}
-	slices.SortFunc(p.list, func(a, b workspace.Conversation) int {
-		return cmp.Or(cmp.Compare(b.Updated, a.Updated), cmp.Compare(b.Created, a.Created), strings.Compare(string(a.ID), string(b.ID)))
-	})
-	kernel.Emit(p.ctx, workspace.Changed, struct{}{})
-}
-
-func (p *Plugin) sortFolders() {
-	slices.SortFunc(p.folders, func(a, b workspace.Folder) int {
-		return cmp.Or(strings.Compare(strings.ToLower(filepath.Base(a.Path)), strings.ToLower(filepath.Base(b.Path))),
-			strings.Compare(a.Path, b.Path))
-	})
-}
-
-func (p *Plugin) persist(k key) {
-	if p.store == nil {
-		return
-	}
-	if c, ok := p.convs[k]; ok {
-		p.store.enqueue(putConversation(k, c))
-	} else {
-		p.store.enqueue(dropConversation(k))
-	}
-}
-
 // ---- workspace.Service
 
 func (p *Plugin) Loaded() bool                            { return p.loaded }
-func (p *Plugin) Folders() []workspace.Folder             { return p.folders }
+func (p *Plugin) Projects() []agent.Project               { return p.projects }
+func (p *Plugin) Workspaces() []agent.Workspace           { return p.workspaces }
 func (p *Plugin) Conversations() []workspace.Conversation { return p.list }
 
-func (p *Plugin) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
-	c, ok := p.convs[key{p.origin, id}]
-	return c, ok && p.origin != ""
-}
-
-func (p *Plugin) AddFolder(path string) error {
-	if !filepath.IsAbs(path) {
-		return errors.New("a folder needs an absolute path")
-	}
-	p.addFolder(filepath.Clean(path))
-	p.changed()
-	return nil
-}
-
-func (p *Plugin) addFolder(path string) {
-	if slices.ContainsFunc(p.folders, func(f workspace.Folder) bool { return f.Path == path }) {
-		return
-	}
-	f := workspace.Folder{Path: path, Added: p.now()}
-	p.folders = append(p.folders, f)
-	p.sortFolders()
-	if p.store != nil {
-		p.store.enqueue(putFolder(f))
-	}
-}
-
-func (p *Plugin) RemoveFolder(path string) {
-	i := slices.IndexFunc(p.folders, func(f workspace.Folder) bool { return f.Path == path })
+func (p *Plugin) Workspace(id agent.WorkspaceID) (agent.Workspace, bool) {
+	i := slices.IndexFunc(p.workspaces, func(w agent.Workspace) bool { return w.ID == id })
 	if i < 0 {
-		return
+		return agent.Workspace{}, false
 	}
-	p.folders = slices.Delete(p.folders, i, i+1)
-	maps.DeleteFunc(p.convs, func(_ key, c workspace.Conversation) bool { return c.Folder == path })
-	if p.store != nil {
-		p.store.enqueue(dropFolder(path)...)
-	}
-	p.changed()
+	return p.workspaces[i], true
 }
 
-func (p *Plugin) ChooseFolder(done func(path string)) {
+func (p *Plugin) At(dir string) (agent.Workspace, bool) {
+	if dir == "" {
+		return p.inbox()
+	}
+	dir = filepath.Clean(dir)
+	i := slices.IndexFunc(p.workspaces, func(w agent.Workspace) bool { return w.Directory == dir })
+	if i < 0 {
+		return agent.Workspace{}, false
+	}
+	return p.workspaces[i], true
+}
+
+func (p *Plugin) inbox() (agent.Workspace, bool) {
+	i := slices.IndexFunc(p.projects, func(pr agent.Project) bool { return pr.Inbox })
+	if i < 0 {
+		return agent.Workspace{}, false
+	}
+	j := slices.IndexFunc(p.workspaces, func(w agent.Workspace) bool { return w.Project == p.projects[i].ID })
+	if j < 0 {
+		return agent.Workspace{}, false
+	}
+	return p.workspaces[j], true
+}
+
+func (p *Plugin) Name(dir string) string {
+	if w, ok := p.At(dir); ok {
+		if w.Title != "" {
+			return w.Title
+		}
+		if i := slices.IndexFunc(p.projects, func(pr agent.Project) bool { return pr.ID == w.Project }); i >= 0 {
+			return p.projects[i].Name
+		}
+	}
+	if dir == "" {
+		return "Inbox"
+	}
+	return filepath.Base(dir)
+}
+
+func (p *Plugin) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
+	i := slices.IndexFunc(p.list, func(c workspace.Conversation) bool { return c.ID == id })
+	if i < 0 {
+		return workspace.Conversation{}, false
+	}
+	return p.list[i], true
+}
+
+func (p *Plugin) ChooseProject(done func(agent.Workspace)) {
 	if p.picking.Running() {
 		return
 	}
-	kernel.Go(p.ctx, &p.picking, func(context.Context) (string, error) {
-		return p.choose()
-	}, func(path string, err error) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		p.host.Toast(ui.Toast{Title: "The agent keeps no projects", Type: components.ToastError})
+		return
+	}
+	origin := p.origin
+	kernel.Go(p.ctx, &p.picking, func(ctx context.Context) (agent.WorkspaceUpdate, error) {
+		path, err := p.choose()
+		if err != nil || path == "" { // failed or cancelled
+			return agent.WorkspaceUpdate{}, err
+		}
+		pr, w, err := ws.AddProject(ctx, path)
+		return agent.WorkspaceUpdate{Project: &pr, Workspace: &w}, err
+	}, func(up agent.WorkspaceUpdate, err error) {
 		if err != nil {
-			p.host.Toast(ui.Toast{Title: "The folder did not open", Description: err.Error(), Type: components.ToastError})
+			p.host.Toast(ui.Toast{Title: "The project was not added", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		if path == "" { // cancelled
+		if up.Workspace == nil || origin != p.origin {
 			return
 		}
-		if err := p.AddFolder(path); err != nil {
-			p.host.Toast(ui.Toast{Title: "The folder did not open", Description: err.Error(), Type: components.ToastError})
+		p.updated(up)
+		done(*up.Workspace)
+	})
+}
+
+func (p *Plugin) ArchiveProject(id agent.ProjectID, done func()) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		return
+	}
+	origin := p.origin
+	kernel.Go(p.ctx, &p.archiving, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ws.ArchiveProject(ctx, id)
+	}, func(_ struct{}, err error) {
+		if err != nil {
+			p.host.Toast(ui.Toast{Title: "The project was not removed", Description: err.Error(), Type: components.ToastError})
 			return
 		}
-		done(filepath.Clean(path))
+		if origin != p.origin {
+			return
+		}
+		// The backend announces it too; this needn't wait for that.
+		now := p.now()
+		if i := slices.IndexFunc(p.projects, func(pr agent.Project) bool { return pr.ID == id }); i >= 0 {
+			pr := p.projects[i]
+			pr.Archived = now
+			p.updated(agent.WorkspaceUpdate{Project: &pr})
+		}
+		done()
 	})
 }
 
 func (p *Plugin) Retitle(id agent.SessionID, title string) {
-	p.update(id, func(c *workspace.Conversation) { c.Title = title })
-}
-
-func (p *Plugin) Forget(id agent.SessionID) {
-	k := key{p.origin, id}
-	if _, ok := p.convs[k]; !ok {
-		return
-	}
-	delete(p.convs, k)
-	p.persist(k)
-	p.changed()
-}
-
-// update changes a recorded conversation of the current origin, saving and
-// announcing it when fn changed anything.
-func (p *Plugin) update(id agent.SessionID, fn func(*workspace.Conversation)) {
-	if p.edit(id, fn) {
+	if s, ok := p.sessions[id]; ok && s.Title != title {
+		s.Title = title
+		p.sessions[id] = s
 		p.changed()
 	}
 }
 
-func (p *Plugin) edit(id agent.SessionID, fn func(*workspace.Conversation)) bool {
-	k := key{p.origin, id}
-	c, ok := p.convs[k]
-	if !ok || p.origin == "" {
-		return false
+func (p *Plugin) Forget(id agent.SessionID) {
+	if _, ok := p.sessions[id]; ok {
+		delete(p.sessions, id)
+		p.changed()
 	}
-	before := c
-	fn(&c)
-	if c == before {
-		return false
-	}
-	p.convs[k] = c
-	p.persist(k)
-	return true
 }
 
-// ---- What the app sees happen
+// ---- Keeping the copy
 
-// started records a conversation the chat page just created.
+// changed rebuilds the list and tells the consumers.
+func (p *Plugin) changed() {
+	p.list = nil // a fresh slice: consumers may still hold the last one
+	for _, s := range p.sessions {
+		w, ok := p.At(s.Directory)
+		if !ok || s.Directory == "" {
+			continue
+		}
+		p.list = append(p.list, workspace.Conversation{ID: s.ID, Workspace: w.ID, Directory: w.Directory,
+			Title: s.Title, Model: s.Model, Updated: s.Updated})
+	}
+	slices.SortFunc(p.list, func(a, b workspace.Conversation) int {
+		return cmp.Or(cmp.Compare(b.Updated, a.Updated), strings.Compare(string(a.ID), string(b.ID)))
+	})
+	kernel.Emit(p.ctx, workspace.Changed, struct{}{})
+}
+
+// updated applies a project or workspace the backend changed.
+func (p *Plugin) updated(up agent.WorkspaceUpdate) {
+	p.apply(up)
+	if p.full.Running() {
+		p.since = append(p.since, up)
+	}
+	p.order()
+	p.changed()
+	p.ctx.Invalidate()
+}
+
+func (p *Plugin) apply(up agent.WorkspaceUpdate) {
+	if up.Project != nil {
+		pr := *up.Project
+		p.projects = slices.DeleteFunc(p.projects, func(x agent.Project) bool { return x.ID == pr.ID })
+		if pr.Archived == 0 {
+			p.projects = append(p.projects, pr)
+		} else {
+			p.workspaces = slices.DeleteFunc(p.workspaces, func(w agent.Workspace) bool { return w.Project == pr.ID })
+		}
+	}
+	if up.Workspace != nil {
+		w := *up.Workspace
+		p.workspaces = slices.DeleteFunc(p.workspaces, func(x agent.Workspace) bool { return x.ID == w.ID })
+		if w.Archived == 0 {
+			p.workspaces = append(p.workspaces, w)
+		}
+	}
+}
+
+// order sorts projects by name with the inbox last, and workspaces by their
+// projects, then oldest first. A workspace whose project isn't active is
+// dropped.
+func (p *Plugin) order() {
+	slices.SortFunc(p.projects, func(a, b agent.Project) int {
+		return cmp.Or(compareBool(a.Inbox, b.Inbox), strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)),
+			strings.Compare(a.Root, b.Root), strings.Compare(string(a.ID), string(b.ID)))
+	})
+	rank := map[agent.ProjectID]int{}
+	for i, pr := range p.projects {
+		rank[pr.ID] = i
+	}
+	p.workspaces = slices.DeleteFunc(p.workspaces, func(w agent.Workspace) bool { _, ok := rank[w.Project]; return !ok })
+	slices.SortFunc(p.workspaces, func(a, b agent.Workspace) int {
+		return cmp.Or(cmp.Compare(rank[a.Project], rank[b.Project]), cmp.Compare(a.Created, b.Created),
+			strings.Compare(string(a.ID), string(b.ID)))
+	})
+}
+
+// started takes in a conversation the chat page just created.
 func (p *Plugin) started(conv chat.Conversation) {
 	if p.origin == "" || conv.Session == "" {
 		return
 	}
-	// Only an absolute folder is one the tabs can group and remove; the
-	// backend resolves any other itself.
-	folder := filepath.Clean(conv.Directory)
-	if conv.Directory == "" || !filepath.IsAbs(folder) {
-		folder = ""
-	} else {
-		p.addFolder(folder)
+	dir := conv.Directory
+	if w, ok := p.At(dir); ok {
+		dir = w.Directory
 	}
-	now := p.now()
-	k := key{p.origin, conv.Session}
-	p.convs[k] = workspace.Conversation{ID: conv.Session, Folder: folder, Title: conv.Title, Model: conv.Model, Created: now, Updated: now}
-	p.persist(k)
+	s := p.sessions[conv.Session]
+	s.ID, s.Directory, s.Model = conv.Session, cmp.Or(dir, s.Directory), conv.Model
+	s.Title = cmp.Or(conv.Title, s.Title)
+	s.Updated = max(s.Updated, p.now())
+	p.sessions[conv.Session] = s
+	delete(p.missed, conv.Session)
 	p.changed()
 }
 
 func (p *Plugin) events(batch []agent.Event) {
-	changed, finished := false, false
+	changed, finished, unknown := false, false, false
 	for _, ev := range batch {
-		var fn func(*workspace.Conversation)
+		var fn func(*agent.Session)
 		switch ev.Kind {
 		case agent.TurnStarted, agent.TurnInterrupted:
 			fn = p.touch
 		case agent.TurnSucceeded, agent.TurnFailed:
 			fn = p.touch
-			_, known := p.Lookup(ev.Session)
+			_, known := p.sessions[ev.Session]
 			finished = finished || known
 		case agent.SessionRenamed:
-			fn = func(c *workspace.Conversation) { c.Title = ev.Title }
+			fn = func(s *agent.Session) { s.Title = ev.Title }
 		case agent.ModelChanged:
-			fn = func(c *workspace.Conversation) { c.Model = ev.Model }
+			fn = func(s *agent.Session) { s.Model = ev.Model }
 		case agent.TextStarted, agent.TextDelta, agent.TextEnded, agent.ToolStarted, agent.ToolCalled,
 			agent.ToolFinished, agent.ApprovalRequested, agent.InteractionRequested:
 		}
-		if fn != nil && p.edit(ev.Session, fn) {
+		if fn == nil {
+			continue
+		}
+		s, ok := p.sessions[ev.Session]
+		if !ok {
+			// Another client's, or a side chat the backend doesn't list.
+			if ev.Session != "" && !p.missed[ev.Session] {
+				p.missed[ev.Session] = true
+				unknown = true
+			}
+			continue
+		}
+		before := s
+		fn(&s)
+		if s != before {
+			p.sessions[ev.Session] = s
 			changed = true
 		}
 	}
@@ -326,13 +359,13 @@ func (p *Plugin) events(batch []agent.Event) {
 		p.changed()
 		p.ctx.Invalidate() // titles, models and order show in lists of chats
 	}
-	if finished {
+	if finished || unknown {
 		p.maybeSync()  // after a full sync that failed
 		p.syncRecent() // a first turn is when the backend names a conversation
 	}
 }
 
-func (p *Plugin) touch(c *workspace.Conversation) { c.Updated = max(c.Updated, p.now()) }
+func (p *Plugin) touch(s *agent.Session) { s.Updated = max(s.Updated, p.now()) }
 
 func (p *Plugin) statusChanged(st agent.Status) {
 	if st.Origin != p.origin {
@@ -340,18 +373,31 @@ func (p *Plugin) statusChanged(st agent.Status) {
 		p.full.Cancel()
 		p.recent.Cancel()
 		p.synced = 0
+		p.loaded = false
+		p.projects, p.workspaces = nil, nil
+		p.sessions = map[agent.SessionID]agent.Session{}
+		p.missed = map[agent.SessionID]bool{}
+		p.since = nil
 		p.changed()
 	}
 	p.maybeSync()
 }
 
-// ---- Catching up with the backend
+// ---- Reading the backend
 
-// maybeSync catches up once per connection: titles given and activity seen
-// while the app wasn't listening.
+// snapshot is what a sync read.
+type snapshot struct {
+	projects   []agent.Project
+	workspaces []agent.Workspace
+	sessions   []agent.Session
+	complete   bool // the listing reached its end
+	record     bool // projects and workspaces were read
+}
+
+// maybeSync reads the record and the conversations once per connection.
 func (p *Plugin) maybeSync() {
 	st := p.agent.Status()
-	if !p.loaded || st.State != agent.Ready || st.Attempt == p.synced || p.origin == "" {
+	if st.State != agent.Ready || st.Attempt == p.synced || p.origin == "" {
 		return
 	}
 	p.synced = st.Attempt
@@ -360,77 +406,105 @@ func (p *Plugin) maybeSync() {
 
 func (p *Plugin) syncRecent() { p.sync(&p.recent, 1) }
 
-// sync reads up to pages of the backend's conversations, newest first, until
-// it has seen every one the app recorded or reached activity older than any
-// of them, and takes their titles, models and activity. A conversation the
-// backend doesn't list stays recorded: a listing can't prove it is gone, and
-// the user can remove it. A full sync that fails is tried again after the
-// next finished turn.
+// sync reads up to pages of the backend's conversations, newest first; a full
+// sync then reads the projects and workspaces, after the listing has added a
+// project for any conversation's new folder. Updates that land while it runs
+// are applied again over what it read. A full sync that fails is tried again
+// after the next finished turn.
 func (p *Plugin) sync(task *kernel.Task, pages int) {
-	want := map[agent.SessionID]bool{}
-	oldest := int64(0)
-	for _, c := range p.list {
-		want[c.ID] = true
-		if oldest == 0 || c.Created < oldest {
-			oldest = c.Created
-		}
-	}
-	if len(want) == 0 {
-		return
-	}
-	// A conversation is active on the backend at least since it was created,
-	// so nothing it lists after this can be one of them.
-	floor := oldest - syncSkew
 	origin, backend, full := p.origin, p.agent, task == &p.full
-	kernel.Go(p.ctx, task, func(ctx context.Context) ([]agent.Session, error) {
-		var seen []agent.Session
+	ws, hasRecord := kernel.Use(p.ctx, agent.WorkspacesKey)
+	known := map[agent.SessionID]bool{}
+	for id := range p.sessions {
+		known[id] = true
+	}
+	kernel.Go(p.ctx, task, func(ctx context.Context) (snapshot, error) {
+		var snap snapshot
 		cursor := ""
 		for range pages {
 			page, err := backend.Sessions(ctx, agent.SessionQuery{Cursor: cursor})
 			if err != nil {
-				return seen, err
+				return snap, err
 			}
-			for _, s := range page.Sessions {
-				if want[s.ID] {
-					seen = append(seen, s)
-					delete(want, s.ID)
-				}
-			}
-			if len(want) == 0 || page.Next == "" || olderThan(page.Sessions, floor) {
+			snap.sessions = append(snap.sessions, page.Sessions...)
+			if page.Next == "" {
+				snap.complete = true
 				break
 			}
 			cursor = page.Next
 		}
-		return seen, nil
-	}, func(seen []agent.Session, err error) {
-		// A failed page keeps what came before it; the list itself is local.
+		if full && hasRecord {
+			var err error
+			if snap.projects, err = ws.Projects(ctx, false); err != nil {
+				return snap, err
+			}
+			if snap.workspaces, err = ws.Workspaces(ctx, false); err != nil {
+				return snap, err
+			}
+			snap.record = true
+		}
+		return snap, nil
+	}, func(snap snapshot, err error) {
 		if origin != p.origin {
 			return
 		}
 		if err != nil && full {
 			p.synced = 0
+			if !snap.record {
+				p.since = nil
+				return
+			}
 		}
-		changed := false
-		for _, s := range seen {
-			changed = p.edit(s.ID, func(c *workspace.Conversation) {
-				c.Title = cmp.Or(s.Title, c.Title)
-				if !s.Model.IsZero() {
-					c.Model = s.Model
+		if full {
+			if snap.record {
+				p.projects, p.workspaces = snap.projects, snap.workspaces
+				for _, up := range p.since {
+					p.apply(up)
 				}
-				c.Updated = max(c.Updated, s.Updated)
-			}) || changed
+				p.order()
+			}
+			p.since = nil
 		}
-		if changed {
-			p.changed()
+		seen := map[agent.SessionID]bool{}
+		for _, s := range snap.sessions {
+			seen[s.ID] = true
+			delete(p.missed, s.ID)
+			if old, ok := p.sessions[s.ID]; ok {
+				s.Title = cmp.Or(s.Title, old.Title)
+				s.Updated = max(s.Updated, old.Updated)
+				if s.Model.IsZero() {
+					s.Model = old.Model
+				}
+			}
+			if s.Directory != "" {
+				s.Directory = filepath.Clean(s.Directory)
+			}
+			p.sessions[s.ID] = s
 		}
+		// A complete listing proves the ones known before it are gone; one
+		// started meanwhile may not be listed yet.
+		if err == nil && snap.complete {
+			for id := range known {
+				if !seen[id] {
+					delete(p.sessions, id)
+				}
+			}
+		}
+		if full && (err == nil || snap.record) {
+			p.loaded = true
+		}
+		p.changed()
+		p.ctx.Invalidate()
 	})
 }
 
-// olderThan reports that a page, newest first, ends with activity before floor.
-func olderThan(page []agent.Session, floor int64) bool {
-	if len(page) == 0 {
-		return false
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	default:
+		return -1
 	}
-	last := page[len(page)-1].Updated
-	return last > 0 && last < floor
 }

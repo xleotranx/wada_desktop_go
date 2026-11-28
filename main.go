@@ -70,7 +70,7 @@ func main() {
 		markup.New,       // annotate attached screenshots before sending
 		mentions.New,     // files from the conversation folder
 		skills.New,       // type / to attach a skill; needs a backend that has them
-		workspace.New,    // folders and the conversations started here, in workspace.db
+		workspace.New,    // the daemon's projects and workspaces, and their conversations
 		folderpicker.New, // Open Folder… and the new chat's folder in the composer
 		tabs.New,         // open chats and pages as tabs across the title strip
 		explore.New,      // read-only side chats in a drawer, from selected text

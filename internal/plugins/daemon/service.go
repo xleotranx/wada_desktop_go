@@ -453,3 +453,73 @@ func (a terminalStreamAdapter) Output() <-chan []byte        { return a.s.Output
 func (a terminalStreamAdapter) WriteInput(data []byte) error { return a.s.WriteInput(data) }
 func (a terminalStreamAdapter) Resize(cols, rows int) error  { return a.s.Resize(cols, rows) }
 func (a terminalStreamAdapter) Close() error                 { return a.s.Close() }
+
+// ---- agent.Workspaces
+
+func (p *Plugin) Projects(ctx context.Context, archived bool) ([]agent.Project, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Projects(ctx, archived)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Project, len(list))
+	for i, pr := range list {
+		out[i] = fromProtoProject(pr)
+	}
+	return out, nil
+}
+
+func (p *Plugin) Workspaces(ctx context.Context, archived bool) ([]agent.Workspace, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.Workspaces(ctx, protocol.WorkspacesListRequest{Archived: archived})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.Workspace, len(list))
+	for i, w := range list {
+		out[i] = fromProtoWorkspace(w)
+	}
+	return out, nil
+}
+
+func (p *Plugin) AddProject(ctx context.Context, root string) (agent.Project, agent.Workspace, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.Project{}, agent.Workspace{}, err
+	}
+	resp, err := cli.AddProject(ctx, root)
+	if err != nil {
+		return agent.Project{}, agent.Workspace{}, err
+	}
+	return fromProtoProject(resp.Project), fromProtoWorkspace(resp.Workspace), nil
+}
+
+func (p *Plugin) RenameProject(ctx context.Context, id agent.ProjectID, name string) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.RenameProject(ctx, string(id), name)
+}
+
+func (p *Plugin) ArchiveProject(ctx context.Context, id agent.ProjectID) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.ArchiveProject(ctx, string(id))
+}
+
+func (p *Plugin) RenameWorkspace(ctx context.Context, id agent.WorkspaceID, title string) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	return cli.RenameWorkspace(ctx, string(id), title)
+}

@@ -66,6 +66,7 @@ func (*Plugin) Manifest() kernel.Manifest {
 			agent.HarnessesKey,
 			agent.WorkersKey,
 			agent.WorktreesKey,
+			agent.WorkspacesKey,
 			terminal.ServiceKey,
 		},
 	}
@@ -89,6 +90,7 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p)
 	kernel.Provide[agent.Workers](c, agent.WorkersKey, p)
 	kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p)
+	kernel.Provide[agent.Workspaces](c, agent.WorkspacesKey, p)
 	kernel.Provide[terminal.Service](c, terminal.ServiceKey, terminalService{p: p})
 	c.OnDispose(p.drop)
 	kernel.Contribute(c, kernel.Commands, "daemon.restart", 0, kernel.Command{
@@ -412,6 +414,17 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 				info := fromProtoTerminal(*ev.Terminal)
 				run.Post(func() { kernel.Emit(p.ctx, terminal.Updated, info) })
 			}
+		case protocol.EventWorkspaceUpdated:
+			var up agent.WorkspaceUpdate
+			if ev.Project != nil {
+				pr := fromProtoProject(*ev.Project)
+				up.Project = &pr
+			}
+			if ev.Workspace != nil {
+				w := fromProtoWorkspace(*ev.Workspace)
+				up.Workspace = &w
+			}
+			run.Post(func() { kernel.Emit(p.ctx, agent.WorkspaceUpdated, up) })
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,
 			protocol.EventApprovalRequested, protocol.EventInteractionRequested,
@@ -424,7 +437,7 @@ func (p *Plugin) pump(ctx context.Context, run *kernel.Scope, queue <-chan proto
 	isControl := func(kind protocol.EventKind) bool {
 		switch kind {
 		case protocol.EventModelsChanged, protocol.EventSessionDeleted, protocol.EventProviderAuth,
-			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 			return true
 		case protocol.EventTextStarted, protocol.EventTextDelta, protocol.EventTextEnded,
 			protocol.EventToolStarted, protocol.EventToolCalled, protocol.EventToolFinished,

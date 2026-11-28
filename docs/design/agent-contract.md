@@ -25,6 +25,7 @@ plugins have no PiG dependency.
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
 | `WorktreesKey` | Git worktree listing (including dirty state), safe secondary removal, and authenticated `gh` PR status (`PRStatus`) |
+| `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive |
 
 See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
 
@@ -34,7 +35,8 @@ See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updat
 draw no frames.
 `StatusChanged` describes startup/readiness/failure, `ModelsChanged` invalidates
 the provider/model catalog, and `WorkerUpdated` announces supervised worker
-status transitions. Consumers depend on these declarations, not the SDK.
+status transitions, and `WorkspaceUpdated` carries a project or workspace that was
+added or changed. Consumers depend on these declarations, not the SDK.
 
 ## Ownership and storage
 
@@ -49,7 +51,8 @@ relay refused its credentials, which it reports instead. One `wadad` serves a da
 directory at a time: it holds an exclusive lock on `<DataDir>/wadad.lock` for its
 whole run, so a replacement waits until the daemon it replaces has shut down and
 removed its runtime files. `wadad.db` tracks server identity,
-startup epoch, idempotent creation/delivery receipts, and sequenced timeline events.
+startup epoch, idempotent creation/delivery receipts, sequenced timeline events, and
+the projects and workspaces (below).
 The timeline is for catch-up only: it keeps the current and previous epochs, the
 last 20000 events of each session per epoch, and nothing for deleted sessions.
 
@@ -73,7 +76,7 @@ conversation directories remain as recorded. The daemon's PiG storage root is `<
 - `baselines/`: lazy on-disk original file contents used by session diffs.
 
 The origin is `pig <absolute storage root>`. Session IDs are meaningful only within
-that origin. Workspace records and tabs remain scoped by origin. The plugin reads
+that origin. Each daemon keeps its own projects and workspaces; the app's copy of them starts over when the origin changes. The plugin reads
 only its own session records; it does not import another backend's history.
 
 An open conversation owns a directory-specific Services container, Runtime and
@@ -146,6 +149,55 @@ a drawer beside their parent conversation, are not emitted on `chat.Started`, an
 not appear in tabs or All chats.
 General SDK UI questions use the existing interaction contract,
 preserving empty answers, selections, confirmations and explicit cancellation.
+
+## Projects and workspaces
+
+`wadad` keeps the record of where the user works in `wadad.db` (schema 2), in
+`internal/daemon/workspaces`, read into memory at startup:
+
+```sql
+CREATE TABLE projects (
+  id       TEXT PRIMARY KEY, -- opaque "prj_" + 16 hex; never a path
+  root     TEXT NOT NULL,    -- absolute and clean, as added
+  name     TEXT NOT NULL,    -- the user's name; '' for the root's base name
+  created  INTEGER NOT NULL, -- Unix ms
+  archived INTEGER NOT NULL);-- Unix ms; 0 while active
+CREATE UNIQUE INDEX projects_active_root ON projects(root) WHERE archived = 0;
+CREATE TABLE workspaces (
+  id        TEXT PRIMARY KEY, -- opaque "wks_" + 16 hex
+  project   TEXT NOT NULL REFERENCES projects(id),
+  isolation TEXT NOT NULL,    -- "project": the project's own directory
+  dir       TEXT NOT NULL,
+  title     TEXT NOT NULL,    -- the user's; '' shows the project's name
+  created   INTEGER NOT NULL,
+  archived  INTEGER NOT NULL);
+CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
+```
+
+- A project has one workspace in its own directory, made with it. No two active
+  workspaces share a directory, so a conversation or terminal belongs to the
+  workspace at its directory: the active one there, else the one archived there last.
+- The inbox project is at `<DataDir>/workspaces/inbox`, the embedded agent's folder
+  for conversations started without one. It is made at first start, named Inbox, and
+  can't be archived.
+- Every change is written before it applies in memory, then announced to every
+  all-sessions subscription as a `workspace_updated` event carrying the project or
+  workspace. These events are not kept in the timeline: a client lists the record
+  again when it connects.
+- `workspace.project.add` returns the active project at a root and its workspace;
+  if there is none it restores the one archived there last, or else makes one.
+  `workspace.project.archive` archives a project and its workspaces; their
+  conversations stay with the backend. `workspace.projects.list`,
+  `workspace.project.rename`, `workspace.list` and `workspace.rename` complete the
+  set. A missing or archived project or workspace is `not_found`.
+- Every session the server returns names its workspace (`workspace`). A session in
+  a directory no workspace was ever at gets a project there as it is returned, so
+  conversations started by the CLI or another client join the record. A failed add
+  leaves the session unplaced.
+- `agent.session.create`, `agent.sessions.list` and `terminal.create` take
+  `workspace` instead of `directory`: it must name an active workspace, and a
+  directory given as well must be that workspace's. Terminals report the active
+  workspace at their directory.
 
 ## Providers and project resources
 

@@ -991,13 +991,13 @@ func TestANewChatWithoutAFolderAsksForOne(t *testing.T) {
 	p.NewChat("")
 	tt := ui.NewTester(p.view, 1000, 800)
 	tt.Frame()
-	if !tt.HasText("Choose a work folder") {
+	if !tt.HasText("Choose a project") {
 		t.Fatalf("gate missing: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("Compose"); ok {
 		t.Fatal("the composer shows before a folder")
 	}
-	if err := tt.Click("Open a work folder"); err != nil {
+	if err := tt.Click("Add a project"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -1014,7 +1014,7 @@ func TestAskingWithoutAFolderOpensTheComposer(t *testing.T) {
 	p.NewChat("")
 	tt := ui.NewTester(p.view, 1000, 800)
 	tt.Frame()
-	if err := tt.Click("Ask without a folder"); err != nil {
+	if err := tt.Click("Ask in the Inbox"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -1040,7 +1040,7 @@ func TestARequirementStandsBeforeTheChat(t *testing.T) {
 	if !tt.HasText("Connect a provider") {
 		t.Fatalf("requirement missing: %q", tt.Texts())
 	}
-	if tt.HasText("Choose a work folder") {
+	if tt.HasText("Choose a project") {
 		t.Fatalf("the folder gate shows under a requirement: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("Compose"); ok {

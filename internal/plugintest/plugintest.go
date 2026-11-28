@@ -467,14 +467,21 @@ func (s *Skills) Skills(_ context.Context, directory string) ([]agent.Skill, err
 	return slices.Clone(s.List), nil
 }
 
-// Workspace provides workspace.ServiceKey in memory. ChooseFolder picks
-// Chosen at once; an empty Chosen is a cancelled dialog.
+// Workspace provides workspace.ServiceKey in memory. Each of Dirs is a
+// project with one workspace there, "prj:<dir>" and "wks:<dir>", named after
+// the directory; Inbox, when set, is the inbox's directory. ChooseProject
+// picks Chosen at once, adding it to Dirs; an empty Chosen is a cancelled
+// dialog.
 type Workspace struct {
-	ctx       *kernel.Context
-	Convs     []workspace.Conversation // newest first
-	FolderSet []workspace.Folder       // by name
-	Chosen    string
-	Pending   bool // the record has not been read yet
+	ctx     *kernel.Context
+	Convs   []workspace.Conversation // newest first
+	Dirs    []string
+	Inbox   string
+	Names   map[string]string // a workspace's name by directory, instead of its base name
+	Chosen  string
+	Pending bool // the record has not been read yet
+	// Archived lists the projects ArchiveProject was asked to archive.
+	Archived []agent.ProjectID
 }
 
 func (f *Workspace) New() kernel.Plugin { return f }
@@ -490,8 +497,65 @@ func (w *Workspace) Setup(c *kernel.Context) error {
 func (w *Workspace) changed() { kernel.Emit(w.ctx, workspace.Changed, struct{}{}) }
 
 func (w *Workspace) Loaded() bool                            { return !w.Pending }
-func (w *Workspace) Folders() []workspace.Folder             { return w.FolderSet }
 func (w *Workspace) Conversations() []workspace.Conversation { return w.Convs }
+
+func (w *Workspace) Projects() []agent.Project {
+	var out []agent.Project
+	for _, d := range w.all() {
+		out = append(out, agent.Project{ID: agent.ProjectID("prj:" + d), Root: d, Name: w.Name(d), Inbox: d == w.Inbox})
+	}
+	return out
+}
+
+func (w *Workspace) Workspaces() []agent.Workspace {
+	var out []agent.Workspace
+	for _, d := range w.all() {
+		out = append(out, w.space(d))
+	}
+	return out
+}
+
+func (w *Workspace) all() []string {
+	out := slices.Clone(w.Dirs)
+	if w.Inbox != "" {
+		out = append(out, w.Inbox)
+	}
+	return out
+}
+
+// space is the workspace at d, created in the order of Dirs.
+func (w *Workspace) space(d string) agent.Workspace {
+	return agent.Workspace{ID: agent.WorkspaceID("wks:" + d), Project: agent.ProjectID("prj:" + d), Directory: d,
+		Created: int64(slices.Index(w.all(), d))}
+}
+
+func (w *Workspace) Workspace(id agent.WorkspaceID) (agent.Workspace, bool) {
+	d, ok := strings.CutPrefix(string(id), "wks:")
+	if !ok || !slices.Contains(w.all(), d) {
+		return agent.Workspace{}, false
+	}
+	return w.space(d), true
+}
+
+func (w *Workspace) At(dir string) (agent.Workspace, bool) {
+	if dir == "" {
+		dir = w.Inbox
+	}
+	if dir == "" || !slices.Contains(w.all(), dir) {
+		return agent.Workspace{}, false
+	}
+	return w.space(dir), true
+}
+
+func (w *Workspace) Name(dir string) string {
+	if dir == "" || dir == w.Inbox {
+		return "Inbox"
+	}
+	if n := w.Names[dir]; n != "" {
+		return n
+	}
+	return path.Base(dir)
+}
 
 func (w *Workspace) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
 	i := slices.IndexFunc(w.Convs, func(c workspace.Conversation) bool { return c.ID == id })
@@ -501,25 +565,24 @@ func (w *Workspace) Lookup(id agent.SessionID) (workspace.Conversation, bool) {
 	return w.Convs[i], true
 }
 
-func (w *Workspace) AddFolder(path string) error {
-	if !slices.ContainsFunc(w.FolderSet, func(f workspace.Folder) bool { return f.Path == path }) {
-		w.FolderSet = append(w.FolderSet, workspace.Folder{Path: path})
+func (w *Workspace) ChooseProject(done func(agent.Workspace)) {
+	if w.Chosen == "" {
+		return
+	}
+	if !slices.Contains(w.all(), w.Chosen) {
+		w.Dirs = append(w.Dirs, w.Chosen)
 		w.changed()
 	}
-	return nil
+	done(w.space(w.Chosen))
 }
 
-func (w *Workspace) RemoveFolder(path string) {
-	w.FolderSet = slices.DeleteFunc(w.FolderSet, func(f workspace.Folder) bool { return f.Path == path })
-	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.Folder == path })
+func (w *Workspace) ArchiveProject(id agent.ProjectID, done func()) {
+	w.Archived = append(w.Archived, id)
+	d := strings.TrimPrefix(string(id), "prj:")
+	w.Dirs = slices.DeleteFunc(w.Dirs, func(x string) bool { return x == d })
+	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.Directory == d })
 	w.changed()
-}
-
-func (w *Workspace) ChooseFolder(done func(path string)) {
-	if w.Chosen != "" {
-		_ = w.AddFolder(w.Chosen)
-		done(w.Chosen)
-	}
+	done()
 }
 
 func (w *Workspace) Retitle(id agent.SessionID, title string) {
@@ -534,6 +597,102 @@ func (w *Workspace) Retitle(id agent.SessionID, title string) {
 func (w *Workspace) Forget(id agent.SessionID) {
 	w.Convs = slices.DeleteFunc(w.Convs, func(c workspace.Conversation) bool { return c.ID == id })
 	w.changed()
+}
+
+// Projects provides agent.WorkspacesKey in memory, as a backend that keeps
+// projects does: each of Dirs, and Inbox when set, is a project with one
+// workspace there, "prj:<dir>" and "wks:<dir>". Its methods may be called
+// from any goroutine.
+type Projects struct {
+	mu    sync.Mutex
+	Dirs  []string
+	Inbox string
+	Fail  map[string]error // by method name, e.g. "AddProject"
+}
+
+func (f *Projects) New() kernel.Plugin { return f }
+func (*Projects) Manifest() kernel.Manifest {
+	return kernel.Manifest{ID: "fake-projects", Provides: []kernel.Named{agent.WorkspacesKey}}
+}
+
+func (f *Projects) Setup(c *kernel.Context) error {
+	return kernel.Provide[agent.Workspaces](c, agent.WorkspacesKey, f)
+}
+
+func (f *Projects) fail(method string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Fail[method]
+}
+
+func (f *Projects) dirs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := slices.Clone(f.Dirs)
+	if f.Inbox != "" {
+		out = append(out, f.Inbox)
+	}
+	return out
+}
+
+func (f *Projects) project(d string) agent.Project {
+	name := path.Base(d)
+	if d == f.Inbox {
+		name = "Inbox"
+	}
+	return agent.Project{ID: agent.ProjectID("prj:" + d), Root: d, Name: name, Inbox: d == f.Inbox}
+}
+
+func (f *Projects) Projects(context.Context, bool) ([]agent.Project, error) {
+	if err := f.fail("Projects"); err != nil {
+		return nil, err
+	}
+	var out []agent.Project
+	for _, d := range f.dirs() {
+		out = append(out, f.project(d))
+	}
+	return out, nil
+}
+
+func (f *Projects) Workspaces(context.Context, bool) ([]agent.Workspace, error) {
+	if err := f.fail("Workspaces"); err != nil {
+		return nil, err
+	}
+	var out []agent.Workspace
+	for _, d := range f.dirs() {
+		out = append(out, agent.Workspace{ID: agent.WorkspaceID("wks:" + d), Project: agent.ProjectID("prj:" + d), Directory: d})
+	}
+	return out, nil
+}
+
+func (f *Projects) AddProject(_ context.Context, root string) (agent.Project, agent.Workspace, error) {
+	if err := f.fail("AddProject"); err != nil {
+		return agent.Project{}, agent.Workspace{}, err
+	}
+	f.mu.Lock()
+	if !slices.Contains(f.Dirs, root) {
+		f.Dirs = append(f.Dirs, root)
+	}
+	f.mu.Unlock()
+	return f.project(root), agent.Workspace{ID: agent.WorkspaceID("wks:" + root), Project: agent.ProjectID("prj:" + root), Directory: root}, nil
+}
+
+func (f *Projects) RenameProject(context.Context, agent.ProjectID, string) error {
+	return f.fail("RenameProject")
+}
+
+func (f *Projects) ArchiveProject(_ context.Context, id agent.ProjectID) error {
+	if err := f.fail("ArchiveProject"); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Dirs = slices.DeleteFunc(f.Dirs, func(d string) bool { return "prj:"+d == string(id) })
+	return nil
+}
+
+func (f *Projects) RenameWorkspace(context.Context, agent.WorkspaceID, string) error {
+	return f.fail("RenameWorkspace")
 }
 
 // Send runs the chat.Outgoing pipeline as the chat does, committing what it accepts.

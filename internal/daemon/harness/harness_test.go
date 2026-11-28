@@ -239,7 +239,7 @@ func TestACPAdapterStreamingAndPermissionReply(t *testing.T) {
 				protocol.EventToolCalled, protocol.EventToolFinished, protocol.EventInteractionRequested,
 				protocol.EventTurnStarted, protocol.EventTurnInterrupted, protocol.EventModelChanged,
 				protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for ACP turn")
@@ -286,7 +286,7 @@ func TestClaudeAdapterStreamingAndControlReply(t *testing.T) {
 				protocol.EventToolCalled, protocol.EventToolFinished, protocol.EventInteractionRequested,
 				protocol.EventTurnStarted, protocol.EventTurnInterrupted, protocol.EventModelChanged,
 				protocol.EventSessionRenamed, protocol.EventSessionDeleted, protocol.EventModelsChanged,
-				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+				protocol.EventProviderAuth, protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for Claude turn")
@@ -329,7 +329,7 @@ func TestCodexAdapterTurnAndResume(t *testing.T) {
 					protocol.EventInteractionRequested, protocol.EventTurnStarted, protocol.EventTurnInterrupted,
 					protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
 					protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
-					protocol.EventTerminalUpdated:
+					protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 				}
 			case <-deadline:
 				t.Fatal("timed out waiting for Codex turn")

@@ -291,7 +291,7 @@ func (o *Orchestrator) pumpWorker(w *managedWorker) {
 		case protocol.EventTextStarted, protocol.EventTextEnded, protocol.EventToolStarted,
 			protocol.EventInteractionRequested, protocol.EventModelChanged, protocol.EventSessionRenamed,
 			protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+			protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 			forward = append(forward, ev)
 		}
 		w.mu.Unlock()

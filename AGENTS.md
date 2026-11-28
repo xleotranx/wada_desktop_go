@@ -23,26 +23,26 @@ keep its types inside `internal/daemon/pig`.
 - `internal/relay`: `Noise_NK_25519_ChaChaPoly_SHA256` cipher/handshake, `daemon-keypair.json`, `#offer=` pairing codec, outbound relay connector, and stateless WebSocket relay router.
 - `web/`: responsive React 19 + TypeScript PWA client with Noise NK E2EE relay transport (cross-tested against Go golden vectors), direct LAN/Tailscale WebSocket client, chat/approvals/diffs/terminal views, and static serving from `wadad --web-dir`.
 - `internal/client`: Go WebSocket client SDK (`Dial`, `DialLocal`, `DialRelay`, `DialOffer`, `DialHost`, `ConnectOrStartLocal`), saved `hosts.json` registry, binary terminal streams, and platform detached spawn helpers.
-- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline store (`store`), shared CLI runner (`runner`), Git worktree & Forge PR manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
+- `internal/daemon/*`: headless `wadad` server (`server`), `wadad.db` receipt/timeline/project store (`store`), the projects and workspaces registry (`workspaces`), shared CLI runner (`runner`), Git worktree & Forge PR manager (`worktree`), external CLI harness adapters (`harness`: ACP, Claude Code, Codex), detached PTY/ConPTY terminal worker & supervisor (`terminal`), multi-provider orchestrator (`orchestrator`), and embedded PiG runtime (`pig`).
 - `docker/`: self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack (see [self-hosting](docs/self-hosting.md)).
 - `internal/contract/*`: Wada's declarations shared between plugins — types, interfaces,
   keys, topics, pipelines, points. No implementation, no state.
   `agent` (backend seam), `chat` (open conversation, outgoing pipeline, composer
   slots, work panel sections and hiding the panel, drawers, selection actions, file drops, completions, starters, requirements), `tabs` (the open tabs and the
   buttons at the strip's end),
-  `workspace` (folders and the conversations the app started),
+  `workspace` (the backend's projects and workspaces, and the conversations in them),
   `attachments` (images waiting in the composer, their actions and replacement),
   `terminal` (detached PTY terminal management contract and stream lifecycle).
 - `internal/plugins/*`: every feature. `daemon` (connects to local or remote `wadad` over WebSocket RPC via `hosts.json`, auto-spawns local `wadad`, provides `agent.*` and `terminal.ServiceKey`, and hosts Settings → Daemon pairing/password/host switcher and first-run/settings provider auth), `chat` (conversation
-  page, which asks for a work folder before the composer), `starters` (the new chat's folder
+  page, which asks for a project before the composer), `starters` (the new chat's folder
   starters), `models` (the composer's model and effort), `modes` (the composer's mode), `usage` (cost and context in the work panel or the composer), `filechanges`
   (session or local uncommitted Git changes and diffs below Context in the work panel), `attachments` (files sent with a message), `mentions`
   (`@file` and `@folder` in the composer), `skills` (`/skill` in the composer), `markup` (screen capture, and numbered boxes,
   arrows, pins, lines and highlights with notes, and hidden areas, on a pending screenshot), `explore` (read-only side chats in a drawer, started from selected transcript text, whose answers can join the main draft),
-  `workspace` (folders and the app's conversation record in
-  `workspace.db`, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Open Folder… and the new chat's folder
+  `workspace` (the app's copy of the daemon's projects, workspaces and their
+  conversations, needing no chat), `workers` (harness picker, live supervised workers & worktree panel, and Worker Inspector drawer), `terminal` (interactive right-edge PTY terminal drawer, ⌘J / ⇧⌘J), `folderpicker` (Add Project… and the new chat's workspace
   in the composer), `tabs` (open chats and pages as tabs across the title
-  strip, one folder's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
+  strip, one workspace's space at a time, with the space switcher and the tab menus), `palette` (All chats, ⌘K), `notifications`
   (desktop notices for background conversations), `replay` (synthetic agent events
   for measurements; only builds tagged `wadareplay` install it, through `replay.go`).
 - `internal/plugintest`: fake agent (scriptable with `OnSend`, `Emit`, `Respond`),
@@ -116,11 +116,10 @@ for captures and experiments; never reset developer data during verification.
 
 Settings live in `settings.db` (schema 1, via `wada-kit`) under `$WADA_DATA_DIR`, or else
 `~/Library/Application Support/wada-desktop-go/` for a `mygo build` app and
-`wada-desktop-go-dev/` beside it for `go run` and `mygo dev`; the folders and the record of the
-conversations the app started live beside it in `workspace.db` (pure-Go SQLite with
-numbered schema migrations). Daemon server identity,
-epoch counters, idempotent creation/delivery receipts, and sequenced timeline events
-live in `wadad.db`. Future unsupported
+`wada-desktop-go-dev/` beside it for `go run` and `mygo dev`. Daemon server identity,
+epoch counters, idempotent creation/delivery receipts, sequenced timeline events, and
+the projects and their workspaces live in `wadad.db` (pure-Go SQLite with numbered
+schema migrations; schema 2). Future unsupported
 schemas are refused. Runtime, pairing, and isolation state under the data directory
 also includes `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`,
 `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`, `worktrees/`,

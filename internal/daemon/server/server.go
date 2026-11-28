@@ -26,6 +26,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/store"
+	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/protocol"
 	"wada-desktop-go/internal/relay"
 )
@@ -100,16 +101,19 @@ type TerminalBackend interface {
 
 // Config configures a wadad Server.
 type Config struct {
-	DataDir        string
-	Listen         string
-	Version        string
-	PasswordHash   []byte
-	Hostnames      []string
-	RelayURL       string
-	RelayToken     string
-	AppURL         string
-	PublicURL      string
-	WebDir         string
+	DataDir      string
+	Listen       string
+	Version      string
+	PasswordHash []byte
+	Hostnames    []string
+	RelayURL     string
+	RelayToken   string
+	AppURL       string
+	PublicURL    string
+	WebDir       string
+	// InboxDir is where conversations started without a project work; empty
+	// is <DataDir>/workspaces/inbox, the embedded agent's default folder.
+	InboxDir       string
 	DesktopManaged bool
 	Backend        Backend
 	OnShutdown     func()
@@ -149,6 +153,7 @@ type clientConn struct {
 type Server struct {
 	cfg         Config
 	store       *store.Store
+	workspaces  *workspaces.Registry
 	serverID    string
 	epoch       uint64
 	credential  string
@@ -232,9 +237,22 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	host, _ := os.Hostname()
 	sctx, cancel := context.WithCancel(ctx)
-	s := &Server{
+	var s *Server
+	inbox := cmp.Or(cfg.InboxDir, filepath.Join(cfg.DataDir, "workspaces", "inbox"))
+	reg, err := workspaces.Open(ctx, st, workspaces.Options{Inbox: inbox, Emit: func(ev protocol.Event) {
+		if s != nil {
+			s.broadcastUpdate(ev)
+		}
+	}})
+	if err != nil {
+		cancel()
+		_ = st.Close()
+		return nil, err
+	}
+	s = &Server{
 		cfg:          cfg,
 		store:        st,
+		workspaces:   reg,
 		serverID:     sid,
 		epoch:        ep,
 		credential:   cred,
@@ -538,6 +556,10 @@ func (s *Server) pumpEvents() {
 				return
 			}
 			ev.Epoch = s.epoch
+			if ev.Terminal != nil {
+				t := s.placeTerminal(*ev.Terminal)
+				ev.Terminal = &t
+			}
 			if ev.Session != "" {
 				s.seqBySess[ev.Session]++
 				ev.Seq = s.seqBySess[ev.Session]
@@ -569,7 +591,7 @@ func (s *Server) recordEvent(ev protocol.Event) {
 		protocol.EventApprovalRequested, protocol.EventInteractionRequested, protocol.EventTurnStarted,
 		protocol.EventModelChanged, protocol.EventSessionRenamed, protocol.EventSessionDeleted,
 		protocol.EventModelsChanged, protocol.EventProviderAuth, protocol.EventWorkerUpdated,
-		protocol.EventTerminalUpdated:
+		protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 	}
 }
 
@@ -865,9 +887,19 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 				return nil, invalidErr(err)
 			}
 		}
+		if req.Workspace != "" {
+			w, rerr := s.workspaceDir(req.Workspace, req.Directory)
+			if rerr != nil {
+				return nil, rerr
+			}
+			req.Directory, req.Workspace = w, ""
+		}
 		page, err := s.cfg.Backend.Sessions(ctx, req)
 		if err != nil {
 			return nil, internalErr(err)
+		}
+		for i := range page.Sessions {
+			page.Sessions[i] = s.placeSession(ctx, page.Sessions[i])
 		}
 		return page, nil
 	case protocol.MethodSessionCreate:
@@ -875,7 +907,18 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, invalidErr(err)
 		}
-		return s.createWithReceipt(ctx, req)
+		if req.Workspace != "" {
+			dir, rerr := s.workspaceDir(req.Workspace, req.Directory)
+			if rerr != nil {
+				return nil, rerr
+			}
+			req.Directory, req.Workspace = dir, ""
+		}
+		resp, rerr := s.createWithReceipt(ctx, req)
+		if sess, ok := resp.(protocol.Session); ok {
+			resp = s.placeSession(ctx, sess)
+		}
+		return resp, rerr
 	case protocol.MethodSessionSpawn:
 		var req protocol.SpawnRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -1186,6 +1229,9 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return pr, nil
+	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectRename,
+		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename:
+		return s.dispatchWorkspaces(ctx, method, payload)
 	case protocol.MethodTerminalsList:
 		tb, ok := s.cfg.Backend.(TerminalBackend)
 		if !ok {
@@ -1194,6 +1240,9 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		list, err := tb.ListTerminals(ctx)
 		if err != nil {
 			return nil, internalErr(err)
+		}
+		for i := range list {
+			list[i] = s.placeTerminal(list[i])
 		}
 		return list, nil
 	case protocol.MethodTerminalCreate:
@@ -1207,11 +1256,18 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 				return nil, invalidErr(err)
 			}
 		}
+		if req.Workspace != "" {
+			dir, rerr := s.workspaceDir(req.Workspace, req.Directory)
+			if rerr != nil {
+				return nil, rerr
+			}
+			req.Directory, req.Workspace = dir, ""
+		}
 		info, err := tb.CreateTerminal(ctx, req)
 		if err != nil {
 			return nil, internalErr(err)
 		}
-		return info, nil
+		return s.placeTerminal(info), nil
 	case protocol.MethodTerminalAttach:
 		tb, ok := s.cfg.Backend.(TerminalBackend)
 		if !ok {
@@ -1230,7 +1286,7 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			detach()
 			return nil, internalErr(berr)
 		}
-		return protocol.TerminalAttachResponse{Channel: chID, Info: info, Snapshot: snap}, nil
+		return protocol.TerminalAttachResponse{Channel: chID, Info: s.placeTerminal(info), Snapshot: snap}, nil
 	case protocol.MethodTerminalDetach:
 		var req protocol.TerminalDetachRequest
 		if err := json.Unmarshal(payload, &req); err != nil {

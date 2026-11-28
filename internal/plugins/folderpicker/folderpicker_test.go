@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"wada-desktop-go/internal/contract/agent"
-	"wada-desktop-go/internal/contract/workspace"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -15,19 +14,19 @@ import (
 func start(t *testing.T) (*kerneltest.Harness, *Plugin, *plugintest.Chat, *plugintest.Workspace) {
 	t.Helper()
 	ctl := &plugintest.Chat{}
-	ws := &plugintest.Workspace{FolderSet: []workspace.Folder{{Path: "/w/app"}}}
+	ws := &plugintest.Workspace{Dirs: []string{"/w/app"}}
 	var p *Plugin
 	h := kerneltest.New(t, ctl.New, ws.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
 	h.Flush()
 	return h, p, ctl, ws
 }
 
-func TestComposerChipSetsTheNewChatsFolder(t *testing.T) {
+func TestComposerChipSetsTheNewChatsWorkspace(t *testing.T) {
 	h, p, ctl, ws := start(t)
 	ctl.NewChat("")
 	tt := ui.NewTester(p.chip, 400, 300)
 	tt.Frame()
-	if !tt.HasText("No folder") {
+	if !tt.HasText("Inbox") {
 		t.Fatalf("chip %q", tt.Texts())
 	}
 	p.pick("/w/app")
@@ -36,20 +35,20 @@ func TestComposerChipSetsTheNewChatsFolder(t *testing.T) {
 		t.Fatalf("conv %+v chip %q", ctl.Conv, tt.Texts())
 	}
 	ws.Chosen = "/w/other"
-	p.pick(chooseFolder)
+	p.pick(addProject)
 	h.Flush()
 	if ctl.Conv.Directory != "/w/other" {
 		t.Fatalf("conv %+v", ctl.Conv)
 	}
-	p.pick(noFolder)
+	p.pick(inbox)
 	ctl.Open(agent.Session{ID: "s1"})
 	tt.Frame()
-	if ctl.Conv.Directory != "" || tt.HasText("No folder") {
+	if ctl.Conv.Directory != "" || tt.HasText("Inbox") {
 		t.Fatalf("a stored conversation shows the chip: %q", tt.Texts())
 	}
 }
 
-func TestOpenFolderStartsANewChatThere(t *testing.T) {
+func TestAddProjectStartsANewChatThere(t *testing.T) {
 	h, _, ctl, ws := start(t)
 	ctl.Open(agent.Session{ID: "s1", Directory: "/w/app"})
 	ws.Chosen = "/w/picked"

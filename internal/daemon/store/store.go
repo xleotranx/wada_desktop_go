@@ -1,5 +1,6 @@
 // Package store persists wadad state in pure-Go SQLite: server identity,
-// epochs, creation/delivery idempotency receipts, and sequenced timelines.
+// epochs, creation/delivery idempotency receipts, sequenced timelines, and
+// the projects and workspaces.
 package store
 
 import (
@@ -50,6 +51,33 @@ var daemonMigrations = []dbstore.Migration{{
 				seq        INTEGER NOT NULL,
 				payload    TEXT NOT NULL,
 				PRIMARY KEY (session_id, epoch, seq))`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
+}, {
+	Version: 2,
+	Up: func(ctx context.Context, tx *sql.Tx) error {
+		for _, stmt := range []string{
+			`CREATE TABLE projects (
+				id       TEXT PRIMARY KEY,
+				root     TEXT NOT NULL,
+				name     TEXT NOT NULL,
+				created  INTEGER NOT NULL,
+				archived INTEGER NOT NULL)`,
+			`CREATE UNIQUE INDEX projects_active_root ON projects(root) WHERE archived = 0`,
+			`CREATE TABLE workspaces (
+				id        TEXT PRIMARY KEY,
+				project   TEXT NOT NULL REFERENCES projects(id),
+				isolation TEXT NOT NULL,
+				dir       TEXT NOT NULL,
+				title     TEXT NOT NULL,
+				created   INTEGER NOT NULL,
+				archived  INTEGER NOT NULL)`,
+			`CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0`,
 		} {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				return err

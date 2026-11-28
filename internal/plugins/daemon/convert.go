@@ -32,11 +32,22 @@ func fromProtoSession(s protocol.Session) agent.Session {
 		ID:        agent.SessionID(s.ID),
 		Title:     s.Title,
 		Directory: s.Directory,
+		Workspace: agent.WorkspaceID(s.Workspace),
 		Provider:  s.Provider,
 		Updated:   s.Updated,
 		Model:     fromProtoModelRef(s.Model),
 		Cost:      s.Cost,
 	}
+}
+
+func fromProtoProject(p protocol.ProjectInfo) agent.Project {
+	return agent.Project{ID: agent.ProjectID(p.ID), Root: p.Root, Name: p.Name, Inbox: p.Inbox,
+		Created: p.Created, Archived: p.Archived}
+}
+
+func fromProtoWorkspace(w protocol.WorkspaceInfo) agent.Workspace {
+	return agent.Workspace{ID: agent.WorkspaceID(w.ID), Project: agent.ProjectID(w.Project),
+		Isolation: agent.IsolateProject, Directory: w.Directory, Title: w.Title, Created: w.Created, Archived: w.Archived}
 }
 
 func fromProtoHarnessKind(k protocol.HarnessKind) agent.HarnessKind {
@@ -443,7 +454,7 @@ func fromProtoEvent(ev protocol.Event) agent.Event {
 	case protocol.EventSessionRenamed:
 		out.Kind = agent.SessionRenamed
 	case protocol.EventSessionDeleted, protocol.EventModelsChanged, protocol.EventProviderAuth,
-		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated:
+		protocol.EventWorkerUpdated, protocol.EventTerminalUpdated, protocol.EventWorkspaceUpdated:
 	}
 	return out
 }

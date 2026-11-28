@@ -85,7 +85,7 @@ Independent mode performs those operations within the selected project folder.
 | `docker/` | Self-hosted `wada-relay` + Caddy TLS and `wadad` Dockerfiles & Compose stack ([self-hosting guide](docs/self-hosting.md)) |
 | `web/` | Responsive React/TypeScript PWA (`Noise NK` E2EE + direct WS client, chat/approvals/diffs/terminal views; optional `wadad --web-dir`) |
 | `internal/client` | Go WebSocket & Noise NK relay client SDK, saved remote `hosts.json`, binary terminal streams, and local daemon attach/auto-spawn helpers |
-| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline SQLite store (`wadad.db`), Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
+| `internal/daemon/*` | Headless `wadad` WebSocket server, idempotency/timeline/project SQLite store (`wadad.db`), projects and workspaces registry, Git worktree manager, CLI harnesses (ACP, Claude Code, Codex), detached PTY/ConPTY terminal supervisor, orchestrator, and embedded PiG runtime |
 | `internal/contract/*` | Declarations Wada's plugins share: `agent`, `attachments`, `chat`, `tabs`, `terminal`, `workspace` |
 | `internal/plugins/daemon` | Connects Desktop to local or remote `wadad` (`agent.*`, `terminal.*`, pairing, multi-host settings, and provider auth) |
 | `internal/plugins/workers` | Composer harness picker, live supervised worker & Git worktree section (with PR badges), and Worker Inspector drawer |
@@ -99,9 +99,9 @@ Independent mode performs those operations within the selected project folder.
 | `internal/plugins/markup` | Screen capture and annotated screenshots (boxes, arrows, pins, lines, highlights, redaction), exported as PNG attachments |
 | `internal/plugins/mentions` | `@file` and `@folder` completions and contained file attachments in the composer |
 | `internal/plugins/skills` | `/skill` completions and skill attachments in the composer |
-| `internal/plugins/workspace` | Folders and the conversations started here, in `workspace.db` |
-| `internal/plugins/folderpicker` | Open Folder and the new conversation's folder picker |
-| `internal/plugins/tabs` | Tabs across the title strip, one folder's space at a time; the switcher and menus |
+| `internal/plugins/workspace` | The app's copy of the daemon's projects, workspaces and their conversations |
+| `internal/plugins/folderpicker` | Add Project and the new conversation's workspace picker |
+| `internal/plugins/tabs` | Tabs across the title strip, one workspace's space at a time; the switcher and menus |
 | `internal/plugins/explore` | Read-only side chats in a drawer, started from selected text, with answers added to the original draft |
 | `internal/plugins/palette` | All chats (⌘K): conversations, folders and commands |
 | `internal/plugins/starters` | Folder-aware coding starters on new chats |
@@ -146,8 +146,8 @@ Production settings and app records live under
 `~/Library/Application Support/wada-desktop-go/`; `go run` and `mygo dev` use
 `wada-desktop-go-dev/`. Set `WADA_DATA_DIR` to choose another directory.
 
-- `settings.db`: settings; `workspace.db`: folder and conversation records;
-  `wadad.db`: daemon identity, idempotency receipts and sequenced event timelines.
+- `settings.db`: settings;
+  `wadad.db`: daemon identity, idempotency receipts, sequenced event timelines, and projects and workspaces.
 - `wadad.pid`, `wadad.lock`, `local-credential`, `wadad.log`: local daemon discovery, lock, and authentication files.
 - `daemon-keypair.json`, `remote-token`, `password.hash`, `hosts.json`: E2EE relay identity keys, optional remote password hash, and saved remote host profiles.
 - `worktrees/`, `terminal-worker/`: managed secondary Git worktrees and detached PTY worker IPC descriptors.

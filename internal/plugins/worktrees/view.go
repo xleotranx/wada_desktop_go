@@ -403,6 +403,10 @@ func (p *Plugin) trustView(c *ui.Context, pal native.Palette) {
 			c.Key("service:" + svc.Name)
 			ui.Text(c, svc.Name+": "+svc.Command).Font("monospace").FontSize(11.5).TextColor(pal.Muted)
 		}
+		for i, cmd := range cfg.Teardown {
+			c.Key("teardown:" + strconv.Itoa(i))
+			ui.Text(c, "before archiving: "+cmd).Font("monospace").FontSize(11.5).TextColor(pal.Muted)
+		}
 	})
 	ui.Text(c, "Trust lasts until the file changes.").FontSize(11.5).TextColor(pal.Faint)
 	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {

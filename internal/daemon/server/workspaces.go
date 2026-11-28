@@ -164,8 +164,9 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 
 func workspaceErr(err error) *protocol.RPCError {
 	var pending *workspaces.PendingError
+	var teardown *workspaces.TeardownError
 	switch {
-	case errors.As(err, &pending):
+	case errors.As(err, &pending), errors.As(err, &teardown):
 		return &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: err.Error()}
 	case errors.Is(err, workspaces.ErrUntrusted):
 		return &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: err.Error()}
@@ -280,7 +281,8 @@ func (s *Server) workspaceConfig(ctx context.Context, id string) (any, *protocol
 	if err != nil {
 		return nil, workspaceErr(err)
 	}
-	out := protocol.WorkspaceConfig{Found: l.Found, Hash: l.Hash, Trusted: l.Trusted, Setup: l.Config.Setup}
+	out := protocol.WorkspaceConfig{Found: l.Found, Hash: l.Hash, Trusted: l.Trusted, Setup: l.Config.Setup,
+		Teardown: l.Config.Teardown}
 	if l.Err != nil {
 		out.Error = l.Err.Error()
 	}
@@ -321,19 +323,11 @@ func (s *Server) runSetup(ctx context.Context, id string) (any, *protocol.RPCErr
 		Command: l.SetupCommand(), Env: l.Env(""), Role: workspaces.SetupRole})
 }
 
-// startRun starts a terminal that runs a command. A terminal worker from an
-// older wadad, still running, starts a plain shell instead and drops the
-// role; that shell is killed and the old worker reported.
+// startRun starts a terminal that runs a command.
 func (s *Server) startRun(ctx context.Context, tb TerminalBackend, req protocol.TerminalCreateRequest) (any, *protocol.RPCError) {
 	info, err := tb.CreateTerminal(ctx, req)
 	if err != nil {
 		return nil, internalErr(err)
-	}
-	if info.Role != req.Role {
-		_ = tb.KillTerminal(ctx, info.ID)
-		return nil, &protocol.RPCError{Code: protocol.ErrCodeInternal, Message: "the terminal worker running is from an " +
-			"older wadad and can't run commands; end it (its pid is in terminal-worker/worker.json in wadad's data " +
-			"directory) and wadad starts a new one"}
 	}
 	return s.placeTerminal(info), nil
 }

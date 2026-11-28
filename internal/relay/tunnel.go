@@ -76,13 +76,13 @@ func DecodeMuxFrame(raw []byte) (op byte, sessID [SessionIDSize]byte, payload []
 // binary frame read/write transport. Inner plaintext messages carry a 1-byte
 // WebSocket message type prefix (TextMessage or BinaryMessage).
 type NoiseTransport struct {
-	readMu   sync.Mutex
-	writeMu  sync.Mutex
-	recv     *CipherState
-	send     *CipherState
-	recvFn   func(deadline time.Time) ([]byte, error)
-	sendFn   func(data []byte, deadline time.Time) error
-	closeFn  func() error
+	readMu  sync.Mutex
+	writeMu sync.Mutex
+	recv    *CipherState
+	send    *CipherState
+	recvFn  func(deadline time.Time) ([]byte, error)
+	sendFn  func(data []byte, deadline time.Time) error
+	closeFn func() error
 	dlMu    sync.Mutex
 	readDL  time.Time
 	writeDL time.Time

@@ -138,8 +138,6 @@ type fakeTerminals struct {
 	mu   sync.Mutex
 	list []protocol.TerminalInfo
 	made []protocol.TerminalCreateRequest
-	// dropRole makes it act as a worker from before roles.
-	dropRole bool
 }
 
 func (f *fakeTerminals) ListTerminals(context.Context) ([]protocol.TerminalInfo, error) {
@@ -154,9 +152,6 @@ func (f *fakeTerminals) CreateTerminal(_ context.Context, req protocol.TerminalC
 	f.made = append(f.made, req)
 	info := protocol.TerminalInfo{ID: fmt.Sprintf("term_%d", len(f.made)), Name: req.Name, Directory: req.Directory,
 		Running: true, Command: req.Command, Role: req.Role, CreatedAt: int64(len(f.made))}
-	if f.dropRole {
-		info.Command, info.Role = "", ""
-	}
 	f.list = append(f.list, info)
 	return info, nil
 }
@@ -248,19 +243,5 @@ func TestSetupAndServicesRunOnceTrusted(t *testing.T) {
 	}
 	if _, err := c.StartService(t.Context(), id, "nope"); !isCode(err, protocol.ErrCodeNotFound) {
 		t.Fatalf("unknown service = %v", err)
-	}
-
-	// An older terminal worker drops the role: its plain shell is killed.
-	terms.mu.Lock()
-	terms.dropRole = true
-	terms.mu.Unlock()
-	if _, err := c.StartService(t.Context(), id, "web"); !isCode(err, protocol.ErrCodeInternal) {
-		t.Fatalf("start on an old worker = %v, want internal", err)
-	}
-	terms.mu.Lock()
-	last := terms.list[len(terms.list)-1]
-	terms.mu.Unlock()
-	if last.Running {
-		t.Fatal("the old worker's shell was left running")
 	}
 }

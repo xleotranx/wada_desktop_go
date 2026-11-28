@@ -150,6 +150,9 @@ func (s *Service) Archive(ctx context.Context, id string, force bool) error {
 			if files+commits > 0 && !force {
 				return &PendingError{Files: files, Commits: commits}
 			}
+			if out, err := s.teardown(ctx, id); err != nil && !force {
+				return &TeardownError{Output: out, Err: err}
+			}
 			if err := s.git.Remove(ctx, p.Root, w.WorktreeRoot, files > 0); err != nil {
 				return err
 			}

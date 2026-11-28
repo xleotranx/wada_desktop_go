@@ -768,7 +768,7 @@ and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
   Output opens the run's terminal tab in the workspace's space.
 - **Setup after New Workspace.** Once a workspace is made, its setup runs at once
   when its `wada.json` is trusted. Otherwise the plugin asks first, showing every
-  command the file runs; Trust and run trusts that exact file and runs it. A pull
+  command the file runs, its teardown included; Trust and run trusts that exact file and runs it. A pull
   request from a fork always asks, warning that the file and the scripts it runs
   come from someone else. Starting a service of an untrusted file asks the same
   way. A start that fails shows a toast and is not tried again.

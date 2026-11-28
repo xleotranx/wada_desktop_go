@@ -572,6 +572,7 @@ func (p *Plugin) Config(ctx context.Context, id agent.WorkspaceID) (agent.Worksp
 		return agent.WorkspaceConfig{}, err
 	}
 	out := agent.WorkspaceConfig{Found: c.Found, Hash: c.Hash, Trusted: c.Trusted, Problem: c.Error, Setup: c.Setup,
+		Teardown: c.Teardown,
 		SetupRun: fromProtoRun(c.SetupTerminal)}
 	for _, s := range c.Services {
 		out.Services = append(out.Services, agent.WorkspaceService{Name: s.Name, Command: s.Command, Port: s.Port, Run: fromProtoRun(s.Terminal)})

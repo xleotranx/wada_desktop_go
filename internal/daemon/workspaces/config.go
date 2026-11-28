@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"wada-desktop-go/internal/protocol"
 )
@@ -28,6 +29,9 @@ type Config struct {
 	// Services are long-running commands, sorted by name; each takes the
 	// next port of the workspace's block.
 	Services []ServiceDef
+	// Teardown runs before wadad removes the worktree, one command after
+	// another.
+	Teardown []string
 }
 
 // ServiceDef is one service of a wada.json.
@@ -56,21 +60,20 @@ type Loaded struct {
 func parseConfig(data []byte) (Config, error) {
 	var raw struct {
 		Setup    json.RawMessage            `json:"setup"`
+		Teardown json.RawMessage            `json:"teardown"`
 		Services map[string]json.RawMessage `json:"services"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return Config{}, fmt.Errorf("wada.json: %w", err)
 	}
 	var cfg Config
-	if len(raw.Setup) > 0 {
-		var one string
-		if err := json.Unmarshal(raw.Setup, &one); err == nil {
-			cfg.Setup = []string{one}
-		} else if err := json.Unmarshal(raw.Setup, &cfg.Setup); err != nil {
-			return Config{}, errors.New("wada.json: setup is a command or a list of commands")
-		}
+	var err error
+	if cfg.Setup, err = commands("setup", raw.Setup); err != nil {
+		return Config{}, err
 	}
-	cfg.Setup = slices.DeleteFunc(cfg.Setup, func(c string) bool { return strings.TrimSpace(c) == "" })
+	if cfg.Teardown, err = commands("teardown", raw.Teardown); err != nil {
+		return Config{}, err
+	}
 	for name, v := range raw.Services {
 		var def ServiceDef
 		var one string
@@ -96,6 +99,21 @@ func parseConfig(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("wada.json: at most %d services", PortBlock)
 	}
 	return cfg, nil
+}
+
+// commands reads a command or a list of them, dropping empty ones.
+func commands(field string, raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var list []string
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		list = []string{one}
+	} else if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("wada.json: %s is a command or a list of commands", field)
+	}
+	return slices.DeleteFunc(list, func(c string) bool { return strings.TrimSpace(c) == "" }), nil
 }
 
 // LoadConfig reads the wada.json of an active workspace, giving the
@@ -158,6 +176,62 @@ func (l Loaded) Runnable() error {
 // SetupCommand is the setup as one shell command that stops at the first
 // failure; "" when there is none.
 func (l Loaded) SetupCommand() string { return strings.Join(l.Config.Setup, " && ") }
+
+// RunTimeout bounds setup and teardown run to completion by wadad itself.
+const RunTimeout = 10 * time.Minute
+
+// RunSetup runs the workspace's trusted setup to completion and returns its
+// output, for callers that wait for it, such as the Chief Agent's
+// create_workspace. Untrusted setup is refused with ErrUntrusted.
+func (s *Service) RunSetup(ctx context.Context, id string) (string, error) {
+	l, err := s.LoadConfig(ctx, id)
+	if err == nil {
+		err = l.Runnable()
+	}
+	if err != nil || len(l.Config.Setup) == 0 {
+		return "", err
+	}
+	return run(ctx, l, l.SetupCommand())
+}
+
+// teardown runs the workspace's trusted teardown before its worktree goes;
+// an untrusted or missing one is skipped.
+func (s *Service) teardown(ctx context.Context, id string) (string, error) {
+	l, err := s.LoadConfig(ctx, id)
+	if err != nil || l.Runnable() != nil || len(l.Config.Teardown) == 0 {
+		return "", nil
+	}
+	return run(ctx, l, strings.Join(l.Config.Teardown, " && "))
+}
+
+// TeardownError refuses to archive a workspace whose teardown failed;
+// archiving with force skips it.
+type TeardownError struct {
+	Output string
+	Err    error
+}
+
+func (e *TeardownError) Error() string {
+	out := strings.TrimSpace(e.Output)
+	if len(out) > 2000 {
+		out = "…" + out[len(out)-2000:]
+	}
+	return fmt.Sprintf("teardown failed (%v): %s", e.Err, out)
+}
+
+func (e *TeardownError) Unwrap() error { return e.Err }
+
+// run runs a command with the user's shell in the workspace's directory, with
+// the workspace's environment, and returns what it printed.
+func run(ctx context.Context, l Loaded, command string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, RunTimeout)
+	defer cancel()
+	cmd := shellCommand(ctx, command)
+	cmd.Dir = l.Workspace.Directory
+	cmd.Env = append(os.Environ(), l.Env("")...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
 
 // Service is a service of the config and its port.
 func (l Loaded) Service(name string) (ServiceDef, int, bool) {

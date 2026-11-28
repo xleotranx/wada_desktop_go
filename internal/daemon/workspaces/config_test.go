@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"wada-desktop-go/internal/protocol"
 )
 
 func TestParseConfigTakesOneCommandOrMany(t *testing.T) {
@@ -86,5 +89,59 @@ func TestAConfigRunsOnceTrustedWithItsPorts(t *testing.T) {
 	write(`{"services": {"web": "x"}}`)
 	if l, _ = s.LoadConfig(t.Context(), w.ID); l.PortBase != FirstPort {
 		t.Fatalf("first workspace's port moved to %d", l.PortBase)
+	}
+}
+
+func TestSetupRunsToTheEndAndTeardownGuardsArchiving(t *testing.T) {
+	s, root := service(t), repo(t)
+	cfg := `{"setup": "echo set > setup.txt && echo ws=$WADA_WORKSPACE", "teardown": "test -f keep-going && echo bye > \"$WADA_PROJECT_ROOT/../teardown.txt\""}`
+	if err := os.WriteFile(filepath.Join(root, ConfigFile), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "wada.json")
+	p, own, err := s.AddProject(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := s.Create(t.Context(), protocol.WorkspaceCreateRequest{Project: p.ID, Isolation: protocol.IsolationWorktree, Slug: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunSetup(t.Context(), w.ID); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("untrusted setup = %v", err)
+	}
+	l, _ := s.LoadConfig(t.Context(), own.ID)
+	if err := s.Trust(t.Context(), own.ID, l.Hash); err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.RunSetup(t.Context(), w.ID)
+	if err != nil || !strings.Contains(out, "ws="+w.ID) {
+		t.Fatalf("setup = %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(w.Directory, "setup.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(w.Directory, "setup.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A failing teardown keeps the workspace unless forced; one that passes
+	// runs before the worktree goes.
+	var td *TeardownError
+	if err := s.Archive(t.Context(), w.ID, false); !errors.As(err, &td) {
+		t.Fatalf("archive with a failing teardown = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(w.Directory, "keep-going"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Archive(t.Context(), w.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "..", "teardown.txt")); err != nil {
+		t.Fatalf("teardown didn't run: %v", err)
+	}
+	if _, err := os.Stat(w.WorktreeRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("worktree still there: %v", err)
 	}
 }

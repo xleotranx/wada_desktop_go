@@ -32,6 +32,8 @@ type WorkspaceConfig struct {
 	Trusted bool   // its project's user allowed this file to run
 	Problem string // the file didn't parse
 	Setup   []string
+	// Teardown runs before the backend removes the workspace's worktree.
+	Teardown []string
 	// SetupRun is the last setup started in the workspace; nil for none.
 	SetupRun *Run
 	Services []WorkspaceService

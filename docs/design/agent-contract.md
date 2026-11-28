@@ -241,11 +241,12 @@ which services it runs:
 ```json
 {
   "setup": ["npm ci", "cp \"$WADA_PROJECT_ROOT/.env\" ."],
-  "services": { "web": "npm run dev", "api": { "command": "go run ./cmd/api" } }
+  "services": { "web": "npm run dev", "api": { "command": "go run ./cmd/api" } },
+  "teardown": "docker compose down"
 }
 ```
 
-`setup` is a command or a list of them; `services` maps names to a command or
+`setup` and `teardown` are each a command or a list of them; `services` maps names to a command or
 `{"command": ...}`, at most ten. `workspaces.Service.LoadConfig` reads it afresh
 each time, with the SHA-256 of its bytes.
 
@@ -267,6 +268,13 @@ each time, with the SHA-256 of its bytes.
   with it. Setup is the commands joined with `&&`, role `setup`; a service has
   role `service:<name>`. Starting one that runs returns its terminal; nothing is
   retried.
+- **Run to the end.** `workspaces.Service.RunSetup` runs a trusted setup with the
+  user's shell in the daemon itself, waits up to ten minutes and returns its
+  output; the Chief Agent's `create_workspace` does so before it returns, and
+  reports setup as run, failed with its output's end, not trusted, or none.
+- **Teardown.** Before archiving removes a worktree wadad made, a trusted
+  teardown runs the same way; one that fails refuses the archive with
+  `conflict` and its output, unless `force`. An untrusted teardown is skipped.
 - `workspace.config` returns the file's state: found, hash, trusted, a parse
   error, the setup with the last setup terminal in the workspace's directory, and
   each service with its port and last terminal. `workspace.service.stop` kills a

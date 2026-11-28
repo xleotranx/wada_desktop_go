@@ -621,11 +621,12 @@ type WorkspaceRefs struct {
 
 // WorkspaceConfig is a workspace's wada.json as read now, with what runs.
 type WorkspaceConfig struct {
-	Found   bool     `json:"found"`
-	Hash    string   `json:"hash,omitempty"`    // of the file; trusting names it
-	Trusted bool     `json:"trusted,omitempty"` // its project's user allowed this file
-	Error   string   `json:"error,omitempty"`   // the file didn't parse
-	Setup   []string `json:"setup,omitempty"`
+	Found    bool     `json:"found"`
+	Hash     string   `json:"hash,omitempty"`    // of the file; trusting names it
+	Trusted  bool     `json:"trusted,omitempty"` // its project's user allowed this file
+	Error    string   `json:"error,omitempty"`   // the file didn't parse
+	Setup    []string `json:"setup,omitempty"`
+	Teardown []string `json:"teardown,omitempty"` // runs before wadad removes the worktree
 	// SetupTerminal is the last setup started in the workspace, if any.
 	SetupTerminal *TerminalInfo   `json:"setupTerminal,omitempty"`
 	Services      []ServiceStatus `json:"services,omitempty"`

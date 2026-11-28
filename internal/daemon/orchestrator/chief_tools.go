@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"wada-desktop-go/internal/daemon/workspaces"
 
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/protocol"
@@ -32,7 +33,8 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 			Description: "Create a workspace for parallel work in this conversation's project: a new Git worktree on its own branch " +
 				"(isolation \"worktree\"; mode \"branch-off\" from a ref, \"checkout-branch\" for an existing branch, or " +
 				"\"checkout-pr\" for a pull request), or an existing worktree (isolation \"existing\" with its path). " +
-				"Returns the workspace, whose id spawn_agent takes.",
+				"Runs the project's trusted wada.json setup in it before returning. " +
+				"Returns the workspace, whose id spawn_agent takes, and what its setup did.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -64,8 +66,22 @@ func (o *Orchestrator) ChiefTools(getCtx func() pig.ChiefContext) []pig.Tool {
 				if err != nil {
 					return nil, err
 				}
-				return o.workspaces.Create(ctx, protocol.WorkspaceCreateRequest{Project: here.Project, Isolation: in.Isolation,
+				w, err := o.workspaces.Create(ctx, protocol.WorkspaceCreateRequest{Project: here.Project, Isolation: in.Isolation,
 					Mode: in.Mode, From: in.From, PR: in.PR, Path: in.Path, Slug: in.Slug, Title: in.Title})
+				if err != nil {
+					return nil, err
+				}
+				out, err := o.workspaces.RunSetup(ctx, w.ID)
+				setup := "ran"
+				switch {
+				case errors.Is(err, workspaces.ErrUntrusted):
+					setup = "not run: the project's wada.json isn't trusted yet; the user can trust it in the app"
+				case err != nil:
+					setup = "failed: " + err.Error() + "\n" + tail(out, 2000)
+				case out == "":
+					setup = "none"
+				}
+				return map[string]any{"workspace": w, "setup": setup}, nil
 			},
 		},
 		{
@@ -385,4 +401,12 @@ func (o *Orchestrator) waitOneWorker(ctx context.Context, parentID, workerID str
 			return protocol.WorkerInfo{}, errors.New("timed out waiting for worker " + workerID)
 		}
 	}
+}
+
+// tail is the end of s, at most n bytes.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }

@@ -25,6 +25,7 @@ import (
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workers"
 	"wada-desktop-go/internal/plugins/workspace"
+	"wada-desktop-go/internal/plugins/worktrees"
 
 	"github.com/xleotranx/wada-kit/kernel"
 	"github.com/xleotranx/wada-kit/plugins/inspector"
@@ -64,14 +65,15 @@ func main() {
 		modes.New, // the mode for outgoing messages
 		usage.New,
 		filechanges.New, // session or local Git changes, below Context in the work panel
-		workers.New,     // harness picker, supervised CLI workers and Git worktrees
+		workers.New,     // harness picker and supervised CLI workers
 		terminalplugin.New,
 		attachments.New,
 		markup.New,       // annotate attached screenshots before sending
 		mentions.New,     // files from the conversation folder
 		skills.New,       // type / to attach a skill; needs a backend that has them
 		workspace.New,    // the daemon's projects and workspaces, and their conversations
-		folderpicker.New, // Open Folder… and the new chat's folder in the composer
+		folderpicker.New, // Add Project… and the new chat's workspace in the composer
+		worktrees.New,    // New Workspace…, Archive Workspace… and the Workspace section
 		tabs.New,         // open chats and pages as tabs across the title strip
 		explore.New,      // read-only side chats in a drawer, from selected text
 		starters.New,     // the new chat's folder starters

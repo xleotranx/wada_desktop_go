@@ -85,6 +85,22 @@ var daemonMigrations = []dbstore.Migration{{
 		}
 		return nil
 	},
+}, {
+	Version: 3,
+	Up: func(ctx context.Context, tx *sql.Tx) error {
+		for _, stmt := range []string{
+			`ALTER TABLE workspaces ADD COLUMN worktree_root TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE workspaces ADD COLUMN owned INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE workspaces ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE workspaces ADD COLUMN base_ref TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE workspaces ADD COLUMN pr INTEGER NOT NULL DEFAULT 0`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 }}
 
 type CreationReceipt struct {

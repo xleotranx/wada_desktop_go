@@ -37,18 +37,20 @@ const (
 
 	MethodHarnessesList    = "agent.harnesses.list"
 	MethodWorkersList      = "agent.workers.list"
-	MethodWorktreesList    = "worktree.list"
-	MethodWorktreeCreate   = "worktree.create"
-	MethodWorktreeRemove   = "worktree.remove"
 	MethodWorktreePR       = "worktree.pr"
 	MethodWorktreeCreatePR = "worktree.pr.create"
 
-	MethodProjectsList    = "workspace.projects.list"
-	MethodProjectAdd      = "workspace.project.add"
-	MethodProjectRename   = "workspace.project.rename"
-	MethodProjectArchive  = "workspace.project.archive"
-	MethodWorkspacesList  = "workspace.list"
-	MethodWorkspaceRename = "workspace.rename"
+	MethodProjectsList     = "workspace.projects.list"
+	MethodProjectAdd       = "workspace.project.add"
+	MethodProjectRename    = "workspace.project.rename"
+	MethodProjectArchive   = "workspace.project.archive"
+	MethodWorkspacesList   = "workspace.list"
+	MethodWorkspaceRename  = "workspace.rename"
+	MethodWorkspaceCreate  = "workspace.create"
+	MethodWorkspaceArchive = "workspace.archive"
+	MethodWorkspaceRestore = "workspace.restore"
+	MethodWorkspaceRefs    = "workspace.refs"
+	MethodWorkspaceChanges = "workspace.changes"
 
 	MethodTerminalsList   = "terminal.list"
 	MethodTerminalCreate  = "terminal.create"
@@ -81,6 +83,7 @@ type (
 	HarnessKind           string
 	WorkerStatus          string
 	Isolation             string
+	StartMode             string
 )
 
 const (
@@ -146,8 +149,18 @@ const (
 	EventWorkspaceUpdated     EventKind = "workspace_updated"
 )
 
-// IsolationProject is a workspace in its project's own directory.
-const IsolationProject Isolation = "project"
+const (
+	IsolationProject  Isolation = "project"  // the project's own directory
+	IsolationWorktree Isolation = "worktree" // a Git worktree wadad made
+	IsolationExisting Isolation = "existing" // a Git worktree already on disk
+)
+
+// How a new worktree starts.
+const (
+	StartBranchOff      StartMode = "branch-off"      // a new branch from a ref
+	StartCheckoutBranch StartMode = "checkout-branch" // the branch itself
+	StartCheckoutPR     StartMode = "checkout-pr"     // a pull request's branch
+)
 
 const (
 	HarnessEmbedded HarnessKind = "embedded"
@@ -446,22 +459,6 @@ type WorktreeInfo struct {
 	PR         *PRStatus `json:"pr,omitempty"`
 }
 
-type WorktreesListRequest struct {
-	Directory string `json:"directory"`
-}
-
-type WorktreeCreateRequest struct {
-	Directory string `json:"directory"`
-	Name      string `json:"name"`
-	BaseRef   string `json:"baseRef,omitempty"`
-}
-
-type WorktreeRemoveRequest struct {
-	Directory string `json:"directory"`
-	Path      string `json:"path"`
-	Force     bool   `json:"force,omitempty"`
-}
-
 type WorktreePRRequest struct {
 	Directory string `json:"directory"`
 }
@@ -551,13 +548,63 @@ type ProjectInfo struct {
 // WorkspaceInfo is one working directory of a project. No two active
 // workspaces share a Directory.
 type WorkspaceInfo struct {
-	ID        string    `json:"id"`
-	Project   string    `json:"project"`
-	Isolation Isolation `json:"isolation"`
-	Directory string    `json:"directory"`
-	Title     string    `json:"title,omitempty"` // the user's title; empty shows the project's name
-	Created   int64     `json:"created"`
-	Archived  int64     `json:"archived,omitempty"`
+	ID           string    `json:"id"`
+	Project      string    `json:"project"`
+	Isolation    Isolation `json:"isolation"`
+	Directory    string    `json:"directory"`              // where agents and terminals run
+	WorktreeRoot string    `json:"worktreeRoot,omitempty"` // the checkout Directory is in, for a worktree
+	Owned        bool      `json:"owned,omitempty"`        // wadad made WorktreeRoot and removes it
+	Branch       string    `json:"branch,omitempty"`
+	BaseRef      string    `json:"baseRef,omitempty"` // what its changes compare against
+	PR           int       `json:"pr,omitempty"`      // the pull request it checks out
+	Title        string    `json:"title,omitempty"`   // the user's title
+	Created      int64     `json:"created"`
+	Archived     int64     `json:"archived,omitempty"`
+}
+
+// WorkspaceCreateRequest makes a worktree workspace in a project.
+type WorkspaceCreateRequest struct {
+	IdempotencyKey string    `json:"idempotencyKey,omitempty"`
+	Project        string    `json:"project"`
+	Isolation      Isolation `json:"isolation"`       // worktree or existing
+	Mode           StartMode `json:"mode,omitempty"`  // worktree: default branch-off
+	From           string    `json:"from,omitempty"`  // branch-off: the ref; checkout-branch: the branch
+	PR             int       `json:"pr,omitempty"`    // checkout-pr
+	Path           string    `json:"path,omitempty"`  // existing: the worktree's directory
+	Slug           string    `json:"slug,omitempty"`  // worktree: names its directory and new branch
+	Title          string    `json:"title,omitempty"` // the user's title
+}
+
+type WorkspaceArchiveRequest struct {
+	Workspace string `json:"workspace"`
+	// Force discards a wadad-made worktree's uncommitted changes and
+	// unpushed commits; without it such a worktree is refused (conflict).
+	Force bool `json:"force,omitempty"`
+}
+
+type WorkspaceIDRequest struct {
+	Workspace string `json:"workspace"`
+}
+
+type WorkspaceRefsRequest struct {
+	Project string `json:"project"`
+}
+
+// PullRequestRef is an open pull request a workspace can check out.
+type PullRequestRef struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Branch string `json:"branch"`
+	Fork   bool   `json:"fork,omitempty"`
+}
+
+// WorkspaceRefs is what a project's repository offers a new workspace.
+type WorkspaceRefs struct {
+	Default   string           `json:"default,omitempty"` // the ref to branch off by default
+	Branches  []string         `json:"branches,omitempty"`
+	Remotes   []string         `json:"remotes,omitempty"` // remote-tracking branches, such as origin/main
+	PRs       []PullRequestRef `json:"prs,omitempty"`
+	Worktrees []WorktreeInfo   `json:"worktrees,omitempty"`
 }
 
 type ProjectsListRequest struct {

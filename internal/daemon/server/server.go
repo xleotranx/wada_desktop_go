@@ -27,6 +27,7 @@ import (
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/daemon/workspaces"
+	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 	"wada-desktop-go/internal/relay"
 )
@@ -81,9 +82,6 @@ type Backend interface {
 type OrchestrationBackend interface {
 	Harnesses(ctx context.Context) ([]protocol.HarnessInfo, error)
 	Workers(ctx context.Context, parentSession string) ([]protocol.WorkerInfo, error)
-	ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error)
-	CreateWorktree(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error)
-	RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error
 	WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error)
 	CreateWorktreePR(ctx context.Context, req protocol.WorktreeCreatePRRequest) (*protocol.PRStatus, error)
 }
@@ -113,7 +111,12 @@ type Config struct {
 	WebDir       string
 	// InboxDir is where conversations started without a project work; empty
 	// is <DataDir>/workspaces/inbox, the embedded agent's default folder.
-	InboxDir       string
+	InboxDir string
+	// Store and Workspaces, when set, are the daemon's database and record,
+	// opened by the caller to share; the server closes Store. When nil the
+	// server opens its own over DataDir.
+	Store          *store.Store
+	Workspaces     *workspaces.Service
 	DesktopManaged bool
 	Backend        Backend
 	OnShutdown     func()
@@ -153,7 +156,7 @@ type clientConn struct {
 type Server struct {
 	cfg         Config
 	store       *store.Store
-	workspaces  *workspaces.Registry
+	workspaces  *workspaces.Service
 	serverID    string
 	epoch       uint64
 	credential  string
@@ -192,9 +195,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.Version == "" {
 		cfg.Version = "0.1.0-dev"
 	}
-	st, err := store.Open(ctx, cfg.DataDir)
-	if err != nil {
-		return nil, err
+	st := cfg.Store
+	if st == nil {
+		var err error
+		if st, err = store.Open(ctx, cfg.DataDir); err != nil {
+			return nil, err
+		}
 	}
 	sid, err := st.ServerID(ctx)
 	if err != nil {
@@ -237,22 +243,20 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	host, _ := os.Hostname()
 	sctx, cancel := context.WithCancel(ctx)
-	var s *Server
-	inbox := cmp.Or(cfg.InboxDir, filepath.Join(cfg.DataDir, "workspaces", "inbox"))
-	reg, err := workspaces.Open(ctx, st, workspaces.Options{Inbox: inbox, Emit: func(ev protocol.Event) {
-		if s != nil {
-			s.broadcastUpdate(ev)
+	svc := cfg.Workspaces
+	if svc == nil {
+		reg, err := workspaces.Open(ctx, st, workspaces.Options{Inbox: cmp.Or(cfg.InboxDir, filepath.Join(cfg.DataDir, "workspaces", "inbox"))})
+		if err != nil {
+			cancel()
+			_ = st.Close()
+			return nil, err
 		}
-	}})
-	if err != nil {
-		cancel()
-		_ = st.Close()
-		return nil, err
+		svc = workspaces.NewService(reg, worktree.New(cfg.DataDir))
 	}
-	s = &Server{
+	s := &Server{
 		cfg:          cfg,
 		store:        st,
-		workspaces:   reg,
+		workspaces:   svc,
 		serverID:     sid,
 		epoch:        ep,
 		credential:   cred,
@@ -266,6 +270,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		seqBySess:    map[string]uint64{},
 		authLimit:    newAuthLimiter(),
 	}
+	svc.SetEmit(s.broadcastUpdate)
 	return s, nil
 }
 
@@ -1160,47 +1165,6 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 			return nil, internalErr(err)
 		}
 		return list, nil
-	case protocol.MethodWorktreesList:
-		orch, ok := s.cfg.Backend.(OrchestrationBackend)
-		if !ok {
-			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
-		}
-		var req protocol.WorktreesListRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		list, err := orch.ListWorktrees(ctx, req.Directory)
-		if err != nil {
-			return nil, internalErr(err)
-		}
-		return list, nil
-	case protocol.MethodWorktreeCreate:
-		orch, ok := s.cfg.Backend.(OrchestrationBackend)
-		if !ok {
-			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
-		}
-		var req protocol.WorktreeCreateRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		wt, err := orch.CreateWorktree(ctx, req.Directory, req.Name, req.BaseRef)
-		if err != nil {
-			return nil, internalErr(err)
-		}
-		return wt, nil
-	case protocol.MethodWorktreeRemove:
-		orch, ok := s.cfg.Backend.(OrchestrationBackend)
-		if !ok {
-			return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "orchestration is not supported"}
-		}
-		var req protocol.WorktreeRemoveRequest
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, invalidErr(err)
-		}
-		if err := orch.RemoveWorktree(ctx, req.Directory, req.Path, req.Force); err != nil {
-			return nil, internalErr(err)
-		}
-		return map[string]bool{"ok": true}, nil
 	case protocol.MethodWorktreePR:
 		orch, ok := s.cfg.Backend.(OrchestrationBackend)
 		if !ok {
@@ -1230,7 +1194,9 @@ func (s *Server) dispatchRPC(ctx context.Context, c *clientConn, method string, 
 		}
 		return pr, nil
 	case protocol.MethodProjectsList, protocol.MethodProjectAdd, protocol.MethodProjectRename,
-		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename:
+		protocol.MethodProjectArchive, protocol.MethodWorkspacesList, protocol.MethodWorkspaceRename,
+		protocol.MethodWorkspaceCreate, protocol.MethodWorkspaceArchive, protocol.MethodWorkspaceRestore,
+		protocol.MethodWorkspaceRefs, protocol.MethodWorkspaceChanges:
 		return s.dispatchWorkspaces(ctx, method, payload)
 	case protocol.MethodTerminalsList:
 		tb, ok := s.cfg.Backend.(TerminalBackend)
@@ -1335,7 +1301,7 @@ func (s *Server) createWithReceipt(ctx context.Context, req protocol.CreateSessi
 			}
 			return protocol.Session{ID: id, Title: req.Title, Directory: req.Directory, Model: req.Model}
 		},
-		func() (protocol.Session, error) { return s.cfg.Backend.Create(ctx, req) })
+		sessionCreate(func() (protocol.Session, error) { return s.cfg.Backend.Create(ctx, req) }))
 }
 
 func (s *Server) spawnWithReceipt(ctx context.Context, req protocol.SpawnRequest) (any, *protocol.RPCError) {
@@ -1343,19 +1309,19 @@ func (s *Server) spawnWithReceipt(ctx context.Context, req protocol.SpawnRequest
 		func(id string) any {
 			return protocol.Session{ID: id, Title: req.Name, Directory: req.Directory, Model: req.Model}
 		},
-		func() (protocol.Session, error) { return s.cfg.Backend.Spawn(ctx, req) })
+		sessionCreate(func() (protocol.Session, error) { return s.cfg.Backend.Spawn(ctx, req) }))
 }
 
 // withCreationReceipt runs create at most once per idempotency key. The key is
 // reserved before create runs, so a concurrent or later request with the same
 // key gets the first one's resource (from existing) instead of a second one.
-func (s *Server) withCreationReceipt(ctx context.Context, key, kind, reqHash string, existing func(id string) any, create func() (protocol.Session, error)) (any, *protocol.RPCError) {
+func (s *Server) withCreationReceipt(ctx context.Context, key, kind, reqHash string, existing func(id string) any, create func() (string, any, error)) (any, *protocol.RPCError) {
 	if key == "" {
-		sess, err := create()
+		_, res, err := create()
 		if err != nil {
-			return nil, internalErr(err)
+			return nil, createErr(err)
 		}
-		return sess, nil
+		return res, nil
 	}
 	reserved, rec, err := s.store.ReserveCreationReceipt(ctx, store.CreationReceipt{IdempotencyKey: key, Kind: kind, RequestHash: reqHash})
 	if err != nil {
@@ -1370,21 +1336,38 @@ func (s *Server) withCreationReceipt(ctx context.Context, key, kind, reqHash str
 		}
 		return existing(rec.ResourceID), nil
 	}
-	sess, err := create()
-	if sess.ID != "" {
+	id, res, err := create()
+	if id != "" {
 		// The resource exists; a lost receipt only means a retry with this key
 		// is refused as unknown instead of answered.
-		if perr := s.store.PutCreationReceipt(context.WithoutCancel(ctx), store.CreationReceipt{IdempotencyKey: key, Kind: kind, ResourceID: sess.ID, RequestHash: reqHash}); perr != nil {
-			log.Printf("wadad: record %s receipt for %s: %v", kind, sess.ID, perr)
+		if perr := s.store.PutCreationReceipt(context.WithoutCancel(ctx), store.CreationReceipt{IdempotencyKey: key, Kind: kind, ResourceID: id, RequestHash: reqHash}); perr != nil {
+			log.Printf("wadad: record %s receipt for %s: %v", kind, id, perr)
 		}
 	} else if err != nil {
 		// The backend reports nothing was created, so the key may be used again.
 		_ = s.store.DeleteCreationReceipt(context.WithoutCancel(ctx), key)
 	}
 	if err != nil {
-		return nil, internalErr(err)
+		return nil, createErr(err)
 	}
-	return sess, nil
+	return res, nil
+}
+
+// createErr is a failed creation's error: a workspace refusal keeps its code.
+func createErr(err error) *protocol.RPCError {
+	var rerr *protocol.RPCError
+	if errors.As(err, &rerr) {
+		return rerr
+	}
+	return internalErr(err)
+}
+
+// sessionCreate adapts a session creation to withCreationReceipt.
+func sessionCreate(create func() (protocol.Session, error)) func() (string, any, error) {
+	return func() (string, any, error) {
+		sess, err := create()
+		return sess.ID, sess, err
+	}
 }
 
 func (s *Server) sendWithReceipt(ctx context.Context, req protocol.SendRequest) (any, *protocol.RPCError) {

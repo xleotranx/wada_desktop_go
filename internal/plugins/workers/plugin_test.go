@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,10 +20,6 @@ type fakeOrchService struct {
 	*plugintest.Agent
 	harnesses []agent.Harness
 	workers   []agent.Worker
-	worktrees []agent.Worktree
-	prs       map[string]*agent.PRStatus
-	removedWT string
-	lists     atomic.Int32
 }
 
 func (f *fakeOrchService) NewPlugin() kernel.Plugin { return &fakeOrchPlugin{f: f} }
@@ -35,7 +30,7 @@ type fakeOrchPlugin struct {
 
 func (p *fakeOrchPlugin) Manifest() kernel.Manifest {
 	base := p.f.Manifest()
-	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey, agent.WorktreesKey)
+	base.Provides = append(base.Provides, agent.HarnessesKey, agent.WorkersKey)
 	return base
 }
 
@@ -46,10 +41,7 @@ func (p *fakeOrchPlugin) Setup(c *kernel.Context) error {
 	if err := kernel.Provide[agent.Harnesses](c, agent.HarnessesKey, p.f); err != nil {
 		return err
 	}
-	if err := kernel.Provide[agent.Workers](c, agent.WorkersKey, p.f); err != nil {
-		return err
-	}
-	return kernel.Provide[agent.Worktrees](c, agent.WorktreesKey, p.f)
+	return kernel.Provide[agent.Workers](c, agent.WorkersKey, p.f)
 }
 
 func (f *fakeOrchService) Harnesses(context.Context) ([]agent.Harness, error) {
@@ -64,23 +56,6 @@ func (f *fakeOrchService) Workers(_ context.Context, parent agent.SessionID) ([]
 		}
 	}
 	return out, nil
-}
-
-func (f *fakeOrchService) ListWorktrees(context.Context, string) ([]agent.Worktree, error) {
-	f.lists.Add(1)
-	return f.worktrees, nil
-}
-
-func (f *fakeOrchService) RemoveWorktree(_ context.Context, _, path string, _ bool) error {
-	f.removedWT = path
-	return nil
-}
-
-func (f *fakeOrchService) PRStatus(_ context.Context, dir string) (*agent.PRStatus, error) {
-	if f.prs == nil {
-		return nil, nil
-	}
-	return f.prs[dir], nil
 }
 
 func waitCond(t *testing.T, h *kerneltest.Harness, what string, cond func() bool) {
@@ -148,15 +123,8 @@ func TestHarnessPickerStampsNewChatProvider(t *testing.T) {
 	}
 }
 
-func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
-	h, p, fa, _ := startTestPlugin(t)
-	fa.worktrees = []agent.Worktree{
-		{RepoRoot: "/repo", Path: "/repo", Branch: "main", IsMain: true},
-		{RepoRoot: "/repo", Path: "/tmp/wt/auth", Branch: "wada/auth-1234", Dirty: true},
-	}
-	fa.prs = map[string]*agent.PRStatus{
-		"/tmp/wt/auth": {Number: 42, State: "OPEN", Checks: "pass", URL: "https://github.com/xleotranx/wada_desktop_go/pull/42"},
-	}
+func TestWorkPanelDisplaysLiveWorkers(t *testing.T) {
+	h, p, _, _ := startTestPlugin(t)
 
 	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
 	kernel.Emit(h, agent.WorkerUpdated, agent.Worker{
@@ -169,7 +137,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 		WorktreePath:  "/tmp/wt/auth",
 		Status:        agent.WorkerRunning,
 	})
-	waitCond(t, h, "worktrees loaded", func() bool { return len(p.worktrees) == 2 && p.worktrees[1].PR != nil })
+	waitCond(t, h, "the worker is listed", func() bool { return len(p.workers) == 1 })
 
 	if !p.workShown() {
 		t.Fatal("expected work panel to be shown")
@@ -177,7 +145,7 @@ func TestWorkPanelDisplaysLiveWorkersAndWorktrees(t *testing.T) {
 
 	tt := ui.NewTester(p.workPanelView, 320, 480)
 	tt.Frame()
-	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234", "modified", "#42 · pass"} {
+	for _, want := range []string{"Auth worker", "Running", "wada/auth-1234"} {
 		if !tt.HasText(want) {
 			t.Fatalf("work panel missing %q in %q", want, tt.Texts())
 		}
@@ -269,34 +237,4 @@ func TestStoppingWorkersIsIndependentAndReported(t *testing.T) {
 	waitCond(t, h, "stop failure reported", func() bool {
 		return len(host.Toasts) > 0 && host.Toasts[len(host.Toasts)-1] == "Could not stop the agent"
 	})
-}
-
-func TestWorkerUpdatesRefreshWorktreesOnlyWhenTheyChange(t *testing.T) {
-	h, p, fa, _ := startTestPlugin(t)
-	kernel.Emit(h, chatcontract.Changed, chatcontract.Conversation{Session: "chief1", Directory: "/repo"})
-	waitCond(t, h, "first listing", func() bool { return fa.lists.Load() >= 1 })
-	h.Flush()
-	base := fa.lists.Load()
-
-	w := agent.Worker{ID: "wrk_1", ParentSession: "chief1", Provider: "claude", WorktreePath: "/tmp/wt/a", Status: agent.WorkerRunning}
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	waitCond(t, h, "listing for the new worker", func() bool { return fa.lists.Load() == base+1 })
-
-	w.Status = agent.WorkerWaitingApproval
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	w.Status = agent.WorkerRunning
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	h.Flush()
-	time.Sleep(20 * time.Millisecond)
-	h.Flush()
-	if got := fa.lists.Load(); got != base+1 {
-		t.Fatalf("status changes listed worktrees %d more times", got-base-1)
-	}
-
-	w.Status = agent.WorkerCompleted
-	kernel.Emit(h, agent.WorkerUpdated, w)
-	waitCond(t, h, "listing when the worker finished", func() bool { return fa.lists.Load() == base+2 })
-	if p.seen["wrk_1"].status != agent.WorkerCompleted {
-		t.Fatalf("seen = %+v", p.seen["wrk_1"])
-	}
 }

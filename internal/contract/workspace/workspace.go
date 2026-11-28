@@ -45,10 +45,12 @@ type Service interface {
 	// Workspaces lists the active workspaces in the order of their projects.
 	Workspaces() []agent.Workspace
 	Workspace(id agent.WorkspaceID) (agent.Workspace, bool)
+	Project(id agent.ProjectID) (agent.Project, bool)
 	// At returns the active workspace at a directory; "" is the inbox's.
 	At(dir string) (agent.Workspace, bool)
 	// Name is what the app calls the workspace at a directory: its title,
-	// else its project's name, else the directory's own name.
+	// else a worktree's branch, else its project's name, else the
+	// directory's own name.
 	Name(dir string) string
 	// Conversations lists the conversations in active workspaces, newest
 	// first.
@@ -61,6 +63,16 @@ type Service interface {
 	// ArchiveProject archives a project and its workspaces; done runs on the
 	// UI thread once the backend has. A failure is reported in a toast.
 	ArchiveProject(id agent.ProjectID, done func())
+	// CreateWorkspace makes a workspace in a worktree; done runs on the UI
+	// thread with it, or with the error, which the caller reports.
+	CreateWorkspace(req agent.CreateWorkspace, done func(agent.Workspace, error))
+	// ArchiveWorkspace archives a worktree workspace; done runs on the UI
+	// thread with nil once the backend has, or with the error, which may be
+	// agent.ErrWorkUnsaved.
+	ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(error))
+	// Refs reads what a project's repository offers a new workspace; done
+	// runs on the UI thread.
+	Refs(project agent.ProjectID, done func(agent.Refs, error))
 	// Retitle records a title the backend accepted for a conversation.
 	Retitle(id agent.SessionID, title string)
 	// Forget drops a conversation from the list, as after deleting it.

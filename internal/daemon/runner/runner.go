@@ -20,7 +20,9 @@ import (
 	"wada-desktop-go/internal/daemon/orchestrator"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/server"
+	"wada-desktop-go/internal/daemon/store"
 	"wada-desktop-go/internal/daemon/terminal"
+	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
 )
 
@@ -89,7 +91,17 @@ func Run(args []string) error {
 	defer unlock()
 
 	wtMgr := worktree.New(*dataDir)
-	reg := harness.DefaultRegistry()
+	st, err := store.Open(ctx, *dataDir)
+	if err != nil {
+		return fmt.Errorf("wadad: open database: %w", err)
+	}
+	reg, err := workspaces.Open(ctx, st, workspaces.Options{Inbox: filepath.Join(*dataDir, "workspaces", "inbox")})
+	if err != nil {
+		_ = st.Close()
+		return fmt.Errorf("wadad: read projects: %w", err)
+	}
+	spaces := workspaces.NewService(reg, wtMgr)
+	harnesses := harness.DefaultRegistry()
 	termSup := terminal.NewSupervisor(terminal.SupervisorOptions{
 		DataDir:     *dataDir,
 		KeepOnClose: true,
@@ -107,19 +119,22 @@ func Run(args []string) error {
 	})
 	if err != nil {
 		_ = termSup.Close()
+		_ = st.Close()
 		return fmt.Errorf("wadad: start PiG runtime: %w", err)
 	}
 
 	orch, err = orchestrator.New(ctx, orchestrator.Options{
-		DataDir:   *dataDir,
-		PiG:       rt,
-		Worktrees: wtMgr,
-		Registry:  reg,
-		Terminals: termSup,
+		DataDir:    *dataDir,
+		PiG:        rt,
+		Worktrees:  wtMgr,
+		Workspaces: spaces,
+		Registry:   harnesses,
+		Terminals:  termSup,
 	})
 	if err != nil {
 		_ = rt.Close()
 		_ = termSup.Close()
+		_ = st.Close()
 		return fmt.Errorf("wadad: start orchestrator: %w", err)
 	}
 
@@ -149,6 +164,8 @@ func Run(args []string) error {
 		PublicURL:      strings.TrimSpace(*publicURL),
 		WebDir:         strings.TrimSpace(*webDir),
 		DesktopManaged: *desktopManaged,
+		Store:          st,
+		Workspaces:     spaces,
 		Backend:        orch,
 		OnShutdown:     stop,
 	})

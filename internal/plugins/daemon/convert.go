@@ -47,7 +47,41 @@ func fromProtoProject(p protocol.ProjectInfo) agent.Project {
 
 func fromProtoWorkspace(w protocol.WorkspaceInfo) agent.Workspace {
 	return agent.Workspace{ID: agent.WorkspaceID(w.ID), Project: agent.ProjectID(w.Project),
-		Isolation: agent.IsolateProject, Directory: w.Directory, Title: w.Title, Created: w.Created, Archived: w.Archived}
+		Isolation: fromProtoIsolation(w.Isolation), Directory: w.Directory, WorktreeRoot: w.WorktreeRoot,
+		Branch: w.Branch, BaseRef: w.BaseRef, PR: w.PR, Title: w.Title, Created: w.Created, Archived: w.Archived}
+}
+
+func fromProtoIsolation(i protocol.Isolation) agent.Isolation {
+	switch i {
+	case protocol.IsolationWorktree:
+		return agent.IsolateWorktree
+	case protocol.IsolationExisting:
+		return agent.IsolateExisting
+	case protocol.IsolationProject:
+	}
+	return agent.IsolateProject
+}
+
+func toProtoIsolation(i agent.Isolation) protocol.Isolation {
+	switch i {
+	case agent.IsolateWorktree:
+		return protocol.IsolationWorktree
+	case agent.IsolateExisting:
+		return protocol.IsolationExisting
+	case agent.IsolateProject:
+	}
+	return protocol.IsolationProject
+}
+
+func toProtoStartMode(m agent.StartMode) protocol.StartMode {
+	switch m {
+	case agent.CheckoutBranch:
+		return protocol.StartCheckoutBranch
+	case agent.CheckoutPR:
+		return protocol.StartCheckoutPR
+	case agent.BranchOff:
+	}
+	return protocol.StartBranchOff
 }
 
 func fromProtoHarnessKind(k protocol.HarnessKind) agent.HarnessKind {

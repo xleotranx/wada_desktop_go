@@ -28,7 +28,9 @@ import {
   OP_TERM_OUTPUT,
   PROTOCOL_VERSION,
   type ServerInfo,
+  type ProjectInfo,
   type SessionInfo,
+  type WorkspaceInfo,
   type SessionMessage,
   type TerminalInfo,
   type WorkerInfo,
@@ -451,6 +453,14 @@ export class WadaClient {
 
   listSessions(): Promise<{ sessions: SessionInfo[] }> {
     return this.call("agent.sessions.list", {});
+  }
+
+  listProjects(): Promise<ProjectInfo[]> {
+    return this.call("workspace.projects.list", {});
+  }
+
+  listWorkspaces(): Promise<WorkspaceInfo[]> {
+    return this.call("workspace.list", {});
   }
 
   createSession(directory: string, provider?: string, mode = "ask"): Promise<SessionInfo> {

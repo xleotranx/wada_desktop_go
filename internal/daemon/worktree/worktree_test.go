@@ -57,15 +57,15 @@ func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "add include")
 
 	mgr := New(t.TempDir())
-	wtA, err := mgr.Create(t.Context(), repo, "feature-a", "")
+	wtA, err := mgr.Add(t.Context(), repo, AddOptions{Slug: "feature-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wtB, err := mgr.Create(t.Context(), repo, "feature-b", "")
+	wtB, err := mgr.Add(t.Context(), repo, AddOptions{Slug: "feature-b"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mgr.Create(t.Context(), repo, "feature-c", "--detach"); err == nil {
+	if _, err := mgr.Add(t.Context(), repo, AddOptions{Slug: "feature-c", From: "--detach"}); err == nil {
 		t.Fatal("a base ref that reads as an option was accepted")
 	}
 

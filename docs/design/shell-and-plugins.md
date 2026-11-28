@@ -262,13 +262,16 @@ the `shell.Strip` view and its dialogs (`shell.Overlays`).
   and an orange mark while a conversation in another space waits for the user or has
   an unread end. Its tooltip is the workspace's directory. It opens a popover listing
   every space (the active workspaces in their projects' order, the inbox last, then
-  the directories of open tabs no active workspace has), each with its name, its
+  the directories of open tabs no active workspace has; a project with more than one
+  workspace shows its name above them, indented), each with its name, its
   color, the most urgent state of its conversations, its count of tabs and a check on
   the one on show. Choosing one shows its last tab, else its first, else a new chat in
   it. Below the list: New Chat in the space, Add Project… (which starts a chat in the
-  added project), Remove “name”… for a workspace other than the inbox, which asks
-  first, counting the conversations that leave the lists, archives its project and
-  then closes the tabs of its workspaces; and Tab Settings…. Each space keeps the
+  added project), New Workspace… when the `worktrees.new` command exists, Remove
+  “name”… for a project's own workspace other than the inbox, which asks first,
+  counting the conversations that leave the lists, archives its project and then
+  closes the tabs of its workspaces; Archive “name”… for a worktree workspace,
+  through the `worktrees.archive` command; and Tab Settings…. Each space keeps the
   first of the palette's project colors no other space has, saved under `colors`.
 - A conversation tab shows what the conversation is doing, from `agent.Events`:
   working once a turn starts or produces output, waiting for an approval or an answer,
@@ -397,6 +400,9 @@ while navigating conversations but is not saved across launches:
   including changes outside a conversation's subfolder. It uses local Git even
   with a remote backend; an absent folder, Git executable or repository is
   reported. It does not assume the app's working directory when no folder is set.
+- **Changes since the base** is offered for a conversation in a worktree workspace
+  that has a base ref. It reads `agent.WorkspacesKey.BaseChanges`: the workspace's
+  files against the merge base with its base, committed or not, untracked included.
 
 The section shows the number of files and total lines added and removed in a
 disclosure that collapses the file list while keeping the summary and source
@@ -704,11 +710,33 @@ hiding the work panel (`chat.HideWork`).
 - **Controls.** Includes a monospace output list, clipboard copy, `Ctrl+C` (`0x03`),
   `Ctrl+D` (`0x04`), `Clear`, and a command input sending `<line>\r`.
 
-## Workers, worktrees, and Forge PRs
+## Worktree workspaces
+
+`internal/plugins/worktrees` requires `chat.ControllerKey`, `workspace.ServiceKey`
+and `shell.HostKey`, and uses optional `agent.WorktreesKey`:
+
+- **New Workspace…** (`worktrees.new`, ⇧⌘N, File) opens a dialog on the open
+  conversation's project, else the first that isn't the inbox. It reads the
+  project's refs (`workspace.Service.Refs`) and offers a new worktree that branches
+  off or checks out the default ref, a branch or remote branch, or checks out an
+  open pull request; or an existing worktree of the repository that is no workspace
+  yet. An optional name becomes the title, the folder's and the new branch's name.
+  Create waits for the backend, then opens a new chat in the workspace; a failure
+  stays in the dialog.
+- **Archive Workspace…** (`worktrees.archive`, File), enabled in a worktree
+  workspace, asks first. When the backend refuses for uncommitted files or unpushed
+  commits (`agent.ErrWorkUnsaved`) it says what would be lost and offers Discard and
+  archive. Other failures show a toast.
+- **Work panel section.** Workspace, first in `chat.Work` and shown in a workspace
+  other than a project's own: the branch, its base, the directory, a
+  `#N · pass/fail/pending` PR badge from `Worktrees.PRStatus` that opens the pull
+  request, and Archive workspace…. The PR is read again when the directory changes.
+
+## Workers
 
 `internal/plugins/workers` requires `agent.ServiceKey`, `chat.ControllerKey`,
-and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.WorkersKey`,
-and `agent.WorktreesKey`:
+and `shell.HostKey`, and uses optional `agent.HarnessesKey`, `agent.WorkersKey`
+and `agent.ChangesKey`:
 
 - **Harness picker.** Contributes a `chat.ComposerAccessory` picker on new chats
   (before `Draft.Provider` is stamped at `chat.Outgoing` order `-15`) so users can
@@ -719,13 +747,9 @@ and `agent.WorktreesKey`:
   carries any of them, naming what to remove. While such a conversation is open,
   the attachments button, the `/skill` completions, the mode picker
   and the model picker are hidden.
-- **Work panel section.** Contributes a `chat.Work` section displaying supervised
-  workers (with status pill and Stop action) and secondary Git worktrees (with
-  modified indicator, clickable authenticated GitHub `#N · pass/fail/pending`
-  PR badge via `Worktrees.PRStatus`, and Remove action). Each Stop and Remove
-  runs on its own task, and a failure shows a toast. Worktrees and their PR
-  badges are listed again when a worker first appears, moves to another
-  worktree or finishes, not on every status change.
+- **Work panel section.** Agents, a `chat.Work` section listing the conversation's
+  supervised workers with a status pill and Stop. Each Stop runs on its own task,
+  and a failure shows a toast.
 - **Worker Inspector drawer.** Opening a worker hides the work panel
   (`chat.HideWork`) and opens a 400 px `chat.Drawers` column with Transcript
   and per-worktree Diff tabs.

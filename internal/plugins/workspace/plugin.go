@@ -6,6 +6,7 @@ package workspace
 import (
 	"cmp"
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,12 +42,12 @@ type Plugin struct {
 	missed     map[agent.SessionID]bool // seen in events, not in a listing since
 	// since holds the updates applied while a full sync runs, to apply again
 	// over the record it read.
-	since []agent.WorkspaceUpdate
-	list       []workspace.Conversation
-	full       kernel.Task
-	recent     kernel.Task
-	picking    kernel.Task
-	archiving  kernel.Task
+	since     []agent.WorkspaceUpdate
+	list      []workspace.Conversation
+	full      kernel.Task
+	recent    kernel.Task
+	picking   kernel.Task
+	archiving kernel.Task
 
 	// choose asks the user for a folder, off the UI thread; tests replace it.
 	choose func() (string, error)
@@ -137,10 +138,21 @@ func (p *Plugin) inbox() (agent.Workspace, bool) {
 	return p.workspaces[j], true
 }
 
+func (p *Plugin) Project(id agent.ProjectID) (agent.Project, bool) {
+	i := slices.IndexFunc(p.projects, func(pr agent.Project) bool { return pr.ID == id })
+	if i < 0 {
+		return agent.Project{}, false
+	}
+	return p.projects[i], true
+}
+
 func (p *Plugin) Name(dir string) string {
 	if w, ok := p.At(dir); ok {
 		if w.Title != "" {
 			return w.Title
+		}
+		if w.Isolation != agent.IsolateProject && w.Branch != "" {
+			return w.Branch
 		}
 		if i := slices.IndexFunc(p.projects, func(pr agent.Project) bool { return pr.ID == w.Project }); i >= 0 {
 			return p.projects[i].Name
@@ -216,6 +228,60 @@ func (p *Plugin) ArchiveProject(id agent.ProjectID, done func()) {
 		done()
 	})
 }
+
+func (p *Plugin) CreateWorkspace(req agent.CreateWorkspace, done func(agent.Workspace, error)) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		done(agent.Workspace{}, errNoRecord)
+		return
+	}
+	origin := p.origin
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Workspace, error) {
+		return ws.CreateWorkspace(ctx, req)
+	}, func(w agent.Workspace, err error) {
+		if err == nil && origin == p.origin {
+			p.updated(agent.WorkspaceUpdate{Workspace: &w})
+		}
+		done(w, err)
+	})
+}
+
+func (p *Plugin) ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(error)) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		done(errNoRecord)
+		return
+	}
+	origin := p.origin
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ws.ArchiveWorkspace(ctx, id, force)
+	}, func(_ struct{}, err error) {
+		if err == nil && origin == p.origin {
+			if w, ok := p.Workspace(id); ok {
+				w.Archived = p.now()
+				p.updated(agent.WorkspaceUpdate{Workspace: &w})
+			}
+		}
+		done(err)
+	})
+}
+
+func (p *Plugin) Refs(project agent.ProjectID, done func(agent.Refs, error)) {
+	ws, ok := kernel.Use(p.ctx, agent.WorkspacesKey)
+	if !ok {
+		done(agent.Refs{}, errNoRecord)
+		return
+	}
+	var task kernel.Task
+	kernel.Go(p.ctx, &task, func(ctx context.Context) (agent.Refs, error) {
+		return ws.Refs(ctx, project)
+	}, done)
+}
+
+// errNoRecord reports a backend that keeps no projects.
+var errNoRecord = errors.New("the agent keeps no projects")
 
 func (p *Plugin) Retitle(id agent.SessionID, title string) {
 	if s, ok := p.sessions[id]; ok && s.Title != title {

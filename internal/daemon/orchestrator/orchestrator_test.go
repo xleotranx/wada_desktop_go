@@ -16,6 +16,8 @@ import (
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/server"
+	"wada-desktop-go/internal/daemon/store"
+	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 )
@@ -117,6 +119,15 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	reg.Register(&envProvider{inner: acpProv, env: "WADA_ORCH_HELPER=acp"})
 
 	wtMgr := worktree.New(dataDir)
+	st, err := store.Open(t.Context(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsReg, err := workspaces.Open(t.Context(), st, workspaces.Options{Inbox: filepath.Join(dataDir, "workspaces", "inbox")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spaces := workspaces.NewService(wsReg, wtMgr)
 	var orch *Orchestrator
 	rt, err := pig.New(t.Context(), pig.Options{
 		Root: filepath.Join(dataDir, "pig"),
@@ -134,10 +145,11 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	}
 
 	orch, err = New(t.Context(), Options{
-		DataDir:   dataDir,
-		PiG:       rt,
-		Worktrees: wtMgr,
-		Registry:  reg,
+		DataDir:    dataDir,
+		PiG:        rt,
+		Worktrees:  wtMgr,
+		Workspaces: spaces,
+		Registry:   reg,
 	})
 	if err != nil {
 		_ = rt.Close()
@@ -145,10 +157,12 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	}
 
 	srv, err := server.New(t.Context(), server.Config{
-		DataDir: dataDir,
-		Listen:  "127.0.0.1:0",
-		Version: "orch-test",
-		Backend: orch,
+		DataDir:    dataDir,
+		Listen:     "127.0.0.1:0",
+		Version:    "orch-test",
+		Store:      st,
+		Workspaces: spaces,
+		Backend:    orch,
 	})
 	if err != nil {
 		_ = orch.Close()
@@ -172,11 +186,17 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 
 	// Create two worktrees via PiG Chief Agent orchestration sequence using direct worktree + harness calls?
 	// No: drive PiG Chief Agent via FauxProvider tool calls over real WebSocket RPC!
-	wtA, err := cli.CreateWorktree(t.Context(), protocol.WorktreeCreateRequest{Directory: repoDir, Name: "part-a"})
+	project, err := cli.AddProject(t.Context(), repoDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wtB, err := cli.CreateWorktree(t.Context(), protocol.WorktreeCreateRequest{Directory: repoDir, Name: "part-b"})
+	wtA, err := cli.CreateWorkspace(t.Context(), protocol.WorkspaceCreateRequest{Project: project.Project.ID,
+		Isolation: protocol.IsolationWorktree, Slug: "part-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wtB, err := cli.CreateWorkspace(t.Context(), protocol.WorkspaceCreateRequest{Project: project.Project.ID,
+		Isolation: protocol.IsolationWorktree, Slug: "part-b"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,18 +221,16 @@ func TestChiefAgentOrchestratesWorktreesAndMultipleHarnessesOverWS(t *testing.T)
 	faux.SetResponses([]ai.FauxResponseStep{
 		ai.FauxResponse{Content: []ai.FauxContentBlock{
 			ai.FauxToolCall("list_providers", map[string]any{}, nil),
-			ai.FauxToolCall("list_worktrees", map[string]any{}, nil),
+			ai.FauxToolCall("list_workspaces", map[string]any{}, nil),
 			ai.FauxToolCall("spawn_agent", map[string]any{
-				"provider":      "claude-mock",
-				"name":          "Claude Worker A",
-				"worktree_path": wtA.Path,
-				"branch":        wtA.Branch,
+				"provider":     "claude-mock",
+				"name":         "Claude Worker A",
+				"workspace_id": wtA.ID,
 			}, nil),
 			ai.FauxToolCall("spawn_agent", map[string]any{
-				"provider":      "acp-mock",
-				"name":          "ACP Worker B",
-				"worktree_path": wtB.Path,
-				"branch":        wtB.Branch,
+				"provider":     "acp-mock",
+				"name":         "ACP Worker B",
+				"workspace_id": wtB.ID,
 			}, nil),
 		}, StopReason: "toolUse"},
 		ai.FauxResponse{Content: []ai.FauxContentBlock{ai.FauxText("Spawned workers step.")}},
@@ -325,10 +343,31 @@ verified:
 	if err != nil || len(diffB) != 1 || diffB[0].Path != "worker_b.txt" {
 		t.Fatalf("acp diff = %+v, err=%v", diffB, err)
 	}
-	// Verify repo main checkout remained clean!
-	mainWT, err := cli.ListWorktrees(t.Context(), repoDir)
-	if err != nil || len(mainWT) != 3 || mainWT[0].Dirty {
-		t.Fatalf("expected clean main checkout + 2 worktrees, got %+v, err=%v", mainWT, err)
+	// The main checkout stayed clean, and each workspace shows its work against its base.
+	refs, err := cli.WorkspaceRefs(t.Context(), project.Project.ID)
+	if err != nil || len(refs.Worktrees) != 3 || refs.Worktrees[0].Dirty {
+		t.Fatalf("expected clean main checkout + 2 worktrees, got %+v, err=%v", refs.Worktrees, err)
+	}
+	baseA, err := cli.WorkspaceChanges(t.Context(), wtA.ID)
+	if err != nil || len(baseA) != 1 || baseA[0].Path != "worker_a.txt" {
+		t.Fatalf("workspace A against its base = %+v, err=%v", baseA, err)
+	}
+	// Archiving refuses to lose B's work until forced, then removes its worktree.
+	if err := cli.ArchiveWorkspace(t.Context(), wtB.ID, false); err == nil {
+		t.Fatal("archived a worktree with uncommitted work")
+	}
+	if err := cli.ArchiveWorkspace(t.Context(), wtB.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wtB.WorktreeRoot); !os.IsNotExist(err) {
+		t.Fatalf("the archived worktree is still on disk: %v", err)
+	}
+	restored, err := cli.RestoreWorkspace(t.Context(), wtB.ID)
+	if err != nil || restored.Archived != 0 {
+		t.Fatalf("restore = %+v, %v", restored, err)
+	}
+	if _, err := os.Stat(filepath.Join(wtB.WorktreeRoot, "README.md")); err != nil {
+		t.Fatalf("the restored worktree is missing: %v", err)
 	}
 }
 

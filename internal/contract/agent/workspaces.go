@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/xleotranx/wada-kit/kernel"
 )
@@ -13,6 +14,10 @@ var (
 	// WorkspaceUpdated is emitted on the UI thread when the backend reports a
 	// project or workspace was added or changed.
 	WorkspaceUpdated = kernel.NewTopic[WorkspaceUpdate]("agent.workspace-updated")
+
+	// ErrWorkUnsaved reports that archiving a workspace would lose uncommitted
+	// changes or unpushed commits; archiving it with force discards them.
+	ErrWorkUnsaved = errors.New("the workspace has work that isn't saved anywhere else")
 )
 
 // ProjectID and WorkspaceID are opaque; neither is a path.
@@ -25,7 +30,18 @@ type (
 type Isolation uint8
 
 const (
-	IsolateProject Isolation = iota // the project's own directory
+	IsolateProject  Isolation = iota // the project's own directory
+	IsolateWorktree                  // a Git worktree the backend made, and removes
+	IsolateExisting                  // a Git worktree already on disk
+)
+
+// StartMode is how a new worktree starts.
+type StartMode uint8
+
+const (
+	BranchOff      StartMode = iota // a new branch from a ref
+	CheckoutBranch                  // the branch itself
+	CheckoutPR                      // a pull request's branch
 )
 
 // Project is a folder the user works in.
@@ -42,13 +58,46 @@ type Project struct {
 // share a Directory, and a conversation or terminal works in the workspace at
 // its directory.
 type Workspace struct {
-	ID        WorkspaceID
+	ID           WorkspaceID
+	Project      ProjectID
+	Isolation    Isolation
+	Directory    string
+	WorktreeRoot string // the checkout Directory is in, for a worktree
+	Branch       string
+	BaseRef      string // what its changes compare against; empty for none
+	PR           int    // the pull request it checks out
+	Title        string // the user's; empty shows its branch, else its project's name
+	Created      int64
+	Archived     int64
+}
+
+// CreateWorkspace asks for a workspace in a worktree of a project's repository.
+type CreateWorkspace struct {
 	Project   ProjectID
-	Isolation Isolation
-	Directory string
-	Title     string // the user's; empty shows the project's name
-	Created   int64
-	Archived  int64
+	Isolation Isolation // IsolateWorktree or IsolateExisting
+	Mode      StartMode // IsolateWorktree
+	From      string    // BranchOff: the ref, empty for the default; CheckoutBranch: the branch
+	PR        int       // CheckoutPR
+	Path      string    // IsolateExisting: the worktree's directory
+	Slug      string    // names the worktree and its new branch; empty derives one
+	Title     string
+}
+
+// PullRequest is an open pull request a workspace can check out.
+type PullRequest struct {
+	Number int
+	Title  string
+	Branch string
+	Fork   bool
+}
+
+// Refs is what a project's repository offers a new workspace.
+type Refs struct {
+	Default   string   // the ref a new branch starts from by default
+	Branches  []string // local
+	Remotes   []string // remote-tracking, such as origin/main
+	PRs       []PullRequest
+	Worktrees []Worktree
 }
 
 // WorkspaceUpdate carries one changed project or workspace.
@@ -74,4 +123,18 @@ type Workspaces interface {
 	// conversations stay with the backend.
 	ArchiveProject(ctx context.Context, id ProjectID) error
 	RenameWorkspace(ctx context.Context, id WorkspaceID, title string) error
+	// CreateWorkspace makes a workspace in a worktree; a failure may leave
+	// nothing behind or a workspace whose creation went unreported.
+	CreateWorkspace(ctx context.Context, req CreateWorkspace) (Workspace, error)
+	// ArchiveWorkspace archives a worktree workspace, removing a worktree the
+	// backend made. Without force, one with unsaved work is refused with
+	// ErrWorkUnsaved.
+	ArchiveWorkspace(ctx context.Context, id WorkspaceID, force bool) error
+	// RestoreWorkspace makes an archived workspace active again.
+	RestoreWorkspace(ctx context.Context, id WorkspaceID) (Workspace, error)
+	// Refs lists what a project's repository offers a new workspace.
+	Refs(ctx context.Context, project ProjectID) (Refs, error)
+	// BaseChanges lists a workspace's changes since it left its BaseRef:
+	// commits and uncommitted work, with paths relative to its Directory.
+	BaseChanges(ctx context.Context, id WorkspaceID) ([]FileChange, error)
 }

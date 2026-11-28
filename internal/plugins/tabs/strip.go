@@ -120,7 +120,24 @@ func (p *Plugin) switcher(c *ui.Context, pal native.Palette) {
 // spaces lists the workspaces to switch between, then what acts on them.
 func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	ui.Text(c, "Spaces").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).Padding(2, 8, 4, 8)
+	// A project with more than one workspace shows its name above them.
+	count := map[agent.ProjectID]int{}
+	for _, w := range p.ws.Workspaces() {
+		count[w.Project]++
+	}
+	var heading agent.ProjectID
 	for _, folder := range p.spaceList() {
+		w, known := p.ws.At(folder)
+		nested := known && count[w.Project] > 1
+		if nested && w.Project != heading {
+			heading = w.Project
+			if pr, ok := p.ws.Project(w.Project); ok {
+				c.Key("project:" + string(pr.ID))
+				ui.Text(c, pr.Name).FontSize(12).FontWeight(500).TextColor(pal.Muted).Padding(6, 8, 2, 8).SingleLine().Ellipsis("…")
+			}
+		} else if !nested {
+			heading = ""
+		}
 		c.Key("space:" + folder)
 		n, state := 0, tabs.Idle
 		for _, t := range p.tabs {
@@ -132,6 +149,9 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 		current := folder == p.space
 		row := ui.ButtonBase(c).Label("Switch to "+p.spaceName(folder)).FillWidth().Height(30).Padding(0, 8).Radius(6).Gap(8).
 			AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		if nested {
+			row.Padding(0, 8, 0, 20)
+		}
 		if current {
 			row.Background(pal.Selected)
 		} else if row.Hovered() {
@@ -171,8 +191,15 @@ func (p *Plugin) spaces(c *ui.Context, pal native.Palette) {
 	space := p.space
 	action("New Chat in "+p.spaceName(space), func() { p.openDraft(space) })
 	action("Add Project…", func() { p.ws.ChooseProject(func(w agent.Workspace) { p.openDraft(p.spaceOf(w.Directory)) }) })
-	if _, ok := p.ws.At(space); ok && space != "" {
-		action("Remove “"+p.spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
+	if p.hasCommand(newWorkspaceID) {
+		action("New Workspace…", func() { p.runCommand(newWorkspaceID) })
+	}
+	if w, ok := p.ws.At(space); ok && space != "" {
+		if w.Isolation == agent.IsolateProject {
+			action("Remove “"+p.spaceName(space)+"”…", func() { p.removing, p.removeOn = space, true })
+		} else if p.hasCommand(archiveWorkspaceID) {
+			action("Archive “"+p.spaceName(space)+"”…", func() { p.runCommand(archiveWorkspaceID) })
+		}
 	}
 	if p.hasPage(settings.PageID) {
 		action("Tab Settings…", func() { p.host.ShowPage(settings.PageID) })
@@ -355,4 +382,33 @@ func (p *Plugin) overflow(c *ui.Context, pal native.Palette, hidden []tabs.Tab) 
 		ui.Icon(c, lucide.ChevronsRight()).FontSize(14).TextColor(pal.Muted)
 		ui.Text(c, strconv.Itoa(len(hidden))).FontSize(12).TextColor(pal.Muted).FontFeatures("tnum")
 	})
+}
+
+// The worktrees plugin's commands, which the switcher offers when they are
+// there.
+const (
+	newWorkspaceID     = "worktrees.new"
+	archiveWorkspaceID = "worktrees.archive"
+)
+
+func (p *Plugin) hasCommand(id string) bool {
+	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// runCommand runs a contributed command when it is enabled.
+func (p *Plugin) runCommand(id string) {
+	for _, e := range kernel.Items(p.ctx, kernel.Commands) {
+		if e.ID == id {
+			kernel.Invoke(p.ctx, e, func(cmd kernel.Command) {
+				if cmd.Run != nil && (cmd.Enabled == nil || cmd.Enabled()) {
+					cmd.Run()
+				}
+			})
+		}
+	}
 }

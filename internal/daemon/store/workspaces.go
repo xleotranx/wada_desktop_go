@@ -19,13 +19,18 @@ type ProjectRow struct {
 
 // WorkspaceRow is a stored workspace.
 type WorkspaceRow struct {
-	ID        string
-	Project   string
-	Isolation protocol.Isolation
-	Dir       string
-	Title     string
-	Created   int64
-	Archived  int64 // 0 while active
+	ID           string
+	Project      string
+	Isolation    protocol.Isolation
+	Dir          string
+	WorktreeRoot string
+	Owned        bool
+	Branch       string
+	BaseRef      string
+	PR           int
+	Title        string
+	Created      int64
+	Archived     int64 // 0 while active
 }
 
 // Projects reads every project, archived ones included.
@@ -48,7 +53,8 @@ func (s *Store) Projects(ctx context.Context) ([]ProjectRow, error) {
 
 // Workspaces reads every workspace, archived ones included.
 func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, project, isolation, dir, title, created, archived FROM workspaces`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
+		title, created, archived FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +63,8 @@ func (s *Store) Workspaces(ctx context.Context) ([]WorkspaceRow, error) {
 	for rows.Next() {
 		var w WorkspaceRow
 		var iso string
-		if err := rows.Scan(&w.ID, &w.Project, &iso, &w.Dir, &w.Title, &w.Created, &w.Archived); err != nil {
+		if err := rows.Scan(&w.ID, &w.Project, &iso, &w.Dir, &w.WorktreeRoot, &w.Owned, &w.Branch, &w.BaseRef, &w.PR,
+			&w.Title, &w.Created, &w.Archived); err != nil {
 			return nil, err
 		}
 		w.Isolation = protocol.Isolation(iso)
@@ -78,9 +85,11 @@ func (s *Store) PutProject(ctx context.Context, projects []ProjectRow, workspace
 	}
 	for _, w := range workspaces {
 		stmts = append(stmts, dbstore.Statement{
-			SQL: `INSERT INTO workspaces (id, project, isolation, dir, title, created, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT (id) DO UPDATE SET title = excluded.title, archived = excluded.archived`,
-			Args: []any{w.ID, w.Project, string(w.Isolation), w.Dir, w.Title, w.Created, w.Archived}})
+			SQL: `INSERT INTO workspaces (id, project, isolation, dir, worktree_root, owned, branch, base_ref, pr,
+					title, created, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT (id) DO UPDATE SET branch = excluded.branch, title = excluded.title, archived = excluded.archived`,
+			Args: []any{w.ID, w.Project, string(w.Isolation), w.Dir, w.WorktreeRoot, w.Owned, w.Branch, w.BaseRef, w.PR,
+				w.Title, w.Created, w.Archived}})
 	}
 	return dbstore.ExecTx(ctx, s.db, stmts)
 }

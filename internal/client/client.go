@@ -699,20 +699,6 @@ func (c *Client) Workers(ctx context.Context, parentSession string) ([]protocol.
 	return out, c.Call(ctx, protocol.MethodWorkersList, protocol.WorkersListRequest{ParentSession: parentSession}, &out)
 }
 
-func (c *Client) ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error) {
-	var out []protocol.WorktreeInfo
-	return out, c.Call(ctx, protocol.MethodWorktreesList, protocol.WorktreesListRequest{Directory: dir}, &out)
-}
-
-func (c *Client) CreateWorktree(ctx context.Context, req protocol.WorktreeCreateRequest) (protocol.WorktreeInfo, error) {
-	var out protocol.WorktreeInfo
-	return out, c.Call(ctx, protocol.MethodWorktreeCreate, req, &out)
-}
-
-func (c *Client) RemoveWorktree(ctx context.Context, req protocol.WorktreeRemoveRequest) error {
-	return c.Call(ctx, protocol.MethodWorktreeRemove, req, nil)
-}
-
 func (c *Client) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {
 	var out *protocol.PRStatus
 	return out, c.Call(ctx, protocol.MethodWorktreePR, protocol.WorktreePRRequest{Directory: dir}, &out)
@@ -918,4 +904,28 @@ func (c *Client) Workspaces(ctx context.Context, req protocol.WorkspacesListRequ
 
 func (c *Client) RenameWorkspace(ctx context.Context, id, title string) error {
 	return c.Call(ctx, protocol.MethodWorkspaceRename, protocol.WorkspaceRenameRequest{Workspace: id, Title: title}, nil)
+}
+
+func (c *Client) CreateWorkspace(ctx context.Context, req protocol.WorkspaceCreateRequest) (protocol.WorkspaceInfo, error) {
+	var out protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceCreate, req, &out)
+}
+
+func (c *Client) ArchiveWorkspace(ctx context.Context, id string, force bool) error {
+	return c.Call(ctx, protocol.MethodWorkspaceArchive, protocol.WorkspaceArchiveRequest{Workspace: id, Force: force}, nil)
+}
+
+func (c *Client) RestoreWorkspace(ctx context.Context, id string) (protocol.WorkspaceInfo, error) {
+	var out protocol.WorkspaceInfo
+	return out, c.Call(ctx, protocol.MethodWorkspaceRestore, protocol.WorkspaceIDRequest{Workspace: id}, &out)
+}
+
+func (c *Client) WorkspaceRefs(ctx context.Context, project string) (protocol.WorkspaceRefs, error) {
+	var out protocol.WorkspaceRefs
+	return out, c.Call(ctx, protocol.MethodWorkspaceRefs, protocol.WorkspaceRefsRequest{Project: project}, &out)
+}
+
+func (c *Client) WorkspaceChanges(ctx context.Context, id string) ([]protocol.FileChange, error) {
+	var out []protocol.FileChange
+	return out, c.Call(ctx, protocol.MethodWorkspaceChanges, protocol.WorkspaceIDRequest{Workspace: id}, &out)
 }

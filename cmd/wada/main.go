@@ -68,6 +68,10 @@ func main() {
 		err = runPRCmd(ctx, c, remote, args[1:])
 	case "terminal":
 		err = runTerminalCmd(ctx, c, remote, args[1:])
+	case "project":
+		err = runProjectCmd(ctx, c, remote, args[1:])
+	case "workspace":
+		err = runWorkspaceCmd(ctx, c, remote, args[1:])
 	case "ls":
 		err = runList(ctx, c, args[1:])
 	case "run":
@@ -110,8 +114,15 @@ Commands:
   pr <status|create>     Inspect or create GitHub pull requests via gh
   terminal <ls|create|attach|capture|kill>
                          Manage detached interactive PTY terminals
-  ls [--dir DIR]         List sessions
-  run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>
+  project <ls|add|rename|rm>
+                         List, add, rename or remove projects
+  workspace <ls|create|rename|archive|restore>
+                         Manage workspaces; create takes --project or --dir, and
+                         --base REF, --checkout BRANCH, --pr N or --existing PATH
+  ls [--dir DIR | --workspace ID]
+                         List sessions
+  run [--dir DIR | --workspace ID | --new-worktree [--base REF ...]]
+      [--provider ID] [--mode ask|full] <prompt>
                          Create a session, stream output, and handle approvals
   logs <session-id>      Print stored conversation messages
   abort <session-id>     Abort a running turn
@@ -543,15 +554,16 @@ func runTerminalCmd(ctx context.Context, c *client.Client, remote bool, args []s
 func runList(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	dir := fs.String("dir", "", "Filter by directory")
+	workspace := fs.String("workspace", "", "Filter by workspace ID")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	page, err := c.Sessions(ctx, protocol.SessionQuery{Directory: *dir})
+	page, err := c.Sessions(ctx, protocol.SessionQuery{Directory: *dir, Workspace: *workspace})
 	if err != nil {
 		return err
 	}
 	for _, s := range page.Sessions {
-		fmt.Printf("%s\t%s\t%s\n", s.ID, s.Directory, s.Title)
+		fmt.Printf("%s\t%s\t%s\t%s\n", s.ID, s.Workspace, s.Directory, s.Title)
 	}
 	return nil
 }
@@ -589,6 +601,9 @@ func runLogs(ctx context.Context, c *client.Client, args []string) error {
 func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dir := fs.String("dir", "", "Workspace directory (default: the current one, or a remote daemon's inbox)")
+	workspace := fs.String("workspace", "", "Run in this workspace")
+	newWorktree := fs.Bool("new-worktree", false, "Run in a new worktree workspace of the project at --dir")
+	wt := addWorktreeFlags(fs)
 	provider := fs.String("provider", "", "Agent provider/harness ID (default embedded PiG)")
 	mode := fs.String("mode", "ask", "Access mode: ask or full")
 	if err := fs.Parse(args); err != nil {
@@ -596,18 +611,39 @@ func runPrompt(ctx context.Context, c *client.Client, remote bool, args []string
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("usage: wada run [--dir DIR] [--provider ID] [--mode ask|full] <prompt>")
+		return fmt.Errorf("usage: wada run [--dir DIR | --workspace ID | --new-worktree ...] [--provider ID] [--mode ask|full] <prompt>")
 	}
-	absDir, err := workDir(remote, *dir)
-	if err != nil {
-		return err
+	create := protocol.CreateSessionRequest{IdempotencyKey: "cli_" + uuid.NewString(), Workspace: *workspace,
+		Provider: *provider, Mode: *mode}
+	switch {
+	case *newWorktree:
+		if *workspace != "" {
+			return errors.New("use --workspace or --new-worktree, not both")
+		}
+		project, err := projectAt(ctx, c, remote, *dir)
+		if err != nil {
+			return err
+		}
+		req, err := wt.request(project)
+		if err != nil {
+			return err
+		}
+		wctx, cancel := context.WithTimeout(ctx, newWorktreeTimeout)
+		w, err := c.CreateWorkspace(wctx, req)
+		cancel()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "workspace: %s (%s on %s)\n", w.ID, w.Directory, w.Branch)
+		create.Workspace = w.ID
+	case *workspace == "":
+		absDir, err := workDir(remote, *dir)
+		if err != nil {
+			return err
+		}
+		create.Directory = absDir
 	}
-	sess, err := c.Create(ctx, protocol.CreateSessionRequest{
-		IdempotencyKey: "cli_" + uuid.NewString(),
-		Directory:      absDir,
-		Provider:       *provider,
-		Mode:           *mode,
-	})
+	sess, err := c.Create(ctx, create)
 	if err != nil {
 		return err
 	}

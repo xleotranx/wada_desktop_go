@@ -22,6 +22,9 @@ func (p *Plugin) changesView(c *ui.Context) {
 	if p.mode == uncommittedChanges {
 		ui.Text(c, "Staged, unstaged & untracked").FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
 	}
+	if w, ok := p.base(); ok && p.mode == baseChanges {
+		ui.Text(c, "Commits and uncommitted work since "+w.BaseRef).FontSize(11).TextColor(pal.Faint).Padding(0, 0, 6, 0)
+	}
 	if p.problem != "" {
 		ui.Text(c, p.problem).FontSize(12).TextColor(pal.Muted)
 	} else if !p.known {
@@ -31,8 +34,12 @@ func (p *Plugin) changesView(c *ui.Context) {
 	if len(p.changes) == 0 {
 		if p.problem == "" {
 			empty := "No file changes"
-			if p.mode == uncommittedChanges {
+			switch p.mode {
+			case uncommittedChanges:
 				empty = "No uncommitted changes"
+			case baseChanges:
+				empty = "No changes since the base"
+			case sessionChanges:
 			}
 			ui.Text(c, empty).FontSize(12).TextColor(pal.Faint)
 		}
@@ -136,7 +143,7 @@ func (p *Plugin) sourcePicker(c *ui.Context, pal native.Palette) {
 		})
 		sel.Popup(func(panel ui.Element) {
 			panel.Width(252).Padding(4).Radius(8).Background(pal.Bg).Border(1, pal.Hairline)
-			for _, source := range []changeSource{sessionChanges, uncommittedChanges} {
+			for _, source := range p.sources() {
 				c.Key(source)
 				item := sel.Item(source).Label(source.label()).Height(30).Padding(0, 8).Radius(4)
 				if item.Highlighted() {

@@ -5,6 +5,7 @@ package plugintest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -482,6 +483,17 @@ type Workspace struct {
 	Pending bool // the record has not been read yet
 	// Archived lists the projects ArchiveProject was asked to archive.
 	Archived []agent.ProjectID
+	// Extra are worktree workspaces, listed after their project's.
+	Extra []agent.Workspace
+	// Made lists CreateWorkspace's requests; it makes the workspace at
+	// "<project root>-<slug>" unless CreateErr is set.
+	Made      []agent.CreateWorkspace
+	CreateErr error
+	// Dropped lists ArchiveWorkspace's calls, "<id>" or "<id> force"; a call
+	// without force fails with ArchiveErr when it is set.
+	Dropped    []string
+	ArchiveErr error
+	RefList    agent.Refs
 }
 
 func (f *Workspace) New() kernel.Plugin { return f }
@@ -511,9 +523,54 @@ func (w *Workspace) Workspaces() []agent.Workspace {
 	var out []agent.Workspace
 	for _, d := range w.all() {
 		out = append(out, w.space(d))
+		for _, x := range w.Extra {
+			if x.Project == agent.ProjectID("prj:"+d) {
+				out = append(out, x)
+			}
+		}
 	}
 	return out
 }
+
+func (w *Workspace) Project(id agent.ProjectID) (agent.Project, bool) {
+	for _, p := range w.Projects() {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return agent.Project{}, false
+}
+
+func (w *Workspace) CreateWorkspace(req agent.CreateWorkspace, done func(agent.Workspace, error)) {
+	w.Made = append(w.Made, req)
+	if w.CreateErr != nil {
+		done(agent.Workspace{}, w.CreateErr)
+		return
+	}
+	dir := strings.TrimPrefix(string(req.Project), "prj:") + "-" + req.Slug
+	made := agent.Workspace{ID: agent.WorkspaceID("wks:" + dir), Project: req.Project, Isolation: req.Isolation,
+		Directory: dir, WorktreeRoot: dir, Branch: "wada/" + req.Slug, Title: req.Title}
+	w.Extra = append(w.Extra, made)
+	w.changed()
+	done(made, nil)
+}
+
+func (w *Workspace) ArchiveWorkspace(id agent.WorkspaceID, force bool, done func(error)) {
+	call := string(id)
+	if force {
+		call += " force"
+	}
+	w.Dropped = append(w.Dropped, call)
+	if w.ArchiveErr != nil && !force {
+		done(w.ArchiveErr)
+		return
+	}
+	w.Extra = slices.DeleteFunc(w.Extra, func(x agent.Workspace) bool { return x.ID == id })
+	w.changed()
+	done(nil)
+}
+
+func (w *Workspace) Refs(_ agent.ProjectID, done func(agent.Refs, error)) { done(w.RefList, nil) }
 
 func (w *Workspace) all() []string {
 	out := slices.Clone(w.Dirs)
@@ -530,6 +587,11 @@ func (w *Workspace) space(d string) agent.Workspace {
 }
 
 func (w *Workspace) Workspace(id agent.WorkspaceID) (agent.Workspace, bool) {
+	for _, x := range w.Extra {
+		if x.ID == id {
+			return x, true
+		}
+	}
 	d, ok := strings.CutPrefix(string(id), "wks:")
 	if !ok || !slices.Contains(w.all(), d) {
 		return agent.Workspace{}, false
@@ -540,6 +602,11 @@ func (w *Workspace) Workspace(id agent.WorkspaceID) (agent.Workspace, bool) {
 func (w *Workspace) At(dir string) (agent.Workspace, bool) {
 	if dir == "" {
 		dir = w.Inbox
+	}
+	for _, x := range w.Extra {
+		if x.Directory == dir {
+			return x, true
+		}
 	}
 	if dir == "" || !slices.Contains(w.all(), dir) {
 		return agent.Workspace{}, false
@@ -553,6 +620,11 @@ func (w *Workspace) Name(dir string) string {
 	}
 	if n := w.Names[dir]; n != "" {
 		return n
+	}
+	for _, x := range w.Extra {
+		if x.Directory == dir && x.Branch != "" {
+			return cmpOr(x.Title, x.Branch)
+		}
 	}
 	return path.Base(dir)
 }
@@ -608,6 +680,14 @@ type Projects struct {
 	Dirs  []string
 	Inbox string
 	Fail  map[string]error // by method name, e.g. "AddProject"
+	// Made are the worktree workspaces CreateWorkspace made, each at
+	// "<project root>-<slug>" on branch "wada/<slug>" from RefList.Default.
+	Made []agent.Workspace
+	// Created and Archived record the requests.
+	Created  []agent.CreateWorkspace
+	Archived []string // "<id>" or "<id> force"
+	RefList  agent.Refs
+	Base     []agent.FileChange // what BaseChanges returns
 }
 
 func (f *Projects) New() kernel.Plugin { return f }
@@ -662,7 +742,78 @@ func (f *Projects) Workspaces(context.Context, bool) ([]agent.Workspace, error) 
 	for _, d := range f.dirs() {
 		out = append(out, agent.Workspace{ID: agent.WorkspaceID("wks:" + d), Project: agent.ProjectID("prj:" + d), Directory: d})
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, w := range f.Made {
+		if w.Archived == 0 {
+			out = append(out, w)
+		}
+	}
 	return out, nil
+}
+
+func (f *Projects) CreateWorkspace(_ context.Context, req agent.CreateWorkspace) (agent.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Created = append(f.Created, req)
+	if err := f.Fail["CreateWorkspace"]; err != nil {
+		return agent.Workspace{}, err
+	}
+	root := strings.TrimPrefix(string(req.Project), "prj:")
+	dir := root + "-" + req.Slug
+	w := agent.Workspace{ID: agent.WorkspaceID("wks:" + dir), Project: req.Project, Isolation: req.Isolation,
+		Directory: dir, WorktreeRoot: dir, Branch: "wada/" + req.Slug, BaseRef: f.RefList.Default, Title: req.Title}
+	f.Made = append(f.Made, w)
+	return w, nil
+}
+
+func (f *Projects) ArchiveWorkspace(_ context.Context, id agent.WorkspaceID, force bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	call := string(id)
+	if force {
+		call += " force"
+	}
+	f.Archived = append(f.Archived, call)
+	if err := f.Fail["ArchiveWorkspace"]; err != nil && !force {
+		return err
+	}
+	for i := range f.Made {
+		if f.Made[i].ID == id {
+			f.Made[i].Archived = 1
+		}
+	}
+	return nil
+}
+
+func (f *Projects) RestoreWorkspace(_ context.Context, id agent.WorkspaceID) (agent.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.Made {
+		if f.Made[i].ID == id {
+			f.Made[i].Archived = 0
+			return f.Made[i], nil
+		}
+	}
+	return agent.Workspace{}, errors.New("no such workspace")
+}
+
+func (f *Projects) Refs(context.Context, agent.ProjectID) (agent.Refs, error) {
+	if err := f.fail("Refs"); err != nil {
+		return agent.Refs{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.RefList, nil
+}
+
+func (f *Projects) BaseChanges(context.Context, agent.WorkspaceID) ([]agent.FileChange, error) {
+	if err := f.fail("BaseChanges"); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.Base), nil
 }
 
 func (f *Projects) AddProject(_ context.Context, root string) (agent.Project, agent.Workspace, error) {
@@ -770,4 +921,11 @@ func (f *Images) Replace(_ attachment.Image, file agent.File, _ *ui.Bitmap, note
 	f.Current.Revision++
 	f.Replaced++
 	return nil
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

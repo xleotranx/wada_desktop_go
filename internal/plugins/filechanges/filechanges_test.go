@@ -448,3 +448,37 @@ func TestSessionChangesFollowAProviderThatComesAndGoes(t *testing.T) {
 		t.Fatal("a provider enabled later was not noticed")
 	}
 }
+
+func TestAWorktreeWorkspaceComparesWithItsBase(t *testing.T) {
+	a := plugintest.NewAgent()
+	ws := &plugintest.Workspace{Dirs: []string{"/w/app"}, Extra: []agent.Workspace{{ID: "wks:/w/app-x", Project: "prj:/w/app",
+		Isolation: agent.IsolateWorktree, Directory: "/w/app-x", Branch: "wada/x", BaseRef: "origin/main"}}}
+	record := &plugintest.Projects{Base: []agent.FileChange{{Path: "parser.go", Added: 4}}}
+	ctl := &plugintest.Chat{}
+	var p *Plugin
+	h := kerneltest.New(t, a.New, ws.New, record.New, ctl.New, kerneltest.Keep(&p, func() *Plugin { return &Plugin{} }))
+	ctl.Open(agent.Session{ID: "s1", Directory: "/w/app-x"})
+	h.Flush()
+	if got := p.sources(); len(got) != 3 || got[2] != baseChanges {
+		t.Fatalf("sources %v", got)
+	}
+	p.mode = baseChanges
+	p.chooseSource()
+	for !p.known && p.problem == "" {
+		h.Flush()
+	}
+	if len(p.changes) != 1 || p.changes[0].Path != "parser.go" {
+		t.Fatalf("changes %+v problem %q", p.changes, p.problem)
+	}
+	tt := panel(p)
+	tt.Frame()
+	if !tt.HasText("Commits and uncommitted work since origin/main") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	// A project's own directory has no base; its choice falls back.
+	ctl.Open(agent.Session{ID: "s2", Directory: "/w/app"})
+	h.Flush()
+	if p.mode != sessionChanges || len(p.sources()) != 2 {
+		t.Fatalf("mode %v sources %v", p.mode, p.sources())
+	}
+}

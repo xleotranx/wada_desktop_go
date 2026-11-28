@@ -28,6 +28,7 @@ import (
 	"wada-desktop-go/internal/plugins/tabs"
 	"wada-desktop-go/internal/plugins/usage"
 	"wada-desktop-go/internal/plugins/workspace"
+	"wada-desktop-go/internal/plugins/worktrees"
 	"wada-desktop-go/internal/plugintest"
 
 	"github.com/egoist/mygo/ui"
@@ -85,10 +86,10 @@ func startApp(t *testing.T) *app {
 			fn()
 		}
 	}
-	projects := &plugintest.Projects{Dirs: []string{"/work/app", "/work/docs"}}
+	projects := &plugintest.Projects{Dirs: []string{"/work/app", "/work/docs"}, RefList: agent.Refs{Default: "origin/main"}}
 	s, err := shell.New(shell.Options{Name: wada.Name, Menus: wada.Menus, Post: post, Strict: true, Store: kerneltest.NewStore()},
 		a.New, files.New, chat.New, models.New, modes.New, usage.New, filechanges.New, attachments.New, markup.New, mentions.New,
-		projects.New, workspace.New, folderpicker.New, tabs.New, explore.New, starters.New, palette.New, inspector.New, settings.New)
+		projects.New, workspace.New, folderpicker.New, worktrees.New, tabs.New, explore.New, starters.New, palette.New, inspector.New, settings.New)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +347,7 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	for _, e := range kernel.Items(a.shell.Kernel, chatcontract.Work) {
 		titles = append(titles, e.Value.Title)
 	}
-	if !slices.Equal(titles, []string{"Context", "File changes", "Cost"}) {
+	if !slices.Equal(titles, []string{"Workspace", "Context", "File changes", "Cost"}) {
 		t.Fatalf("work panel order: %q", titles)
 	}
 	for _, want := range []string{"Context", "File changes", "Cost", "1 file", "+3", "−1"} {
@@ -370,5 +371,22 @@ func TestWorkPanelPlacesFileChangesBelowContext(t *testing.T) {
 	a.settle()
 	if !a.tt.HasText("+new") {
 		t.Fatalf("file diff did not open: %q", a.tt.Texts())
+	}
+}
+
+func TestANewWorkspaceOpensAChatInItsSpace(t *testing.T) {
+	a := startApp(t)
+	a.openConversation(agent.Session{ID: "s1", Title: "Fix the parser", Directory: "/work/app"})
+	a.command("worktrees.new")
+	if !a.tt.HasText("New workspace") || !a.tt.HasText("origin/main") {
+		t.Fatalf("the dialog: %q", a.tt.Texts())
+	}
+	if err := a.tt.Click("Create"); err != nil {
+		t.Fatal(err)
+	}
+	a.until("the new workspace's chat", func() bool { return a.tt.HasText("Space wada/") })
+	open, _ := kernel.Use[tabcontract.Service](a.shell.Kernel, tabcontract.ServiceKey)
+	if open.Space() != "/work/app-" {
+		t.Fatalf("space %q", open.Space())
 	}
 }

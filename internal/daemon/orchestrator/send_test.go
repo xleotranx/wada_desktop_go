@@ -293,19 +293,19 @@ func TestSpawnAgentStaysWithinTheConversation(t *testing.T) {
 	if err := spawn(true, `{"provider":"scripted","name":"b","mode":"full"}`); err != nil {
 		t.Fatal(err)
 	}
-	if err := spawn(false, `{"provider":"scripted","name":"c","worktree_path":"sub"}`); err != nil {
+	if err := spawn(false, `{"provider":"scripted","name":"c","directory":"sub"}`); err != nil {
 		t.Fatal(err)
 	}
 	if len(started) != 3 || started[0].Mode != "ask" || started[1].Mode != "full" || started[2].Directory != filepath.Join(folder, "sub") {
 		t.Fatalf("started = %+v", started)
 	}
-	if err := spawn(false, `{"provider":"scripted","name":"f","worktree_path":"escape"}`); err == nil {
+	if err := spawn(false, `{"provider":"scripted","name":"f","directory":"escape"}`); err == nil {
 		t.Fatal("a worker was spawned through a symlink out of the conversation's folder")
 	}
-	if err := spawn(false, `{"provider":"scripted","name":"d","worktree_path":"`+outside+`"}`); err == nil {
+	if err := spawn(false, `{"provider":"scripted","name":"d","directory":"`+outside+`"}`); err == nil {
 		t.Fatal("a worker was spawned outside the conversation's folder")
 	}
-	if err := spawn(false, `{"provider":"scripted","name":"e","worktree_path":"../elsewhere"}`); err == nil {
+	if err := spawn(false, `{"provider":"scripted","name":"e","directory":"../elsewhere"}`); err == nil {
 		t.Fatal("a worker was spawned above the conversation's folder")
 	}
 }

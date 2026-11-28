@@ -35,10 +35,10 @@ type Store interface {
 // Registry is the record. Its methods are safe for concurrent use; changes are
 // made one at a time.
 type Registry struct {
-	st    Store
-	inbox string
-	emit  func(protocol.Event)
-	now   func() int64
+	st     Store
+	inbox  string
+	emitFn func(protocol.Event)
+	now    func() int64
 
 	mu         sync.Mutex
 	projects   map[string]store.ProjectRow
@@ -65,7 +65,7 @@ func Open(ctx context.Context, st Store, opts Options) (*Registry, error) {
 	r := &Registry{
 		st:         st,
 		inbox:      filepath.Clean(opts.Inbox),
-		emit:       opts.Emit,
+		emitFn:     opts.Emit,
 		now:        opts.Now,
 		projects:   map[string]store.ProjectRow{},
 		workspaces: map[string]store.WorkspaceRow{},
@@ -73,9 +73,7 @@ func Open(ctx context.Context, st Store, opts Options) (*Registry, error) {
 	if r.now == nil {
 		r.now = func() int64 { return time.Now().UnixMilli() }
 	}
-	if r.emit == nil {
-		r.emit = func(protocol.Event) {}
-	}
+
 	projects, err := st.Projects(ctx)
 	if err != nil {
 		return nil, err
@@ -210,7 +208,94 @@ func (r *Registry) projectInfo(p store.ProjectRow) protocol.ProjectInfo {
 
 func workspaceInfo(w store.WorkspaceRow) protocol.WorkspaceInfo {
 	return protocol.WorkspaceInfo{ID: w.ID, Project: w.Project, Isolation: w.Isolation, Directory: w.Dir,
+		WorktreeRoot: w.WorktreeRoot, Owned: w.Owned, Branch: w.Branch, BaseRef: w.BaseRef, PR: w.PR,
 		Title: w.Title, Created: w.Created, Archived: w.Archived}
+}
+
+// Project returns a project, archived or not.
+func (r *Registry) Project(id string) (protocol.ProjectInfo, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.projects[id]
+	if !ok {
+		return protocol.ProjectInfo{}, false
+	}
+	return r.projectInfo(p), true
+}
+
+// addWorkspace records a new active workspace of an active project.
+func (r *Registry) addWorkspace(ctx context.Context, w store.WorkspaceRow) (protocol.WorkspaceInfo, error) {
+	r.mu.Lock()
+	if p, ok := r.projects[w.Project]; !ok || p.Archived != 0 {
+		r.mu.Unlock()
+		return protocol.WorkspaceInfo{}, ErrNotFound
+	}
+	w.Dir = filepath.Clean(w.Dir)
+	if x, ok := r.activeAt(w.Dir); ok {
+		r.mu.Unlock()
+		return protocol.WorkspaceInfo{}, fmt.Errorf("workspaces: %s is already the workspace %s", x.Dir, x.ID)
+	}
+	w.ID, w.Created, w.Archived = newID("wks_"), r.now(), 0
+	err := r.put(ctx, nil, []store.WorkspaceRow{w})
+	r.mu.Unlock()
+	if err != nil {
+		return protocol.WorkspaceInfo{}, err
+	}
+	wi := workspaceInfo(w)
+	r.emit(protocol.Event{Kind: protocol.EventWorkspaceUpdated, Workspace: &wi})
+	return wi, nil
+}
+
+// setArchived archives or restores one workspace of an active project. A
+// restored one must not share its directory with an active one.
+func (r *Registry) setArchived(ctx context.Context, id string, archived bool) (protocol.WorkspaceInfo, error) {
+	r.mu.Lock()
+	w, ok := r.workspaces[id]
+	if !ok || (w.Archived != 0) == archived {
+		r.mu.Unlock()
+		return protocol.WorkspaceInfo{}, ErrNotFound
+	}
+	if p, ok := r.projects[w.Project]; !ok || p.Archived != 0 {
+		r.mu.Unlock()
+		return protocol.WorkspaceInfo{}, fmt.Errorf("workspaces: its project is archived; add the project again first")
+	}
+	if archived {
+		w.Archived = r.now()
+	} else {
+		if x, ok := r.activeAt(w.Dir); ok {
+			r.mu.Unlock()
+			return protocol.WorkspaceInfo{}, fmt.Errorf("workspaces: %s is already the workspace %s", x.Dir, x.ID)
+		}
+		w.Archived = 0
+	}
+	err := r.put(ctx, nil, []store.WorkspaceRow{w})
+	r.mu.Unlock()
+	if err != nil {
+		return protocol.WorkspaceInfo{}, err
+	}
+	wi := workspaceInfo(w)
+	r.emit(protocol.Event{Kind: protocol.EventWorkspaceUpdated, Workspace: &wi})
+	return wi, nil
+}
+
+// activeUsers counts the active workspaces in the checkout at root.
+func (r *Registry) activeUsers(root string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, w := range r.workspaces {
+		if w.Archived == 0 && w.WorktreeRoot == root {
+			n++
+		}
+	}
+	return n
+}
+
+// SetEmit sends later workspace_updated events to emit.
+func (r *Registry) SetEmit(emit func(protocol.Event)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.emitFn = emit
 }
 
 // ---- Changing
@@ -351,6 +436,15 @@ func (r *Registry) RenameWorkspace(ctx context.Context, id, title string) error 
 	wi := workspaceInfo(w)
 	r.emit(protocol.Event{Kind: protocol.EventWorkspaceUpdated, Workspace: &wi})
 	return nil
+}
+
+func (r *Registry) emit(ev protocol.Event) {
+	r.mu.Lock()
+	fn := r.emitFn
+	r.mu.Unlock()
+	if fn != nil {
+		fn(ev)
+	}
 }
 
 // put saves rows, then applies them in memory. Called with mu held.

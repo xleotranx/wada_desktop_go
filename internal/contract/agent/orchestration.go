@@ -12,7 +12,8 @@ var (
 	HarnessesKey = kernel.NewKey[Harnesses]("agent.harnesses")
 	// WorkersKey is an optional backend capability listing supervised external workers.
 	WorkersKey = kernel.NewKey[Workers]("agent.workers")
-	// WorktreesKey is an optional backend capability managing isolated Git worktrees.
+	// WorktreesKey is an optional backend capability reading a checkout's pull
+	// request.
 	WorktreesKey = kernel.NewKey[Worktrees]("agent.worktrees")
 
 	// WorkerUpdated is emitted on the UI thread whenever a managed worker's status changes.
@@ -106,7 +107,7 @@ type Workers interface {
 }
 
 type Worktrees interface {
-	ListWorktrees(ctx context.Context, directory string) ([]Worktree, error)
-	RemoveWorktree(ctx context.Context, directory, path string, force bool) error
+	// PRStatus is the pull request of the branch checked out at directory,
+	// or nil for none.
 	PRStatus(ctx context.Context, directory string) (*PRStatus, error)
 }

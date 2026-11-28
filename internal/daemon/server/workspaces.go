@@ -70,15 +70,96 @@ func (s *Server) dispatchWorkspaces(ctx context.Context, method string, payload 
 			return nil, workspaceErr(err)
 		}
 		return map[string]bool{"ok": true}, nil
+	case protocol.MethodWorkspaceCreate:
+		var req protocol.WorkspaceCreateRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		return s.withCreationReceipt(ctx, req.IdempotencyKey, "workspace", hashStruct(req),
+			func(id string) any { w, _ := s.workspaces.Workspace(id); return w },
+			func() (string, any, error) {
+				w, err := s.workspaces.Create(ctx, req)
+				if err != nil {
+					return "", nil, workspaceErr(err)
+				}
+				return w.ID, w, nil
+			})
+	case protocol.MethodWorkspaceArchive:
+		var req protocol.WorkspaceArchiveRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		w, _ := s.workspaces.Workspace(req.Workspace)
+		if err := s.workspaces.Archive(ctx, req.Workspace, req.Force); err != nil {
+			return nil, workspaceErr(err)
+		}
+		s.stopWorkIn(ctx, w)
+		return map[string]bool{"ok": true}, nil
+	case protocol.MethodWorkspaceRestore:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		w, err := s.workspaces.Restore(ctx, req.Workspace)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return w, nil
+	case protocol.MethodWorkspaceRefs:
+		var req protocol.WorkspaceRefsRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		refs, err := s.workspaces.Refs(ctx, req.Project)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return refs, nil
+	case protocol.MethodWorkspaceChanges:
+		var req protocol.WorkspaceIDRequest
+		if rerr := decode(&req); rerr != nil {
+			return nil, rerr
+		}
+		changes, err := s.workspaces.Changes(ctx, req.Workspace)
+		if err != nil {
+			return nil, workspaceErr(err)
+		}
+		return changes, nil
 	}
 	return nil, &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: "unknown method " + method}
 }
 
 func workspaceErr(err error) *protocol.RPCError {
-	if errors.Is(err, workspaces.ErrNotFound) {
+	var pending *workspaces.PendingError
+	switch {
+	case errors.As(err, &pending):
+		return &protocol.RPCError{Code: protocol.ErrCodeConflict, Message: err.Error()}
+	case errors.Is(err, workspaces.ErrNotFound):
 		return &protocol.RPCError{Code: protocol.ErrCodeNotFound, Message: err.Error()}
 	}
 	return &protocol.RPCError{Code: protocol.ErrCodeInvalid, Message: err.Error()}
+}
+
+// stopWorkIn ends what still runs in an archived workspace: its conversations'
+// turns and its terminals. Each is tried once; one that fails is left.
+func (s *Server) stopWorkIn(ctx context.Context, w protocol.WorkspaceInfo) {
+	if w.Directory == "" {
+		return
+	}
+	if page, err := s.cfg.Backend.Sessions(ctx, protocol.SessionQuery{Directory: w.Directory}); err == nil {
+		for _, sess := range page.Sessions {
+			_ = s.cfg.Backend.Abort(ctx, sess.ID)
+		}
+	}
+	if tb, ok := s.cfg.Backend.(TerminalBackend); ok {
+		if list, err := tb.ListTerminals(ctx); err == nil {
+			for _, t := range list {
+				if t.Running && t.Directory == w.Directory {
+					_ = tb.KillTerminal(ctx, t.ID)
+				}
+			}
+		}
+	}
 }
 
 // workspaceDir resolves a request's workspace to its directory. A request may

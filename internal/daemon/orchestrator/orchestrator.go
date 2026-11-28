@@ -17,17 +17,19 @@ import (
 	"wada-desktop-go/internal/daemon/harness"
 	"wada-desktop-go/internal/daemon/pig"
 	"wada-desktop-go/internal/daemon/terminal"
+	"wada-desktop-go/internal/daemon/workspaces"
 	"wada-desktop-go/internal/daemon/worktree"
 	"wada-desktop-go/internal/protocol"
 )
 
 // Options configures a multi-provider Orchestrator.
 type Options struct {
-	DataDir   string
-	PiG       *pig.Runtime
-	Worktrees *worktree.Manager
-	Registry  *harness.Registry
-	Terminals *terminal.Supervisor
+	DataDir    string
+	PiG        *pig.Runtime
+	Worktrees  *worktree.Manager
+	Workspaces *workspaces.Service // optional: the Chief tools' workspaces
+	Registry   *harness.Registry
+	Terminals  *terminal.Supervisor
 }
 
 type managedWorker struct {
@@ -46,10 +48,11 @@ type managedWorker struct {
 // Orchestrator implements server.Backend and server.OrchestrationBackend across
 // embedded PiG sessions and supervised external CLI harness workers.
 type Orchestrator struct {
-	pig       *pig.Runtime
-	worktrees *worktree.Manager
-	registry  *harness.Registry
-	terminals *terminal.Supervisor
+	pig        *pig.Runtime
+	worktrees  *worktree.Manager
+	workspaces *workspaces.Service
+	registry   *harness.Registry
+	terminals  *terminal.Supervisor
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -75,15 +78,16 @@ func New(ctx context.Context, opts Options) (*Orchestrator, error) {
 	}
 	octx, cancel := context.WithCancel(ctx)
 	o := &Orchestrator{
-		pig:       opts.PiG,
-		worktrees: opts.Worktrees,
-		registry:  opts.Registry,
-		terminals: opts.Terminals,
-		ctx:       octx,
-		cancel:    cancel,
-		events:    make(chan protocol.Event, 512),
-		workers:   map[string]*managedWorker{},
-		waiters:   map[string][]chan struct{}{},
+		pig:        opts.PiG,
+		worktrees:  opts.Worktrees,
+		workspaces: opts.Workspaces,
+		registry:   opts.Registry,
+		terminals:  opts.Terminals,
+		ctx:        octx,
+		cancel:     cancel,
+		events:     make(chan protocol.Event, 512),
+		workers:    map[string]*managedWorker{},
+		waiters:    map[string][]chan struct{}{},
 	}
 
 	pigEvents := o.pig.Events()
@@ -532,18 +536,6 @@ func (o *Orchestrator) Workers(_ context.Context, parentSession string) ([]proto
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
-}
-
-func (o *Orchestrator) ListWorktrees(ctx context.Context, dir string) ([]protocol.WorktreeInfo, error) {
-	return o.worktrees.List(ctx, dir)
-}
-
-func (o *Orchestrator) CreateWorktree(ctx context.Context, dir, name, baseRef string) (protocol.WorktreeInfo, error) {
-	return o.worktrees.Create(ctx, dir, name, baseRef)
-}
-
-func (o *Orchestrator) RemoveWorktree(ctx context.Context, dir, wtPath string, force bool) error {
-	return o.worktrees.Remove(ctx, dir, wtPath, force)
 }
 
 func (o *Orchestrator) WorktreePR(ctx context.Context, dir string) (*protocol.PRStatus, error) {

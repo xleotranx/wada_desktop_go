@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TerminalTextStream, appendTerminalOutput } from "./client/ansi";
 import {
   type ApprovalItem,
@@ -13,13 +13,16 @@ import {
   EV_TURN_STARTED,
   EV_TURN_SUCCEEDED,
   EV_WORKER_UPDATED,
+  EV_WORKSPACE_UPDATED,
   type FileChange,
   type HarnessInfo,
   type InteractionItem,
+  type ProjectInfo,
   type SessionInfo,
   type SessionMessage,
   type TerminalInfo,
   type WorkerInfo,
+  type WorkspaceInfo,
 } from "./client/protocol";
 import {
   type SavedHost,
@@ -30,6 +33,7 @@ import {
   upsertHost,
 } from "./client/storage";
 import { type AttachedTerminal, WadaClient } from "./client/wadaClient";
+import { groupSessions } from "./client/workspaces";
 import { decodeOffer, normalizeDirectWSURL, parseHostTarget } from "./crypto/offer";
 
 type RightTab = "chat" | "diffs" | "terminal";
@@ -78,6 +82,9 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const groups = useMemo(() => groupSessions(sessions, projects, workspaces), [sessions, projects, workspaces]);
   const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [messages, setMessages] = useState<SessionMessage[]>([]);
@@ -260,8 +267,11 @@ export function App() {
       reconnectAttemptsRef.current = 0;
       setE2eeMode(cli.mode);
       setConnState("connected");
-      const [sessRes, harnessRes, termRes, pendingRes] = await Promise.all([
+      const [sessRes, projRes, spaceRes, harnessRes, termRes, pendingRes] = await Promise.all([
         cli.listSessions(),
+        // An older daemon without workspaces lists every session as Other.
+        cli.listProjects().catch(() => [] as ProjectInfo[]),
+        cli.listWorkspaces().catch(() => [] as WorkspaceInfo[]),
         cli.listHarnesses().catch(() => [] as HarnessInfo[]),
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
         cli.pendingApprovals().catch(() => null),
@@ -273,6 +283,8 @@ export function App() {
       }
       const list = sessRes.sessions || [];
       setSessions(list);
+      setProjects(projRes || []);
+      setWorkspaces(spaceRes || []);
       setHarnesses(harnessRes || []);
       setTerminals(termRes || []);
       setActiveTermId("");
@@ -313,6 +325,13 @@ export function App() {
         setTerminals((prev) =>
           prev.some((x) => x.id === t.id) ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]
         );
+        return;
+      }
+      case EV_WORKSPACE_UPDATED: {
+        // The project or workspace as it now is, archived ones included.
+        const { project, workspace } = ev;
+        if (project) setProjects((prev) => [...prev.filter((p) => p.id !== project.id), project]);
+        if (workspace) setWorkspaces((prev) => [...prev.filter((w) => w.id !== workspace.id), workspace]);
         return;
       }
       case EV_SESSION_RENAMED: {
@@ -667,19 +686,36 @@ export function App() {
               </button>
             </div>
             <div className="session-list">
-              {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  className={`session-item ${s.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => void selectSession(s.id)}
-                >
-                  <div className="session-title">
-                    {s.title || "Untitled session"}{" "}
-                    {needsAttention(s.id) && <span className="pill pill-attention">needs you</span>}
-                    {busySessions.has(s.id) && <span className="pill">running</span>}
+              {groups.map((g) => (
+                <div key={g.project?.id || "other"} className="project-group">
+                  <div className="project-name" title={g.project?.root}>
+                    {g.name}
                   </div>
-                  <div className="session-dir">{s.directory}</div>
-                </button>
+                  {g.workspaces.map((w) => (
+                    <div key={w.workspace?.id || "other"} className="workspace-group">
+                      {(g.workspaces.length > 1 || w.workspace?.isolation !== "project") && w.workspace && (
+                        <div className="workspace-name" title={w.workspace.directory}>
+                          {w.name}
+                          {w.workspace.pr ? <span className="pill">#{w.workspace.pr}</span> : null}
+                        </div>
+                      )}
+                      {w.sessions.map((s) => (
+                        <button
+                          key={s.id}
+                          className={`session-item ${s.id === selectedSessionId ? "active" : ""}`}
+                          onClick={() => void selectSession(s.id)}
+                        >
+                          <div className="session-title">
+                            {s.title || "Untitled session"}{" "}
+                            {needsAttention(s.id) && <span className="pill pill-attention">needs you</span>}
+                            {busySessions.has(s.id) && <span className="pill">running</span>}
+                          </div>
+                          {!w.workspace && <div className="session-dir">{s.directory}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               ))}
             </div>
           </div>

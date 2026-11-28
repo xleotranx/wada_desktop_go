@@ -24,8 +24,8 @@ plugins have no PiG dependency.
 | `ChangesKey` | Session file changes against contents before the agent touched them |
 | `HarnessesKey` | Available embedded and external coding CLI harnesses (PiG, Claude Code, Codex, ACP) |
 | `WorkersKey` | Supervised external worker metadata and status filtered by parent session |
-| `WorktreesKey` | Git worktree listing (including dirty state), safe secondary removal, and authenticated `gh` PR status (`PRStatus`) |
-| `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive |
+| `WorktreesKey` | Authenticated `gh` PR status of a directory's branch (`PRStatus`) |
+| `WorkspacesKey` | The daemon's projects and their workspaces: list, add (restoring an archived one), rename and archive; create, archive and restore worktree workspaces; a project's refs; a workspace's changes against its base. An archive refused for unsaved work fails with `ErrWorkUnsaved`. |
 
 See also `internal/contract/terminal` (`terminal.ServiceKey` and `terminal.Updated`), which the daemon plugin provides over the same `wadad` connection for detached interactive PTY streams.
 
@@ -63,9 +63,13 @@ the one it was created with.
 
 Ordinary chats use PiG's built-in coding tools
 (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and, on top-level
-conversations, Chief Agent orchestration tools (`list_providers`, `create_worktree`,
-`list_worktrees`, `spawn_agent`, `send_agent`, `wait_agent`, `inspect_agent_diff`,
-`stop_agent`) with Wada's engineering system prompt.
+conversations, Chief Agent orchestration tools (`list_providers`, `create_workspace`,
+`list_workspaces`, `archive_workspace`, `spawn_agent`, `send_agent`, `wait_agent`,
+`inspect_agent_diff`, `stop_agent`) with Wada's engineering system prompt. The
+workspace tools act on the conversation's own project and refuse the inbox.
+`spawn_agent` runs a worker in the conversation's folder, a folder inside it
+(`directory`), or a workspace of the same project (`workspace_id`); `stop_agent`
+leaves the workspace in place.
 New conversations without a folder use `<DataDir>/workspaces/inbox`; existing
 conversation directories remain as recorded. The daemon's PiG storage root is `<DataDir>/pig`:
 
@@ -152,7 +156,7 @@ preserving empty answers, selections, confirmations and explicit cancellation.
 
 ## Projects and workspaces
 
-`wadad` keeps the record of where the user works in `wadad.db` (schema 2), in
+`wadad` keeps the record of where the user works in `wadad.db` (schema 3), in
 `internal/daemon/workspaces`, read into memory at startup:
 
 ```sql
@@ -166,11 +170,16 @@ CREATE UNIQUE INDEX projects_active_root ON projects(root) WHERE archived = 0;
 CREATE TABLE workspaces (
   id        TEXT PRIMARY KEY, -- opaque "wks_" + 16 hex
   project   TEXT NOT NULL REFERENCES projects(id),
-  isolation TEXT NOT NULL,    -- "project": the project's own directory
-  dir       TEXT NOT NULL,
-  title     TEXT NOT NULL,    -- the user's; '' shows the project's name
+  isolation TEXT NOT NULL,    -- "project", "worktree" (wadad made it) or "existing"
+  dir       TEXT NOT NULL,    -- where agents and terminals run
+  title     TEXT NOT NULL,    -- the user's; '' shows the branch or the project's name
   created   INTEGER NOT NULL,
-  archived  INTEGER NOT NULL);
+  archived  INTEGER NOT NULL,
+  worktree_root TEXT NOT NULL DEFAULT '', -- the checkout dir is in, for a worktree
+  owned     INTEGER NOT NULL DEFAULT 0,   -- wadad made worktree_root and removes it
+  branch    TEXT NOT NULL DEFAULT '',
+  base_ref  TEXT NOT NULL DEFAULT '',     -- what its changes compare against
+  pr        INTEGER NOT NULL DEFAULT 0);  -- the pull request it checks out
 CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
 ```
 
@@ -198,6 +207,29 @@ CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
   `workspace` instead of `directory`: it must name an active workspace, and a
   directory given as well must be that workspace's. Terminals report the active
   workspace at their directory.
+
+Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`:
+
+- `workspace.create` (under a creation receipt) takes a project and an isolation.
+  `worktree` fetches `origin`, then makes a worktree under
+  `<DataDir>/worktrees/<repo hash>/` that branches off a ref (`branch-off`, default
+  origin's default branch, as `wada/<slug>`), checks out a branch (`checkout-branch`,
+  tracking `origin/<branch>` when it is only remote), or checks out a pull request
+  (`checkout-pr`: the head branch for one from the same repository, else
+  `pull/N/head` as `wada/pr-N`), and copies the files `.worktreeinclude` lists.
+  `existing` records a worktree already on disk. A project inside a repository
+  gets the same subfolder of the worktree. A worktree whose recording fails is
+  removed again.
+- `workspace.archive` refuses a project's own workspace. For a worktree wadad
+  made that no other active workspace uses, it lists uncommitted files and commits
+  on no remote branch or the base, refuses with `conflict` while there are any
+  unless `force`, then removes the worktree; the branch stays. It then aborts the
+  conversations and kills the terminals in the directory.
+- `workspace.restore` makes an archived workspace active again, recreating a
+  worktree wadad made from its branch.
+- `workspace.refs` lists a project's default ref, local and remote branches, open
+  pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
+  workspace against the merge base with its base ref, untracked files included.
 
 ## Providers and project resources
 

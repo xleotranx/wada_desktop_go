@@ -345,34 +345,6 @@ func (p *Plugin) Workers(ctx context.Context, parent agent.SessionID) ([]agent.W
 	return out, nil
 }
 
-func (p *Plugin) ListWorktrees(ctx context.Context, directory string) ([]agent.Worktree, error) {
-	cli, err := p.current()
-	if err != nil {
-		return nil, err
-	}
-	list, err := cli.ListWorktrees(ctx, directory)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]agent.Worktree, len(list))
-	for i, wt := range list {
-		out[i] = fromProtoWorktree(wt)
-	}
-	return out, nil
-}
-
-func (p *Plugin) RemoveWorktree(ctx context.Context, directory, path string, force bool) error {
-	cli, err := p.current()
-	if err != nil {
-		return err
-	}
-	return cli.RemoveWorktree(ctx, protocol.WorktreeRemoveRequest{
-		Directory: directory,
-		Path:      path,
-		Force:     force,
-	})
-}
-
 func (p *Plugin) PRStatus(ctx context.Context, directory string) (*agent.PRStatus, error) {
 	cli, err := p.current()
 	if err != nil {
@@ -522,4 +494,82 @@ func (p *Plugin) RenameWorkspace(ctx context.Context, id agent.WorkspaceID, titl
 		return err
 	}
 	return cli.RenameWorkspace(ctx, string(id), title)
+}
+
+func (p *Plugin) CreateWorkspace(ctx context.Context, req agent.CreateWorkspace) (agent.Workspace, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.Workspace{}, err
+	}
+	w, err := cli.CreateWorkspace(ctx, protocol.WorkspaceCreateRequest{
+		IdempotencyKey: uuid.NewString(),
+		Project:        string(req.Project),
+		Isolation:      toProtoIsolation(req.Isolation),
+		Mode:           toProtoStartMode(req.Mode),
+		From:           req.From,
+		PR:             req.PR,
+		Path:           req.Path,
+		Slug:           req.Slug,
+		Title:          req.Title,
+	})
+	if err != nil {
+		return agent.Workspace{}, err
+	}
+	return fromProtoWorkspace(w), nil
+}
+
+func (p *Plugin) ArchiveWorkspace(ctx context.Context, id agent.WorkspaceID, force bool) error {
+	cli, err := p.current()
+	if err != nil {
+		return err
+	}
+	err = cli.ArchiveWorkspace(ctx, string(id), force)
+	var rerr *protocol.RPCError
+	if errors.As(err, &rerr) && rerr.Code == protocol.ErrCodeConflict {
+		return fmt.Errorf("%w: %s", agent.ErrWorkUnsaved, rerr.Message)
+	}
+	return err
+}
+
+func (p *Plugin) RestoreWorkspace(ctx context.Context, id agent.WorkspaceID) (agent.Workspace, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.Workspace{}, err
+	}
+	w, err := cli.RestoreWorkspace(ctx, string(id))
+	if err != nil {
+		return agent.Workspace{}, err
+	}
+	return fromProtoWorkspace(w), nil
+}
+
+func (p *Plugin) Refs(ctx context.Context, project agent.ProjectID) (agent.Refs, error) {
+	cli, err := p.current()
+	if err != nil {
+		return agent.Refs{}, err
+	}
+	r, err := cli.WorkspaceRefs(ctx, string(project))
+	if err != nil {
+		return agent.Refs{}, err
+	}
+	out := agent.Refs{Default: r.Default, Branches: r.Branches, Remotes: r.Remotes}
+	for _, pr := range r.PRs {
+		out.PRs = append(out.PRs, agent.PullRequest{Number: pr.Number, Title: pr.Title, Branch: pr.Branch, Fork: pr.Fork})
+	}
+	for _, wt := range r.Worktrees {
+		out.Worktrees = append(out.Worktrees, fromProtoWorktree(wt))
+	}
+	return out, nil
+}
+
+func (p *Plugin) BaseChanges(ctx context.Context, id agent.WorkspaceID) ([]agent.FileChange, error) {
+	cli, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.WorkspaceChanges(ctx, string(id))
+	if err != nil {
+		return nil, err
+	}
+	return fromProtoChanges(list), nil
 }

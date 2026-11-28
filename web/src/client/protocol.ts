@@ -24,6 +24,7 @@ export const EV_TURN_INTERRUPTED = "turn_interrupted";
 export const EV_SESSION_RENAMED = "session_renamed";
 export const EV_WORKER_UPDATED = "worker_updated";
 export const EV_TERMINAL_UPDATED = "terminal_updated";
+export const EV_WORKSPACE_UPDATED = "workspace_updated";
 
 export interface Envelope<T = unknown> {
   type:
@@ -54,9 +55,36 @@ export interface SessionInfo {
   id: string;
   title: string;
   directory: string;
+  workspace?: string; // the active workspace at directory, if any
   provider?: string;
   model?: { provider: string; id: string };
   updated?: number;
+}
+
+/** A repository or folder the daemon knows; its workspaces are its working directories. */
+export interface ProjectInfo {
+  id: string;
+  root: string;
+  name: string;
+  inbox?: boolean;
+  created: number;
+  archived?: number;
+}
+
+/** One working directory of a project: the project's own, or a worktree. */
+export interface WorkspaceInfo {
+  id: string;
+  project: string;
+  isolation: "project" | "worktree" | "existing";
+  directory: string;
+  worktreeRoot?: string;
+  owned?: boolean;
+  branch?: string;
+  baseRef?: string;
+  pr?: number;
+  title?: string;
+  created: number;
+  archived?: number;
 }
 
 interface ToolInfo {
@@ -127,6 +155,8 @@ export interface DaemonEvent {
   interaction?: InteractionItem;
   worker?: WorkerInfo;
   terminal?: TerminalInfo;
+  project?: ProjectInfo;
+  workspace?: WorkspaceInfo;
   error?: string;
   title?: string;
 }

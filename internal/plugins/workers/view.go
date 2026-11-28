@@ -2,7 +2,6 @@ package workers
 
 import (
 	"cmp"
-	"path"
 	"strconv"
 	"strings"
 
@@ -66,17 +65,6 @@ func (p *Plugin) workPanelView(c *ui.Context) {
 				p.workerRow(c, pal, worker)
 			}
 		}
-		if p.secondaryWorktreeCount() > 0 {
-			ui.Text(c, "Worktrees").FontSize(11).FontWeight(500).TextColor(pal.Faint).Padding(4, 0, 0, 0)
-			for _, wt := range p.worktrees {
-				if wt.IsMain {
-					continue
-				}
-				tree := wt
-				c.Key("wt:" + tree.Path)
-				p.worktreeRow(c, pal, tree)
-			}
-		}
 	})
 }
 
@@ -115,54 +103,6 @@ func (p *Plugin) workerRow(c *ui.Context, pal native.Palette, w agent.Worker) {
 			}
 			sb.Children(func() { ui.Icon(c, lucide.Square()).FontSize(11).TextColor(pal.Danger) })
 		}
-	})
-}
-
-func (p *Plugin) worktreeRow(c *ui.Context, pal native.Palette, wt agent.Worktree) {
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Padding(4, 6).Radius(6).Background(pal.Raised).Children(func() {
-		ui.Icon(c, lucide.GitPullRequest()).FontSize(11).TextColor(pal.Muted).Shrink(0)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
-			ui.Text(c, cmp.Or(wt.Branch, path.Base(wt.Path))).FontSize(12).TextColor(pal.Text).SingleLine().Ellipsis("…")
-			ui.Text(c, wt.Path).FontSize(10.5).TextColor(pal.Faint).SingleLine().Ellipsis("…")
-		})
-		if wt.PR != nil {
-			pr := wt.PR
-			prCol := pal.Muted
-			switch pr.Checks {
-			case "pass":
-				prCol = pal.GreenBadge
-			case "fail":
-				prCol = pal.DangerText
-			case "pending":
-				prCol = pal.Orange
-			}
-			c.Key("pr")
-			label := "#" + strconv.Itoa(pr.Number)
-			if pr.Checks != "" && pr.Checks != "none" {
-				label += " · " + pr.Checks
-			}
-			pb := ui.ButtonBase(c).Label("Open PR "+label).Tooltip(cmp.Or(pr.Title, pr.URL)).Height(20).Padding(0, 6).Radius(99).
-				Background(prCol.Alpha(.15)).Center().Cursor(ui.CursorPointer).Shrink(0).
-				OnClick(func() {
-					if ui.SafeToOpen(pr.URL) {
-						p.host.OpenURL(pr.URL)
-					}
-				})
-			pb.Children(func() {
-				ui.Text(c, label).FontSize(10.5).FontWeight(500).TextColor(prCol).SingleLine()
-			})
-		}
-		if wt.Dirty {
-			ui.Text(c, "modified").FontSize(10.5).TextColor(pal.Orange).Shrink(0)
-		}
-		c.Key("remove")
-		wtPath := wt.Path
-		rb := ui.ButtonBase(c).Label("Remove worktree").Tooltip("Remove worktree").Size(22, 22).Radius(5).
-			Center().Cursor(ui.CursorPointer).OnClick(func() { p.removeWorktree(wtPath) })
-		if rb.Hovered() {
-			rb.Background(pal.Hover)
-		}
-		rb.Children(func() { ui.Icon(c, lucide.X()).FontSize(11).TextColor(pal.Muted) })
 	})
 }
 

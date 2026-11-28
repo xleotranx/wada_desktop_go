@@ -1,5 +1,6 @@
-// Package filechanges shows session changes or local uncommitted Git changes
-// with line counts and expandable diffs below Context in the work panel.
+// Package filechanges shows session changes, local uncommitted Git changes or
+// a worktree workspace's changes since its base, with line counts and
+// expandable diffs below Context in the work panel.
 package filechanges
 
 import (
@@ -12,6 +13,7 @@ import (
 
 	"wada-desktop-go/internal/contract/agent"
 	"wada-desktop-go/internal/contract/chat"
+	"wada-desktop-go/internal/contract/workspace"
 
 	"github.com/xleotranx/wada-kit/kernel"
 )
@@ -21,13 +23,37 @@ type changeSource uint8
 const (
 	sessionChanges changeSource = iota
 	uncommittedChanges
+	baseChanges
 )
 
 func (source changeSource) label() string {
-	if source == uncommittedChanges {
+	switch source {
+	case uncommittedChanges:
 		return "Uncommitted Git changes"
+	case baseChanges:
+		return "Changes since the base"
+	case sessionChanges:
 	}
 	return "Session changes"
+}
+
+// base is the workspace at the open conversation's folder when it has a base
+// to compare with.
+func (p *Plugin) base() (agent.Workspace, bool) {
+	ws, ok := kernel.Use(p.ctx, workspace.ServiceKey)
+	if !ok || p.directory == "" {
+		return agent.Workspace{}, false
+	}
+	w, ok := ws.At(p.directory)
+	return w, ok && w.BaseRef != "" && w.Isolation != agent.IsolateProject
+}
+
+// sources are the sources the open conversation offers.
+func (p *Plugin) sources() []changeSource {
+	if _, ok := p.base(); ok {
+		return []changeSource{sessionChanges, uncommittedChanges, baseChanges}
+	}
+	return []changeSource{sessionChanges, uncommittedChanges}
 }
 
 // Plugin is the work panel's file changes view.
@@ -88,6 +114,9 @@ func (p *Plugin) follow(conv chat.Conversation) {
 		return
 	}
 	p.session, p.directory = conv.Session, conv.Directory
+	if !slices.Contains(p.sources(), p.mode) {
+		p.mode = sessionChanges
+	}
 	p.reset()
 	if p.session != "" {
 		p.readChanges()
@@ -121,9 +150,22 @@ func (p *Plugin) readChanges() {
 	source, ok := kernel.Use(p.ctx, agent.ChangesKey)
 	p.sourced = ok
 	id, mode, directory := p.session, p.mode, p.directory
+	based, hasBase := p.base()
+	record, hasRecord := kernel.Use(p.ctx, agent.WorkspacesKey)
 	kernel.Go(p.ctx, &p.load, func(ctx context.Context) ([]agent.FileChange, error) {
-		if mode == uncommittedChanges {
+		switch mode {
+		case uncommittedChanges:
 			return gitChanges(ctx, directory)
+		case baseChanges:
+			if !hasBase || !hasRecord {
+				return nil, errors.New("this workspace has no base to compare with")
+			}
+			changes, err := record.BaseChanges(ctx, based.ID)
+			if err != nil {
+				return nil, errors.New("couldn’t compare with " + based.BaseRef)
+			}
+			return changes, nil
+		case sessionChanges:
 		}
 		if !ok {
 			return nil, errors.New("session changes aren’t available with this backend")

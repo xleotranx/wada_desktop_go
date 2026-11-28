@@ -108,6 +108,10 @@ export interface ServiceStatus {
   terminal?: TerminalInfo;
 }
 
+export interface WorkspaceRefs {
+  worktrees?: { path: string; branch?: string; isMain?: boolean }[];
+}
+
 /** How a new worktree workspace starts. */
 export interface WorkspaceCreate {
   project: string;

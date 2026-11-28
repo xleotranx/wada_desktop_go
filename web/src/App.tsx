@@ -42,8 +42,13 @@ import { dictationSupported, joinDictation, startDictation } from "./dictation";
 import { NewWorkspace } from "./NewWorkspace";
 import { applyUpdate, onUpdateReady } from "./pwa";
 import { SchedulesPanel } from "./Schedules";
+import { AddProject, RestoreWorkspace } from "./WorkspaceDialogs";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { decodeOffer, normalizeDirectWSURL, parseHostTarget } from "./crypto/offer";
+
+type WorkspaceAction =
+  | { kind: "add" | "restore"; cli: WadaClient }
+  | { kind: "create"; cli: WadaClient; project: ProjectInfo };
 
 type RightTab = "chat" | "workspace" | "schedules" | "diffs" | "terminal";
 
@@ -117,7 +122,7 @@ export function App() {
   const [newProfile, setNewProfile] = useState("");
   // The workspace the Workspace tab shows when the user picked one; else the open chat's.
   const [shownWorkspaceId, setShownWorkspaceId] = useState("");
-  const [creatingIn, setCreatingIn] = useState<ProjectInfo | null>(null);
+  const [workspaceAction, setWorkspaceAction] = useState<WorkspaceAction | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dictating, setDictating] = useState(false);
   const stopDictationRef = useRef<(() => void) | null>(null);
@@ -273,6 +278,10 @@ export function App() {
     termGenRef.current++;
     termAttachRef.current = null;
     setSessions([]);
+    setProjects([]);
+    setWorkspaces([]);
+    setNewWorkspaceId("");
+    setShownWorkspaceId("");
     setMessages([]);
     setApprovals([]);
     setInteractions([]);
@@ -288,6 +297,7 @@ export function App() {
   async function connectHost(host: SavedHost): Promise<void> {
     cancelReconnect();
     const sameHost = hostRef.current?.id === host.id;
+    setWorkspaceAction(null);
     hostRef.current = host;
     // Closing the old connection also detaches its terminals on the daemon.
     clientRef.current?.close();
@@ -321,8 +331,14 @@ export function App() {
       if (err) setConnError(err);
       if (st === "disconnected") scheduleReconnect(host);
     });
+    let workspaceUpdates: DaemonEvent[] | null = [];
     cli.onEvent((ev) => {
-      if (current()) handleEvent(cli, ev);
+      if (!current()) return;
+      if (ev.kind === EV_WORKSPACE_UPDATED && workspaceUpdates) {
+        workspaceUpdates.push(ev);
+      } else {
+        handleEvent(cli, ev);
+      }
     });
 
     try {
@@ -335,7 +351,7 @@ export function App() {
         cli.listSessions(),
         // An older daemon without workspaces lists every session as Other.
         cli.listProjects().catch(() => [] as ProjectInfo[]),
-        cli.listWorkspaces().catch(() => [] as WorkspaceInfo[]),
+        cli.listWorkspaces(true).catch(() => [] as WorkspaceInfo[]),
         cli.listHarnesses().catch(() => [] as HarnessInfo[]),
         cli.listTerminals().catch(() => [] as TerminalInfo[]),
         cli.pendingApprovals().catch(() => null),
@@ -355,6 +371,8 @@ export function App() {
       setSessions(list);
       setProjects(projRes || []);
       setWorkspaces(spaceRes || []);
+      for (const ev of workspaceUpdates) handleEvent(cli, ev);
+      workspaceUpdates = null;
       setHarnesses(harnessRes || []);
       setTerminals(termRes || []);
       setActiveTermId("");
@@ -582,6 +600,7 @@ export function App() {
     if (hostRef.current?.id !== h.id && activeHostId !== h.id) return;
     cancelReconnect();
     hostRef.current = null;
+    setWorkspaceAction(null);
     clientRef.current?.close();
     clientRef.current = null;
     setActiveHostId("");
@@ -720,6 +739,18 @@ export function App() {
     });
   }
 
+  const workspaceClient = connState === "connected" ? clientRef.current : null;
+  const action = workspaceAction?.cli === workspaceClient ? workspaceAction : null;
+  const closeWorkspaceAction = () => setWorkspaceAction(null);
+
+  function workspaceReady(cli: WadaClient, w: WorkspaceInfo, project?: ProjectInfo): void {
+    if (clientRef.current !== cli) return;
+    if (project) setProjects((prev) => [...prev.filter((p) => p.id !== project.id), project]);
+    setWorkspaces((prev) => [...prev.filter((x) => x.id !== w.id), w]);
+    closeWorkspaceAction();
+    startChatIn(w);
+  }
+
   function startChatIn(w: WorkspaceInfo): void {
     chooseSession("");
     setMessages([]);
@@ -840,6 +871,18 @@ export function App() {
                 + New
               </button>
             </div>
+            <div className="row workspace-actions">
+              <button
+                className="btn btn-small"
+                disabled={!workspaceClient}
+                onClick={() => workspaceClient && setWorkspaceAction({ kind: "add", cli: workspaceClient })}
+              >Add project</button>
+              <button
+                className="btn btn-small"
+                disabled={!workspaceClient}
+                onClick={() => workspaceClient && setWorkspaceAction({ kind: "restore", cli: workspaceClient })}
+              >Restore workspace</button>
+            </div>
             <div className="session-list">
               {groups.map((g) => (
                 <div key={g.project?.id || "other"} className="project-group">
@@ -849,8 +892,8 @@ export function App() {
                       <button
                         className="icon-btn"
                         title={`New workspace in ${g.name}`}
-                        disabled={connState !== "connected"}
-                        onClick={() => setCreatingIn(g.project!)}
+                        disabled={!workspaceClient}
+                        onClick={() => workspaceClient && setWorkspaceAction({ kind: "create", project: g.project!, cli: workspaceClient })}
                       >
                         ＋
                       </button>
@@ -1242,16 +1285,30 @@ export function App() {
         </main>
       </div>
 
-      {creatingIn && clientRef.current && (
+      {action?.kind === "create" && (
         <NewWorkspace
-          cli={clientRef.current}
-          project={creatingIn}
-          onClose={() => setCreatingIn(null)}
-          onCreated={(w) => {
-            setCreatingIn(null);
-            setWorkspaces((prev) => [...prev.filter((x) => x.id !== w.id), w]);
-            startChatIn(w);
-          }}
+          cli={action.cli}
+          project={action.project}
+          workspaces={workspaces}
+          onClose={closeWorkspaceAction}
+          onCreated={(w) => workspaceReady(action.cli, w)}
+        />
+      )}
+      {action?.kind === "add" && (
+        <AddProject
+          cli={action.cli}
+          host={hostRef.current?.name || "the daemon host"}
+          onClose={closeWorkspaceAction}
+          onAdded={(p, w) => workspaceReady(action.cli, w, p)}
+        />
+      )}
+      {action?.kind === "restore" && (
+        <RestoreWorkspace
+          cli={action.cli}
+          projects={projects}
+          workspaces={workspaces}
+          onClose={closeWorkspaceAction}
+          onRestored={(w) => workspaceReady(action.cli, w)}
         />
       )}
 

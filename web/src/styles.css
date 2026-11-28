@@ -622,3 +622,20 @@ textarea {
   width: 100%;
   box-sizing: border-box;
 }
+
+.workspace-dialog {
+  width: calc(100% - 32px);
+  max-height: calc(100dvh - 32px);
+  color: var(--text);
+  overflow: auto;
+}
+
+.workspace-dialog:not([open]) { display: none; }
+.workspace-dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+.workspace-dialog-body { display: grid; gap: 12px; }
+.workspace-actions { padding: 0 0 8px; }
+.folder-suggestions,
+.restore-workspaces { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.folder-suggestions button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.restore-workspaces li { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.restore-workspaces small { display: block; overflow-wrap: anywhere; }

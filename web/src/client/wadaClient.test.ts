@@ -146,6 +146,25 @@ describe("WadaClient", () => {
     expect(events).toEqual([]);
   });
 
+  it("sends the workspace lifecycle RPCs with the daemon's IDs and paths", async () => {
+    const cli = new WadaClient({ endpoint: "ws://host:6767" });
+    await cli.connect();
+    await cli.projectFolders("C:\\Repos\\w");
+    await cli.addProject("C:\\Repos\\wada");
+    await cli.workspaceRefs("p1");
+    await cli.listWorkspaces(true);
+    await cli.restoreWorkspace("w1");
+    const requests = FakeSocket.last.requests.slice(1).map(({ method, payload }) => ({ method, payload }));
+    expect(requests).toEqual([
+      { method: "workspace.project.folders", payload: { prefix: "C:\\Repos\\w" } },
+      { method: "workspace.project.add", payload: { root: "C:\\Repos\\wada" } },
+      { method: "workspace.refs", payload: { project: "p1" } },
+      { method: "workspace.list", payload: { archived: true } },
+      { method: "workspace.restore", payload: { workspace: "w1" } },
+    ]);
+    cli.close();
+  });
+
   it("delivers a terminal's snapshot before its live output", async () => {
     FakeSocket.reply = (req) =>
       req.method === "terminal.attach"

@@ -1,8 +1,10 @@
-import { useState } from "react";
-import type { ProjectInfo, WorkspaceCreate, WorkspaceInfo } from "./client/protocol";
+import { useEffect, useState } from "react";
+import type { ProjectInfo, WorkspaceCreate, WorkspaceInfo, WorkspaceRefs } from "./client/protocol";
 import type { WadaClient } from "./client/wadaClient";
 
-type Start = "branch-off" | "checkout-branch" | "checkout-pr";
+import { WorkspaceDialog } from "./WorkspaceDialogs";
+
+type Start = NonNullable<WorkspaceCreate["mode"]> | "existing";
 
 /**
  * NewWorkspace asks how a project's new Git worktree starts: a new branch
@@ -12,11 +14,13 @@ type Start = "branch-off" | "checkout-branch" | "checkout-pr";
 export function NewWorkspace({
   cli,
   project,
+  workspaces,
   onCreated,
   onClose,
 }: {
   cli: WadaClient;
   project: ProjectInfo;
+  workspaces: WorkspaceInfo[];
   onCreated: (w: WorkspaceInfo) => void;
   onClose: () => void;
 }) {
@@ -28,10 +32,38 @@ export function NewWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [path, setPath] = useState("");
+  const [refs, setRefs] = useState<WorkspaceRefs | null>(null);
+  const [refsError, setRefsError] = useState("");
+  useEffect(() => {
+    if (start !== "existing" || refs) return;
+    let current = true;
+    void cli.workspaceRefs(project.id).then((data) => {
+      if (current) setRefs(data || {});
+    }).catch((err: unknown) => {
+      if (current) setRefsError(err instanceof Error ? err.message : String(err));
+    });
+    return () => { current = false; };
+  }, [cli, project.id, start, refs]);
+
+  const taken = new Set(workspaces
+    .filter((w) => !w.archived && w.project === project.id)
+    .map((w) => w.worktreeRoot || w.directory));
+  const existing = (refs?.worktrees || []).filter((w) => !w.isMain && !taken.has(w.path));
+  const selected = existing.some((w) => w.path === path);
+  const worktreeHint = refsError ? "Could not read worktrees"
+    : !refs ? "Reading worktrees…"
+    : existing.length ? "Choose a worktree" : "No available worktrees";
+
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    const req: WorkspaceCreate = { project: project.id, isolation: "worktree", mode: start };
-    if (start === "checkout-pr") {
+    if (busy) return;
+    const req: WorkspaceCreate = start === "existing"
+      ? { project: project.id, isolation: "existing", path }
+      : { project: project.id, isolation: "worktree", mode: start };
+    if (start === "existing") {
+      if (!selected) return;
+    } else if (start === "checkout-pr") {
       const n = Number(pr);
       if (!Number.isInteger(n) || n <= 0) {
         setError("Enter the pull request's number.");
@@ -58,28 +90,42 @@ export function NewWorkspace({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void submit(e)}>
-        <h3>New workspace in {project.name}</h3>
-        <p className="muted">A Git worktree of its own, so agents work beside each other.</p>
+    <WorkspaceDialog title={`New workspace in ${project.name}`} busy={busy} onClose={onClose}>
+      <form className="workspace-dialog-body" onSubmit={(e) => void submit(e)}>
         <label>
           Start from
-          <select value={start} onChange={(e) => setStart(e.target.value as Start)}>
+          <select value={start} onChange={(e) => {
+            setStart(e.target.value as Start);
+            setRefsError("");
+            setError("");
+          }} disabled={busy}>
             <option value="branch-off">A new branch</option>
             <option value="checkout-branch">An existing branch</option>
             <option value="checkout-pr">A pull request</option>
+            <option value="existing">An existing worktree</option>
           </select>
         </label>
-        {start === "checkout-pr" ? (
+        {start === "existing" ? (
+          <label>
+            Worktree
+            <select value={path} onChange={(e) => setPath(e.target.value)} required disabled={busy || !existing.length}>
+              <option value="">{worktreeHint}</option>
+              {existing.map((w) => (
+                <option key={w.path} value={w.path}>{w.branch ? `${w.branch} · ${w.path}` : w.path}</option>
+              ))}
+            </select>
+          </label>
+        ) : start === "checkout-pr" ? (
           <label>
             Pull request
-            <input inputMode="numeric" value={pr} onChange={(e) => setPR(e.target.value)} placeholder="123" required />
+            <input inputMode="numeric" value={pr} disabled={busy} onChange={(e) => setPR(e.target.value)} placeholder="123" required />
           </label>
         ) : (
           <label>
             {start === "branch-off" ? "Base" : "Branch"}
             <input
               value={from}
+              disabled={busy}
               onChange={(e) => setFrom(e.target.value)}
               placeholder={start === "branch-off" ? "Default: origin's default branch" : "feature/login"}
               required={start === "checkout-branch"}
@@ -89,23 +135,23 @@ export function NewWorkspace({
         {start === "branch-off" && (
           <label>
             Name
-            <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="Optional: named from the first message" />
+            <input value={slug} disabled={busy} onChange={(e) => setSlug(e.target.value)} placeholder="Optional: named from the first message" />
           </label>
         )}
         <label>
           Title
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
+          <input value={title} disabled={busy} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
         </label>
-        {error && <div className="banner-error">{error}</div>}
+        {(error || (start === "existing" && refsError)) && <div className="banner-error" role="alert">{error || refsError}</div>}
         <div className="row end">
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? "Creating…" : "Create"}
+          <button type="submit" className="btn btn-primary" disabled={busy || (start === "existing" && !selected)}>
+            {busy ? "Working…" : start === "existing" ? "Open worktree" : "Create"}
           </button>
         </div>
       </form>
-    </div>
+    </WorkspaceDialog>
   );
 }

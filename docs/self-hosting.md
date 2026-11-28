@@ -57,6 +57,11 @@ Git validates the prefix when the daemon starts.
 
 ---
 
+In the web client, **Add project** in the sidebar registers a directory on the
+connected daemon. The field suggests matching folders on that host. The
+project's **New workspace** action creates a worktree or opens an existing checkout. **Restore workspace**
+reopens an archived workspace from an active project.
+
 ## 2. Self-Hosted `wada-relay` with Docker Compose & Caddy TLS
 
 1. Configure `docker/.env`:

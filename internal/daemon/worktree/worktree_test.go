@@ -109,6 +109,18 @@ func TestWorktreeIsolationIncludeDiffListAndRemove(t *testing.T) {
 	}
 }
 
+func TestWorktreesCannotBePlacedInsideTheSourceRepository(t *testing.T) {
+	repo := initTestRepo(t)
+	nested := filepath.Join(repo, "checkouts")
+	_, err := NewAt(nested).Add(t.Context(), repo, AddOptions{Slug: "feature"})
+	if err == nil || !strings.Contains(err.Error(), "inside source repository") {
+		t.Fatalf("created a nested worktree or returned an unexpected error: %v", err)
+	}
+	if _, err := os.Stat(nested); !os.IsNotExist(err) {
+		t.Fatalf("created the rejected directory: %v", err)
+	}
+}
+
 func TestDiffListsFilesInsideNewDirectories(t *testing.T) {
 	repo := initTestRepo(t)
 	pkg := filepath.Join(repo, "internal", "newpkg")

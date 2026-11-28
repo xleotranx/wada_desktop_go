@@ -92,6 +92,45 @@ func TestWorktreeWorkspacesOfASubproject(t *testing.T) {
 	}
 }
 
+func TestArchiveAndRestoreKeepTheOriginalWorktreeLocation(t *testing.T) {
+	root := repo(t)
+	data := t.TempDir()
+	storage := filepath.Join(t.TempDir(), "Wada checkouts ü")
+	reg := open(t, data, nil)
+	s := NewService(reg, worktree.NewAt(storage))
+	p, _, err := s.AddProject(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := s.Create(t.Context(), protocol.WorkspaceCreateRequest{
+		Project: p.ID, Isolation: protocol.IsolationWorktree, Slug: "outside",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err = filepath.EvalSymlinks(storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Dir(filepath.Dir(w.WorktreeRoot)); got != storage {
+		t.Fatalf("worktree root %q, want a checkout under %q", w.WorktreeRoot, storage)
+	}
+
+	// Changing the storage directory affects creation, not existing
+	// workspace paths or ownership.
+	s = NewService(reg, worktree.New(data))
+	if err := s.Archive(t.Context(), w.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(w.WorktreeRoot); !os.IsNotExist(err) {
+		t.Fatalf("archive left %q on disk: %v", w.WorktreeRoot, err)
+	}
+	restored, err := s.Restore(t.Context(), w.ID)
+	if err != nil || restored.WorktreeRoot != w.WorktreeRoot {
+		t.Fatalf("restore = %+v, %v; want original path %q", restored, err, w.WorktreeRoot)
+	}
+}
+
 func TestCheckoutBranchAndExistingWorktrees(t *testing.T) {
 	s, root := service(t), repo(t)
 	p, _, err := s.AddProject(t.Context(), root)

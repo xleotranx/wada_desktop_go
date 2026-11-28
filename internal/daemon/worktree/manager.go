@@ -23,16 +23,21 @@ import (
 
 const maxPatchBytes = 256 << 10
 
-// Manager creates, lists, diffs, and removes Git worktrees under dataDir/worktrees.
+// Manager manages Git worktrees and the directory for new checkouts.
 type Manager struct {
-	dataDir string
-	mu      sync.Mutex
-	forge   *Forge
+	directory string
+	mu        sync.Mutex
+	forge     *Forge
 }
 
 // New creates a Git worktree manager storing worktrees inside dataDir.
 func New(dataDir string) *Manager {
-	return &Manager{dataDir: filepath.Clean(dataDir)}
+	return NewAt(filepath.Join(dataDir, "worktrees"))
+}
+
+// NewAt stores new worktrees under directory.
+func NewAt(directory string) *Manager {
+	return &Manager{directory: filepath.Clean(directory)}
 }
 
 // RepoRoot resolves the top-level Git repository root containing dir.
@@ -57,23 +62,23 @@ func (m *Manager) List(ctx context.Context, dir string) ([]protocol.WorktreeInfo
 	if err != nil {
 		return nil, err
 	}
-	raw, err := gitOut(ctx, root, "worktree", "list", "--porcelain")
+	raw, err := gitOut(ctx, root, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, err
 	}
 	var result []protocol.WorktreeInfo
-	blocks := strings.Split(strings.TrimSpace(raw), "\n\n")
+	blocks := strings.Split(raw, "\x00\x00")
 	for i, blk := range blocks {
-		if strings.TrimSpace(blk) == "" {
+		if blk == "" {
 			continue
 		}
 		var info protocol.WorktreeInfo
 		info.RepoRoot = root
 		info.IsMain = i == 0
-		for _, line := range strings.Split(blk, "\n") {
+		for _, line := range strings.Split(blk, "\x00") {
 			switch {
 			case strings.HasPrefix(line, "worktree "):
-				p := strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+				p := filepath.Clean(strings.TrimPrefix(line, "worktree "))
 				if resolved, rerr := filepath.EvalSymlinks(p); rerr == nil {
 					p = resolved
 				}
@@ -131,11 +136,7 @@ func (m *Manager) Remove(ctx context.Context, dir, wtPath string, force bool) er
 		}
 	}
 	if !allowed {
-		wtRoot := filepath.Join(m.dataDir, "worktrees")
-		rel, rerr := filepath.Rel(wtRoot, target)
-		if rerr != nil || !filepath.IsLocal(rel) {
-			return errors.New("worktree: path is not a managed secondary worktree")
-		}
+		return errors.New("worktree: path is not a registered secondary worktree")
 	}
 
 	args := []string{"worktree", "remove"}

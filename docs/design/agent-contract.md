@@ -257,8 +257,9 @@ CREATE UNIQUE INDEX workspaces_active_dir ON workspaces(dir) WHERE archived = 0;
 Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`:
 
 - `workspace.create` (under a creation receipt) takes a project and an isolation.
-  `worktree` fetches `origin`, then makes a worktree under
-  `<DataDir>/worktrees/<repo hash>/` that branches off a ref (`branch-off`, default
+  `worktree` fetches `origin`, then makes a worktree under the daemon's
+  configured worktree directory, using a repository hash to group its checkouts.
+  The default is `<DataDir>/worktrees`. The new worktree branches off a ref (`branch-off`, default
   origin's default branch, as `wada/<slug>`), checks out a branch (`checkout-branch`,
   tracking `origin/<branch>` when it is only remote), or checks out a pull request
   (`checkout-pr`: the head branch for one from the same repository, else
@@ -272,7 +273,7 @@ Worktree workspaces are made by `workspaces.Service` with `worktree.Manager.Add`
   unless `force`, then removes the worktree; the branch stays. It then aborts the
   conversations and kills the terminals in the directory.
 - `workspace.restore` makes an archived workspace active again, recreating a
-  worktree wadad made from its branch.
+  worktree wadad made at its recorded location and from its branch.
 - `workspace.refs` lists a project's default ref, local and remote branches, open
   pull requests (through `gh`) and worktrees; `workspace.changes` diffs a
   workspace against the merge base with its base ref, untracked files included.

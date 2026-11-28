@@ -15,6 +15,13 @@ worktrees, and PTY terminals on your own workstation or server:
 
 ---
 
+Set `WADA_WORKTREE_DIR` in the daemon's environment or pass `--worktree-dir` to
+store new worktrees under an absolute directory on the daemon host. Choose a
+directory outside your source repositories. For example, a repository at
+`/srv/src/app` can use `wadad --worktree-dir /srv/worktrees`. Wada groups checkouts
+by repository under that directory. Archives and restores use the path already
+recorded for each workspace.
+
 ## 1. Direct Tailscale / LAN Access
 
 1. Build the static Web/PWA bundle once:

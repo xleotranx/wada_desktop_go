@@ -1,11 +1,9 @@
 package browser
 
 import (
-	"context"
+	"errors"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/xleotranx/wada-kit/kernel/kerneltest"
@@ -33,31 +31,8 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
-func waitCond(t *testing.T, h *kerneltest.Harness, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out: %s", what)
-		}
-		h.Flush()
-		time.Sleep(time.Millisecond)
-	}
-}
-
-func TestTabsShowPagesInAFrame(t *testing.T) {
-	var mu sync.Mutex
-	var evals []string
-	frameReady := false
-	view := &kittest.WebView{EvalFunc: func(_ context.Context, code string) (any, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		evals = append(evals, code)
-		// The frame is there from the second look on, as after a load.
-		ok := frameReady
-		frameReady = true
-		return ok, nil
-	}}
+func TestTabsLoadAddressesAndFollowThePage(t *testing.T) {
+	view := &kittest.WebView{}
 	host := &kittest.Host{Data: t.TempDir(), Web: func(int) *kittest.WebView { return view }}
 	tb := &plugintest.Tabs{}
 	var p *Plugin
@@ -67,37 +42,43 @@ func TestTabsShowPagesInAFrame(t *testing.T) {
 	if len(tb.Opened) != 1 || tb.Opened[0] != browser.PaneKind+" http://localhost:5173 " {
 		t.Fatalf("opened %q", tb.Opened)
 	}
-	// Opening shows the tab, which makes its page.
+	// Opening shows the tab, which makes its page and loads the address.
 	tab := tb.Current
-	waitCond(t, h, "the frame gets the address", func() bool { return p.pages[tab.ID].loaded })
-	if len(view.Loaded) != 1 || !strings.HasSuffix(view.Loaded[0], "browser/blank.html") {
-		t.Fatalf("loaded %q", view.Loaded)
-	}
-	mu.Lock()
-	last := evals[len(evals)-1]
-	mu.Unlock()
-	if !strings.Contains(last, `f.src = "http://localhost:5173"`) {
-		t.Fatalf("last eval %q", last)
-	}
-	if got := p.tabTitle("http://localhost:5173"); got != "localhost:5173" {
-		t.Fatalf("title %q", got)
+	pg := p.pages[tab.ID]
+	if pg == nil || len(view.URLs) != 1 || view.URLs[0] != "http://localhost:5173" || len(view.Loaded) != 0 {
+		t.Fatalf("page %+v, urls %q, files %q", pg, view.URLs, view.Loaded)
 	}
 
+	// The page follows a link: the address, title and history follow it.
+	view.Navigate("http://localhost:5173/settings", "Settings · App")
+	h.Flush()
+	if pg.address != "http://localhost:5173/settings" || !pg.back || pg.forward {
+		t.Fatalf("after the link: %+v", pg)
+	}
+	if got := p.tabTitle(tab.Ref); got != "Settings · App" {
+		t.Fatalf("title %q", got)
+	}
 	tt := ui.NewTester(func(c *ui.Context) { p.paneView(c, tab) }, 800, 600)
 	tt.Frame()
-	if !tt.HasText("Web page") || !tt.HasText("Back") || p.pages[tab.ID].address != "http://localhost:5173" {
+	if !tt.HasText("Web page") || !tt.HasText("Back") {
 		t.Fatalf("pane = %q", tt.Texts())
 	}
 
-	// Typing another address shows it without loading the page again.
-	p.navigate(p.pages[tab.ID], "example.com")
-	waitCond(t, h, "the second address", func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return strings.Contains(evals[len(evals)-1], "https://example.com")
-	})
-	if len(view.Loaded) != 1 {
-		t.Fatalf("the page loaded again: %q", view.Loaded)
+	pg.view.GoBack()
+	h.Flush()
+	if pg.address != "http://localhost:5173" || pg.back || !pg.forward {
+		t.Fatalf("after back: %+v", pg)
+	}
+
+	// A typed address loads in the same page.
+	p.navigate(pg, "example.com")
+	if view.URLs[len(view.URLs)-1] != "https://example.com" {
+		t.Fatalf("urls %q", view.URLs)
+	}
+	view.LoadURLErr = errors.New("bad address")
+	p.navigate(pg, "::nope")
+	if pg.problem != "bad address" {
+		t.Fatalf("problem %q", pg.problem)
 	}
 
 	// A closed tab's page closes.

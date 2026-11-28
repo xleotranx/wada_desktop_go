@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/oneo-me/onevra/source v0.2026.19
-	github.com/xleotranx/wada-kit v0.3.1
+	github.com/xleotranx/wada-kit v0.4.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0

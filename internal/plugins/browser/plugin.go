@@ -3,15 +3,9 @@
 package browser
 
 import (
-	"context"
-	"errors"
 	"net"
 	"net/url"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oneo-me/onevra/source/components"
@@ -24,10 +18,10 @@ import (
 
 // Plugin owns a web page for each browser tab.
 type Plugin struct {
-	ctx   *kernel.Context
-	host  shell.Host
-	pages map[string]*page // by tab ID
-	blank string           // the local page each tab starts from
+	ctx    *kernel.Context
+	host   shell.Host
+	pages  map[string]*page  // by tab ID
+	titles map[string]string // the page title of each tab's address, by Ref
 
 	openOn   bool
 	openText string
@@ -36,11 +30,12 @@ type Plugin struct {
 // page is one tab's web page and what its toolbar shows.
 type page struct {
 	view    shell.WebView
-	address string // the address field: what was last opened
+	off     func() // stops following the page's changes
+	ref     string
+	address string // the address field
 	problem string
-	opened  bool // the tab's own address was asked for
-	loaded  bool // the local page holding the frame has loaded
-	nav     kernel.Task
+	back    bool
+	forward bool
 }
 
 // New makes the plugin; the kernel makes one for each activation.
@@ -58,11 +53,10 @@ func (p *Plugin) Setup(c *kernel.Context) error {
 	p.ctx = c
 	p.host = kernel.Require(c, shell.HostKey)
 	p.pages = map[string]*page{}
+	p.titles = map[string]string{}
 	c.OnDispose(func() {
 		for _, pg := range p.pages {
-			if pg.view != nil {
-				pg.view.Close()
-			}
+			pg.close()
 		}
 	})
 	kernel.Contribute(c, tabs.Panes, browser.PaneKind, 40, tabs.PaneKind{
@@ -80,29 +74,46 @@ func (p *Plugin) open(address string) {
 	}
 }
 
+// tabTitle is the page's title once it has one, else the address's host.
 func (p *Plugin) tabTitle(ref string) string {
+	if t := p.titles[ref]; t != "" {
+		return t
+	}
 	if u, err := url.Parse(Normalize(ref)); err == nil && u.Host != "" {
 		return u.Host
 	}
 	return "Browser"
 }
 
-// show makes the tab's page the first time it shows and goes to its address.
+// show makes the tab's page the first time it shows and opens its address.
 func (p *Plugin) show(t tabs.Tab) {
-	pg := p.pages[t.ID]
-	if pg == nil {
-		v, err := p.host.NewWebView()
-		pg = &page{view: v, address: Normalize(t.Ref)}
-		if err != nil {
-			pg.problem = "This window can't show web pages: " + err.Error()
-		}
-		p.pages[t.ID] = pg
-	}
-	if pg.view == nil || pg.opened {
+	if p.pages[t.ID] != nil {
 		return
 	}
-	pg.opened = true
+	pg := &page{ref: t.Ref, address: Normalize(t.Ref)}
+	p.pages[t.ID] = pg
+	v, err := p.host.NewWebView()
+	if err != nil {
+		pg.problem = "This window can't show web pages: " + err.Error()
+		return
+	}
+	pg.view = v
+	// Changes come from the page's own thread; read them on the UI thread.
+	pg.off = v.OnChange(func() { p.ctx.Post(func() { p.changed(pg) }) })
 	p.navigate(pg, pg.address)
+}
+
+// changed reads where the page went and what it is called.
+func (p *Plugin) changed(pg *page) {
+	if pg.view == nil {
+		return
+	}
+	if u := pg.view.URL(); u != "" {
+		pg.address = u
+	}
+	p.titles[pg.ref] = pg.view.Title()
+	pg.back, pg.forward = pg.view.CanGoBack(), pg.view.CanGoForward()
+	p.ctx.Invalidate()
 }
 
 // prune closes the pages of tabs that closed.
@@ -117,92 +128,35 @@ func (p *Plugin) prune() {
 	}
 	for id, pg := range p.pages {
 		if !open[id] {
-			pg.nav.Cancel()
-			if pg.view != nil {
-				pg.view.Close()
-			}
+			pg.close()
+			delete(p.titles, pg.ref)
 			delete(p.pages, id)
 		}
 	}
 }
 
-// navigate shows address. A tab's page is a local page, written once into
-// the plugin's data folder, whose frame fills it and shows the address: the
-// shell's web pages load local files, and a page from a file may not
-// navigate away. A site that refuses to be framed shows nothing; Open in
-// your browser shows it there.
-func (p *Plugin) navigate(pg *page, address string) {
-	address = Normalize(address)
-	pg.address, pg.problem = address, ""
-	view, dir, blank, loaded := pg.view, p.host.DataDir(), p.blank, pg.loaded
-	kernel.Go(p.ctx, &pg.nav, func(ctx context.Context) (string, error) {
-		if !loaded {
-			if blank == "" {
-				var err error
-				if blank, err = writeBlank(dir); err != nil {
-					return "", err
-				}
-			}
-			if err := view.LoadFile(blank); err != nil {
-				return blank, err
-			}
-		}
-		// The frame is there once the local page has loaded.
-		set := "const f = document.getElementById('page'); if (!f) return false; f.src = " + strconv.Quote(address) + "; return true"
-		for range 50 {
-			v, err := view.Eval(ctx, set)
-			if ok, _ := v.(bool); ok && err == nil {
-				return blank, nil
-			}
-			select {
-			case <-ctx.Done():
-				return blank, ctx.Err()
-			case <-time.After(100 * time.Millisecond):
-			}
-		}
-		return blank, errors.New("the page didn't load")
-	}, func(path string, err error) {
-		if path != "" {
-			p.blank = path
-		}
-		if err != nil {
-			pg.problem = err.Error()
-		} else {
-			pg.loaded = true
-		}
-		p.ctx.Invalidate()
-	})
+func (pg *page) close() {
+	if pg.off != nil {
+		pg.off()
+	}
+	if pg.view != nil {
+		pg.view.Close()
+	}
 }
 
-// script runs a navigation in the page, such as going back.
-func (p *Plugin) script(pg *page, code string) {
+// navigate opens address in the tab's page; where it goes after that, as by
+// a link or a redirect, comes back through changed.
+func (p *Plugin) navigate(pg *page, address string) {
 	if pg.view == nil {
 		return
 	}
-	view := pg.view
-	kernel.Go(p.ctx, &pg.nav, func(ctx context.Context) (struct{}, error) {
-		_, err := view.Eval(ctx, code)
-		return struct{}{}, err
-	}, func(struct{}, error) {})
-}
-
-// writeBlank writes the page tabs start from and returns its path.
-func writeBlank(dataDir string) (string, error) {
-	if dataDir == "" {
-		dataDir = os.TempDir()
+	address = Normalize(address)
+	pg.address, pg.problem = address, ""
+	if err := pg.view.LoadURL(address); err != nil {
+		pg.problem = err.Error()
 	}
-	dir := filepath.Join(dataDir, "browser")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, "blank.html")
-	return path, os.WriteFile(path, []byte(blankPage), 0o600)
+	p.ctx.Invalidate()
 }
-
-// blankPage holds the page a tab shows in a frame that fills it.
-const blankPage = `<!doctype html><meta charset=utf-8><title></title>
-<style>html,body{margin:0;height:100%;background:#fff}iframe{border:0;width:100%;height:100%;display:block}</style>
-<iframe id=page allow="clipboard-read; clipboard-write; fullscreen"></iframe>`
 
 // Normalize makes what was typed an address: a scheme where it has none,
 // http for this machine and local network names, https otherwise.

@@ -9,7 +9,7 @@ and `internal/contract/terminal`, beside the kit's `contract/shell` and
 
 The window, its settings store, the settings page and plugin diagnostics come from
 the independently versioned kit (`github.com/xleotranx/wada-kit`, pinned in
-`go.mod`); see its [shell note](https://github.com/xleotranx/wada-kit/blob/v0.3.1/docs/shell.md)
+`go.mod`); see its [shell note](https://github.com/xleotranx/wada-kit/blob/v0.4.0/docs/shell.md)
 and [dependency maintenance](kit-dependency.md). Wada's `main.go` runs it as:
 
 - Name `Wada`, data folder `wada-desktop-go` (`wada-desktop-go-dev` for a
@@ -847,15 +847,13 @@ backend is ready and updated from `agent.ScheduleUpdated`.
 plugin opens a running service's **Open** in such a tab of its workspace's
 space, or in the desktop's browser where there are no tabs.
 
-- Each tab gets a web page from `Host.NewWebView` the first time it shows, and
-  the page closes once its tab has closed or the plugin is disposed.
-- The shell's pages load local files, and a page from a file may not navigate
-  away, so a tab's page is a local file written once to
-  `<DataDir>/browser/blank.html` whose frame fills it; the address goes to the
-  frame. Back and Forward move through the frame's history, Reload opens the
-  address again, and the address field shows what was last opened.
-- A site that refuses to be framed shows nothing there; **Open in your
-  browser** shows it in the desktop's.
+- Each tab gets a web page from `Host.NewWebView` the first time it shows, which
+  loads the tab's address with `LoadURL`, and the page closes once its tab has
+  closed or the plugin is disposed.
+- The page's `OnChange` is posted to the UI thread, where the address field,
+  Back and Forward follow `URL`, `CanGoBack` and `CanGoForward`, and the tab is
+  titled by the page's `Title`, else its address's host. Reload reloads the
+  page; **Open in your browser** shows it in the desktop's.
 - An address without a scheme gets `http://` for `localhost`, IP addresses,
   `.local` and single-label names, and `https://` otherwise.
 
